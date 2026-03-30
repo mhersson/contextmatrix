@@ -132,3 +132,83 @@ input, select, textarea {
 .animate-slide-in {
   animation: slide-in 0.2s ease-out;
 }
+
+/* Card panel slide-in animation */
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-panel-slide-in {
+  animation: panel-slide-in 0.2s ease-out;
+}
+
+/* Card detail panel */
+.card-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 50%;
+  min-width: 400px;
+  max-width: 600px;
+  height: 100vh;
+  background-color: var(--bg1);
+  border-left: 1px solid var(--bg3);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Override markdown editor styles for Everforest theme */
+.w-md-editor {
+  --color-canvas-default: var(--bg2) !important;
+  --color-canvas-subtle: var(--bg1) !important;
+  --color-border-default: var(--bg3) !important;
+  --color-border-muted: var(--bg3) !important;
+  --color-fg-default: var(--fg) !important;
+  --color-fg-muted: var(--grey1) !important;
+  background-color: var(--bg2) !important;
+  border-color: var(--bg3) !important;
+}
+
+.w-md-editor-text-pre > code,
+.w-md-editor-text-input,
+.w-md-editor-text {
+  color: var(--fg) !important;
+}
+
+.w-md-editor-toolbar {
+  background-color: var(--bg1) !important;
+  border-color: var(--bg3) !important;
+}
+
+.w-md-editor-toolbar li > button {
+  color: var(--grey2) !important;
+}
+
+.w-md-editor-toolbar li > button:hover {
+  color: var(--fg) !important;
+  background-color: var(--bg2) !important;
+}
+
+.w-md-editor-preview {
+  background-color: var(--bg2) !important;
+}
+
+.wmde-markdown {
+  background-color: var(--bg2) !important;
+  color: var(--fg) !important;
+}
+
+.wmde-markdown code {
+  background-color: var(--bg3) !important;
+  color: var(--aqua) !important;
+}
+
+.wmde-markdown pre {
+  background-color: var(--bg0) !important;
+}

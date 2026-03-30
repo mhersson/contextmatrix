@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from './api/client';
 import { useBoard } from './hooks/useBoard';
+import { useAgentId } from './hooks/useAgentId';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { Board } from './components/Board';
+import { CardPanel } from './components/CardPanel';
 import { ToastContainer } from './components/Toast';
-import type { ProjectConfig } from './types';
+import type { Card, ProjectConfig, PatchCardInput } from './types';
 
 function App() {
   const [projects, setProjects] = useState<ProjectConfig[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
+  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const toastState = useToastState();
+  const { agentId, promptForAgentId } = useAgentId();
 
   useEffect(() => {
     api
@@ -57,6 +61,86 @@ function App() {
     },
     [cards, selectedProject, updateCardLocally, toastState]
   );
+
+  const handleCardClick = useCallback((card: Card) => {
+    setSelectedCard(card);
+  }, []);
+
+  const handlePanelClose = useCallback(() => {
+    setSelectedCard(null);
+  }, []);
+
+  const handleCardSave = useCallback(
+    async (updates: PatchCardInput) => {
+      if (!selectedCard) return;
+
+      try {
+        await api.patchCard(selectedProject, selectedCard.id, updates);
+        toastState.showToast('Card saved', 'success');
+        // Card will be updated via SSE
+      } catch (err) {
+        const message =
+          err && typeof err === 'object' && 'error' in err
+            ? (err as { error: string }).error
+            : 'Failed to save card';
+        toastState.showToast(message, 'error');
+        throw err;
+      }
+    },
+    [selectedCard, selectedProject, toastState]
+  );
+
+  const handleClaim = useCallback(
+    async (claimAgentId: string) => {
+      if (!selectedCard) return;
+
+      try {
+        await api.claimCard(selectedProject, selectedCard.id, claimAgentId);
+        toastState.showToast('Card claimed', 'success');
+      } catch (err) {
+        const message =
+          err && typeof err === 'object' && 'error' in err
+            ? (err as { error: string }).error
+            : 'Failed to claim card';
+        toastState.showToast(message, 'error');
+      }
+    },
+    [selectedCard, selectedProject, toastState]
+  );
+
+  const handleRelease = useCallback(
+    async (releaseAgentId: string) => {
+      if (!selectedCard) return;
+
+      try {
+        await api.releaseCard(selectedProject, selectedCard.id, releaseAgentId);
+        toastState.showToast('Card released', 'success');
+      } catch (err) {
+        const message =
+          err && typeof err === 'object' && 'error' in err
+            ? (err as { error: string }).error
+            : 'Failed to release card';
+        toastState.showToast(message, 'error');
+      }
+    },
+    [selectedCard, selectedProject, toastState]
+  );
+
+  const handleSubtaskClick = useCallback(
+    (cardId: string) => {
+      const card = cards.find((c) => c.id === cardId);
+      if (card) {
+        setSelectedCard(card);
+      }
+    },
+    [cards]
+  );
+
+  // Compute the currently selected card from the cards list
+  // This ensures the panel always shows the latest data from SSE updates
+  const currentSelectedCard = selectedCard
+    ? cards.find((c) => c.id === selectedCard.id) || selectedCard
+    : null;
 
   return (
     <ToastContext.Provider value={toastState}>
@@ -123,6 +207,7 @@ function App() {
             config={config}
             loading={loading}
             error={error}
+            onCardClick={handleCardClick}
             onCardMove={handleCardMove}
           />
         ) : (
@@ -133,6 +218,21 @@ function App() {
           </div>
         )}
       </main>
+
+      {currentSelectedCard && config && (
+        <CardPanel
+          card={currentSelectedCard}
+          config={config}
+          onClose={handlePanelClose}
+          onSave={handleCardSave}
+          onClaim={handleClaim}
+          onRelease={handleRelease}
+          onSubtaskClick={handleSubtaskClick}
+          currentAgentId={agentId}
+          onPromptAgentId={promptForAgentId}
+        />
+      )}
+
       <ToastContainer />
       </div>
     </ToastContext.Provider>

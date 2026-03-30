@@ -21,8 +21,12 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const onEventRef = useRef(onEvent);
+  const connectRef = useRef<() => void>(() => {});
 
-  onEventRef.current = onEvent;
+  // Keep onEventRef in sync with onEvent
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -64,10 +68,15 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
           reconnectDelayRef.current * 2,
           MAX_RECONNECT_DELAY
         );
-        connect();
+        connectRef.current();
       }, delay);
     };
   }, [project]);
+
+  // Keep connectRef in sync with connect
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     connect();
