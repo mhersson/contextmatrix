@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1145,4 +1148,346 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
 		assert.Equal(t, "Updated by Human", card.Title)
 	})
+}
+
+// === Integration Tests ===
+
+// TestFullCardLifecycle walks through a complete agent workflow via HTTP:
+// create → claim → log → transition → heartbeat → transition → release → verify.
+func TestFullCardLifecycle(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	baseURL := server.URL + "/api/projects/test-project/cards"
+	agentID := "agent-lifecycle"
+
+	// Step 1: Create card
+	createBody, _ := json.Marshal(createCardRequest{
+		Title:    "Lifecycle Test Card",
+		Type:     "task",
+		Priority: "high",
+		Labels:   []string{"integration"},
+		Body:     "## Plan\nIntegration test card",
+	})
+	resp, err := http.Post(baseURL, "application/json", bytes.NewReader(createBody))
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var created board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	cardID := created.ID
+	assert.Equal(t, "TEST-001", cardID)
+	assert.Equal(t, "todo", created.State)
+	assert.Empty(t, created.AssignedAgent)
+
+	cardURL := baseURL + "/" + cardID
+
+	// Step 2: Claim card
+	claimBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	req, _ := http.NewRequest(http.MethodPost, cardURL+"/claim", bytes.NewReader(claimBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp2.Body)
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	var claimed board.Card
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&claimed))
+	assert.Equal(t, agentID, claimed.AssignedAgent)
+	assert.NotNil(t, claimed.LastHeartbeat)
+
+	// Step 3: Add log entry
+	logBody, _ := json.Marshal(addLogRequest{
+		AgentID: agentID,
+		Action:  "status_update",
+		Message: "Starting implementation",
+	})
+	req, _ = http.NewRequest(http.MethodPost, cardURL+"/log", bytes.NewReader(logBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp3, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp3.Body)
+	assert.Equal(t, http.StatusOK, resp3.StatusCode)
+
+	var logged board.Card
+	require.NoError(t, json.NewDecoder(resp3.Body).Decode(&logged))
+	require.Len(t, logged.ActivityLog, 1)
+	assert.Equal(t, "Starting implementation", logged.ActivityLog[0].Message)
+
+	// Step 4: Transition todo → in_progress
+	newState := "in_progress"
+	patchBody, _ := json.Marshal(patchCardRequest{State: &newState})
+	req, _ = http.NewRequest(http.MethodPatch, cardURL, bytes.NewReader(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", agentID)
+	resp4, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp4.Body)
+	assert.Equal(t, http.StatusOK, resp4.StatusCode)
+
+	var inProgress board.Card
+	require.NoError(t, json.NewDecoder(resp4.Body).Decode(&inProgress))
+	assert.Equal(t, "in_progress", inProgress.State)
+
+	// Step 5: Heartbeat
+	hbBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	req, _ = http.NewRequest(http.MethodPost, cardURL+"/heartbeat", bytes.NewReader(hbBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp5, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp5.Body)
+	assert.Equal(t, http.StatusNoContent, resp5.StatusCode)
+
+	// Step 6: Transition in_progress → done
+	doneState := "done"
+	patchBody2, _ := json.Marshal(patchCardRequest{State: &doneState})
+	req, _ = http.NewRequest(http.MethodPatch, cardURL, bytes.NewReader(patchBody2))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", agentID)
+	resp6, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp6.Body)
+	assert.Equal(t, http.StatusOK, resp6.StatusCode)
+
+	// Step 7: Release card
+	releaseBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	req, _ = http.NewRequest(http.MethodPost, cardURL+"/release", bytes.NewReader(releaseBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp7, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp7.Body)
+	assert.Equal(t, http.StatusOK, resp7.StatusCode)
+
+	// Step 8: Verify final state via GET
+	resp8, err := http.Get(cardURL)
+	require.NoError(t, err)
+	defer closeBody(t, resp8.Body)
+	assert.Equal(t, http.StatusOK, resp8.StatusCode)
+
+	var final board.Card
+	require.NoError(t, json.NewDecoder(resp8.Body).Decode(&final))
+	assert.Equal(t, "done", final.State)
+	assert.Empty(t, final.AssignedAgent)
+	assert.Nil(t, final.LastHeartbeat)
+	assert.Len(t, final.ActivityLog, 1)
+	assert.Equal(t, "Starting implementation", final.ActivityLog[0].Message)
+	assert.Equal(t, []string{"integration"}, final.Labels)
+	assert.Contains(t, final.Body, "## Plan")
+}
+
+// TestSSEEventStreamIntegration tests that SSE events are received via the
+// HTTP SSE endpoint when card operations occur through the API.
+func TestSSEEventStreamIntegration(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Connect to SSE endpoint
+	sseResp, err := http.Get(server.URL + "/api/events")
+	require.NoError(t, err)
+	defer closeBody(t, sseResp.Body)
+
+	assert.Equal(t, http.StatusOK, sseResp.StatusCode)
+	assert.Equal(t, "text/event-stream", sseResp.Header.Get("Content-Type"))
+
+	// Read SSE events in a background goroutine
+	var receivedEvents []events.Event
+	var mu sync.Mutex
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := sseResp.Body.Read(buf)
+			if n > 0 {
+				for line := range strings.SplitSeq(string(buf[:n]), "\n") {
+					if jsonData, ok := strings.CutPrefix(line, "data: "); ok {
+						var ev events.Event
+						if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
+							mu.Lock()
+							receivedEvents = append(receivedEvents, ev)
+							mu.Unlock()
+						}
+					}
+				}
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}()
+
+	// Give SSE handler time to subscribe
+	time.Sleep(100 * time.Millisecond)
+
+	// Create a card via API (triggers CardCreated event)
+	createBody, _ := json.Marshal(createCardRequest{
+		Title:    "SSE Test Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	createResp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(createBody))
+	require.NoError(t, err)
+	closeBody(t, createResp.Body)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	// Claim the card (triggers CardClaimed event)
+	claimBody, _ := json.Marshal(agentRequest{AgentID: "sse-agent"})
+	claimReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(claimBody))
+	claimReq.Header.Set("Content-Type", "application/json")
+	claimResp, err := http.DefaultClient.Do(claimReq)
+	require.NoError(t, err)
+	closeBody(t, claimResp.Body)
+	require.Equal(t, http.StatusOK, claimResp.StatusCode)
+
+	// Give events time to propagate
+	time.Sleep(200 * time.Millisecond)
+
+	// Close the SSE connection to stop the reader
+	_ = sseResp.Body.Close()
+	<-readDone
+
+	// Verify we received both events
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(receivedEvents), 2, "should receive at least CardCreated and CardClaimed events")
+
+	var hasCreated, hasClaimed bool
+	for _, ev := range receivedEvents {
+		if ev.Type == events.CardCreated && ev.CardID == "TEST-001" {
+			hasCreated = true
+		}
+		if ev.Type == events.CardClaimed && ev.CardID == "TEST-001" {
+			hasClaimed = true
+		}
+	}
+	assert.True(t, hasCreated, "should have received CardCreated event")
+	assert.True(t, hasClaimed, "should have received CardClaimed event")
+}
+
+// TestConcurrentAgentClaims tests multiple agents claiming different cards simultaneously.
+func TestConcurrentAgentClaims(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	cardCount := 5
+	ctx := context.Background()
+
+	// Create N cards
+	cardIDs := make([]string, cardCount)
+	for i := range cardCount {
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title:    fmt.Sprintf("Concurrent Card %d", i),
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		cardIDs[i] = card.ID
+	}
+
+	// Spawn goroutines to claim different cards concurrently
+	var wg sync.WaitGroup
+	results := make([]int, cardCount) // HTTP status codes
+	for i := range cardCount {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			agentID := fmt.Sprintf("agent-%d", idx)
+			body, _ := json.Marshal(agentRequest{AgentID: agentID})
+			req, _ := http.NewRequest(http.MethodPost,
+				server.URL+"/api/projects/test-project/cards/"+cardIDs[idx]+"/claim",
+				bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return
+			}
+			closeBody(t, resp.Body)
+			results[idx] = resp.StatusCode
+		}(i)
+	}
+	wg.Wait()
+
+	// All should succeed since each targets a different card
+	for i, status := range results {
+		assert.Equal(t, http.StatusOK, status, "card %d claim should succeed", i)
+	}
+
+	// Verify each card has the correct agent
+	for i, id := range cardIDs {
+		card, err := svc.GetCard(ctx, "test-project", id)
+		require.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("agent-%d", i), card.AssignedAgent)
+	}
+}
+
+// TestConcurrentClaimSameCard tests multiple agents racing to claim the same card.
+// Exactly one should succeed, the rest should get 409 Conflict.
+func TestConcurrentClaimSameCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a single card
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title:    "Race Condition Card",
+		Type:     "bug",
+		Priority: "high",
+	})
+	require.NoError(t, err)
+
+	agentCount := 10
+	var wg sync.WaitGroup
+	statuses := make([]int, agentCount)
+
+	// All agents try to claim the same card
+	for i := range agentCount {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			agentID := fmt.Sprintf("racer-%d", idx)
+			body, _ := json.Marshal(agentRequest{AgentID: agentID})
+			req, _ := http.NewRequest(http.MethodPost,
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/claim",
+				bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return
+			}
+			closeBody(t, resp.Body)
+			statuses[idx] = resp.StatusCode
+		}(i)
+	}
+	wg.Wait()
+
+	// Count successes — exactly one agent should win
+	successCount := 0
+	for _, status := range statuses {
+		if status == http.StatusOK {
+			successCount++
+		}
+	}
+
+	assert.Equal(t, 1, successCount, "exactly one agent should win the claim")
+
+	// Verify the card is claimed by exactly one agent
+	card, err = svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, card.AssignedAgent, "card should be claimed by one agent")
 }
