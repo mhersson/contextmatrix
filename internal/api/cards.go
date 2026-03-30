@@ -49,6 +49,26 @@ type patchCardRequest struct {
 	Body     *string  `json:"body,omitempty"`
 }
 
+// validateAgentOwnership checks if the requesting agent can mutate a claimed card.
+// Returns an error message if unauthorized, empty string if allowed.
+// Unclaimed cards can be mutated by anyone.
+func validateAgentOwnership(r *http.Request, card *board.Card) string {
+	if card.AssignedAgent == "" {
+		return "" // Unclaimed cards can be mutated by anyone
+	}
+
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		return "X-Agent-ID header required to modify claimed card"
+	}
+
+	if agentID != card.AssignedAgent {
+		return "card is claimed by " + card.AssignedAgent
+	}
+
+	return ""
+}
+
 // listCards handles GET /api/projects/{project}/cards
 func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
@@ -150,6 +170,17 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check agent ownership for claimed cards
+	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
+		return
+	}
+
 	input := service.UpdateCardInput{
 		Title:     req.Title,
 		Type:      req.Type,
@@ -189,6 +220,17 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check agent ownership for claimed cards
+	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
+		return
+	}
+
 	input := service.PatchCardInput{
 		Title:    req.Title,
 		State:    req.State,
@@ -213,6 +255,17 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+		return
+	}
+
+	// Check agent ownership for claimed cards
+	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
 		return
 	}
 

@@ -46,6 +46,7 @@ func NewRouter(svc *service.CardService, bus *events.Bus) *http.ServeMux {
 	// Create handlers
 	ph := &projectHandlers{svc: svc}
 	ch := &cardHandlers{svc: svc}
+	ah := &agentHandlers{svc: svc}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -61,6 +62,13 @@ func NewRouter(svc *service.CardService, bus *events.Bus) *http.ServeMux {
 	mux.HandleFunc("PUT /api/projects/{project}/cards/{id}", ch.updateCard)
 	mux.HandleFunc("PATCH /api/projects/{project}/cards/{id}", ch.patchCard)
 	mux.HandleFunc("DELETE /api/projects/{project}/cards/{id}", ch.deleteCard)
+
+	// Agent routes
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/claim", ah.claimCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/release", ah.releaseCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/heartbeat", ah.heartbeatCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/log", ah.addLogEntry)
+	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
 
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> handler
 	return wrapMux(mux)
