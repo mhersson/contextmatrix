@@ -36,6 +36,23 @@
   /* Fonts */
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* Layout */
+  --col-width: 280px;
+}
+
+@media (max-width: 1280px) {
+  :root {
+    --col-width: 240px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .card-panel {
+    width: 100%;
+    min-width: unset;
+    max-width: unset;
+  }
 }
 
 * {

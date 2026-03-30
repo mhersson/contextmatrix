@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from './api/client';
 import { useBoard } from './hooks/useBoard';
 import { useAgentId } from './hooks/useAgentId';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { Board } from './components/Board';
 import { CardPanel } from './components/CardPanel';
@@ -161,6 +162,28 @@ function App() {
   const currentSelectedCard = selectedCard
     ? cards.find((c) => c.id === selectedCard.id) || selectedCard
     : null;
+
+  const panelOpen = !!currentSelectedCard || createPanelOpen;
+
+  useKeyboardShortcuts(
+    useMemo(
+      () => [
+        {
+          key: 'n',
+          handler: () => {
+            if (!panelOpen && config) handleOpenCreate();
+          },
+        },
+        ...projects.map((_, i) => ({
+          key: String(i + 1),
+          handler: () => {
+            if (i < projects.length) setSelectedProject(projects[i].name);
+          },
+        })),
+      ],
+      [panelOpen, config, projects, handleOpenCreate]
+    )
+  );
 
   return (
     <ToastContext.Provider value={toastState}>

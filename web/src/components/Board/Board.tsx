@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -9,9 +9,12 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import type { Card, ProjectConfig } from '../../types';
+import type { Card, CardFilter, ProjectConfig } from '../../types';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
+import { FilterBar } from './FilterBar';
+import { BoardSkeleton } from './BoardSkeleton';
 
 interface BoardProps {
   cards: Card[];
@@ -26,35 +29,62 @@ interface BoardProps {
 
 export function Board({ cards, config, loading, error, onCardClick, onCardMove, onCreateCard, flashCardId }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
+  const [filter, setFilter] = useState<CardFilter>({});
+  const filterBarRef = useRef<HTMLDivElement>(null);
 
-  // Sensor with activation constraint to prevent accidental drags
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
+      activationConstraint: { distance: 5 },
     })
   );
 
-  // Group cards by state
+  const hasFilter = Object.values(filter).some(Boolean);
+
+  const filteredCards = useMemo(() => {
+    if (!hasFilter) return cards;
+    return cards.filter((card) => {
+      if (filter.type && card.type !== filter.type) return false;
+      if (filter.priority && card.priority !== filter.priority) return false;
+      if (filter.label && !(card.labels ?? []).includes(filter.label)) return false;
+      if (filter.agent && card.assigned_agent !== filter.agent) return false;
+      return true;
+    });
+  }, [cards, filter, hasFilter]);
+
   const cardsByState = useMemo(() => {
     const grouped: Record<string, Card[]> = {};
     for (const state of config.states) {
       grouped[state] = [];
     }
-    for (const card of cards) {
+    for (const card of filteredCards) {
       if (grouped[card.state]) {
         grouped[card.state].push(card);
       }
     }
     return grouped;
-  }, [cards, config.states]);
+  }, [filteredCards, config.states]);
+
+  useKeyboardShortcuts(
+    useMemo(
+      () => [
+        {
+          key: '/',
+          handler: () => filterBarRef.current?.querySelector('select')?.focus(),
+        },
+        {
+          key: 'Escape',
+          handler: () => {
+            if (hasFilter) setFilter({});
+          },
+        },
+      ],
+      [hasFilter]
+    )
+  );
 
   function handleDragStart(event: DragStartEvent) {
     const card = event.active.data.current?.card as Card | undefined;
-    if (card) {
-      setActiveCard(card);
-    }
+    if (card) setActiveCard(card);
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -69,11 +99,8 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
 
     if (!card || card.state === newState) return;
 
-    // Validate transition
     const validTargets = config.transitions[card.state] || [];
-    if (!validTargets.includes(newState)) {
-      return; // Board parent (App) will show toast for invalid transition
-    }
+    if (!validTargets.includes(newState)) return;
 
     onCardMove(cardId, newState);
   }
@@ -82,18 +109,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
     setActiveCard(null);
   }
 
-  if (loading) {
-    return (
-      <div className="flex gap-4 p-4">
-        {[...Array(5)].map((_, i) => (
-          <div
-            key={i}
-            className="w-[280px] min-w-[280px] h-[400px] bg-[var(--bg0)] rounded-lg border border-[var(--bg3)] animate-pulse"
-          />
-        ))}
-      </div>
-    );
-  }
+  if (loading) return <BoardSkeleton />;
 
   if (error) {
     return (
@@ -105,8 +121,6 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
     );
   }
 
-  const totalCards = cards.length;
-
   return (
     <div className="flex flex-col h-full">
       {/* Board header */}
@@ -114,7 +128,9 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
         <div>
           <h1 className="text-lg font-medium text-[var(--fg)]">{config.name}</h1>
           <p className="text-xs text-[var(--grey1)]">
-            {totalCards} {totalCards === 1 ? 'card' : 'cards'}
+            {hasFilter
+              ? `${filteredCards.length} of ${cards.length} cards`
+              : `${cards.length} ${cards.length === 1 ? 'card' : 'cards'}`}
           </p>
         </div>
         {onCreateCard && (
@@ -129,6 +145,15 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
           </button>
         )}
       </div>
+
+      {/* Filter bar */}
+      <FilterBar
+        ref={filterBarRef}
+        config={config}
+        cards={cards}
+        filter={filter}
+        onFilterChange={setFilter}
+      />
 
       {/* Columns */}
       <DndContext

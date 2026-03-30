@@ -42,12 +42,13 @@ export function Column({ state, cards, config, onCardClick, onCreateCard, active
     <div
       ref={setNodeRef}
       className={`
-        w-[280px] min-w-[280px] flex-shrink-0 flex flex-col
+        flex-shrink-0 flex flex-col
         bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]
         transition-all duration-150
         ${dropTargetClass}
         ${dimClass}
       `}
+      style={{ width: 'var(--col-width)', minWidth: 'var(--col-width)' }}
     >      {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--bg3)]">
         <h2 className="text-sm font-medium text-[var(--grey2)]">
