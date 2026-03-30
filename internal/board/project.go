@@ -14,15 +14,15 @@ import (
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml
 type ProjectConfig struct {
-	Name        string              `yaml:"name"`
-	Prefix      string              `yaml:"prefix"`
-	NextID      int                 `yaml:"next_id"`
-	Repo        string              `yaml:"repo,omitempty"`
-	States      []string            `yaml:"states"`
-	Types       []string            `yaml:"types"`
-	Priorities  []string            `yaml:"priorities"`
-	Transitions map[string][]string `yaml:"transitions"`
-	Templates   map[string]string   `yaml:"-"` // loaded from templates/ dir at runtime
+	Name        string              `yaml:"name" json:"name"`
+	Prefix      string              `yaml:"prefix" json:"prefix"`
+	NextID      int                 `yaml:"next_id" json:"next_id"`
+	Repo        string              `yaml:"repo,omitempty" json:"repo,omitempty"`
+	States      []string            `yaml:"states" json:"states"`
+	Types       []string            `yaml:"types" json:"types"`
+	Priorities  []string            `yaml:"priorities" json:"priorities"`
+	Transitions map[string][]string `yaml:"transitions" json:"transitions"`
+	Templates   map[string]string   `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 
 var (

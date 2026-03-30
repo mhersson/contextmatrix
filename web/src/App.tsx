@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from './api/client';
 import { useBoard } from './hooks/useBoard';
+import { Board } from './components/Board';
 import type { ProjectConfig } from './types';
 
 function App() {
@@ -76,66 +77,27 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 p-6">
+      <main className="flex-1 overflow-hidden">
         {projectsError && (
           <div
-            className="p-4 rounded mb-4"
+            className="p-4 rounded m-4"
             style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}
           >
             {projectsError}
           </div>
         )}
 
-        {error && (
-          <div
-            className="p-4 rounded mb-4"
-            style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}
-          >
-            {error}
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex items-center justify-center h-64">
-            <div style={{ color: 'var(--grey1)' }}>Loading board...</div>
-          </div>
-        )}
-
-        {!loading && config && (
-          <div>
-            <div className="mb-6">
-              <h2
-                className="text-lg font-medium mb-2"
-                style={{ color: 'var(--fg)' }}
-              >
-                {config.name}
-              </h2>
-              <div className="flex gap-2 text-sm" style={{ color: 'var(--grey1)' }}>
-                <span>States: {config.states.join(', ')}</span>
-                <span>|</span>
-                <span>Types: {config.types.join(', ')}</span>
-                <span>|</span>
-                <span>Cards: {cards.length}</span>
-              </div>
-            </div>
-
-            <div
-              className="p-8 rounded border-2 border-dashed flex items-center justify-center"
-              style={{
-                backgroundColor: 'var(--bg0)',
-                borderColor: 'var(--bg3)',
-                color: 'var(--grey1)',
-              }}
-            >
-              Board view will be implemented in P1.14
-            </div>
-          </div>
-        )}
-
-        {!loading && !config && selectedProject && (
-          <div className="flex items-center justify-center h-64">
+        {selectedProject && config ? (
+          <Board
+            cards={cards}
+            config={config}
+            loading={loading}
+            error={error}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full">
             <div style={{ color: 'var(--grey1)' }}>
-              Select a project to view the board
+              {projectsLoading ? 'Loading projects...' : 'Select a project to view the board'}
             </div>
           </div>
         )}

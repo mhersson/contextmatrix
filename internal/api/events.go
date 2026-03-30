@@ -42,6 +42,14 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Flush headers and send initial keepalive to trigger client onopen
+	flusher.Flush()
+	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
+		slog.Debug("SSE initial write failed", "error", err)
+		return
+	}
+	flusher.Flush()
+
 	// Subscribe to event bus
 	ch, unsubscribe := h.bus.Subscribe()
 	defer unsubscribe()

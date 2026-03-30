@@ -83,3 +83,36 @@ button {
 input, select, textarea {
   font-family: inherit;
 }
+
+/* Custom animations */
+@keyframes pulse-border {
+  0%, 100% {
+    border-left-color: var(--aqua);
+  }
+  50% {
+    border-left-color: transparent;
+  }
+}
+
+.animate-pulse-border {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg0);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bg4);
+}
