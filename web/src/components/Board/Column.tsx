@@ -1,3 +1,4 @@
+import { useDroppable } from '@dnd-kit/core';
 import type { Card, ProjectConfig } from '../../types';
 import { CardItem } from './CardItem';
 
@@ -6,6 +7,7 @@ interface ColumnProps {
   cards: Card[];
   config: ProjectConfig;
   onCardClick?: (card: Card) => void;
+  activeCardState?: string | null;
 }
 
 function formatStateName(state: string): string {
@@ -15,10 +17,36 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, onCardClick }: ColumnProps) {
+export function Column({ state, cards, config, onCardClick, activeCardState }: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: state,
+  });
+
+  // Determine if this column is a valid drop target
+  const isValidTarget = activeCardState
+    ? config.transitions[activeCardState]?.includes(state) || activeCardState === state
+    : false;
+  const isInvalidTarget = activeCardState && !isValidTarget && activeCardState !== state;
+
+  // Visual feedback classes
+  const dropTargetClass = isOver && isValidTarget
+    ? 'ring-2 ring-[var(--green)] bg-[var(--bg-green)]'
+    : isOver && isInvalidTarget
+      ? 'ring-2 ring-[var(--red)] bg-[var(--bg-red)]'
+      : '';
+  const dimClass = activeCardState && isInvalidTarget ? 'opacity-50' : '';
+
   return (
-    <div className="w-[280px] min-w-[280px] flex-shrink-0 flex flex-col bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]">
-      {/* Column header */}
+    <div
+      ref={setNodeRef}
+      className={`
+        w-[280px] min-w-[280px] flex-shrink-0 flex flex-col
+        bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]
+        transition-all duration-150
+        ${dropTargetClass}
+        ${dimClass}
+      `}
+    >      {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--bg3)]">
         <h2 className="text-sm font-medium text-[var(--grey2)]">
           {formatStateName(state)}

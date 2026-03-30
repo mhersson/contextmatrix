@@ -10,6 +10,7 @@ interface UseBoardResult {
   error: string | null;
   connected: boolean;
   refresh: () => Promise<void>;
+  updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
 }
 
 export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
@@ -89,6 +90,14 @@ export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
     onEvent: handleEvent,
   });
 
+  const updateCardLocally = useCallback((cardId: string, updates: Partial<Card>) => {
+    setCards((prev) =>
+      prev.map((card) =>
+        card.id === cardId ? { ...card, ...updates } : card
+      )
+    );
+  }, []);
+
   return {
     config,
     cards,
@@ -96,5 +105,6 @@ export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
     error: error || sseError,
     connected,
     refresh: fetchData,
+    updateCardLocally,
   };
 }

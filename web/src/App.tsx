@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from './api/client';
 import { useBoard } from './hooks/useBoard';
+import { ToastContext, useToastState } from './hooks/useToast';
 import { Board } from './components/Board';
+import { ToastContainer } from './components/Toast';
 import type { ProjectConfig } from './types';
 
 function App() {
@@ -9,6 +11,7 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
+  const toastState = useToastState();
 
   useEffect(() => {
     api
@@ -27,10 +30,37 @@ function App() {
       });
   }, [selectedProject]);
 
-  const { config, cards, loading, error, connected } = useBoard(selectedProject);
+  const { config, cards, loading, error, connected, updateCardLocally } = useBoard(selectedProject);
+
+  const handleCardMove = useCallback(
+    async (cardId: string, newState: string) => {
+      const card = cards.find((c) => c.id === cardId);
+      if (!card) return;
+
+      const oldState = card.state;
+
+      // Optimistic update
+      updateCardLocally(cardId, { state: newState });
+
+      try {
+        await api.patchCard(selectedProject, cardId, { state: newState });
+        toastState.showToast(`Moved to ${newState}`, 'success');
+      } catch (err) {
+        // Rollback on error
+        updateCardLocally(cardId, { state: oldState });
+        const message =
+          err && typeof err === 'object' && 'error' in err
+            ? (err as { error: string }).error
+            : 'Failed to move card';
+        toastState.showToast(message, 'error');
+      }
+    },
+    [cards, selectedProject, updateCardLocally, toastState]
+  );
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-dim)' }}>
+    <ToastContext.Provider value={toastState}>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-dim)' }}>
       <header
         className="flex items-center justify-between px-6 py-4 border-b"
         style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)' }}
@@ -93,6 +123,7 @@ function App() {
             config={config}
             loading={loading}
             error={error}
+            onCardMove={handleCardMove}
           />
         ) : (
           <div className="flex items-center justify-center h-full">
@@ -102,7 +133,9 @@ function App() {
           </div>
         )}
       </main>
-    </div>
+      <ToastContainer />
+      </div>
+    </ToastContext.Provider>
   );
 }
 

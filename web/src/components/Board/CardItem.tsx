@@ -1,3 +1,5 @@
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 
 interface CardItemProps {
@@ -19,6 +21,16 @@ const priorityColors: Record<string, string> = {
 };
 
 export function CardItem({ card, onClick }: CardItemProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: card.id,
+    data: { card },
+  });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   const isAgentActive = card.assigned_agent && card.state !== 'stalled';
   const isStalled = card.state === 'stalled';
 
@@ -30,11 +42,16 @@ export function CardItem({ card, onClick }: CardItemProps) {
 
   return (
     <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
       onClick={onClick}
       className={`
-        bg-[var(--bg1)] rounded-md p-3 mb-2 cursor-pointer
+        bg-[var(--bg1)] rounded-md p-3 mb-2 cursor-grab active:cursor-grabbing
         transition-colors duration-150 hover:bg-[var(--bg2)]
         ${borderClass}
+        ${isDragging ? 'shadow-lg z-50' : ''}
       `}
     >
       {/* Header: ID and Type badge */}

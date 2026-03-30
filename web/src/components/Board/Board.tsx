@@ -1,6 +1,17 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import type { Card, ProjectConfig } from '../../types';
 import { Column } from './Column';
+import { CardItem } from './CardItem';
 
 interface BoardProps {
   cards: Card[];
@@ -8,9 +19,21 @@ interface BoardProps {
   loading: boolean;
   error: string | null;
   onCardClick?: (card: Card) => void;
+  onCardMove?: (cardId: string, newState: string) => Promise<void>;
 }
 
-export function Board({ cards, config, loading, error, onCardClick }: BoardProps) {
+export function Board({ cards, config, loading, error, onCardClick, onCardMove }: BoardProps) {
+  const [activeCard, setActiveCard] = useState<Card | null>(null);
+
+  // Sensor with activation constraint to prevent accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
+
   // Group cards by state
   const cardsByState = useMemo(() => {
     const grouped: Record<string, Card[]> = {};
@@ -24,6 +47,38 @@ export function Board({ cards, config, loading, error, onCardClick }: BoardProps
     }
     return grouped;
   }, [cards, config.states]);
+
+  function handleDragStart(event: DragStartEvent) {
+    const card = event.active.data.current?.card as Card | undefined;
+    if (card) {
+      setActiveCard(card);
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveCard(null);
+
+    if (!over || !onCardMove) return;
+
+    const cardId = active.id as string;
+    const newState = over.id as string;
+    const card = active.data.current?.card as Card | undefined;
+
+    if (!card || card.state === newState) return;
+
+    // Validate transition
+    const validTargets = config.transitions[card.state] || [];
+    if (!validTargets.includes(newState)) {
+      return; // Board parent (App) will show toast for invalid transition
+    }
+
+    onCardMove(cardId, newState);
+  }
+
+  function handleDragCancel() {
+    setActiveCard(null);
+  }
 
   if (loading) {
     return (
@@ -61,19 +116,36 @@ export function Board({ cards, config, loading, error, onCardClick }: BoardProps
       </div>
 
       {/* Columns */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="flex gap-4 p-4 h-full min-w-max">
-          {config.states.map((state) => (
-            <Column
-              key={state}
-              state={state}
-              cards={cardsByState[state]}
-              config={config}
-              onCardClick={onCardClick}
-            />
-          ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+          <div className="flex gap-4 p-4 h-full min-w-max">
+            {config.states.map((state) => (
+              <Column
+                key={state}
+                state={state}
+                cards={cardsByState[state]}
+                config={config}
+                onCardClick={onCardClick}
+                activeCardState={activeCard?.state}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+
+        <DragOverlay>
+          {activeCard ? (
+            <div className="w-[260px]">
+              <CardItem card={activeCard} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }
