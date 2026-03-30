@@ -59,8 +59,8 @@ transitions:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
-	// Initialize git
-	git, err := gitops.NewManager(tmpDir)
+	// Initialize git (boards directory is the git repo)
+	git, err := gitops.NewManager(boardsDir)
 	require.NoError(t, err)
 
 	// Initialize store

@@ -1,5 +1,5 @@
 port: 8080
-boards_dir: "./boards"
+boards_dir: ~/Development/contextmatrix-boards
 git_auto_commit: true
 git_auto_push: false
 heartbeat_timeout: "30m"

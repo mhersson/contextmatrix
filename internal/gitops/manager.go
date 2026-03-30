@@ -1,5 +1,5 @@
 // Package gitops provides git operations for auto-committing card mutations.
-// The git repository root is the parent directory containing boards/.
+// The git repository is the boards directory itself (cfg.BoardsDir).
 package gitops
 
 import (
@@ -33,7 +33,7 @@ type Manager struct {
 }
 
 // NewManager opens an existing git repository or initializes a new one.
-// The repoPath should be the directory containing boards/.
+// The repoPath should be the boards directory (cfg.BoardsDir).
 func NewManager(repoPath string) (*Manager, error) {
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {

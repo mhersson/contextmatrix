@@ -22,11 +22,19 @@ type Config struct {
 func defaults() *Config {
 	return &Config{
 		Port:             8080,
-		BoardsDir:        "./boards",
+		BoardsDir:        "", // No default — must be configured
 		GitAutoCommit:    true,
 		GitAutoPush:      false,
 		HeartbeatTimeout: "30m",
 	}
+}
+
+// Validate checks that required configuration fields are set.
+func (c *Config) Validate() error {
+	if c.BoardsDir == "" {
+		return fmt.Errorf("boards_dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	}
+	return nil
 }
 
 // Load reads configuration from the given YAML file and applies environment overrides.
@@ -37,6 +45,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyEnvOverrides(cfg)
+			if err := cfg.Validate(); err != nil {
+				return nil, err
+			}
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
@@ -47,6 +58,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyEnvOverrides(cfg)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 

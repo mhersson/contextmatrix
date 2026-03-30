@@ -54,7 +54,7 @@ func setupTest(t *testing.T) (*CardService, string, func()) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(tmpDir)
+	gitMgr, err := gitops.NewManager(boardsDir)
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -685,7 +685,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(tmpDir)
+	gitMgr, err := gitops.NewManager(boardsDir)
 	require.NoError(t, err)
 
 	bus := events.NewBus()

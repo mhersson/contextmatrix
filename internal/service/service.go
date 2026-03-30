@@ -644,8 +644,9 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 }
 
 // cardPath returns the relative path for a card file (for git operations).
+// Paths are relative to the boards directory (which is the git repo root).
 func (s *CardService) cardPath(project, id string) string {
-	return filepath.Join("boards", project, "tasks", id+".md")
+	return filepath.Join(project, "tasks", id+".md")
 }
 
 // getConfig returns the cached project config, loading it if necessary.

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -49,16 +48,13 @@ func main() {
 	}
 	slog.Info("storage initialized", "boards_dir", cfg.BoardsDir)
 
-	// Initialize git manager
-	// Git repo root is the parent of boards_dir (typically project root)
-	absBoards, _ := filepath.Abs(cfg.BoardsDir)
-	repoPath := filepath.Dir(absBoards)
-	git, err := gitops.NewManager(repoPath)
+	// Initialize git manager (boards directory IS the git repo)
+	git, err := gitops.NewManager(cfg.BoardsDir)
 	if err != nil {
 		slog.Error("failed to create git manager", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("git manager initialized", "repo_path", repoPath)
+	slog.Info("git manager initialized", "repo_path", cfg.BoardsDir)
 
 	// Initialize event bus
 	bus := events.NewBus()
