@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -45,6 +47,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyEnvOverrides(cfg)
+			cfg.BoardsDir = expandTilde(cfg.BoardsDir)
 			if err := cfg.Validate(); err != nil {
 				return nil, err
 			}
@@ -58,6 +61,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyEnvOverrides(cfg)
+
+	// Expand ~ in paths
+	cfg.BoardsDir = expandTilde(cfg.BoardsDir)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -90,4 +96,20 @@ func applyEnvOverrides(cfg *Config) {
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
 func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
+}
+
+// expandTilde expands a leading ~ in a path to the user's home directory.
+func expandTilde(path string) string {
+	if path == "" {
+		return path
+	}
+	if path == "~" {
+		home, _ := os.UserHomeDir()
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
