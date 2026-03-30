@@ -78,6 +78,11 @@ type CardService struct {
 	bus       *events.Bus
 	boardsDir string
 
+	// writeMu serializes all card mutations (create, update, patch, delete,
+	// claim, release, heartbeat, log). This prevents races like two agents
+	// claiming the same card simultaneously.
+	writeMu sync.Mutex
+
 	// Per-project caches
 	mu         sync.RWMutex
 	validators map[string]*board.Validator
@@ -128,6 +133,9 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 // CreateCard creates a new card in the project.
 // Flow: generate ID → validate → store → git commit → publish event.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Lock to ensure atomic ID generation
 	s.mu.Lock()
 
@@ -198,6 +206,9 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 // UpdateCard performs a full update of a card's mutable fields.
 // Immutable fields (id, project, created, source) are preserved.
 func (s *CardService) UpdateCard(ctx context.Context, project, id string, input UpdateCardInput) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Load existing card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -276,6 +287,9 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 // PatchCard applies partial updates to a card.
 // Only non-nil fields in the input are updated.
 func (s *CardService) PatchCard(ctx context.Context, project, id string, input PatchCardInput) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Load existing card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -358,6 +372,9 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 
 // DeleteCard removes a card from the project.
 func (s *CardService) DeleteCard(ctx context.Context, project, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Verify card exists
 	_, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -391,6 +408,9 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // AddLogEntry appends an activity log entry to a card.
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Load card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -470,6 +490,9 @@ func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*
 // ClaimCard assigns a card to an agent.
 // Flow: lock claim → store update → git commit → publish event.
 func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Claim via lock manager (returns modified card)
 	card, err := s.lock.Claim(ctx, project, id, agentID)
 	if err != nil {
@@ -502,6 +525,9 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 
 // ReleaseCard removes an agent's claim on a card.
 func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Release via lock manager (returns modified card)
 	card, err := s.lock.Release(ctx, project, id, agentID)
 	if err != nil {
@@ -534,6 +560,9 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Heartbeat via lock manager (returns modified card)
 	card, err := s.lock.Heartbeat(ctx, project, id, agentID)
 	if err != nil {
@@ -602,6 +631,9 @@ func (s *CardService) processStalled(ctx context.Context) error {
 
 // markCardStalled transitions a card to the "stalled" state.
 func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	card := sc.Card
 	previousAgent := card.AssignedAgent
 

@@ -3,6 +3,7 @@ package board
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,13 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 		return ErrMissingStalledTransitions
 	}
 
+	// Check all states have transition entries
+	for _, state := range cfg.States {
+		if _, ok := cfg.Transitions[state]; !ok {
+			return fmt.Errorf("%w: state %q has no entry in transitions", ErrInvalidProjectConfig, state)
+		}
+	}
+
 	return nil
 }
 
@@ -192,18 +200,22 @@ func DiscoverProjects(boardsDir string) ([]ProjectConfig, error) {
 		cfg, err := LoadProjectConfig(projectPath)
 		if err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
-				// No .board.yaml, skip silently
 				continue
 			}
-			// Other errors (malformed, validation) - skip with implicit log
-			// In production, would log a warning here
+			slog.Warn("skipping project with invalid config",
+				"path", projectPath,
+				"error", err,
+			)
 			continue
 		}
 
 		// Load templates for this project
 		templates, err := LoadTemplates(projectPath)
 		if err != nil {
-			// Skip projects with template errors
+			slog.Warn("skipping project with template errors",
+				"project", cfg.Name,
+				"error", err,
+			)
 			continue
 		}
 		cfg.Templates = templates

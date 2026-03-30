@@ -174,3 +174,7 @@ class APIClient {
 }
 
 export const api = new APIClient();
+
+export function isAPIError(err: unknown): err is { error: string; code?: string } {
+  return err != null && typeof err === 'object' && 'error' in err;
+}

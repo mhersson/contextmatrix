@@ -79,7 +79,7 @@ func main() {
 	svc.StartTimeoutChecker(ctx, time.Minute)
 
 	// Create router with all API routes
-	mux := api.NewRouter(svc, bus)
+	mux := api.NewRouter(svc, bus, cfg.CORSOrigin)
 
 	// Embed frontend and create SPA handler
 	distFS, err := fs.Sub(web.DistFS, "dist")

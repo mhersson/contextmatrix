@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ type Config struct {
 	GitAutoCommit    bool   `yaml:"git_auto_commit"`
 	GitAutoPush      bool   `yaml:"git_auto_push"`
 	HeartbeatTimeout string `yaml:"heartbeat_timeout"`
+	CORSOrigin       string `yaml:"cors_origin"`
 }
 
 // defaults returns a Config with default values.
@@ -28,6 +30,7 @@ func defaults() *Config {
 		GitAutoCommit:    true,
 		GitAutoPush:      false,
 		HeartbeatTimeout: "30m",
+		CORSOrigin:       "http://localhost:5173",
 	}
 }
 
@@ -35,6 +38,9 @@ func defaults() *Config {
 func (c *Config) Validate() error {
 	if c.BoardsDir == "" {
 		return fmt.Errorf("boards_dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	}
+	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
+		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
 	return nil
 }
@@ -47,7 +53,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyEnvOverrides(cfg)
-			cfg.BoardsDir = expandTilde(cfg.BoardsDir)
+			boardsDir, err := expandTilde(cfg.BoardsDir)
+			if err != nil {
+				return nil, err
+			}
+			cfg.BoardsDir = boardsDir
 			if err := cfg.Validate(); err != nil {
 				return nil, err
 			}
@@ -63,7 +73,11 @@ func Load(path string) (*Config, error) {
 	applyEnvOverrides(cfg)
 
 	// Expand ~ in paths
-	cfg.BoardsDir = expandTilde(cfg.BoardsDir)
+	boardsDir, err := expandTilde(cfg.BoardsDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg.BoardsDir = boardsDir
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -77,6 +91,8 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil {
 			cfg.Port = port
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_PORT", "value", v, "error", err)
 		}
 	}
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
@@ -91,6 +107,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v
 	}
+	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
+		cfg.CORSOrigin = v
+	}
 }
 
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
@@ -99,17 +118,23 @@ func (c *Config) HeartbeatDuration() (time.Duration, error) {
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.
-func expandTilde(path string) string {
+func expandTilde(path string) (string, error) {
 	if path == "" {
-		return path
+		return path, nil
 	}
 	if path == "~" {
-		home, _ := os.UserHomeDir()
-		return home
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand ~: %w", err)
+		}
+		return home, nil
 	}
 	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand ~: %w", err)
+		}
+		return filepath.Join(home, path[2:]), nil
 	}
-	return path
+	return path, nil
 }

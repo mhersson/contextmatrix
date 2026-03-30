@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -191,9 +192,10 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 }
 
 // extractAgentID gets the agent ID from X-Agent-ID header with fallback to body value.
+// The result is trimmed of whitespace.
 func extractAgentID(r *http.Request, bodyAgentID string) string {
-	if headerID := r.Header.Get("X-Agent-ID"); headerID != "" {
+	if headerID := strings.TrimSpace(r.Header.Get("X-Agent-ID")); headerID != "" {
 		return headerID
 	}
-	return bodyAgentID
+	return strings.TrimSpace(bodyAgentID)
 }

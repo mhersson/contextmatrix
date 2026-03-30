@@ -18,6 +18,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+const maxRequestBodySize = 1 << 20 // 1 MB
+
 // Error codes for machine-parseable error responses.
 const (
 	ErrCodeProjectNotFound   = "PROJECT_NOT_FOUND"
@@ -40,7 +42,9 @@ type APIError struct {
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
-func NewRouter(svc *service.CardService, bus *events.Bus) *http.ServeMux {
+// corsOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
+// If empty, CORS headers are not set.
+func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Create handlers
@@ -74,14 +78,18 @@ func NewRouter(svc *service.CardService, bus *events.Bus) *http.ServeMux {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/log", ah.addLogEntry)
 	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
 
-	// Apply middleware chain: recovery -> cors -> logging -> requestID -> handler
-	return wrapMux(mux)
+	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler
+	return wrapMux(mux, corsOrigin)
 }
 
 // wrapMux wraps the mux with all middleware.
-func wrapMux(mux *http.ServeMux) *http.ServeMux {
+func wrapMux(mux *http.ServeMux, corsOrigin string) *http.ServeMux {
 	wrapper := http.NewServeMux()
-	wrapper.Handle("/", chain(mux, recovery, cors, logging, requestID))
+	middlewares := []func(http.Handler) http.Handler{recovery, logging, requestID, bodyLimit}
+	if corsOrigin != "" {
+		middlewares = []func(http.Handler) http.Handler{recovery, corsMiddleware(corsOrigin), logging, requestID, bodyLimit}
+	}
+	wrapper.Handle("/", chain(mux, middlewares...))
 	return wrapper
 }
 
@@ -123,21 +131,23 @@ func logging(next http.Handler) http.Handler {
 	})
 }
 
-// cors adds CORS headers for development.
-func cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Request-ID")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
+// corsMiddleware returns a middleware that adds CORS headers for the given origin.
+func corsMiddleware(origin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Request-ID")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // recovery recovers from panics and returns 500.
@@ -153,6 +163,16 @@ func recovery(next http.Handler) http.Handler {
 				writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// bodyLimit caps request body size to prevent OOM from large payloads.
+func bodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

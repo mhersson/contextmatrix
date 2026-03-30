@@ -90,7 +90,7 @@ func TestListProjects(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -111,7 +111,7 @@ func TestGetProject(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -146,7 +146,7 @@ func TestCreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -226,7 +226,7 @@ func TestGetCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -268,7 +268,7 @@ func TestListCards(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -330,7 +330,7 @@ func TestPatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -385,7 +385,7 @@ func TestUpdateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -429,7 +429,7 @@ func TestDeleteCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -473,7 +473,7 @@ func TestCORSHeaders(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "http://localhost:5173")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -484,11 +484,26 @@ func TestCORSHeaders(t *testing.T) {
 	assert.Equal(t, "http://localhost:5173", resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
+func TestCORSDisabledWhenEmpty(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/projects")
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
+}
+
 func TestCORSPreflight(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "http://localhost:5173")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -506,7 +521,7 @@ func TestRequestID(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -535,7 +550,7 @@ func TestHealthz(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -556,7 +571,7 @@ func TestClaimCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -666,7 +681,7 @@ func TestReleaseCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -745,7 +760,7 @@ func TestHeartbeatCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -820,7 +835,7 @@ func TestAddLogEntry(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -917,7 +932,7 @@ func TestGetCardContext(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -958,7 +973,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1158,7 +1173,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1286,7 +1301,7 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1378,7 +1393,7 @@ func TestConcurrentAgentClaims(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1439,7 +1454,7 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(svc, bus)
+	router := NewRouter(svc, bus, "")
 	server := httptest.NewServer(router)
 	defer server.Close()
 

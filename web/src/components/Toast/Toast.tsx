@@ -34,6 +34,7 @@ function ToastItem({ toast, onDismiss }: { toast: ToastType; onDismiss: () => vo
       </span>
       <button
         onClick={onDismiss}
+        aria-label="Dismiss"
         className="ml-2 opacity-70 hover:opacity-100 transition-opacity"
         style={{ color: styles.text }}
       >

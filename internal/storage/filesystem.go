@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -90,11 +91,19 @@ func (s *FilesystemStore) loadIndex() error {
 			filePath := filepath.Join(tasksDir, entry.Name())
 			data, err := os.ReadFile(filePath)
 			if err != nil {
+				slog.Warn("skipping unreadable card file",
+					"path", filePath,
+					"error", err,
+				)
 				continue
 			}
 
 			card, err := board.ParseCard(data)
 			if err != nil {
+				slog.Warn("skipping unparseable card file",
+					"path", filePath,
+					"error", err,
+				)
 				continue
 			}
 
@@ -193,14 +202,14 @@ func (s *FilesystemStore) GetProject(_ context.Context, name string) (*board.Pro
 
 // SaveProject persists a project configuration.
 func (s *FilesystemStore) SaveProject(_ context.Context, cfg *board.ProjectConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	projectDir := s.projectPath(cfg.Name)
 
 	if err := board.SaveProjectConfig(projectDir, cfg); err != nil {
 		return fmt.Errorf("save project config: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if idx, ok := s.projects[cfg.Name]; ok {
 		idx.config = cfg
@@ -281,17 +290,16 @@ func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board
 
 // CreateCard persists a new card.
 func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *board.Card) error {
-	s.mu.RLock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	idx, ok := s.projects[project]
 	if !ok {
-		s.mu.RUnlock()
 		return ErrProjectNotFound
 	}
 	if _, exists := idx.cards[card.ID]; exists {
-		s.mu.RUnlock()
 		return ErrCardExists
 	}
-	s.mu.RUnlock()
 
 	data, err := board.SerializeCard(card)
 	if err != nil {
@@ -306,28 +314,25 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 		return fmt.Errorf("write card file: %w", err)
 	}
 
-	s.mu.Lock()
 	idx.cards[card.ID] = s.buildCardIndex(card, filePath)
-	s.mu.Unlock()
 
 	return nil
 }
 
 // UpdateCard persists changes to an existing card.
 func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *board.Card) error {
-	s.mu.RLock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	idx, ok := s.projects[project]
 	if !ok {
-		s.mu.RUnlock()
 		return ErrProjectNotFound
 	}
 	cardIdx, ok := idx.cards[card.ID]
 	if !ok {
-		s.mu.RUnlock()
 		return ErrCardNotFound
 	}
 	filePath := cardIdx.FilePath
-	s.mu.RUnlock()
 
 	data, err := board.SerializeCard(card)
 	if err != nil {
@@ -338,28 +343,25 @@ func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *bo
 		return fmt.Errorf("write card file: %w", err)
 	}
 
-	s.mu.Lock()
 	idx.cards[card.ID] = s.buildCardIndex(card, filePath)
-	s.mu.Unlock()
 
 	return nil
 }
 
 // DeleteCard removes a card.
 func (s *FilesystemStore) DeleteCard(_ context.Context, project, id string) error {
-	s.mu.RLock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	idx, ok := s.projects[project]
 	if !ok {
-		s.mu.RUnlock()
 		return ErrProjectNotFound
 	}
 	cardIdx, ok := idx.cards[id]
 	if !ok {
-		s.mu.RUnlock()
 		return ErrCardNotFound
 	}
 	filePath := cardIdx.FilePath
-	s.mu.RUnlock()
 
 	if err := os.Remove(filePath); err != nil {
 		if os.IsNotExist(err) {
@@ -368,9 +370,7 @@ func (s *FilesystemStore) DeleteCard(_ context.Context, project, id string) erro
 		return fmt.Errorf("remove card file: %w", err)
 	}
 
-	s.mu.Lock()
 	delete(idx.cards, id)
-	s.mu.Unlock()
 
 	return nil
 }

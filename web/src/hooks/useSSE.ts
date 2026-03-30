@@ -22,6 +22,7 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const onEventRef = useRef(onEvent);
   const connectRef = useRef<() => void>(() => {});
+  const isMountedRef = useRef(true);
 
   // Keep onEventRef in sync with onEvent
   useEffect(() => {
@@ -64,6 +65,7 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
       setError(`Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
+        if (!isMountedRef.current) return;
         reconnectDelayRef.current = Math.min(
           reconnectDelayRef.current * 2,
           MAX_RECONNECT_DELAY
@@ -82,6 +84,7 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
     connect();
 
     return () => {
+      isMountedRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

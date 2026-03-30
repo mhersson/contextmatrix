@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
-import { api } from '../api/client';
+import { api, isAPIError } from '../api/client';
 import { useSSE } from './useSSE';
 
 interface UseBoardResult {
@@ -38,11 +38,7 @@ export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
       setConfig(projectConfig);
       setCards(projectCards);
     } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'error' in err
-          ? (err as { error: string }).error
-          : 'Failed to load board';
-      setError(message);
+      setError(isAPIError(err) ? err.error : 'Failed to load board');
     } finally {
       setLoading(false);
     }

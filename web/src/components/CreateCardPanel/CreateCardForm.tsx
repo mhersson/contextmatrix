@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
+import { ParentSearch } from './ParentSearch';
 import type { Card, ProjectConfig } from '../../types';
 
 interface CreateCardFormProps {
@@ -28,8 +29,6 @@ export function CreateCardForm({
 }: CreateCardFormProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const [labelInput, setLabelInput] = useState('');
-  const [parentSearch, setParentSearch] = useState('');
-  const [showParentDropdown, setShowParentDropdown] = useState(false);
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -61,13 +60,6 @@ export function CreateCardForm({
   const removeLabel = useCallback((label: string) => {
     setLabels(labels.filter((l) => l !== label));
   }, [labels, setLabels]);
-
-  const filteredCards = parentSearch
-    ? cards.filter((c) => {
-        const q = parentSearch.toLowerCase();
-        return c.id.toLowerCase().includes(q) || c.title.toLowerCase().includes(q);
-      }).slice(0, 8)
-    : [];
 
   return (
     <div className="space-y-4">
@@ -131,7 +123,7 @@ export function CreateCardForm({
             >
               {label}
               <button onClick={() => removeLabel(label)} className="hover:text-[var(--red)] transition-colors">
-                ×
+                x
               </button>
             </span>
           ))}
@@ -155,44 +147,7 @@ export function CreateCardForm({
       </div>
 
       {/* Parent */}
-      <div className="relative">
-        <label className="block text-xs text-[var(--grey1)] mb-1">Parent Card</label>
-        {parent ? (
-          <div className="flex items-center gap-2 px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)]">
-            <span className="font-mono text-sm text-[var(--aqua)]">{parent}</span>
-            <button
-              onClick={() => { setParent(''); setParentSearch(''); }}
-              className="text-[var(--grey1)] hover:text-[var(--red)] transition-colors text-xs"
-            >
-              ×
-            </button>
-          </div>
-        ) : (
-          <input
-            type="text"
-            value={parentSearch}
-            onChange={(e) => { setParentSearch(e.target.value); setShowParentDropdown(true); }}
-            onFocus={() => setShowParentDropdown(true)}
-            onBlur={() => setTimeout(() => setShowParentDropdown(false), 150)}
-            placeholder="Search by ID or title..."
-            className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
-          />
-        )}
-        {showParentDropdown && filteredCards.length > 0 && !parent && (
-          <div className="absolute z-10 w-full mt-1 rounded bg-[var(--bg2)] border border-[var(--bg3)] shadow-lg max-h-[200px] overflow-y-auto">
-            {filteredCards.map((c) => (
-              <button
-                key={c.id}
-                onMouseDown={() => { setParent(c.id); setParentSearch(''); setShowParentDropdown(false); }}
-                className="w-full text-left px-3 py-2 hover:bg-[var(--bg3)] transition-colors flex items-center gap-2"
-              >
-                <span className="font-mono text-xs text-[var(--grey1)]">{c.id}</span>
-                <span className="text-sm text-[var(--fg)] truncate">{c.title}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <ParentSearch parent={parent} setParent={setParent} cards={cards} />
 
       {/* Body */}
       <div data-color-mode="dark">
