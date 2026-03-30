@@ -20,9 +20,11 @@ interface BoardProps {
   error: string | null;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<void>;
+  onCreateCard?: (state: string) => void;
+  flashCardId?: string | null;
 }
 
-export function Board({ cards, config, loading, error, onCardClick, onCardMove }: BoardProps) {
+export function Board({ cards, config, loading, error, onCardClick, onCardMove, onCreateCard, flashCardId }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
 
   // Sensor with activation constraint to prevent accidental drags
@@ -108,11 +110,24 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove }
   return (
     <div className="flex flex-col h-full">
       {/* Board header */}
-      <div className="px-4 py-3 border-b border-[var(--bg3)]">
-        <h1 className="text-lg font-medium text-[var(--fg)]">{config.name}</h1>
-        <p className="text-xs text-[var(--grey1)]">
-          {totalCards} {totalCards === 1 ? 'card' : 'cards'}
-        </p>
+      <div className="px-4 py-3 border-b border-[var(--bg3)] flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-medium text-[var(--fg)]">{config.name}</h1>
+          <p className="text-xs text-[var(--grey1)]">
+            {totalCards} {totalCards === 1 ? 'card' : 'cards'}
+          </p>
+        </div>
+        {onCreateCard && (
+          <button
+            onClick={() => onCreateCard(config.states[0])}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90 transition-opacity"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Card
+          </button>
+        )}
       </div>
 
       {/* Columns */}
@@ -132,7 +147,9 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove }
                 cards={cardsByState[state]}
                 config={config}
                 onCardClick={onCardClick}
+                onCreateCard={onCreateCard}
                 activeCardState={activeCard?.state}
+                flashCardId={flashCardId}
               />
             ))}
           </div>

@@ -212,3 +212,13 @@ input, select, textarea {
 .wmde-markdown pre {
   background-color: var(--bg0) !important;
 }
+
+/* Card flash animation for newly created cards */
+@keyframes card-flash {
+  0%, 100% { background-color: var(--bg1); }
+  50% { background-color: var(--bg-green); }
+}
+
+.animate-card-flash {
+  animation: card-flash 0.6s ease-in-out 2;
+}

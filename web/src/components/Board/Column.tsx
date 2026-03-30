@@ -7,7 +7,9 @@ interface ColumnProps {
   cards: Card[];
   config: ProjectConfig;
   onCardClick?: (card: Card) => void;
+  onCreateCard?: (state: string) => void;
   activeCardState?: string | null;
+  flashCardId?: string | null;
 }
 
 function formatStateName(state: string): string {
@@ -17,7 +19,7 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, config, onCardClick, activeCardState }: ColumnProps) {
+export function Column({ state, cards, config, onCardClick, onCreateCard, activeCardState, flashCardId }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -51,9 +53,22 @@ export function Column({ state, cards, config, onCardClick, activeCardState }: C
         <h2 className="text-sm font-medium text-[var(--grey2)]">
           {formatStateName(state)}
         </h2>
-        <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
-          {cards.length}
-        </span>
+        <div className="flex items-center gap-2">
+          {onCreateCard && (
+            <button
+              onClick={() => onCreateCard(state)}
+              className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--green)] hover:bg-[var(--bg2)] transition-colors"
+              title="New card"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          )}
+          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
+            {cards.length}
+          </span>
+        </div>
       </div>
 
       {/* Card list */}
@@ -68,6 +83,7 @@ export function Column({ state, cards, config, onCardClick, activeCardState }: C
               key={card.id}
               card={card}
               onClick={() => onCardClick?.(card)}
+              flashCardId={flashCardId}
             />
           ))
         )}

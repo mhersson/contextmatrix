@@ -1,3 +1,4 @@
+import { useEffect, useRef, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
@@ -5,6 +6,7 @@ import type { Card } from '../../types';
 interface CardItemProps {
   card: Card;
   onClick?: () => void;
+  flashCardId?: string | null;
 }
 
 const typeColors: Record<string, string> = {
@@ -20,11 +22,25 @@ const priorityColors: Record<string, string> = {
   low: 'var(--grey1)',
 };
 
-export function CardItem({ card, onClick }: CardItemProps) {
+export function CardItem({ card, onClick, flashCardId }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { card },
   });
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  const isFlashing = card.id === flashCardId;
+
+  const setRefs = useCallback((node: HTMLDivElement | null) => {
+    setNodeRef(node);
+    cardRef.current = node;
+  }, [setNodeRef]);
+
+  useEffect(() => {
+    if (isFlashing && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [isFlashing]);
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -42,7 +58,7 @@ export function CardItem({ card, onClick }: CardItemProps) {
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setRefs}
       style={style}
       {...listeners}
       {...attributes}
@@ -52,6 +68,7 @@ export function CardItem({ card, onClick }: CardItemProps) {
         transition-colors duration-150 hover:bg-[var(--bg2)]
         ${borderClass}
         ${isDragging ? 'shadow-lg z-50' : ''}
+        ${isFlashing ? 'animate-card-flash' : ''}
       `}
     >
       {/* Header: ID and Type badge */}

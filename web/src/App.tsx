@@ -5,13 +5,16 @@ import { useAgentId } from './hooks/useAgentId';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { Board } from './components/Board';
 import { CardPanel } from './components/CardPanel';
+import { CreateCardPanel } from './components/CreateCardPanel';
 import { ToastContainer } from './components/Toast';
-import type { Card, ProjectConfig, PatchCardInput } from './types';
+import type { Card, ProjectConfig, PatchCardInput, CreateCardInput } from './types';
 
 function App() {
   const [projects, setProjects] = useState<ProjectConfig[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const [createPanelOpen, setCreatePanelOpen] = useState(false);
+  const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const toastState = useToastState();
@@ -64,7 +67,24 @@ function App() {
 
   const handleCardClick = useCallback((card: Card) => {
     setSelectedCard(card);
+    setCreatePanelOpen(false);
   }, []);
+
+  const handleOpenCreate = useCallback(() => {
+    setCreatePanelOpen(true);
+    setSelectedCard(null);
+  }, []);
+
+  const handleCreateCard = useCallback(
+    async (input: CreateCardInput) => {
+      const card = await api.createCard(selectedProject, input);
+      toastState.showToast(`Created ${card.id}`, 'success');
+      setCreatePanelOpen(false);
+      setFlashCardId(card.id);
+      setTimeout(() => setFlashCardId(null), 2500);
+    },
+    [selectedProject, toastState]
+  );
 
   const handlePanelClose = useCallback(() => {
     setSelectedCard(null);
@@ -209,6 +229,8 @@ function App() {
             error={error}
             onCardClick={handleCardClick}
             onCardMove={handleCardMove}
+            onCreateCard={handleOpenCreate}
+            flashCardId={flashCardId}
           />
         ) : (
           <div className="flex items-center justify-center h-full">
@@ -230,6 +252,15 @@ function App() {
           onSubtaskClick={handleSubtaskClick}
           currentAgentId={agentId}
           onPromptAgentId={promptForAgentId}
+        />
+      )}
+
+      {createPanelOpen && config && (
+        <CreateCardPanel
+          config={config}
+          cards={cards}
+          onClose={() => setCreatePanelOpen(false)}
+          onCreate={handleCreateCard}
         />
       )}
 
