@@ -1,13 +1,13 @@
 .PHONY: build run test fmt lint build-frontend install-frontend
 
-build:
+build: build-frontend
 	go build -o contextmatrix ./cmd/contextmatrix
 
 run: build
 	./contextmatrix
 
 test:
-	go test ./...
+	go test ./cmd/... ./internal/...
 
 fmt:
 	go fmt ./...

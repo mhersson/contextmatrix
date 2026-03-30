@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
+	"github.com/mhersson/contextmatrix/web"
 )
 
 func main() {
@@ -78,9 +81,17 @@ func main() {
 	// Create router with all API routes
 	mux := api.NewRouter(svc, bus)
 
+	// Embed frontend and create SPA handler
+	distFS, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		slog.Error("failed to create dist filesystem", "error", err)
+		os.Exit(1)
+	}
+	handler := newSPAHandler(mux, distFS)
+
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: mux,
+		Handler: handler,
 	}
 
 	go func() {
@@ -109,4 +120,32 @@ func main() {
 	}
 
 	slog.Info("server stopped")
+}
+
+// newSPAHandler wraps the API handler with static file serving and SPA fallback.
+// API and health check routes are forwarded to the API handler. All other requests
+// are served from the embedded frontend filesystem, falling back to index.html
+// for client-side routing.
+func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(fsys))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Try to serve a static file from the embedded dist
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		if _, err := fs.Stat(fsys, path); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// SPA fallback: serve index.html for client-side routes
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
 }
