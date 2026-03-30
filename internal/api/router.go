@@ -47,9 +47,13 @@ func NewRouter(svc *service.CardService, bus *events.Bus) *http.ServeMux {
 	ph := &projectHandlers{svc: svc}
 	ch := &cardHandlers{svc: svc}
 	ah := &agentHandlers{svc: svc}
+	eh := newEventHandlers(bus)
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
+
+	// SSE events
+	mux.HandleFunc("GET /api/events", eh.streamEvents)
 
 	// Project routes
 	mux.HandleFunc("GET /api/projects", ph.listProjects)
@@ -162,6 +166,13 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush implements http.Flusher by delegating to the underlying writer.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // writeJSON writes a JSON response with the given status code.
