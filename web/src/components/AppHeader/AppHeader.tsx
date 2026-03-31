@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { ThemeToggle } from './ThemeToggle';
 
 interface AppHeaderProps {
   project: string;
@@ -41,14 +42,17 @@ export function AppHeader({ project, connected }: AppHeaderProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <span
-          className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}
-          style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
-        />
-        <span className="text-sm" style={{ color: 'var(--grey1)' }}>
-          {connected ? 'Connected' : 'Disconnected'}
-        </span>
+      <div className="flex items-center gap-3">
+        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <span
+            className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}
+            style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
+          />
+          <span className="text-sm" style={{ color: 'var(--grey1)' }}>
+            {connected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
       </div>
     </header>
   );

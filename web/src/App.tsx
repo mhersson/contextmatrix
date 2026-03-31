@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { ProjectsProvider } from './hooks/useProjects';
+import { ThemeProvider } from './hooks/useTheme';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
@@ -27,6 +28,7 @@ function App() {
   );
 
   return (
+    <ThemeProvider>
     <ToastContext.Provider value={toastState}>
       <ProjectsProvider>
         <div className="min-h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
@@ -54,6 +56,7 @@ function App() {
         </div>
       </ProjectsProvider>
     </ToastContext.Provider>
+    </ThemeProvider>
   );
 }
 

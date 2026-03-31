@@ -38,6 +38,15 @@ EOF
 
 Open `http://localhost:8080` for the web UI.
 
+## Web UI
+
+- **Board view** — drag-and-drop kanban columns per project, with card detail panel
+- **Dashboard** — per-project state counts, active agents, and token cost breakdown
+- **Swimlane view** — all projects in a single horizontal view (`/all`)
+- **Theme toggle** — sun/moon icon in the header switches between Everforest dark and
+  light palettes. The preference is persisted in `localStorage` and defaults to your
+  system's `prefers-color-scheme` setting if no preference is stored.
+
 ## Creating a Board
 
 Each project lives in a subdirectory of the boards repo with a `.board.yaml`.

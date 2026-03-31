@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
+import { useTheme } from '../../hooks/useTheme';
 import { ParentSearch } from './ParentSearch';
 import type { Card, ProjectConfig } from '../../types';
 
@@ -27,6 +28,7 @@ export function CreateCardForm({
   labels, setLabels, parent, setParent, body, setBody,
   config, cards, bodyDirty, setBodyDirty,
 }: CreateCardFormProps) {
+  const { theme } = useTheme();
   const titleRef = useRef<HTMLInputElement>(null);
   const [labelInput, setLabelInput] = useState('');
 
@@ -150,7 +152,7 @@ export function CreateCardForm({
       <ParentSearch parent={parent} setParent={setParent} cards={cards} />
 
       {/* Body */}
-      <div data-color-mode="dark">
+      <div data-color-mode={theme}>
         <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
         <MDEditor
           value={body}

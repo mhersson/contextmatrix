@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
+import { useTheme } from '../../hooks/useTheme';
 import type { Card, ProjectConfig, PatchCardInput } from '../../types';
 import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
@@ -29,6 +30,7 @@ export function CardPanel({
   currentAgentId,
   onPromptAgentId,
 }: CardPanelProps) {
+  const { theme } = useTheme();
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -119,7 +121,7 @@ export function CardPanel({
             onRelease={handleRelease}
           />
 
-          <div data-color-mode="dark">
+          <div data-color-mode={theme}>
             <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
             <MDEditor
               value={editedCard.body}
