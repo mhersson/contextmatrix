@@ -66,17 +66,22 @@ Ask the human what they want to do with the new card:
 
 > What would you like to do next?
 >
-> 1. **Plan it** — Break it into subtasks with
->    `/contextmatrix:create-plan <card_id>`
-> 2. **Work on it now** — Execute it immediately with
->    `/contextmatrix:execute-task <card_id>`
+> 1. **Plan it** — Break it into subtasks with create-plan
+> 2. **Work on it now** — Execute it immediately with execute-task
 > 3. **Leave it on the board** — Pick it up later
 
-- If **plan**: invoke `/contextmatrix:create-plan <card_id>` with the new card
-  ID.
-- If **work on it now**: invoke `/contextmatrix:execute-task <card_id>` with the
-  new card ID. Do NOT start working without invoking execute-task.
-- If **leave it**: let the human know they can run the commands above later.
+**How to invoke a follow-up skill:** Call `get_skill(skill_name=..., card_id=...)`
+— it returns a `model` field and `content` field. Use the Agent tool with that
+model and the returned content as the prompt to spawn a sub-agent.
+
+- If **plan**: call `get_skill(skill_name='create-plan', card_id='<card_id>')`,
+  then spawn a sub-agent with the returned model and content.
+- If **work on it now**: call
+  `get_skill(skill_name='execute-task', card_id='<card_id>')`, then spawn a
+  sub-agent with the returned model and content.
+- If **leave it**: let the human know they can run
+  `/contextmatrix:create-plan <card_id>` or
+  `/contextmatrix:execute-task <card_id>` later.
 
 ## MANDATORY: Card lifecycle rule
 
@@ -84,8 +89,9 @@ Ask the human what they want to do with the new card:
 human asks you to "fix it", "do it now", "go ahead", "yes", or any variation —
 you MUST either:
 
-1. Invoke `/contextmatrix:execute-task <card_id>`, which handles claim,
-   heartbeats, and completion automatically, OR
+1. Call `get_skill(skill_name='execute-task', card_id='<card_id>')` and spawn a
+   sub-agent with the returned content, which handles claim, heartbeats, and
+   completion automatically, OR
 2. Manually follow the full lifecycle: `claim_card` → work with periodic
    `heartbeat` calls → `complete_task`
 

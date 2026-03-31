@@ -1532,3 +1532,82 @@ func TestStripAgentConfig(t *testing.T) {
 	assert.Contains(t, got, "Instructions here.")
 	assert.Contains(t, got, "# Skill")
 }
+
+// --- Tests for project-less tool calls (project resolved from card ID) ---
+
+func TestGetCard_WithoutProject(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "No-project get", "task", "medium")
+
+	// Call get_card without project — should resolve from card ID
+	result := callTool(t, env, "get_card", map[string]any{
+		"card_id": card.ID,
+	})
+	require.False(t, result.IsError, "get_card without project should succeed")
+
+	var got board.Card
+	unmarshalResult(t, result, &got)
+	assert.Equal(t, card.ID, got.ID)
+	assert.Equal(t, "No-project get", got.Title)
+}
+
+func TestGetTaskContext_WithoutProject(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "Context no-project", "task", "high")
+
+	result := callTool(t, env, "get_task_context", map[string]any{
+		"card_id": card.ID,
+	})
+	require.False(t, result.IsError, "get_task_context without project should succeed")
+
+	var output getTaskContextOutput
+	unmarshalResult(t, result, &output)
+	require.NotNil(t, output.Card)
+	assert.Equal(t, card.ID, output.Card.ID)
+	require.NotNil(t, output.Config)
+	assert.Equal(t, "test-project", output.Config.Name)
+}
+
+func TestCompleteTask_WithoutProject(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create and claim a card (with project, since create_card requires it)
+	card := createTestCard(t, env, "Complete no-project", "task", "medium")
+	claimResult := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  card.ID,
+		"agent_id": "test-agent",
+	})
+	require.False(t, claimResult.IsError)
+
+	// Complete without project — should resolve from card ID
+	result := callTool(t, env, "complete_task", map[string]any{
+		"card_id":  card.ID,
+		"agent_id": "test-agent",
+		"summary":  "Done without project param",
+	})
+	require.False(t, result.IsError, "complete_task without project should succeed")
+
+	var output completeTaskOutput
+	unmarshalResult(t, result, &output)
+	assert.Equal(t, "review", output.Card.State)
+}
+
+func TestClaimCard_WithoutProject(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "Claim no-project", "task", "low")
+
+	result := callTool(t, env, "claim_card", map[string]any{
+		"card_id":  card.ID,
+		"agent_id": "agent-1",
+	})
+	require.False(t, result.IsError, "claim_card without project should succeed")
+
+	var got board.Card
+	unmarshalResult(t, result, &got)
+	assert.Equal(t, "agent-1", got.AssignedAgent)
+	assert.Equal(t, "in_progress", got.State)
+}

@@ -76,5 +76,6 @@ Ask the human:
 
 > Would you like to create your first task now?
 
-- If **yes**: invoke `/contextmatrix:create-task`.
+- If **yes**: call `get_skill(skill_name='create-task')` and follow the returned
+  instructions to guide the human through task creation.
 - If **no**: let the human know they can run `/contextmatrix:create-task` later.

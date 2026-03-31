@@ -34,6 +34,20 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerGetSkill(server, svc, skillsDir)
 }
 
+// resolveProject resolves the project for a card ID when project is not provided.
+// If project is already set, it returns it unchanged.
+// If project is empty, it searches all projects for the card.
+func resolveProject(ctx context.Context, svc *service.CardService, project, cardID string) (string, error) {
+	if project != "" {
+		return project, nil
+	}
+	_, proj, err := findCard(ctx, svc, cardID)
+	if err != nil {
+		return "", fmt.Errorf("resolve project for %s: %w", cardID, err)
+	}
+	return proj, nil
+}
+
 // --- Input/Output types ---
 
 type listProjectsInput struct{}
@@ -54,7 +68,7 @@ type listCardsOutput struct {
 }
 
 type getCardInput struct {
-	Project string `json:"project" jsonschema:"required,project name"`
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
 }
 
@@ -70,7 +84,7 @@ type createCardInput struct {
 }
 
 type updateCardInput struct {
-	Project  string   `json:"project" jsonschema:"required,project name"`
+	Project  string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string   `json:"card_id" jsonschema:"required,card ID"`
 	Title    *string  `json:"title,omitempty" jsonschema:"new title"`
 	Priority *string  `json:"priority,omitempty" jsonschema:"new priority"`
@@ -79,20 +93,20 @@ type updateCardInput struct {
 }
 
 type transitionCardInput struct {
-	Project  string `json:"project" jsonschema:"required,project name"`
+	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition"`
 	NewState string `json:"new_state" jsonschema:"required,target state"`
 }
 
 type agentCardInput struct {
-	Project string `json:"project" jsonschema:"required,project name"`
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
 }
 
 type addLogInput struct {
-	Project string `json:"project" jsonschema:"required,project name"`
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
 	Action  string `json:"action" jsonschema:"required,action type (e.g. status_update/note/blocker)"`
@@ -100,7 +114,7 @@ type addLogInput struct {
 }
 
 type getTaskContextInput struct {
-	Project string `json:"project" jsonschema:"required,project name"`
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 }
 type getTaskContextOutput struct {
@@ -111,7 +125,7 @@ type getTaskContextOutput struct {
 }
 
 type completeTaskInput struct {
-	Project string `json:"project" jsonschema:"required,project name"`
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
 	Summary string `json:"summary" jsonschema:"required,one-line summary of what was done"`
@@ -122,7 +136,7 @@ type completeTaskOutput struct {
 }
 
 type getSubtaskSummaryInput struct {
-	Project  string `json:"project" jsonschema:"required,project name"`
+	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from parent ID if omitted)"`
 	ParentID string `json:"parent_id" jsonschema:"required,parent card ID"`
 }
 type getSubtaskSummaryOutput struct {
@@ -182,7 +196,11 @@ func registerGetCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "get_card",
 		Description: "Get a single card by ID, including its full body and metadata.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getCardInput) (*mcp.CallToolResult, *board.Card, error) {
-		card, err := svc.GetCard(ctx, input.Project, input.CardID)
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
@@ -234,13 +252,17 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "update_card",
 		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state — use transition_card for state changes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *board.Card, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
 		patchInput := service.PatchCardInput{
 			Title:    input.Title,
 			Priority: input.Priority,
 			Labels:   input.Labels,
 			Body:     input.Body,
 		}
-		card, err := svc.PatchCard(ctx, input.Project, input.CardID, patchInput)
+		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("update card %s: %w", input.CardID, err)
 		}
@@ -253,10 +275,14 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "transition_card",
 		Description: "Change a card's state. Validates that the transition is allowed by the project's state machine. Returns 'invalid state transition' error with valid targets if not allowed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input transitionCardInput) (*mcp.CallToolResult, *board.Card, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
 		patchInput := service.PatchCardInput{
 			State: &input.NewState,
 		}
-		card, err := svc.PatchCard(ctx, input.Project, input.CardID, patchInput)
+		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("transition card %s to %s: %w", input.CardID, input.NewState, err)
 		}
@@ -269,13 +295,17 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "claim_card",
 		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *board.Card, error) {
-		card, err := svc.ClaimCard(ctx, input.Project, input.CardID, input.AgentID)
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+		card, err := svc.ClaimCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("claim card %s: %w", input.CardID, err)
 		}
 		// Auto-transition to in_progress if possible
 		if card.State != "in_progress" {
-			if transitioned, err := svc.TransitionTo(ctx, input.Project, input.CardID, "in_progress"); err == nil {
+			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, "in_progress"); err == nil {
 				card = transitioned
 			}
 		}
@@ -288,7 +318,11 @@ func registerReleaseCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "release_card",
 		Description: "Release an agent's claim on a card. The agent_id must match the current owner. After release, any agent can claim the card.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *board.Card, error) {
-		card, err := svc.ReleaseCard(ctx, input.Project, input.CardID, input.AgentID)
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+		card, err := svc.ReleaseCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("release card %s: %w", input.CardID, err)
 		}
@@ -301,7 +335,11 @@ func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 		Name:        "heartbeat",
 		Description: "Update the heartbeat timestamp for a claimed card. MUST be called periodically (at least every 30 minutes) while working on a task, or the card will be marked stalled and your claim released.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, any, error) {
-		if err := svc.HeartbeatCard(ctx, input.Project, input.CardID, input.AgentID); err != nil {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := svc.HeartbeatCard(ctx, project, input.CardID, input.AgentID); err != nil {
 			return nil, nil, fmt.Errorf("heartbeat card %s: %w", input.CardID, err)
 		}
 		return nil, nil, nil
@@ -313,15 +351,19 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 		Name:        "add_log",
 		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, *board.Card, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
 		entry := board.ActivityEntry{
 			Agent:   input.AgentID,
 			Action:  input.Action,
 			Message: input.Message,
 		}
-		if err := svc.AddLogEntry(ctx, input.Project, input.CardID, entry); err != nil {
+		if err := svc.AddLogEntry(ctx, project, input.CardID, entry); err != nil {
 			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
 		}
-		card, err := svc.GetCard(ctx, input.Project, input.CardID)
+		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card after log: %w", err)
 		}
@@ -334,12 +376,16 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 		Name:        "get_task_context",
 		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getTaskContextInput) (*mcp.CallToolResult, getTaskContextOutput, error) {
-		card, err := svc.GetCard(ctx, input.Project, input.CardID)
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, getTaskContextOutput{}, err
+		}
+		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, getTaskContextOutput{}, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
 
-		cfg, err := svc.GetProject(ctx, input.Project)
+		cfg, err := svc.GetProject(ctx, project)
 		if err != nil {
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
@@ -351,7 +397,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 
 		// Load parent if set
 		if card.Parent != "" {
-			parent, err := svc.GetCard(ctx, input.Project, card.Parent)
+			parent, err := svc.GetCard(ctx, project, card.Parent)
 			if err == nil {
 				out.Parent = parent
 			}
@@ -359,7 +405,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 
 		// Load siblings (cards with same parent)
 		if card.Parent != "" {
-			siblings, err := svc.ListCards(ctx, input.Project, storage.CardFilter{Parent: card.Parent})
+			siblings, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
 			if err == nil {
 				// Exclude self from siblings
 				filtered := make([]*board.Card, 0, len(siblings))
@@ -381,18 +427,22 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		Name:        "complete_task",
 		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. When a main task transitions to review, the response includes a next_step field with instructions to invoke the review-task skill — follow it. Use this instead of separate add_log + transition_card calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeTaskInput) (*mcp.CallToolResult, completeTaskOutput, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, completeTaskOutput{}, err
+		}
 		// Add completion log entry
 		entry := board.ActivityEntry{
 			Agent:   input.AgentID,
 			Action:  "completed",
 			Message: input.Summary,
 		}
-		if err := svc.AddLogEntry(ctx, input.Project, input.CardID, entry); err != nil {
+		if err := svc.AddLogEntry(ctx, project, input.CardID, entry); err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("add completion log: %w", err)
 		}
 
 		// Determine target state: subtasks go to done, main tasks go to review
-		card, err := svc.GetCard(ctx, input.Project, input.CardID)
+		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
 		}
@@ -402,12 +452,12 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		}
 
 		// Walk through intermediate transitions to reach target state
-		if _, err := svc.TransitionTo(ctx, input.Project, input.CardID, targetState); err != nil {
+		if _, err := svc.TransitionTo(ctx, project, input.CardID, targetState); err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("transition to %s: %w", targetState, err)
 		}
 
 		// Release the claim
-		card, err = svc.ReleaseCard(ctx, input.Project, input.CardID, input.AgentID)
+		card, err = svc.ReleaseCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("release card: %w", err)
 		}
@@ -430,7 +480,11 @@ func registerGetSubtaskSummary(server *mcp.Server, svc *service.CardService) {
 		Name:        "get_subtask_summary",
 		Description: "Get counts of subtasks by state for a parent card. Returns {todo: N, in_progress: N, done: N, ...}. Use this to check if all subtasks are done before transitioning the parent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSubtaskSummaryInput) (*mcp.CallToolResult, getSubtaskSummaryOutput, error) {
-		cards, err := svc.ListCards(ctx, input.Project, storage.CardFilter{Parent: input.ParentID})
+		project, err := resolveProject(ctx, svc, input.Project, input.ParentID)
+		if err != nil {
+			return nil, getSubtaskSummaryOutput{}, err
+		}
+		cards, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: input.ParentID})
 		if err != nil {
 			return nil, getSubtaskSummaryOutput{}, fmt.Errorf("list subtasks: %w", err)
 		}
@@ -481,7 +535,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 }
 
 type reportUsageInput struct {
-	Project          string `json:"project" jsonschema:"required,project name"`
+	Project          string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID           string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID          string `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
 	Model            string `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
@@ -494,7 +548,11 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 		Name:        "report_usage",
 		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, and recalculates estimated cost based on the model's configured rates. Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *board.Card, error) {
-		card, err := svc.ReportUsage(ctx, input.Project, input.CardID, service.ReportUsageInput{
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+		card, err := svc.ReportUsage(ctx, project, input.CardID, service.ReportUsageInput{
 			AgentID:          input.AgentID,
 			Model:            input.Model,
 			PromptTokens:     input.PromptTokens,
