@@ -10,6 +10,8 @@ import { AppHeader } from './components/AppHeader';
 import type { ViewType } from './components/AppHeader';
 import { Board } from './components/Board';
 import { Dashboard } from './components/Dashboard';
+import { ProjectSettings } from './components/ProjectSettings/ProjectSettings';
+import { NewProjectWizard } from './components/NewProjectWizard/NewProjectWizard';
 import { CardPanel } from './components/CardPanel';
 import { CreateCardPanel } from './components/CreateCardPanel';
 import { ToastContainer } from './components/Toast';
@@ -21,13 +23,14 @@ function App() {
   const [view, setView] = useState<ViewType>('board');
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const toastState = useToastState();
   const { agentId, promptForAgentId } = useAgentId();
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
     api
       .getProjects()
       .then((p) => {
@@ -40,7 +43,27 @@ function App() {
       .finally(() => setProjectsLoading(false));
   }, [selectedProject]);
 
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
   const { config, cards, loading, error, connected, updateCardLocally } = useBoard(selectedProject);
+
+  // Refresh project list when SSE project events arrive
+  useEffect(() => {
+    if (!connected) return;
+    const es = new EventSource('/api/events');
+    const handler = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type?.startsWith('project.')) {
+          loadProjects();
+        }
+      } catch { /* ignore parse errors */ }
+    };
+    es.addEventListener('message', handler);
+    return () => { es.close(); };
+  }, [connected, loadProjects]);
 
   const { handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard } =
     useCardActions({
@@ -79,6 +102,35 @@ function App() {
     [cards]
   );
 
+  const handleProjectCreated = useCallback(
+    (config: ProjectConfig) => {
+      setProjects((prev) => [...prev, config]);
+      setSelectedProject(config.name);
+      setNewProjectOpen(false);
+      setView('board');
+      toastState.showToast(`Project "${config.name}" created`, 'success');
+    },
+    [toastState]
+  );
+
+  const handleProjectUpdated = useCallback(
+    (updated: ProjectConfig) => {
+      setProjects((prev) => prev.map((p) => (p.name === updated.name ? updated : p)));
+    },
+    []
+  );
+
+  const handleProjectDeleted = useCallback(() => {
+    setProjects((prev) => prev.filter((p) => p.name !== selectedProject));
+    setView('board');
+    // Switch to first remaining project
+    setProjects((prev) => {
+      if (prev.length > 0) setSelectedProject(prev[0].name);
+      else setSelectedProject('');
+      return prev;
+    });
+  }, [selectedProject]);
+
   const currentSelectedCard = selectedCard
     ? cards.find((c) => c.id === selectedCard.id) || selectedCard
     : null;
@@ -90,6 +142,7 @@ function App() {
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) setView('board'); } },
         { key: 'd', handler: () => { if (!panelOpen) setView('dashboard'); } },
+        { key: 's', handler: () => { if (!panelOpen) setView('settings'); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
           handler: () => { if (i < projects.length) setSelectedProject(projects[i].name); },
@@ -110,6 +163,7 @@ function App() {
           connected={connected}
           view={view}
           onViewChange={setView}
+          onNewProject={() => setNewProjectOpen(true)}
         />
 
         <ErrorBoundary>
@@ -119,7 +173,14 @@ function App() {
                 {projectsError}
               </div>
             )}
-            {selectedProject && view === 'dashboard' ? (
+            {selectedProject && view === 'settings' ? (
+              <ProjectSettings
+                project={selectedProject}
+                onUpdated={handleProjectUpdated}
+                onDeleted={handleProjectDeleted}
+                showToast={toastState.showToast}
+              />
+            ) : selectedProject && view === 'dashboard' ? (
               <Dashboard project={selectedProject} />
             ) : selectedProject && config ? (
               <Board cards={cards} config={config} loading={loading} error={error}
@@ -144,6 +205,12 @@ function App() {
           {createPanelOpen && config && (
             <CreateCardPanel config={config} cards={cards}
               onClose={() => setCreatePanelOpen(false)} onCreate={onCreateCard} />
+          )}
+          {newProjectOpen && (
+            <NewProjectWizard
+              onClose={() => setNewProjectOpen(false)}
+              onCreated={handleProjectCreated}
+            />
           )}
         </ErrorBoundary>
 

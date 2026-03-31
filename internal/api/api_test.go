@@ -1644,3 +1644,215 @@ func TestGetProjectDashboard(t *testing.T) {
 	defer closeBody(t, resp2.Body)
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
+
+// emptyTestSetup creates a test environment with no pre-existing projects.
+func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	git, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil)
+
+	return svc, bus
+}
+
+func validProjectBody() createProjectRequest {
+	return createProjectRequest{
+		Name:       "new-project",
+		Prefix:     "NEW",
+		Repo:       "git@github.com:org/new-project.git",
+		States:     []string{"todo", "in_progress", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+}
+
+func TestCreateProject_API(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body, _ := json.Marshal(validProjectBody())
+	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var cfg board.ProjectConfig
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	assert.Equal(t, "new-project", cfg.Name)
+	assert.Equal(t, "NEW", cfg.Prefix)
+	assert.Equal(t, 1, cfg.NextID)
+}
+
+func TestCreateProject_API_Conflict(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body, _ := json.Marshal(validProjectBody())
+	resp1, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	closeBody(t, resp1.Body)
+	assert.Equal(t, http.StatusCreated, resp1.StatusCode)
+
+	resp2, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer closeBody(t, resp2.Body)
+	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
+}
+
+func TestCreateProject_API_BadRequest(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req := validProjectBody()
+	req.Name = ""
+	body, _ := json.Marshal(req)
+	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestUpdateProject_API(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req := updateProjectRequest{
+		Repo:       "git@github.com:org/test.git",
+		States:     []string{"todo", "in_progress", "review", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"review", "todo"},
+			"review":      {"done", "in_progress"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+	body, _ := json.Marshal(req)
+
+	httpReq, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project", bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var cfg board.ProjectConfig
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	assert.Contains(t, cfg.States, "review")
+	assert.Equal(t, "git@github.com:org/test.git", cfg.Repo)
+}
+
+func TestUpdateProject_API_NotFound(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body, _ := json.Marshal(updateProjectRequest{
+		States:     []string{"todo", "done", "stalled"},
+		Types:      []string{"task"},
+		Priorities: []string{"low"},
+		Transitions: map[string][]string{
+			"todo":    {"done"},
+			"done":    {"todo"},
+			"stalled": {"todo"},
+		},
+	})
+
+	httpReq, _ := http.NewRequest("PUT", server.URL+"/api/projects/nonexistent", bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestDeleteProject_API(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a project first
+	body, _ := json.Marshal(validProjectBody())
+	resp1, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	closeBody(t, resp1.Body)
+
+	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/new-project", nil)
+	resp, err := http.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	// Verify gone
+	resp2, err := http.Get(server.URL + "/api/projects/new-project")
+	require.NoError(t, err)
+	defer closeBody(t, resp2.Body)
+	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+}
+
+func TestDeleteProject_API_HasCards(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card first
+	cardBody, _ := json.Marshal(map[string]any{
+		"title": "Test", "type": "task", "priority": "medium",
+	})
+	resp1, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(cardBody))
+	require.NoError(t, err)
+	closeBody(t, resp1.Body)
+
+	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/test-project", nil)
+	resp, err := http.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestDeleteProject_API_NotFound(t *testing.T) {
+	svc, bus := emptyTestSetup(t)
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/nonexistent", nil)
+	resp, err := http.DefaultClient.Do(httpReq)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

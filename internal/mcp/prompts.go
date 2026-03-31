@@ -55,6 +55,14 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 			{Name: "card_id", Description: "Parent card ID to document (e.g. ALPHA-001)", Required: true},
 		},
 	}, documentTaskPromptHandler(svc, skillsDir))
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "init-project",
+		Description: "Initialize a new ContextMatrix project board for the current repository. Auto-detects repo URL and derives project name.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "name", Description: "Optional project name (auto-detected from repo if omitted)"},
+		},
+	}, initProjectPromptHandler(svc, skillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
@@ -241,6 +249,38 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 			Description: fmt.Sprintf("Document task %s: %s", card.ID, card.Title),
 			Messages: []*mcp.PromptMessage{
 				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
+			},
+		}, nil
+	}
+}
+
+// initProjectPromptHandler returns the handler for init-project prompt.
+func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		skill, err := readSkillFile(skillsDir, "init-project.md")
+		if err != nil {
+			return nil, err
+		}
+
+		// Inject existing project names so agent can avoid collisions
+		projects, err := svc.ListProjects(ctx)
+		if err == nil && len(projects) > 0 {
+			var names []string
+			for _, p := range projects {
+				names = append(names, p.Name)
+			}
+			skill = "Existing projects on this board: " + strings.Join(names, ", ") + "\n\n" + skill
+		}
+
+		name := req.Params.Arguments["name"]
+		if name != "" {
+			skill = "Suggested project name: " + name + "\n\n" + skill
+		}
+
+		return &mcp.GetPromptResult{
+			Description: "Initialize a new project board",
+			Messages: []*mcp.PromptMessage{
+				{Role: "user", Content: &mcp.TextContent{Text: skill}},
 			},
 		}, nil
 	}

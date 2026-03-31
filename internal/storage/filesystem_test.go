@@ -510,3 +510,64 @@ func TestFilesystemStore_LoadExistingCards(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "in_progress", loaded2.State)
 }
+
+func TestFilesystemStore_DeleteProject(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	err = store.DeleteProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	// Should be gone from index
+	_, err = store.GetProject(context.Background(), "test-project")
+	assert.ErrorIs(t, err, ErrProjectNotFound)
+
+	// Should be gone from disk
+	projects, err := store.ListProjects(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, projects)
+}
+
+func TestFilesystemStore_DeleteProject_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	err = store.DeleteProject(context.Background(), "nonexistent")
+	assert.ErrorIs(t, err, ErrProjectNotFound)
+}
+
+func TestFilesystemStore_ProjectCardCount(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	// Empty project
+	count, err := store.ProjectCardCount(context.Background(), "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Add cards
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", testCard("TEST-001", "todo")))
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", testCard("TEST-002", "todo")))
+
+	count, err = store.ProjectCardCount(context.Background(), "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+}
+
+func TestFilesystemStore_ProjectCardCount_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	_, err = store.ProjectCardCount(context.Background(), "nonexistent")
+	assert.ErrorIs(t, err, ErrProjectNotFound)
+}

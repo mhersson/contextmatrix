@@ -21,6 +21,9 @@ const (
 	CardStalled      EventType = "card.stalled"
 	CardLogAdded        EventType = "card.log_added"
 	CardUsageReported   EventType = "card.usage_reported"
+	ProjectCreated      EventType = "project.created"
+	ProjectUpdated      EventType = "project.updated"
+	ProjectDeleted      EventType = "project.deleted"
 )
 
 // Event represents a board event that can be published to subscribers.

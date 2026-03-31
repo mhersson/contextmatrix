@@ -12,6 +12,12 @@ var (
 	// ErrProjectNotFound is returned when a project directory or .board.yaml does not exist.
 	ErrProjectNotFound = errors.New("project not found")
 
+	// ErrProjectExists is returned when attempting to create a project that already exists.
+	ErrProjectExists = errors.New("project already exists")
+
+	// ErrProjectHasCards is returned when attempting to delete a project that still contains cards.
+	ErrProjectHasCards = errors.New("project has cards")
+
 	// ErrCardNotFound is returned when a card file does not exist.
 	ErrCardNotFound = errors.New("card not found")
 
@@ -43,6 +49,14 @@ type Store interface {
 	// SaveProject persists a project configuration.
 	// Creates the project directory if it does not exist.
 	SaveProject(ctx context.Context, cfg *board.ProjectConfig) error
+
+	// DeleteProject removes a project and its directory from disk.
+	// Returns ErrProjectNotFound if the project does not exist.
+	DeleteProject(ctx context.Context, name string) error
+
+	// ProjectCardCount returns the number of cards in a project.
+	// Returns ErrProjectNotFound if the project does not exist.
+	ProjectCardCount(ctx context.Context, name string) (int, error)
 
 	// ListCards returns all cards in a project matching the filter.
 	// Returns ErrProjectNotFound if the project does not exist.

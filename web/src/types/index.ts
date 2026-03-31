@@ -78,7 +78,10 @@ export type EventType =
   | 'card.released'
   | 'card.stalled'
   | 'card.log_added'
-  | 'card.usage_reported';
+  | 'card.usage_reported'
+  | 'project.created'
+  | 'project.updated'
+  | 'project.deleted';
 
 export interface BoardEvent {
   type: EventType;
@@ -159,4 +162,22 @@ export interface DashboardData {
   cards_completed_today: number;
   agent_costs: AgentCost[];
   card_costs: CardCost[];
+}
+
+export interface CreateProjectInput {
+  name: string;
+  prefix: string;
+  repo?: string;
+  states: string[];
+  types: string[];
+  priorities: string[];
+  transitions: Record<string, string[]>;
+}
+
+export interface UpdateProjectInput {
+  repo?: string;
+  states: string[];
+  types: string[];
+  priorities: string[];
+  transitions: Record<string, string[]>;
 }

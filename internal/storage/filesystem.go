@@ -223,6 +223,38 @@ func (s *FilesystemStore) SaveProject(_ context.Context, cfg *board.ProjectConfi
 	return nil
 }
 
+// DeleteProject removes a project and its directory from disk.
+func (s *FilesystemStore) DeleteProject(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.projects[name]; !ok {
+		return ErrProjectNotFound
+	}
+
+	projectDir := s.projectPath(name)
+	if err := os.RemoveAll(projectDir); err != nil {
+		return fmt.Errorf("remove project directory: %w", err)
+	}
+
+	delete(s.projects, name)
+
+	return nil
+}
+
+// ProjectCardCount returns the number of cards in a project.
+func (s *FilesystemStore) ProjectCardCount(_ context.Context, name string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	idx, ok := s.projects[name]
+	if !ok {
+		return 0, ErrProjectNotFound
+	}
+
+	return len(idx.cards), nil
+}
+
 // ListCards returns all cards in a project matching the filter.
 func (s *FilesystemStore) ListCards(_ context.Context, project string, filter CardFilter) ([]*board.Card, error) {
 	s.mu.RLock()

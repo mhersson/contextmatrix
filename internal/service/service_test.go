@@ -1297,3 +1297,278 @@ func TestGetDashboard(t *testing.T) {
 	// Agent costs: card1 has no assigned agent (grouped as "unassigned"), card2 has "agent-1".
 	assert.Len(t, dashboard.AgentCosts, 2)
 }
+
+// setupEmptyTest creates a test environment with no projects.
+func setupEmptyTest(t *testing.T) (*CardService, string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
+	return svc, boardsDir
+}
+
+func validCreateProjectInput() CreateProjectInput {
+	return CreateProjectInput{
+		Name:       "my-project",
+		Prefix:     "MYPRJ",
+		States:     []string{"todo", "in_progress", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+}
+
+func TestCreateProject(t *testing.T) {
+	svc, boardsDir := setupEmptyTest(t)
+	ctx := context.Background()
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	input := validCreateProjectInput()
+	input.Repo = "git@github.com:org/my-project.git"
+
+	cfg, err := svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, "my-project", cfg.Name)
+	assert.Equal(t, "MYPRJ", cfg.Prefix)
+	assert.Equal(t, 1, cfg.NextID)
+	assert.Equal(t, "git@github.com:org/my-project.git", cfg.Repo)
+
+	// Verify project is retrievable
+	got, err := svc.GetProject(ctx, "my-project")
+	require.NoError(t, err)
+	assert.Equal(t, "my-project", got.Name)
+
+	// Verify tasks directory was created
+	_, err = os.Stat(filepath.Join(boardsDir, "my-project", "tasks"))
+	assert.NoError(t, err)
+
+	// Verify event
+	select {
+	case evt := <-ch:
+		assert.Equal(t, events.ProjectCreated, evt.Type)
+		assert.Equal(t, "my-project", evt.Project)
+	case <-time.After(time.Second):
+		t.Fatal("expected ProjectCreated event")
+	}
+}
+
+func TestCreateProject_AlreadyExists(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	input := validCreateProjectInput()
+	_, err := svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+
+	_, err = svc.CreateProject(ctx, input)
+	assert.ErrorIs(t, err, storage.ErrProjectExists)
+}
+
+func TestCreateProject_InvalidName(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+	}{
+		{""},
+		{"has spaces"},
+		{"-starts-with-hyphen"},
+		{"has/slash"},
+		{"has.dot"},
+	}
+
+	for _, tt := range tests {
+		input := validCreateProjectInput()
+		input.Name = tt.name
+		_, err := svc.CreateProject(ctx, input)
+		assert.Error(t, err, "name %q should be rejected", tt.name)
+	}
+}
+
+func TestCreateProject_MissingStalledState(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	input := validCreateProjectInput()
+	input.States = []string{"todo", "done"} // missing stalled
+	input.Transitions = map[string][]string{
+		"todo": {"done"},
+		"done": {"todo"},
+	}
+
+	_, err := svc.CreateProject(ctx, input)
+	assert.Error(t, err)
+}
+
+func TestUpdateProject(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	input := UpdateProjectInput{
+		Repo:       "git@github.com:org/test.git",
+		States:     []string{"todo", "in_progress", "review", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature", "chore"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"review", "todo"},
+			"review":      {"done", "in_progress"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+
+	cfg, err := svc.UpdateProject(ctx, "test-project", input)
+	require.NoError(t, err)
+	assert.Equal(t, "test-project", cfg.Name)
+	assert.Equal(t, "TEST", cfg.Prefix) // Immutable
+	assert.Contains(t, cfg.States, "review")
+	assert.Contains(t, cfg.Types, "chore")
+	assert.Equal(t, "git@github.com:org/test.git", cfg.Repo)
+
+	// Verify event
+	select {
+	case evt := <-ch:
+		assert.Equal(t, events.ProjectUpdated, evt.Type)
+	case <-time.After(time.Second):
+		t.Fatal("expected ProjectUpdated event")
+	}
+}
+
+func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a card in "todo" state
+	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Try to remove "todo" from states
+	input := UpdateProjectInput{
+		States:     []string{"in_progress", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"in_progress": {"done"},
+			"done":        {"in_progress"},
+			"stalled":     {"in_progress"},
+		},
+	}
+
+	_, err = svc.UpdateProject(ctx, "test-project", input)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove state")
+}
+
+func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	input := UpdateProjectInput{
+		States:     []string{"todo", "in_progress", "done", "stalled"},
+		Types:      []string{"bug", "feature"}, // removed "task"
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+
+	_, err = svc.UpdateProject(ctx, "test-project", input)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove type")
+}
+
+func TestUpdateProject_NotFound(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	_, err := svc.UpdateProject(ctx, "nonexistent", UpdateProjectInput{})
+	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
+}
+
+func TestDeleteProject(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	// Create a project first
+	input := validCreateProjectInput()
+	_, err := svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	err = svc.DeleteProject(ctx, "my-project")
+	require.NoError(t, err)
+
+	// Verify gone
+	_, err = svc.GetProject(ctx, "my-project")
+	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
+
+	// Verify event
+	select {
+	case evt := <-ch:
+		assert.Equal(t, events.ProjectDeleted, evt.Type)
+	case <-time.After(time.Second):
+		t.Fatal("expected ProjectDeleted event")
+	}
+}
+
+func TestDeleteProject_HasCards(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// test-project already has setupTest, create a card
+	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	err = svc.DeleteProject(ctx, "test-project")
+	assert.ErrorIs(t, err, storage.ErrProjectHasCards)
+}
+
+func TestDeleteProject_NotFound(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	err := svc.DeleteProject(ctx, "nonexistent")
+	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
+}

@@ -31,6 +31,8 @@ const (
 	ErrCodeNotClaimed        = "NOT_CLAIMED"
 	ErrCodeAgentMismatch     = "AGENT_MISMATCH"
 	ErrCodeDependenciesNotMet = "DEPENDENCIES_NOT_MET"
+	ErrCodeProjectExists      = "PROJECT_EXISTS"
+	ErrCodeProjectHasCards    = "PROJECT_HAS_CARDS"
 	ErrCodeInternalError      = "INTERNAL_ERROR"
 	ErrCodeBadRequest         = "BAD_REQUEST"
 )
@@ -62,7 +64,10 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *ht
 
 	// Project routes
 	mux.HandleFunc("GET /api/projects", ph.listProjects)
+	mux.HandleFunc("POST /api/projects", ph.createProject)
 	mux.HandleFunc("GET /api/projects/{project}", ph.getProject)
+	mux.HandleFunc("PUT /api/projects/{project}", ph.updateProject)
+	mux.HandleFunc("DELETE /api/projects/{project}", ph.deleteProject)
 
 	// Card routes
 	mux.HandleFunc("GET /api/projects/{project}/cards", ch.listCards)
@@ -226,6 +231,14 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
+	case errors.Is(err, storage.ErrProjectExists):
+		writeError(w, http.StatusConflict, ErrCodeProjectExists, "project already exists", "")
+	case errors.Is(err, board.ErrInvalidProjectConfig),
+		errors.Is(err, board.ErrMissingStalledState),
+		errors.Is(err, board.ErrMissingStalledTransitions):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", err.Error())
+	case errors.Is(err, storage.ErrProjectHasCards):
+		writeError(w, http.StatusConflict, ErrCodeProjectHasCards, "project has cards", err.Error())
 	case errors.Is(err, storage.ErrCardExists):
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
 	case errors.Is(err, board.ErrDependenciesNotMet):

@@ -4,7 +4,9 @@ import type {
   CardFilter,
   APIError,
   CreateCardInput,
+  CreateProjectInput,
   UpdateCardInput,
+  UpdateProjectInput,
   PatchCardInput,
   CardContext,
   DashboardData,
@@ -68,6 +70,29 @@ class APIClient {
 
   async getProject(name: string): Promise<ProjectConfig> {
     return this.request<ProjectConfig>(`/projects/${name}`);
+  }
+
+  async createProject(input: CreateProjectInput): Promise<ProjectConfig> {
+    return this.request<ProjectConfig>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateProject(
+    name: string,
+    input: UpdateProjectInput
+  ): Promise<ProjectConfig> {
+    return this.request<ProjectConfig>(`/projects/${name}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteProject(name: string): Promise<void> {
+    return this.request<void>(`/projects/${name}`, {
+      method: 'DELETE',
+    });
   }
 
   // Cards

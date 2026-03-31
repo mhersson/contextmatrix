@@ -78,7 +78,7 @@ func setupMCP(t *testing.T) *testEnv {
 	// Create skills directory with stub skill files
 	skillsDir := filepath.Join(tmpDir, "skills")
 	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
-	for _, name := range []string{"create-task.md", "create-plan.md", "execute-task.md", "review-task.md", "document-task.md"} {
+	for _, name := range []string{"create-task.md", "create-plan.md", "execute-task.md", "review-task.md", "document-task.md", "init-project.md"} {
 		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte("# "+name+"\nSkill instructions here."), 0o644))
 	}
 
@@ -168,6 +168,9 @@ func TestListTools(t *testing.T) {
 		"get_subtask_summary",
 		"get_ready_tasks",
 		"report_usage",
+		"create_project",
+		"update_project",
+		"delete_project",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -769,6 +772,7 @@ func TestListPrompts(t *testing.T) {
 		"execute-task",
 		"review-task",
 		"document-task",
+		"init-project",
 	}
 
 	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))
@@ -1144,4 +1148,119 @@ func TestReportUsage(t *testing.T) {
 	unmarshalResult(t, result, &updated)
 	assert.Equal(t, int64(8000), updated.TokenUsage.PromptTokens)
 	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
+}
+
+func TestCreateProject_MCP(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "create_project", map[string]any{
+		"name":       "new-project",
+		"prefix":     "NEW",
+		"repo":       "git@github.com:org/new-project.git",
+		"states":     []string{"todo", "in_progress", "done", "stalled"},
+		"types":      []string{"task", "bug"},
+		"priorities": []string{"low", "high"},
+		"transitions": map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	})
+	require.False(t, result.IsError, "create_project should not error")
+
+	var cfg board.ProjectConfig
+	unmarshalResult(t, result, &cfg)
+	assert.Equal(t, "new-project", cfg.Name)
+	assert.Equal(t, "NEW", cfg.Prefix)
+	assert.Equal(t, 1, cfg.NextID)
+
+	// Verify project is listable
+	listResult := callTool(t, env, "list_projects", map[string]any{})
+	require.False(t, listResult.IsError)
+	var listOutput listProjectsOutput
+	unmarshalResult(t, listResult, &listOutput)
+	assert.Len(t, listOutput.Projects, 2) // test-project + new-project
+}
+
+func TestUpdateProject_MCP(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "update_project", map[string]any{
+		"project":    "test-project",
+		"repo":       "git@github.com:org/test.git",
+		"states":     []string{"todo", "in_progress", "review", "done", "stalled"},
+		"types":      []string{"task", "bug", "feature"},
+		"priorities": []string{"low", "medium", "high", "critical"},
+		"transitions": map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"review", "todo"},
+			"review":      {"done", "in_progress"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	})
+	require.False(t, result.IsError, "update_project should not error")
+
+	var cfg board.ProjectConfig
+	unmarshalResult(t, result, &cfg)
+	assert.Contains(t, cfg.States, "review")
+	assert.Equal(t, "git@github.com:org/test.git", cfg.Repo)
+}
+
+func TestDeleteProject_MCP(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create a project to delete
+	createResult := callTool(t, env, "create_project", map[string]any{
+		"name":       "temp-project",
+		"prefix":     "TMP",
+		"states":     []string{"todo", "done", "stalled"},
+		"types":      []string{"task"},
+		"priorities": []string{"low"},
+		"transitions": map[string][]string{
+			"todo":    {"done"},
+			"done":    {"todo"},
+			"stalled": {"todo"},
+		},
+	})
+	require.False(t, createResult.IsError)
+
+	result := callTool(t, env, "delete_project", map[string]any{
+		"project": "temp-project",
+	})
+	require.False(t, result.IsError, "delete_project should not error")
+
+	// Verify deleted
+	listResult := callTool(t, env, "list_projects", map[string]any{})
+	var listOutput listProjectsOutput
+	unmarshalResult(t, listResult, &listOutput)
+	assert.Len(t, listOutput.Projects, 1) // only test-project remains
+}
+
+func TestInitProjectPrompt(t *testing.T) {
+	env := setupMCP(t)
+
+	// List prompts — should include init-project
+	result, err := env.session.ListPrompts(context.Background(), nil)
+	require.NoError(t, err)
+
+	promptNames := make(map[string]bool)
+	for _, p := range result.Prompts {
+		promptNames[p.Name] = true
+	}
+	assert.True(t, promptNames["init-project"], "init-project prompt should be listed")
+
+	// Get prompt with name argument
+	promptResult, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "init-project",
+		Arguments: map[string]string{"name": "my-new-project"},
+	})
+	require.NoError(t, err)
+	require.Len(t, promptResult.Messages, 1)
+
+	text := promptResult.Messages[0].Content.(*mcp.TextContent).Text
+	assert.Contains(t, text, "my-new-project")
+	assert.Contains(t, text, "init-project")
+	assert.Contains(t, text, "test-project") // existing project should be listed
 }
