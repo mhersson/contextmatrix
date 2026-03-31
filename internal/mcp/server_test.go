@@ -171,6 +171,7 @@ func TestListTools(t *testing.T) {
 		"create_project",
 		"update_project",
 		"delete_project",
+		"get_skill",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -1316,4 +1317,107 @@ func TestInitProjectPrompt(t *testing.T) {
 	assert.Contains(t, text, "my-new-project")
 	assert.Contains(t, text, "init-project")
 	assert.Contains(t, text, "test-project") // existing project should be listed
+}
+
+// --- get_skill tool tests ---
+
+func TestGetSkill_CreateTask(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":  "create-task",
+		"description": "Build a login page",
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "create-task", out.SkillName)
+	assert.Contains(t, out.Content, "Build a login page")
+	assert.Contains(t, out.Content, "Skill instructions here.")
+}
+
+func TestGetSkill_CreatePlan(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Auth middleware", "task", "high")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "create-plan",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "create-plan", out.SkillName)
+	assert.Contains(t, out.Content, card.ID)
+	assert.Contains(t, out.Content, "Auth middleware")
+	assert.Contains(t, out.Content, "Skill instructions here.")
+}
+
+func TestGetSkill_ExecuteTask(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Implement JWT", "task", "high")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "execute-task",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "execute-task", out.SkillName)
+	assert.Contains(t, out.Content, card.ID)
+	assert.Contains(t, out.Content, "Implement JWT")
+}
+
+func TestGetSkill_ReviewTask(t *testing.T) {
+	env := setupMCP(t)
+	parent := createTestCard(t, env, "Auth feature", "feature", "high")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "review-task",
+		"card_id":    parent.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "review-task", out.SkillName)
+	assert.Contains(t, out.Content, parent.ID)
+}
+
+func TestGetSkill_InitProject(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "init-project",
+		"name":       "my-project",
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "init-project", out.SkillName)
+	assert.Contains(t, out.Content, "my-project")
+	assert.Contains(t, out.Content, "test-project") // existing project listed
+}
+
+func TestGetSkill_UnknownSkill(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "get_skill", map[string]any{"skill_name": "nonexistent"})
+	require.True(t, result.IsError, "expected error result for unknown skill")
+	text := result.Content[0].(*mcp.TextContent).Text
+	assert.Contains(t, text, "unknown skill")
+}
+
+func TestGetSkill_MissingCardID(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "get_skill", map[string]any{"skill_name": "create-plan"})
+	require.True(t, result.IsError, "expected error result for missing card_id")
+	text := result.Content[0].(*mcp.TextContent).Text
+	assert.Contains(t, text, "card_id")
 }

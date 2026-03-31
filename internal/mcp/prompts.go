@@ -22,7 +22,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "description", Description: "Optional free-text description of the task to create"},
 		},
-	}, createTaskPromptHandler(skillsDir))
+	}, createTaskPromptHandler(svc, skillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "create-plan",
@@ -66,23 +66,17 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
-func createTaskPromptHandler(skillsDir string) mcp.PromptHandler {
-	return func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "create-task.md")
+func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		content, err := buildSkillContent(ctx, svc, skillsDir, "create-task", skillArgs{
+			Description: req.Params.Arguments["description"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		description := req.Params.Arguments["description"]
-		if description != "" {
-			skill = "User description: " + description + "\n\n" + skill
-		}
-
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: skill}},
-			},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
 }
@@ -90,31 +84,15 @@ func createTaskPromptHandler(skillsDir string) mcp.PromptHandler {
 // createPlanPromptHandler returns the handler for create-plan prompt.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "create-plan.md")
+		content, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
+			CardID: req.Params.Arguments["card_id"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		cardID := req.Params.Arguments["card_id"]
-		if cardID == "" {
-			return nil, fmt.Errorf("card_id argument is required")
-		}
-
-		// Find the card across all projects
-		card, project, err := findCard(ctx, svc, cardID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Inject card context
-		cardContext := formatCardContext(card, project)
-		skill = cardContext + "\n\n" + skill
-
 		return &mcp.GetPromptResult{
-			Description: fmt.Sprintf("Create plan for %s: %s", card.ID, card.Title),
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: skill}},
-			},
+			Description: "Create plan and subtasks for a card",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
 }
@@ -122,52 +100,15 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // executeTaskPromptHandler returns the handler for execute-task prompt.
 func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "execute-task.md")
+		content, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
+			CardID: req.Params.Arguments["card_id"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		cardID := req.Params.Arguments["card_id"]
-		if cardID == "" {
-			return nil, fmt.Errorf("card_id argument is required")
-		}
-
-		card, project, err := findCard(ctx, svc, cardID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Build full task context (card + parent + siblings)
-		var contextParts []string
-		contextParts = append(contextParts, formatCardContext(card, project))
-
-		if card.Parent != "" {
-			parent, err := svc.GetCard(ctx, project, card.Parent)
-			if err == nil {
-				contextParts = append(contextParts, "\n## Parent Card\n"+formatCardBrief(parent))
-			}
-
-			siblings, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
-			if err == nil {
-				var siblingLines []string
-				for _, s := range siblings {
-					if s.ID != card.ID {
-						siblingLines = append(siblingLines, fmt.Sprintf("- %s [%s] %s", s.ID, s.State, s.Title))
-					}
-				}
-				if len(siblingLines) > 0 {
-					contextParts = append(contextParts, "\n## Sibling Tasks\n"+strings.Join(siblingLines, "\n"))
-				}
-			}
-		}
-
-		fullContext := strings.Join(contextParts, "\n") + "\n\n" + skill
-
 		return &mcp.GetPromptResult{
-			Description: fmt.Sprintf("Execute task %s: %s", card.ID, card.Title),
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
-			},
+			Description: "Claim and execute a task",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
 }
@@ -175,40 +116,15 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 // reviewTaskPromptHandler returns the handler for review-task prompt.
 func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "review-task.md")
+		content, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
+			CardID: req.Params.Arguments["card_id"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		cardID := req.Params.Arguments["card_id"]
-		if cardID == "" {
-			return nil, fmt.Errorf("card_id argument is required")
-		}
-
-		card, project, err := findCard(ctx, svc, cardID)
-		if err != nil {
-			return nil, err
-		}
-
-		var contextParts []string
-		contextParts = append(contextParts, formatCardContext(card, project))
-
-		// Load all subtasks
-		subtasks, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
-		if err == nil && len(subtasks) > 0 {
-			contextParts = append(contextParts, "\n## Subtasks")
-			for _, sub := range subtasks {
-				contextParts = append(contextParts, formatCardBrief(sub))
-			}
-		}
-
-		fullContext := strings.Join(contextParts, "\n") + "\n\n" + skill
-
 		return &mcp.GetPromptResult{
-			Description: fmt.Sprintf("Review task %s: %s", card.ID, card.Title),
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
-			},
+			Description: "Review a completed task",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
 }
@@ -216,40 +132,15 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // documentTaskPromptHandler returns the handler for document-task prompt.
 func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "document-task.md")
+		content, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
+			CardID: req.Params.Arguments["card_id"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		cardID := req.Params.Arguments["card_id"]
-		if cardID == "" {
-			return nil, fmt.Errorf("card_id argument is required")
-		}
-
-		card, project, err := findCard(ctx, svc, cardID)
-		if err != nil {
-			return nil, err
-		}
-
-		var contextParts []string
-		contextParts = append(contextParts, formatCardContext(card, project))
-
-		// Load all subtasks
-		subtasks, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
-		if err == nil && len(subtasks) > 0 {
-			contextParts = append(contextParts, "\n## Subtasks")
-			for _, sub := range subtasks {
-				contextParts = append(contextParts, formatCardBrief(sub))
-			}
-		}
-
-		fullContext := strings.Join(contextParts, "\n") + "\n\n" + skill
-
 		return &mcp.GetPromptResult{
-			Description: fmt.Sprintf("Document task %s: %s", card.ID, card.Title),
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
-			},
+			Description: "Write documentation for a completed task",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
 }
@@ -257,33 +148,153 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 // initProjectPromptHandler returns the handler for init-project prompt.
 func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		skill, err := readSkillFile(skillsDir, "init-project.md")
+		content, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
+			Name: req.Params.Arguments["name"],
+		})
 		if err != nil {
 			return nil, err
 		}
-
-		// Inject existing project names so agent can avoid collisions
-		projects, err := svc.ListProjects(ctx)
-		if err == nil && len(projects) > 0 {
-			var names []string
-			for _, p := range projects {
-				names = append(names, p.Name)
-			}
-			skill = "Existing projects on this board: " + strings.Join(names, ", ") + "\n\n" + skill
-		}
-
-		name := req.Params.Arguments["name"]
-		if name != "" {
-			skill = "Suggested project name: " + name + "\n\n" + skill
-		}
-
 		return &mcp.GetPromptResult{
 			Description: "Initialize a new project board",
-			Messages: []*mcp.PromptMessage{
-				{Role: "user", Content: &mcp.TextContent{Text: skill}},
-			},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
 		}, nil
 	}
+}
+
+// --- Shared skill content builder ---
+
+// skillArgs holds optional arguments for building a skill's content.
+type skillArgs struct {
+	CardID      string
+	Description string
+	Name        string
+}
+
+// validSkillNames lists all recognized skill names.
+var validSkillNames = []string{
+	"create-task", "create-plan", "execute-task",
+	"review-task", "document-task", "init-project",
+}
+
+// buildSkillContent reads the skill file and assembles the full prompt text
+// with injected card/project context. Used by both prompt handlers and the
+// get_skill tool.
+func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs) (string, error) {
+	switch skillName {
+	case "create-task":
+		return buildCreateTask(skillsDir, args.Description)
+	case "create-plan":
+		return buildCardSkill(ctx, svc, skillsDir, "create-plan.md", args.CardID, false)
+	case "execute-task":
+		return buildCardSkill(ctx, svc, skillsDir, "execute-task.md", args.CardID, true)
+	case "review-task":
+		return buildSubtaskSkill(ctx, svc, skillsDir, "review-task.md", args.CardID)
+	case "document-task":
+		return buildSubtaskSkill(ctx, svc, skillsDir, "document-task.md", args.CardID)
+	case "init-project":
+		return buildInitProject(ctx, svc, skillsDir, args.Name)
+	default:
+		return "", fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
+	}
+}
+
+func buildCreateTask(skillsDir, description string) (string, error) {
+	skill, err := readSkillFile(skillsDir, "create-task.md")
+	if err != nil {
+		return "", err
+	}
+	if description != "" {
+		skill = "User description: " + description + "\n\n" + skill
+	}
+	return skill, nil
+}
+
+// buildCardSkill handles skills that need a single card's context, optionally
+// including parent and sibling cards (for execute-task).
+func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, filename, cardID string, includeFamily bool) (string, error) {
+	if cardID == "" {
+		return "", fmt.Errorf("card_id argument is required")
+	}
+	skill, err := readSkillFile(skillsDir, filename)
+	if err != nil {
+		return "", err
+	}
+	card, project, err := findCard(ctx, svc, cardID)
+	if err != nil {
+		return "", err
+	}
+
+	var parts []string
+	parts = append(parts, formatCardContext(card, project))
+
+	if includeFamily && card.Parent != "" {
+		parent, perr := svc.GetCard(ctx, project, card.Parent)
+		if perr == nil {
+			parts = append(parts, "\n## Parent Card\n"+formatCardBrief(parent))
+		}
+		siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
+		if serr == nil {
+			var lines []string
+			for _, s := range siblings {
+				if s.ID != card.ID {
+					lines = append(lines, fmt.Sprintf("- %s [%s] %s", s.ID, s.State, s.Title))
+				}
+			}
+			if len(lines) > 0 {
+				parts = append(parts, "\n## Sibling Tasks\n"+strings.Join(lines, "\n"))
+			}
+		}
+	}
+
+	return strings.Join(parts, "\n") + "\n\n" + skill, nil
+}
+
+// buildSubtaskSkill handles skills that need a card plus all its subtasks
+// (review-task, document-task).
+func buildSubtaskSkill(ctx context.Context, svc *service.CardService, skillsDir, filename, cardID string) (string, error) {
+	if cardID == "" {
+		return "", fmt.Errorf("card_id argument is required")
+	}
+	skill, err := readSkillFile(skillsDir, filename)
+	if err != nil {
+		return "", err
+	}
+	card, project, err := findCard(ctx, svc, cardID)
+	if err != nil {
+		return "", err
+	}
+
+	var parts []string
+	parts = append(parts, formatCardContext(card, project))
+
+	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
+	if serr == nil && len(subtasks) > 0 {
+		parts = append(parts, "\n## Subtasks")
+		for _, sub := range subtasks {
+			parts = append(parts, formatCardBrief(sub))
+		}
+	}
+
+	return strings.Join(parts, "\n") + "\n\n" + skill, nil
+}
+
+func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, name string) (string, error) {
+	skill, err := readSkillFile(skillsDir, "init-project.md")
+	if err != nil {
+		return "", err
+	}
+	projects, perr := svc.ListProjects(ctx)
+	if perr == nil && len(projects) > 0 {
+		var names []string
+		for _, p := range projects {
+			names = append(names, p.Name)
+		}
+		skill = "Existing projects on this board: " + strings.Join(names, ", ") + "\n\n" + skill
+	}
+	if name != "" {
+		skill = "Suggested project name: " + name + "\n\n" + skill
+	}
+	return skill, nil
 }
 
 // --- Helpers ---

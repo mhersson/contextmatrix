@@ -12,7 +12,7 @@ import (
 )
 
 // registerTools adds all MCP tools to the server.
-func registerTools(server *mcp.Server, svc *service.CardService) {
+func registerTools(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	registerListProjects(server, svc)
 	registerListCards(server, svc)
 	registerGetCard(server, svc)
@@ -31,6 +31,7 @@ func registerTools(server *mcp.Server, svc *service.CardService) {
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
+	registerGetSkill(server, svc, skillsDir)
 }
 
 // --- Input/Output types ---
@@ -571,5 +572,33 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 			return nil, deleteProjectOutput{}, fmt.Errorf("delete project %s: %w", input.Project, err)
 		}
 		return nil, deleteProjectOutput{Deleted: true}, nil
+	})
+}
+
+type getSkillInput struct {
+	SkillName   string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project"`
+	CardID      string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task)"`
+	Description string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
+	Name        string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
+}
+type getSkillOutput struct {
+	SkillName string `json:"skill_name"`
+	Content   string `json:"content"`
+}
+
+func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_skill",
+		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions that the caller should follow. Use this to programmatically invoke a workflow (create-plan, execute-task, etc.).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
+		content, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
+			CardID:      input.CardID,
+			Description: input.Description,
+			Name:        input.Name,
+		})
+		if err != nil {
+			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
+		}
+		return nil, getSkillOutput{SkillName: input.SkillName, Content: content}, nil
 	})
 }

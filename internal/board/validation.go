@@ -215,11 +215,6 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 	}
 
 	// BFS
-	type node struct {
-		state  string
-		parent string
-	}
-
 	visited := map[string]string{fromState: ""} // state -> parent
 	queue := []string{fromState}
 

@@ -20,7 +20,7 @@ func NewServer(svc *service.CardService, skillsDir string) *mcp.Server {
 		nil,
 	)
 
-	registerTools(server, svc)
+	registerTools(server, svc, skillsDir)
 	registerPrompts(server, svc, skillsDir)
 
 	return server
