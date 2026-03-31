@@ -402,31 +402,19 @@ func TestAddLog(t *testing.T) {
 	assert.False(t, card.ActivityLog[0].Timestamp.IsZero())
 }
 
-func TestCompleteTask(t *testing.T) {
+func TestCompleteTask_MainTask(t *testing.T) {
 	env := setupMCP(t)
 
 	createTestCard(t, env, "Complete me", "task", "medium")
 
-	// Claim the card
+	// Claim the card (auto-transitions todo -> in_progress)
 	callTool(t, env, "claim_card", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
 		"agent_id": "agent-done",
 	})
 
-	// Transition to review (todo -> in_progress -> review)
-	callTool(t, env, "transition_card", map[string]any{
-		"project":   "test-project",
-		"card_id":   "TEST-001",
-		"new_state": "in_progress",
-	})
-	callTool(t, env, "transition_card", map[string]any{
-		"project":   "test-project",
-		"card_id":   "TEST-001",
-		"new_state": "review",
-	})
-
-	// Complete the task (review -> done + release)
+	// Complete the main task (no parent) — should auto-walk to review, not done
 	result := callTool(t, env, "complete_task", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -438,7 +426,7 @@ func TestCompleteTask(t *testing.T) {
 	var card board.Card
 	unmarshalResult(t, result, &card)
 
-	assert.Equal(t, "done", card.State)
+	assert.Equal(t, "review", card.State, "main task should stop at review")
 	assert.Empty(t, card.AssignedAgent, "agent should be released after completion")
 
 	// Verify log entry was added
@@ -447,6 +435,71 @@ func TestCompleteTask(t *testing.T) {
 	assert.Equal(t, "completed", lastLog.Action)
 	assert.Equal(t, "All tests passing, feature implemented", lastLog.Message)
 	assert.Equal(t, "agent-done", lastLog.Agent)
+}
+
+func TestCompleteTask_Subtask(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create parent card
+	createTestCard(t, env, "Parent task", "feature", "high")
+
+	// Create subtask with parent set
+	callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Subtask",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   "TEST-001",
+	})
+
+	// Claim the subtask (auto-transitions to in_progress)
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+	})
+
+	// Complete the subtask — should auto-walk all the way to done
+	result := callTool(t, env, "complete_task", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+		"summary":  "Subtask done",
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	assert.Equal(t, "done", card.State, "subtask should go all the way to done")
+	assert.Empty(t, card.AssignedAgent)
+
+	// Verify via service layer
+	stored, err := env.svc.GetCard(ctx, "test-project", "TEST-002")
+	require.NoError(t, err)
+	assert.Equal(t, "done", stored.State)
+}
+
+func TestClaimCard_AutoTransition(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create card (starts in todo)
+	createTestCard(t, env, "Claim me", "task", "medium")
+
+	// Claim should auto-transition to in_progress
+	result := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-auto",
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	assert.Equal(t, "in_progress", card.State, "claim should auto-transition to in_progress")
+	assert.Equal(t, "agent-auto", card.AssignedAgent)
 }
 
 func TestGetTaskContext(t *testing.T) {

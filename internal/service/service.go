@@ -1278,6 +1278,41 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 	card.DependenciesMet = &met
 }
 
+// TransitionTo walks the shortest path of state transitions to reach targetState.
+// Each intermediate transition goes through PatchCard (git commit + event per step).
+// Returns the card in its final state, or an error if any step fails.
+func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if card.State == targetState {
+		return card, nil
+	}
+
+	cfg, err := s.getConfig(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("get project config: %w", err)
+	}
+
+	validator := s.getValidator(project)
+	path, err := validator.FindShortestPath(cfg, card.State, targetState)
+	if err != nil {
+		return nil, fmt.Errorf("find transition path: %w", err)
+	}
+
+	for _, state := range path {
+		next := state
+		card, err = s.PatchCard(ctx, project, cardID, PatchCardInput{State: &next})
+		if err != nil {
+			return nil, fmt.Errorf("transition to %s: %w", state, err)
+		}
+	}
+
+	return card, nil
+}
+
 // commitMessage formats a commit message with optional agent prefix.
 func commitMessage(agentID, cardID, action string) string {
 	if agentID != "" {

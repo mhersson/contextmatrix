@@ -262,11 +262,17 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "claim_card",
-		Description: "Claim a card for an agent. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled.",
+		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		card, err := svc.ClaimCard(ctx, input.Project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("claim card %s: %w", input.CardID, err)
+		}
+		// Auto-transition to in_progress if possible
+		if card.State != "in_progress" {
+			if transitioned, err := svc.TransitionTo(ctx, input.Project, input.CardID, "in_progress"); err == nil {
+				card = transitioned
+			}
 		}
 		return nil, card, nil
 	})
@@ -368,7 +374,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
-		Description: "Atomically complete a task: adds a completion log entry and transitions the card to 'done'. Fails if the card is not in a state that can transition to 'done'. Use this instead of separate add_log + transition_card calls.",
+		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. Use this instead of separate add_log + transition_card calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeTaskInput) (*mcp.CallToolResult, *board.Card, error) {
 		// Add completion log entry
 		entry := board.ActivityEntry{
@@ -380,16 +386,23 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("add completion log: %w", err)
 		}
 
-		// Transition to done
-		done := "done"
-		if _, err := svc.PatchCard(ctx, input.Project, input.CardID, service.PatchCardInput{
-			State: &done,
-		}); err != nil {
-			return nil, nil, fmt.Errorf("transition to done: %w", err)
+		// Determine target state: subtasks go to done, main tasks go to review
+		card, err := svc.GetCard(ctx, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get card: %w", err)
+		}
+		targetState := "review"
+		if card.Parent != "" {
+			targetState = "done"
+		}
+
+		// Walk through intermediate transitions to reach target state
+		if _, err := svc.TransitionTo(ctx, input.Project, input.CardID, targetState); err != nil {
+			return nil, nil, fmt.Errorf("transition to %s: %w", targetState, err)
 		}
 
 		// Release the claim
-		card, err := svc.ReleaseCard(ctx, input.Project, input.CardID, input.AgentID)
+		card, err = svc.ReleaseCard(ctx, input.Project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("release card: %w", err)
 		}

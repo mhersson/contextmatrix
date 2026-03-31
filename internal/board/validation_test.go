@@ -348,6 +348,64 @@ func TestAllowedTransitions(t *testing.T) {
 	}
 }
 
+func TestFindShortestPath(t *testing.T) {
+	v := NewValidator()
+	cfg := testProjectConfigForValidation()
+
+	tests := []struct {
+		name     string
+		from     string
+		to       string
+		wantPath []string
+		wantErr  error
+	}{
+		{"todo to done", "todo", "done", []string{"in_progress", "review", "done"}, nil},
+		{"in_progress to done", "in_progress", "done", []string{"review", "done"}, nil},
+		{"review to done", "review", "done", []string{"done"}, nil},
+		{"already at target", "done", "done", nil, nil},
+		{"stalled to done", "stalled", "done", []string{"in_progress", "review", "done"}, nil},
+		{"todo to in_progress", "todo", "in_progress", []string{"in_progress"}, nil},
+		{"done to in_progress", "done", "in_progress", []string{"todo", "in_progress"}, nil},
+		{"invalid from state", "invalid", "done", nil, ErrInvalidState},
+		{"invalid to state", "todo", "invalid", nil, ErrInvalidState},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := v.FindShortestPath(cfg, tt.from, tt.to)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPath, path)
+			}
+		})
+	}
+}
+
+func TestFindShortestPath_NoPath(t *testing.T) {
+	v := NewValidator()
+	// stalled has no outgoing transitions, so b -> stalled is a dead end
+	cfg := &ProjectConfig{
+		Name:       "test",
+		Prefix:     "TEST",
+		States:     []string{"a", "b", "stalled"},
+		Types:      []string{"task"},
+		Priorities: []string{"low"},
+		Transitions: map[string][]string{
+			"a":       {"b"},
+			"b":       {},
+			"stalled": {},
+		},
+	}
+
+	path, err := v.FindShortestPath(cfg, "b", "a")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoPath)
+	assert.Nil(t, path)
+}
+
 func TestValidationError_Unwrap(t *testing.T) {
 	ve := &ValidationError{
 		Err:     ErrInvalidType,

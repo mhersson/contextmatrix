@@ -22,6 +22,9 @@ var (
 
 	// ErrDependenciesNotMet indicates that not all depends_on cards are done.
 	ErrDependenciesNotMet = errors.New("dependencies not met")
+
+	// ErrNoPath indicates no sequence of valid transitions connects two states.
+	ErrNoPath = errors.New("no transition path exists")
 )
 
 // ValidationError provides detailed validation failure information.
@@ -193,4 +196,62 @@ func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []s
 	copy(result, explicit)
 	result[len(explicit)] = stalledState
 	return result
+}
+
+// FindShortestPath returns the shortest sequence of states to traverse from
+// fromState to toState, using BFS on the transition graph. The returned path
+// excludes fromState but includes toState. Returns an empty slice if fromState
+// equals toState. Returns ErrNoPath if no valid path exists.
+func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState string) ([]string, error) {
+	if err := v.ValidateState(cfg, fromState); err != nil {
+		return nil, err
+	}
+	if err := v.ValidateState(cfg, toState); err != nil {
+		return nil, err
+	}
+
+	if fromState == toState {
+		return nil, nil
+	}
+
+	// BFS
+	type node struct {
+		state  string
+		parent string
+	}
+
+	visited := map[string]string{fromState: ""} // state -> parent
+	queue := []string{fromState}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, next := range v.AllowedTransitions(cfg, current) {
+			if _, seen := visited[next]; seen {
+				continue
+			}
+			visited[next] = current
+			if next == toState {
+				// Reconstruct path
+				var path []string
+				for s := toState; s != fromState; s = visited[s] {
+					path = append(path, s)
+				}
+				// Reverse
+				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+					path[i], path[j] = path[j], path[i]
+				}
+				return path, nil
+			}
+			queue = append(queue, next)
+		}
+	}
+
+	return nil, &ValidationError{
+		Err:     ErrNoPath,
+		Field:   "state",
+		Value:   toState,
+		Message: fmt.Sprintf("no transition path from %q to %q", fromState, toState),
+	}
 }
