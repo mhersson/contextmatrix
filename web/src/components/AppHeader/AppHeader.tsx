@@ -7,11 +7,12 @@ interface AppHeaderProps {
 
 const VIEWS = [
   { label: 'Board', to: '' },
-  { label: 'Dashboard', to: 'dashboard' },
-  { label: 'Settings', to: 'settings' },
+  { label: 'Dashboard', to: '/dashboard' },
+  { label: 'Settings', to: '/settings' },
 ] as const;
 
 export function AppHeader({ project, connected }: AppHeaderProps) {
+  const base = `/projects/${project}`;
   return (
     <header
       className="flex items-center justify-between px-6 py-3 border-b"
@@ -26,7 +27,7 @@ export function AppHeader({ project, connected }: AppHeaderProps) {
           {VIEWS.map((v) => (
             <NavLink
               key={v.label}
-              to={v.to}
+              to={`${base}${v.to}`}
               end
               className="px-3 py-1 rounded text-sm transition-colors"
               style={({ isActive }) => ({

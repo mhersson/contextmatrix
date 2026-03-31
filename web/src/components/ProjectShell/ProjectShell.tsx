@@ -97,15 +97,15 @@ export function ProjectShell() {
     useMemo(
       () => [
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
-        { key: 'b', handler: () => { if (!panelOpen) navigate(''); } },
-        { key: 'd', handler: () => { if (!panelOpen) navigate('dashboard'); } },
-        { key: 's', handler: () => { if (!panelOpen) navigate('settings'); } },
+        { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
+        { key: 'd', handler: () => { if (!panelOpen) navigate(`/projects/${project}/dashboard`); } },
+        { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
           handler: () => { if (i < projects.length) navigate(`/projects/${projects[i].name}`); },
         })),
       ],
-      [panelOpen, config, projects, handleOpenCreate, navigate]
+      [panelOpen, config, project, projects, handleOpenCreate, navigate]
     )
   );
 
