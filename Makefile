@@ -1,4 +1,4 @@
-.PHONY: build run test test-race fmt lint build-frontend install-frontend clean
+.PHONY: build run test test-race fmt lint build-frontend install-frontend install clean
 
 build: build-frontend
 	go build -o contextmatrix ./cmd/contextmatrix
@@ -23,6 +23,9 @@ install-frontend:
 
 build-frontend:
 	cd web && npm run build
+
+install: build-frontend
+	go install ./cmd/contextmatrix
 
 clean:
 	rm -f contextmatrix
