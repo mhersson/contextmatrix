@@ -513,9 +513,21 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, fmt.Errorf("create card: %w", err)
 	}
 
-	// Git commit (or defer)
-	if err := s.commitCardChange(project, cardID, "", "created"); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	// Git commit (or defer); include .board.yaml (next_id increment)
+	configPath := filepath.Join(project, ".board.yaml")
+	if s.gitAutoCommit && !s.gitDeferredCommit {
+		cardPath := s.cardPath(project, cardID)
+		msg := commitMessage("", cardID, "created")
+		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
+	} else {
+		if s.gitAutoCommit && s.gitDeferredCommit {
+			s.deferredPaths[cardID] = append(s.deferredPaths[cardID], configPath)
+		}
+		if err := s.commitCardChange(project, cardID, "", "created"); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -1154,6 +1166,11 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
+	// Flush any remaining deferred commits (release is the end of a work session)
+	if err := s.flushDeferredCommit(id, agentID); err != nil {
+		slog.Warn("flush deferred commit on release", "card_id", id, "error", err)
+	}
+
 	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardReleased,
@@ -1630,6 +1647,12 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 			"old_state", oldState,
 			"new_state", state,
 		)
+	}
+
+	// Flush deferred commits for the parent card
+	if err := s.flushDeferredCommit(parent.ID, ""); err != nil {
+		slog.Warn("flush deferred commit for parent auto-transition",
+			"parent_id", parent.ID, "error", err)
 	}
 
 	return nil

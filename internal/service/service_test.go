@@ -2711,3 +2711,148 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 		assert.Equal(t, []string{s1.ID}, updated.DependsOn)
 	})
 }
+
+// setupDeferredTestWithReview creates a deferred-commit test env with a project
+// that has a review state (matching real board configs).
+func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectWithReview()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	return svc, gitMgr
+}
+
+// TestDeferredCommitFlushOnRelease verifies that releasing a card flushes
+// any remaining deferred commits (e.g. the release change itself).
+func TestDeferredCommitFlushOnRelease(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Release flush", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Claim the card
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Transition to in_progress
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// No commits should exist yet (all deferred)
+	msg, _ := gitMgr.GetLastCommitMessage()
+	assert.Empty(t, msg, "no commits should exist while card is being worked on")
+
+	// Release the card — should flush all deferred changes
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	msg, err = gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEmpty(t, msg, "release should flush deferred commits")
+	assert.Contains(t, msg, card.ID)
+
+	// deferredPaths should be cleared
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths should be cleared after release flush")
+}
+
+// TestDeferredCommitParentAutoTransition verifies that when all subtasks reach
+// done and the parent auto-transitions to review, the parent's deferred commits
+// are flushed.
+func TestDeferredCommitParentAutoTransition(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+
+	// Complete both subtasks: in_progress → review → done
+	for _, sub := range subtasks {
+		_, err := svc.ClaimCard(ctx, "test-project", sub.ID, "agent-1")
+		require.NoError(t, err)
+
+		inProgress := "in_progress"
+		_, err = svc.PatchCard(ctx, "test-project", sub.ID, PatchCardInput{State: &inProgress})
+		require.NoError(t, err)
+
+		review := "review"
+		_, err = svc.PatchCard(ctx, "test-project", sub.ID, PatchCardInput{State: &review})
+		require.NoError(t, err)
+
+		done := "done"
+		_, err = svc.PatchCard(ctx, "test-project", sub.ID, PatchCardInput{State: &done})
+		require.NoError(t, err)
+
+		_, err = svc.ReleaseCard(ctx, "test-project", sub.ID, "agent-1")
+		require.NoError(t, err)
+	}
+
+	// Parent should have auto-transitioned to review
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "review", updatedParent.State)
+
+	// Parent's deferred paths should be cleared (flushed)
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[parent.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "parent deferredPaths should be cleared after auto-transition flush")
+
+	// The last commit should be for the parent auto-transition (or a subtask release).
+	// Verify there are no uncommitted changes in the boards repo.
+	hasUncommitted, err := gitMgr.HasUncommittedChanges()
+	require.NoError(t, err)
+	assert.False(t, hasUncommitted, "all changes should be committed after completing subtasks")
+}
+
+// TestDeferredCommitBoardYamlIncluded verifies that .board.yaml changes (next_id
+// increment) are included in deferred commits when cards are created.
+func TestDeferredCommitBoardYamlIncluded(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	// Create a card (increments next_id in .board.yaml)
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Board yaml test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Transition to done to trigger flush
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// After flush, .board.yaml should also be committed (no uncommitted changes)
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, card.ID)
+
+	hasUncommitted, err := gitMgr.HasUncommittedChanges()
+	require.NoError(t, err)
+	assert.False(t, hasUncommitted, ".board.yaml should be committed along with the card")
+}
