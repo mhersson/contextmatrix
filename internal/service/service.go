@@ -436,6 +436,7 @@ func toSet(items []string) map[string]bool {
 
 // ListCards returns all cards in a project matching the filter.
 func (s *CardService) ListCards(ctx context.Context, project string, filter storage.CardFilter) ([]*board.Card, error) {
+	filter.Parent = strings.ToUpper(filter.Parent)
 	cards, err := s.store.ListCards(ctx, project, filter)
 	if err != nil {
 		return nil, err
@@ -448,6 +449,7 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 
 // GetCard returns a specific card.
 func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
+	id = strings.ToUpper(id)
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return nil, err
@@ -493,7 +495,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		State:    cfg.States[0], // Default to first state
 		Priority: input.Priority,
 		Labels:   input.Labels,
-		Parent:   input.Parent,
+		Parent:   strings.ToUpper(input.Parent),
 		Source:   input.Source,
 		Created:  now,
 		Updated:  now,
@@ -531,6 +533,10 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 // UpdateCard performs a full update of a card's mutable fields.
 // Immutable fields (id, project, created, source) are preserved.
 func (s *CardService) UpdateCard(ctx context.Context, project, id string, input UpdateCardInput) (*board.Card, error) {
+	id = strings.ToUpper(id)
+	input.Parent = strings.ToUpper(input.Parent)
+	input.Subtasks = normalizeIDs(input.Subtasks)
+	input.DependsOn = normalizeIDs(input.DependsOn)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -630,6 +636,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 // PatchCard applies partial updates to a card.
 // Only non-nil fields in the input are updated.
 func (s *CardService) PatchCard(ctx context.Context, project, id string, input PatchCardInput) (*board.Card, error) {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -733,6 +740,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 
 // DeleteCard removes a card from the project.
 func (s *CardService) DeleteCard(ctx context.Context, project, id string) error {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -774,6 +782,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // AddLogEntry appends an activity log entry to a card.
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -826,6 +835,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 // ReportUsage increments token usage counters on a card and recalculates cost.
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1061,6 +1071,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 
 // GetCardContext returns a card with its project configuration and template.
 func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*CardContext, error) {
+	id = strings.ToUpper(id)
 	// Load card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -1089,6 +1100,7 @@ func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*
 // ClaimCard assigns a card to an agent.
 // Flow: lock claim → store update → git commit → publish event.
 func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1122,6 +1134,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 
 // ReleaseCard removes an agent's claim on a card.
 func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1155,6 +1168,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
+	id = strings.ToUpper(id)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1269,6 +1283,18 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	)
 
 	return nil
+}
+
+// normalizeIDs uppercases all card IDs in a slice.
+func normalizeIDs(ids []string) []string {
+	if ids == nil {
+		return nil
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = strings.ToUpper(id)
+	}
+	return out
 }
 
 // cardPath returns the relative path for a card file (for git operations).
@@ -1410,6 +1436,7 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 // Each intermediate transition goes through PatchCard (git commit + event per step).
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
+	cardID = strings.ToUpper(cardID)
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)

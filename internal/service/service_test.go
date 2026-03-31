@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2393,4 +2394,179 @@ func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+}
+
+func TestCaseInsensitiveCardID(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card (ID will be uppercase, e.g. "TEST-001")
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Case test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "TEST-001", card.ID)
+
+	lowercaseID := "test-001"
+	mixedCaseID := "Test-001"
+
+	t.Run("GetCard", func(t *testing.T) {
+		got, err := svc.GetCard(ctx, "test-project", lowercaseID)
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-001", got.ID)
+
+		got, err = svc.GetCard(ctx, "test-project", mixedCaseID)
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-001", got.ID)
+	})
+
+	t.Run("UpdateCard", func(t *testing.T) {
+		updated, err := svc.UpdateCard(ctx, "test-project", lowercaseID, UpdateCardInput{
+			Title:    "Updated via lowercase",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Updated via lowercase", updated.Title)
+	})
+
+	t.Run("PatchCard", func(t *testing.T) {
+		title := "Patched via lowercase"
+		patched, err := svc.PatchCard(ctx, "test-project", lowercaseID, PatchCardInput{
+			Title: &title,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Patched via lowercase", patched.Title)
+	})
+
+	t.Run("GetCardContext", func(t *testing.T) {
+		cardCtx, err := svc.GetCardContext(ctx, "test-project", lowercaseID)
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-001", cardCtx.Card.ID)
+	})
+
+	t.Run("AddLogEntry", func(t *testing.T) {
+		err := svc.AddLogEntry(ctx, "test-project", lowercaseID, board.ActivityEntry{
+			Agent:     "test-agent",
+			Timestamp: time.Now(),
+			Action:    "test",
+			Message:   "lowercase ID log",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("TransitionTo", func(t *testing.T) {
+		transitioned, err := svc.TransitionTo(ctx, "test-project", lowercaseID, "in_progress")
+		require.NoError(t, err)
+		assert.Equal(t, "in_progress", transitioned.State)
+	})
+
+	t.Run("ClaimCard", func(t *testing.T) {
+		// Transition back to todo first so we can claim
+		_, err := svc.TransitionTo(ctx, "test-project", card.ID, "todo")
+		require.NoError(t, err)
+
+		claimed, err := svc.ClaimCard(ctx, "test-project", lowercaseID, "agent-1")
+		require.NoError(t, err)
+		assert.Equal(t, "agent-1", claimed.AssignedAgent)
+	})
+
+	t.Run("HeartbeatCard", func(t *testing.T) {
+		err := svc.HeartbeatCard(ctx, "test-project", lowercaseID, "agent-1")
+		require.NoError(t, err)
+	})
+
+	t.Run("ReleaseCard", func(t *testing.T) {
+		released, err := svc.ReleaseCard(ctx, "test-project", lowercaseID, "agent-1")
+		require.NoError(t, err)
+		assert.Empty(t, released.AssignedAgent)
+	})
+
+	t.Run("ReportUsage", func(t *testing.T) {
+		reported, err := svc.ReportUsage(ctx, "test-project", lowercaseID, ReportUsageInput{
+			AgentID:          "agent-1",
+			Model:            "claude-sonnet-4",
+			PromptTokens:     100,
+			CompletionTokens: 50,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(100), reported.TokenUsage.PromptTokens)
+	})
+
+	t.Run("ListCards_ParentFilter", func(t *testing.T) {
+		// Create a child card
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Child card",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   card.ID,
+		})
+		require.NoError(t, err)
+
+		// Filter by lowercase parent ID
+		cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{
+			Parent: lowercaseID,
+		})
+		require.NoError(t, err)
+		require.Len(t, cards, 1)
+		assert.Equal(t, child.ID, cards[0].ID)
+	})
+
+	t.Run("DeleteCard", func(t *testing.T) {
+		// Create another card to delete with lowercase ID
+		toDelete, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Delete me",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		err = svc.DeleteCard(ctx, "test-project", strings.ToLower(toDelete.ID))
+		require.NoError(t, err)
+
+		// Verify it's gone
+		_, err = svc.GetCard(ctx, "test-project", toDelete.ID)
+		assert.Error(t, err)
+	})
+
+	t.Run("CreateCard_LowercaseParent", func(t *testing.T) {
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Child with lowercase parent",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   "test-001", // lowercase
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-001", child.Parent)
+	})
+
+	t.Run("UpdateCard_LowercaseRefs", func(t *testing.T) {
+		// Create two more cards to use as subtask/dependency refs
+		s1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Sub1", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+		s2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Sub2", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title:     "Updated refs",
+			Type:      "task",
+			State:     "todo",
+			Priority:  "medium",
+			Parent:    "",
+			Subtasks:  []string{strings.ToLower(s1.ID), strings.ToLower(s2.ID)},
+			DependsOn: []string{strings.ToLower(s1.ID)},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{s1.ID, s2.ID}, updated.Subtasks)
+		assert.Equal(t, []string{s1.ID}, updated.DependsOn)
+	})
 }
