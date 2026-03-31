@@ -1413,6 +1413,47 @@ func TestGetSkill_UnknownSkill(t *testing.T) {
 	assert.Contains(t, text, "unknown skill")
 }
 
+func TestWorkflowPreambleInjected(t *testing.T) {
+	env := setupMCP(t)
+
+	// Test skills that don't require a card_id
+	skills := []struct {
+		name string
+		args map[string]any
+	}{
+		{"create-task", map[string]any{"skill_name": "create-task"}},
+		{"create-task-with-desc", map[string]any{"skill_name": "create-task", "description": "Fix the login bug"}},
+		{"init-project", map[string]any{"skill_name": "init-project"}},
+	}
+
+	for _, s := range skills {
+		t.Run(s.name, func(t *testing.T) {
+			result := callTool(t, env, "get_skill", s.args)
+			require.False(t, result.IsError)
+
+			var out getSkillOutput
+			unmarshalResult(t, result, &out)
+			assert.Contains(t, out.Content, "ContextMatrix Workflow Rules",
+				"skill %q content should contain workflow preamble", s.name)
+			assert.Contains(t, out.Content, "Never work on a card without claiming it first",
+				"skill %q preamble should include claim rule", s.name)
+		})
+	}
+
+	// Also test a skill that requires a card_id
+	card := createTestCard(t, env, "Preamble test", "task", "medium")
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "execute-task",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Contains(t, out.Content, "ContextMatrix Workflow Rules",
+		"execute-task should contain workflow preamble")
+}
+
 func TestGetSkill_MissingCardID(t *testing.T) {
 	env := setupMCP(t)
 

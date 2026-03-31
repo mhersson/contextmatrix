@@ -62,12 +62,32 @@ After creation, confirm the card ID to the human (e.g., "Created ALPHA-007").
 
 ## Step 3: Offer next steps
 
-Ask the human:
+Ask the human what they want to do with the new card:
 
-> Would you like to create a plan and subtasks for this card now? I can break it
-> down into executable pieces.
+> What would you like to do next?
+>
+> 1. **Plan it** — Break it into subtasks with
+>    `/contextmatrix:create-plan <card_id>`
+> 2. **Work on it now** — Execute it immediately with
+>    `/contextmatrix:execute-task <card_id>`
+> 3. **Leave it on the board** — Pick it up later
 
-- If **yes**: invoke `/contextmatrix:create-plan <card_id>` with the new card
+- If **plan**: invoke `/contextmatrix:create-plan <card_id>` with the new card
   ID.
-- If **no**: let the human know they can run
-  `/contextmatrix:create-plan <card_id>` later.
+- If **work on it now**: invoke `/contextmatrix:execute-task <card_id>` with the
+  new card ID. Do NOT start working without invoking execute-task.
+- If **leave it**: let the human know they can run the commands above later.
+
+## MANDATORY: Card lifecycle rule
+
+**NEVER start working on a card without following the card lifecycle.** If the
+human asks you to "fix it", "do it now", "go ahead", "yes", or any variation —
+you MUST either:
+
+1. Invoke `/contextmatrix:execute-task <card_id>`, which handles claim,
+   heartbeats, and completion automatically, OR
+2. Manually follow the full lifecycle: `claim_card` → work with periodic
+   `heartbeat` calls → `complete_task`
+
+Starting work without claiming the card leaves it orphaned on the board with no
+tracking, no heartbeats, and no completion. **This is never acceptable.**

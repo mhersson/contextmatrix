@@ -112,3 +112,28 @@ If **yes**:
 
 If **no**: let the human know they can run
 `/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
+
+## MANDATORY: Complete the full workflow
+
+If the user chooses to execute, you MUST follow through the **entire pipeline**
+to completion. Do NOT stop partway:
+
+1. **Execute** — Spawn agents for all ready subtasks. Monitor completions. When
+   a subtask finishes and unblocks new tasks, spawn agents for the newly ready
+   tasks.
+2. **Review** — When ALL subtasks are done, transition the parent card to
+   `review` and spawn a review agent with
+   `/contextmatrix:review-task <parent_id>`.
+3. **Documentation** — After review approval, spawn a documentation agent with
+   `/contextmatrix:document-task <parent_id>`.
+4. **Done** — After documentation, transition the parent card to `done`.
+
+Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
+spawn execution agents and then stop. Do NOT complete review and then stop.
+
+The parent card's full lifecycle is:
+`todo → in_progress (subtasks start) → review (all subtasks done) → done (after review + docs)`
+
+**Abandoning the workflow mid-stream is never acceptable.** If you cannot
+continue (e.g., the user asks to pause), clearly communicate where in the
+pipeline you stopped and what must happen next to resume.

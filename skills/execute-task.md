@@ -159,3 +159,12 @@ Follow these standards in all work you produce:
   parses it to determine next steps. Do not deviate from the format.
 - **If in doubt, report blocked.** It is better to ask for help than to produce
   incorrect work.
+- **Complete the full lifecycle.** Do NOT stop after making code changes. Do NOT
+  ask the user to commit, review your diff, or approve your changes mid-task.
+  After your work is done: update `## Progress`, call `report_usage`, call
+  `complete_task`. The lifecycle ends when `complete_task` is called — not when
+  the code is written, not when tests pass, not when you show the user a diff.
+- **Never orphan a card.** If you claimed it, you must either complete it (via
+  `complete_task`) or report it as blocked (via `transition_card` to `blocked`).
+  There is no third option. Leaving a card in `in_progress` without completing
+  or blocking it is never acceptable.

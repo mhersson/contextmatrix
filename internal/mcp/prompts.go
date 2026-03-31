@@ -14,6 +14,33 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+// workflowPreamble is prepended to every skill prompt to enforce card lifecycle
+// discipline regardless of which skill is active.
+const workflowPreamble = `## ContextMatrix Workflow Rules
+
+IMPORTANT: These rules apply to ALL interactions with the ContextMatrix board.
+Violating these rules leaves cards orphaned with no tracking. Follow them exactly.
+
+- **Never work on a card without claiming it first.** Before writing any code or
+  making any changes for a card, you MUST call claim_card (or use the execute-task
+  skill which handles this automatically). Working without claiming leaves the card
+  orphaned — no tracking, no heartbeats, no completion record.
+- **Follow the full lifecycle to completion: claim → work → heartbeat → complete.**
+  Every card you work on must go through this entire sequence. Call heartbeat
+  periodically during work. Call complete_task when done. Do NOT stop after making
+  code changes — the lifecycle ends when complete_task is called, not when the code
+  is written.
+- **Never stop mid-lifecycle.** Do NOT ask the user to commit, review your diff,
+  or approve your changes instead of completing the card lifecycle. Do NOT abandon
+  a card after coding. If you claimed it, you must either complete it or report it
+  as blocked.
+- **When in doubt, use /contextmatrix:execute-task <card_id>.** It handles the
+  entire lifecycle for you.
+
+---
+
+`
+
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	server.AddPrompt(&mcp.Prompt{
@@ -180,22 +207,30 @@ var validSkillNames = []string{
 // with injected card/project context. Used by both prompt handlers and the
 // get_skill tool.
 func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs) (string, error) {
+	var content string
+	var err error
+
 	switch skillName {
 	case "create-task":
-		return buildCreateTask(skillsDir, args.Description)
+		content, err = buildCreateTask(skillsDir, args.Description)
 	case "create-plan":
-		return buildCardSkill(ctx, svc, skillsDir, "create-plan.md", args.CardID, false)
+		content, err = buildCardSkill(ctx, svc, skillsDir, "create-plan.md", args.CardID, false)
 	case "execute-task":
-		return buildCardSkill(ctx, svc, skillsDir, "execute-task.md", args.CardID, true)
+		content, err = buildCardSkill(ctx, svc, skillsDir, "execute-task.md", args.CardID, true)
 	case "review-task":
-		return buildSubtaskSkill(ctx, svc, skillsDir, "review-task.md", args.CardID)
+		content, err = buildSubtaskSkill(ctx, svc, skillsDir, "review-task.md", args.CardID)
 	case "document-task":
-		return buildSubtaskSkill(ctx, svc, skillsDir, "document-task.md", args.CardID)
+		content, err = buildSubtaskSkill(ctx, svc, skillsDir, "document-task.md", args.CardID)
 	case "init-project":
-		return buildInitProject(ctx, svc, skillsDir, args.Name)
+		content, err = buildInitProject(ctx, svc, skillsDir, args.Name)
 	default:
 		return "", fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
+	if err != nil {
+		return "", err
+	}
+
+	return workflowPreamble + content, nil
 }
 
 func buildCreateTask(skillsDir, description string) (string, error) {

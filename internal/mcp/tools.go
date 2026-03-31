@@ -189,7 +189,7 @@ func registerGetCard(server *mcp.Server, svc *service.CardService) {
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_card",
-		Description: "Create a new card in a project. Returns the created card with its generated ID. The card starts in the project's first state (usually 'todo').",
+		Description: "Create a new card in a project. Returns the created card with its generated ID. The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		svcInput := service.CreateCardInput{
 			Title:    input.Title,
