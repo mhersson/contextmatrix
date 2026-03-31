@@ -20,14 +20,15 @@ type ModelCost struct {
 
 // Config holds the application configuration.
 type Config struct {
-	Port             int                  `yaml:"port"`
-	BoardsDir        string               `yaml:"boards_dir"`
-	GitAutoCommit    bool                 `yaml:"git_auto_commit"`
-	GitAutoPush      bool                 `yaml:"git_auto_push"`
-	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
-	CORSOrigin       string               `yaml:"cors_origin"`
-	SkillsDir        string               `yaml:"skills_dir"`
-	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
+	Port                int                  `yaml:"port"`
+	BoardsDir           string               `yaml:"boards_dir"`
+	GitAutoCommit       bool                 `yaml:"git_auto_commit"`
+	GitAutoPush         bool                 `yaml:"git_auto_push"`
+	GitDeferredCommit   bool                 `yaml:"git_deferred_commit"`
+	HeartbeatTimeout    string               `yaml:"heartbeat_timeout"`
+	CORSOrigin          string               `yaml:"cors_origin"`
+	SkillsDir           string               `yaml:"skills_dir"`
+	TokenCosts          map[string]ModelCost `yaml:"token_costs"`
 }
 
 // defaults returns a Config with default values.
@@ -155,6 +156,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PUSH"); v != "" {
 		cfg.GitAutoPush = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GIT_DEFERRED_COMMIT"); v != "" {
+		cfg.GitDeferredCommit = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v

@@ -102,6 +102,38 @@ func (m *Manager) CommitFile(path, message string) error {
 	return nil
 }
 
+// CommitFiles stages specific files and commits them in a single commit.
+// The paths should be relative to the repository root.
+func (m *Manager) CommitFiles(paths []string, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	wt, err := m.repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	// Stage each file
+	for _, path := range paths {
+		if _, err := wt.Add(path); err != nil {
+			return fmt.Errorf("stage file %s: %w", path, err)
+		}
+	}
+
+	// Commit
+	author := m.author
+	author.When = time.Now()
+
+	_, err = wt.Commit(message, &git.CommitOptions{
+		Author: &author,
+	})
+	if err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	return nil
+}
+
 // CommitAll stages all changes and commits them.
 func (m *Manager) CommitAll(message string) error {
 	m.mu.Lock()

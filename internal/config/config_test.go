@@ -28,6 +28,7 @@ port: 9090
 boards_dir: `+boardsDir+`
 git_auto_commit: false
 git_auto_push: true
+git_deferred_commit: true
 heartbeat_timeout: "15m"
 cors_origin: "https://example.com"
 `)
@@ -39,6 +40,7 @@ cors_origin: "https://example.com"
 	assert.Equal(t, boardsDir, cfg.BoardsDir)
 	assert.False(t, cfg.GitAutoCommit)
 	assert.True(t, cfg.GitAutoPush)
+	assert.True(t, cfg.GitDeferredCommit)
 	assert.Equal(t, "15m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "https://example.com", cfg.CORSOrigin)
 }
@@ -58,6 +60,7 @@ func TestLoad_MissingFile_FallsBackToDefaults(t *testing.T) {
 	assert.Equal(t, boardsDir, cfg.BoardsDir)
 	assert.True(t, cfg.GitAutoCommit)
 	assert.False(t, cfg.GitAutoPush)
+	assert.False(t, cfg.GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 }
@@ -162,6 +165,33 @@ cors_origin: "http://localhost:5173"
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
 				assert.False(t, cfg.GitAutoPush)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT true",
+			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			envValue: "true",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.True(t, cfg.GitDeferredCommit)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT 1",
+			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			envValue: "1",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.True(t, cfg.GitDeferredCommit)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT false",
+			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			envValue: "false",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.False(t, cfg.GitDeferredCommit)
 			},
 		},
 		{
@@ -467,6 +497,7 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "", cfg.BoardsDir)
 	assert.True(t, cfg.GitAutoCommit)
 	assert.False(t, cfg.GitAutoPush)
+	assert.False(t, cfg.GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Equal(t, "", cfg.SkillsDir)

@@ -60,7 +60,7 @@ func setupTest(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	cleanup := func() {
 		// Cleanup handled by t.TempDir()
@@ -691,7 +691,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 50*time.Millisecond) // Very short timeout
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1099,7 +1099,7 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 		"claude-opus-4":   {Prompt: 0.000015, Completion: 0.000075},
 	}
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
 
 	return svc, tmpDir, func() {}
 }
@@ -1315,7 +1315,7 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 	return svc, boardsDir
 }
 
@@ -1594,7 +1594,7 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Create service with gitAutoCommit disabled
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false, false)
 	ctx := context.Background()
 
 	// Create a card — should write file but not commit
@@ -1615,4 +1615,256 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	msg, headErr := gitMgr.GetLastCommitMessage()
 	require.NoError(t, headErr)
 	assert.Empty(t, msg, "no commit message expected when gitAutoCommit is false")
+}
+
+// setupDeferredTest creates a test environment with gitDeferredCommit enabled.
+func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	// gitAutoCommit=true, gitDeferredCommit=true
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	return svc, gitMgr
+}
+
+// TestDeferredCommitAccumulates verifies that with deferred mode on,
+// intermediate card mutations do not produce commits.
+func TestDeferredCommitAccumulates(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card — should defer the commit.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Deferred Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// No commit yet.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Empty(t, msg, "no commit expected after create in deferred mode")
+
+	// Update card twice.
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: "Updated Once", Type: "task", State: "todo", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: "Updated Twice", Type: "task", State: "todo", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Still no commit.
+	msg, err = gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Empty(t, msg, "no commit expected after updates in deferred mode")
+
+	// Deferred paths should be non-empty.
+	svc.writeMu.Lock()
+	pathCount := len(svc.deferredPaths[card.ID])
+	svc.writeMu.Unlock()
+	assert.Greater(t, pathCount, 0, "deferredPaths should have entries")
+}
+
+// TestDeferredCommitFlushOnDone verifies that transitioning to "done"
+// produces a single deferred commit.
+func TestDeferredCommitFlushOnDone(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Will Complete", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Update body (deferred).
+	body := "## Progress\n- [x] Step 1"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
+	require.NoError(t, err)
+
+	// Transition todo → in_progress → done (PatchCard flushes on done).
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Now there should be exactly one commit (the deferred flush).
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEmpty(t, msg, "expected a commit after transitioning to done")
+	assert.Contains(t, msg, card.ID)
+	assert.Contains(t, msg, "completed (deferred commit)")
+
+	// deferredPaths should be cleared.
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths should be cleared after flush")
+}
+
+// TestDeferredCommitFlushOnStalled verifies that when a card is marked stalled
+// via the timeout checker, accumulated deferred commits are flushed.
+func TestDeferredCommitFlushOnStalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	// Use a very short timeout (1ms) so the card stalls immediately.
+	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	ctx := context.Background()
+
+	// Create and claim a card.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Will Stall", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "stale-agent")
+	require.NoError(t, err)
+
+	// Update card body (deferred, no commit yet).
+	body := "## Progress\n- [ ] Step 1"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
+	require.NoError(t, err)
+
+	// Wait past the 1ms timeout, then trigger processStalled.
+	time.Sleep(10 * time.Millisecond)
+	err = svc.processStalled(ctx)
+	require.NoError(t, err)
+
+	// Card should now be stalled.
+	stalledCard, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "stalled", stalledCard.State)
+
+	// A deferred flush commit should have been produced.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEmpty(t, msg, "expected a commit after stall flush")
+	assert.Contains(t, msg, card.ID)
+
+	// deferredPaths should be cleared.
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths should be cleared after stall flush")
+}
+
+// TestDeferredCommitNoOpFlush verifies that flushing a card with no deferred paths is a no-op.
+func TestDeferredCommitNoOpFlush(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create a card via non-deferred path (temporarily disable deferred).
+	// We do this by directly calling flushDeferredCommit on a card ID that has no deferred paths.
+	_ = ctx
+
+	// Flush on card with no deferred paths — should not produce a commit.
+	svc.writeMu.Lock()
+	err := svc.flushDeferredCommit("NONEXISTENT-001", "test-agent")
+	svc.writeMu.Unlock()
+	require.NoError(t, err)
+
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Empty(t, msg, "no commit expected for no-op flush")
+}
+
+// TestDeferredCommitNonDeferredUnchanged verifies that with gitDeferredCommit=false,
+// every mutation commits immediately (existing behavior).
+func TestDeferredCommitNonDeferredUnchanged(t *testing.T) {
+	svc, _, cleanup := setupTest(t) // setupTest uses gitAutoCommit=true, gitDeferredCommit=false
+	defer cleanup()
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Immediate Commit", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Should have committed immediately.
+	msg, err := svc.git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, card.ID)
+	assert.Contains(t, msg, "created")
+
+	// Update and verify immediate commit.
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: "Updated", Type: "task", State: "todo", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	msg, err = svc.git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, card.ID)
+	assert.Contains(t, msg, "updated")
+
+	// deferredPaths must remain empty.
+	svc.writeMu.Lock()
+	totalDeferred := len(svc.deferredPaths)
+	svc.writeMu.Unlock()
+	assert.Equal(t, 0, totalDeferred, "deferredPaths should be empty in non-deferred mode")
+}
+
+// TestDeferredCommitProjectOpsUnaffected verifies that project-level operations
+// always commit immediately regardless of the deferred flag.
+func TestDeferredCommitProjectOpsUnaffected(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create a new project (different from the test-project already in boardsDir).
+	proj, err := svc.CreateProject(ctx, CreateProjectInput{
+		Name:       "another-project",
+		Prefix:     "ANOTH",
+		States:     []string{"todo", "done", "stalled"},
+		Types:      []string{"task"},
+		Priorities: []string{"medium"},
+		Transitions: map[string][]string{
+			"todo":    {"done"},
+			"done":    {"todo"},
+			"stalled": {"todo"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "another-project", proj.Name)
+
+	// Project create should have committed immediately.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEmpty(t, msg, "project create should commit immediately")
+	assert.Contains(t, msg, "another-project")
 }

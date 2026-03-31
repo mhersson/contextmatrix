@@ -2,4 +2,5 @@ port: 8080
 boards_dir: ~/Development/contextmatrix-boards
 git_auto_commit: true
 git_auto_push: false
+# git_deferred_commit: false  # When true (and git_auto_commit is true), skip intermediate commits and batch until card reaches done/stalled
 heartbeat_timeout: "30m"

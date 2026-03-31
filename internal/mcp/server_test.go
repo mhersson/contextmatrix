@@ -74,7 +74,7 @@ func setupMCP(t *testing.T) *testEnv {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
+	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	// Create skills directory with stub skill files (including Agent Configuration for model parsing)
 	skillsDir := filepath.Join(tmpDir, "skills")
