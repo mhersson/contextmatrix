@@ -153,6 +153,48 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, cfg)
 }
 
+// recalculateCostsRequest is the JSON body for POST /api/projects/{project}/recalculate-costs.
+type recalculateCostsRequest struct {
+	DefaultModel string `json:"default_model"`
+}
+
+// recalculateCostsResponse is the JSON response for POST /api/projects/{project}/recalculate-costs.
+type recalculateCostsResponse struct {
+	CardsUpdated          int     `json:"cards_updated"`
+	TotalCostRecalculated float64 `json:"total_cost_recalculated"`
+}
+
+// recalculateCosts handles POST /api/projects/{project}/recalculate-costs
+func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	if projectName == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+		return
+	}
+
+	var req recalculateCostsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	if req.DefaultModel == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "default_model is required", "")
+		return
+	}
+
+	result, err := h.svc.RecalculateCosts(r.Context(), projectName, req.DefaultModel)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, recalculateCostsResponse{
+		CardsUpdated:          result.CardsUpdated,
+		TotalCostRecalculated: result.TotalCostRecalculated,
+	})
+}
+
 // deleteProject handles DELETE /api/projects/{project}
 func (h *projectHandlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")

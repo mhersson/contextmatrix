@@ -28,6 +28,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerGetSubtaskSummary(server, svc)
 	registerGetReadyTasks(server, svc)
 	registerReportUsage(server, svc)
+	registerRecalculateCosts(server, svc)
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
@@ -594,6 +595,32 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
 		}
 		return nil, card, nil
+	})
+}
+
+type recalculateCostsInput struct {
+	Project      string `json:"project" jsonschema:"required,project name"`
+	DefaultModel string `json:"default_model" jsonschema:"required,model name used when card has no stored model (e.g. claude-sonnet-4-6)"`
+}
+
+type recalculateCostsOutput struct {
+	CardsUpdated          int     `json:"cards_updated"`
+	TotalCostRecalculated float64 `json:"total_cost_recalculated"`
+}
+
+func registerRecalculateCosts(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "recalculate_costs",
+		Description: "Recompute estimated costs for cards that have non-zero token counts but $0 cost (e.g. because model was not specified when usage was reported). Only updates cards that qualify; cards with an existing cost are not modified.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input recalculateCostsInput) (*mcp.CallToolResult, recalculateCostsOutput, error) {
+		result, err := svc.RecalculateCosts(ctx, input.Project, input.DefaultModel)
+		if err != nil {
+			return nil, recalculateCostsOutput{}, fmt.Errorf("recalculate costs: %w", err)
+		}
+		return nil, recalculateCostsOutput{
+			CardsUpdated:          result.CardsUpdated,
+			TotalCostRecalculated: result.TotalCostRecalculated,
+		}, nil
 	})
 }
 

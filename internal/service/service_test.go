@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -1364,8 +1365,8 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	tokenCosts := map[string]ModelCost{
-		"claude-sonnet-4": {Prompt: 0.000003, Completion: 0.000015},
-		"claude-opus-4":   {Prompt: 0.000015, Completion: 0.000075},
+		"claude-sonnet-4-6": {Prompt: 0.000003, Completion: 0.000015},
+		"claude-opus-4-6":   {Prompt: 0.000005, Completion: 0.000025},
 	}
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
@@ -1389,7 +1390,7 @@ func TestReportUsageWithCost(t *testing.T) {
 	// Report with known model
 	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "agent-1",
-		Model:            "claude-sonnet-4",
+		Model:            "claude-sonnet-4-6",
 		PromptTokens:     10000,
 		CompletionTokens: 2000,
 	})
@@ -1400,14 +1401,14 @@ func TestReportUsageWithCost(t *testing.T) {
 	// Report again with different model — cost should accumulate as delta
 	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "agent-1",
-		Model:            "claude-opus-4",
+		Model:            "claude-opus-4-6",
 		PromptTokens:     1000,
 		CompletionTokens: 500,
 	})
 	require.NoError(t, err)
-	// Delta: 1000 * 0.000015 + 500 * 0.000075 = 0.015 + 0.0375 = 0.0525
-	// Total: 0.06 + 0.0525 = 0.1125
-	assert.InDelta(t, 0.1125, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+	// Delta: 1000 * 0.000005 + 500 * 0.000025 = 0.005 + 0.0125 = 0.0175
+	// Total: 0.06 + 0.0175 = 0.0775
+	assert.InDelta(t, 0.0775, updated.TokenUsage.EstimatedCostUSD, 0.0001)
 	assert.Equal(t, int64(11000), updated.TokenUsage.PromptTokens)
 	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
 }
@@ -1452,6 +1453,109 @@ func TestReportUsageEvent(t *testing.T) {
 	}
 }
 
+// captureHandler is a slog.Handler that records log records for test assertions.
+type captureHandler struct {
+	records []slog.Record
+}
+
+func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.records = append(h.records, r)
+	return nil
+}
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithGroup(name string) slog.Handler       { return h }
+
+func TestReportUsageStoresModel(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Model storage test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, "claude-sonnet-4-6", updated.TokenUsage.Model)
+
+	// Report again with a different model — model should be updated to latest
+	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-opus-4-6",
+		PromptTokens:     500,
+		CompletionTokens: 250,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-6", updated.TokenUsage.Model)
+
+	// When no model is provided, the stored model should remain unchanged
+	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-6", updated.TokenUsage.Model)
+}
+
+func TestReportUsageWarnsUnknownModel(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Unknown model test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Install a capturing log handler for the duration of this test
+	handler := &captureHandler{}
+	original := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(original)
+
+	// Report with an unknown model — should warn but not error
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "unknown-model-xyz",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.TokenUsage)
+
+	// Token counts accumulate even when model is unknown
+	assert.Equal(t, int64(1000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500), updated.TokenUsage.CompletionTokens)
+
+	// Cost remains zero because model is not in the cost map
+	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// A Warn log entry should have been emitted
+	var warnFound bool
+	for _, rec := range handler.records {
+		if rec.Level == slog.LevelWarn {
+			warnFound = true
+			break
+		}
+	}
+	assert.True(t, warnFound, "expected slog.Warn for unknown model")
+}
+
 func TestAggregateUsage(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
 	defer cleanup()
@@ -1475,12 +1579,12 @@ func TestAggregateUsage(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, ReportUsageInput{
-		AgentID: "a1", Model: "claude-sonnet-4", PromptTokens: 1000, CompletionTokens: 500,
+		AgentID: "a1", Model: "claude-sonnet-4-6", PromptTokens: 1000, CompletionTokens: 500,
 	})
 	require.NoError(t, err)
 
 	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
-		AgentID: "a2", Model: "claude-sonnet-4", PromptTokens: 2000, CompletionTokens: 1000,
+		AgentID: "a2", Model: "claude-sonnet-4-6", PromptTokens: 2000, CompletionTokens: 1000,
 	})
 	require.NoError(t, err)
 
@@ -1532,11 +1636,11 @@ func TestGetDashboard(t *testing.T) {
 
 	// Report usage on card1 and card2.
 	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, ReportUsageInput{
-		AgentID: "agent-1", Model: "claude-sonnet-4", PromptTokens: 1000, CompletionTokens: 500,
+		AgentID: "agent-1", Model: "claude-sonnet-4-6", PromptTokens: 1000, CompletionTokens: 500,
 	})
 	require.NoError(t, err)
 	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
-		AgentID: "agent-1", Model: "claude-sonnet-4", PromptTokens: 2000, CompletionTokens: 1000,
+		AgentID: "agent-1", Model: "claude-sonnet-4-6", PromptTokens: 2000, CompletionTokens: 1000,
 	})
 	require.NoError(t, err)
 
@@ -2136,4 +2240,157 @@ func TestDeferredCommitProjectOpsUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, msg, "project create should commit immediately")
 	assert.Contains(t, msg, "another-project")
+}
+
+func TestRecalculateCosts(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// card1: has token usage but $0 cost, no model stored — should be recalculated with defaultModel
+	card1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Zero cost card 1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		PromptTokens:     10000,
+		CompletionTokens: 2000,
+		// No Model — cost stays $0
+	})
+	require.NoError(t, err)
+
+	// card2: has token usage and a stored model but $0 cost (model was set but rate lookup
+	// failed at the time). Simulate by directly reporting usage without a model, then patching
+	// the stored model name via a second report with the model set but zero tokens so the
+	// cost formula yields $0. Actually: report with model+tokens and then clear cost via
+	// another report with zero tokens. Simpler: just use ReportUsage without a model for
+	// token counts and manually verify that card has the stored model by seeding via a
+	// store update — but that bypasses the service. Instead, just test the case where
+	// card.TokenUsage.Model is already set (non-empty) on a $0 card: report with model name
+	// but also confirm RecalculateCosts uses it.
+	// We'll report usage with a Model so TokenUsage.Model is set, but then create a fresh
+	// card whose TokenUsage we manually set via a separate ReportUsage call. To get a card
+	// whose model is stored but cost is $0, we call ReportUsage with a model that IS in
+	// the cost map — but that would produce a non-zero cost. So instead, report without
+	// a model (cost=$0, model="") and rely on defaultModel for recalculation.
+	// card2 tests the path where card.TokenUsage.Model is already set:
+	card2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Zero cost card 2 (with stored model)", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	// Report once with opus model but no tokens to set model field only
+	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
+		AgentID: "agent-1",
+		Model:   "claude-opus-4-6",
+		// 0 tokens → cost $0, but model gets stored
+	})
+	require.NoError(t, err)
+	// Report again without model to accumulate tokens (cost still $0 because model not provided in this call)
+	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		// No model: no cost delta
+	})
+	require.NoError(t, err)
+
+	// card3: already has a non-zero cost — must NOT be touched
+	card3, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Already costed card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ReportUsage(ctx, "test-project", card3.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     5000,
+		CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+	// Verify card3 has non-zero cost before recalculation
+	c3, err := svc.GetCard(ctx, "test-project", card3.ID)
+	require.NoError(t, err)
+	require.NotNil(t, c3.TokenUsage)
+	require.Greater(t, c3.TokenUsage.EstimatedCostUSD, 0.0)
+	card3CostBefore := c3.TokenUsage.EstimatedCostUSD
+
+	result, err := svc.RecalculateCosts(ctx, "test-project", "claude-sonnet-4-6")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// card1: 10000*0.000003 + 2000*0.000015 = 0.03 + 0.03 = 0.06
+	// card2: opus model stored — 1000*0.000005 + 500*0.000025 = 0.005 + 0.0125 = 0.0175
+	// Total: 0.06 + 0.0175 = 0.0775
+	assert.Equal(t, 2, result.CardsUpdated)
+	assert.InDelta(t, 0.0775, result.TotalCostRecalculated, 0.0001)
+
+	// card1 should now have cost
+	updated1, err := svc.GetCard(ctx, "test-project", card1.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.06, updated1.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// card2 should now have cost (using its stored opus model)
+	updated2, err := svc.GetCard(ctx, "test-project", card2.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0175, updated2.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// card3 must be unchanged
+	updated3, err := svc.GetCard(ctx, "test-project", card3.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, card3CostBefore, updated3.TokenUsage.EstimatedCostUSD, 0.0001)
+}
+
+func TestRecalculateCostsNoOp(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// All cards have proper costs already.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Already costed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+
+	result, err := svc.RecalculateCosts(ctx, "test-project", "claude-sonnet-4-6")
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.CardsUpdated)
+	assert.InDelta(t, 0.0, result.TotalCostRecalculated, 0.0001)
+}
+
+func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unknown model card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	// Report without a model so cost is $0
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+
+	// Use an unknown default model — card should be skipped
+	result, err := svc.RecalculateCosts(ctx, "test-project", "unknown-model-xyz")
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.CardsUpdated)
+
+	// Card cost should still be $0
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001)
 }

@@ -111,6 +111,12 @@ type ProjectUsage struct {
 	CardCount        int     `json:"card_count"`
 }
 
+// RecalculateCostsResult summarises the outcome of a cost recalculation pass.
+type RecalculateCostsResult struct {
+	CardsUpdated           int     `json:"cards_updated"`
+	TotalCostRecalculated  float64 `json:"total_cost_recalculated"`
+}
+
 // ActiveAgent describes an agent currently working on a card.
 type ActiveAgent struct {
 	AgentID       string    `json:"agent_id"`
@@ -832,13 +838,26 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		card.TokenUsage = &board.TokenUsage{}
 	}
 
+	// Store the model name when provided
+	if input.Model != "" {
+		card.TokenUsage.Model = input.Model
+	}
+
 	card.TokenUsage.PromptTokens += input.PromptTokens
 	card.TokenUsage.CompletionTokens += input.CompletionTokens
 
-	// Calculate cost delta for this report and add to running total
-	if rate, ok := s.tokenCosts[input.Model]; ok {
-		deltaCost := float64(input.PromptTokens)*rate.Prompt + float64(input.CompletionTokens)*rate.Completion
-		card.TokenUsage.EstimatedCostUSD += deltaCost
+	// Calculate cost delta for this report and add to running total.
+	// Warn when a model name is provided but not found in the cost map.
+	if input.Model != "" {
+		if rate, ok := s.tokenCosts[input.Model]; ok {
+			deltaCost := float64(input.PromptTokens)*rate.Prompt + float64(input.CompletionTokens)*rate.Completion
+			card.TokenUsage.EstimatedCostUSD += deltaCost
+		} else {
+			slog.Warn("unknown model in cost map, cost not calculated",
+				"model", input.Model,
+				"card_id", id,
+			)
+		}
 	}
 
 	card.Updated = time.Now()
@@ -886,6 +905,80 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 		}
 	}
 	return usage, nil
+}
+
+// RecalculateCosts recomputes estimated costs for cards that have non-zero token
+// counts but a zero estimated cost (e.g. because the model was not provided when
+// usage was first reported). Only cards that match this condition are updated;
+// cards that already have a non-zero estimated cost are left untouched.
+//
+// defaultModel is used when card.TokenUsage.Model is empty.  If neither the
+// card's stored model nor defaultModel is in the cost map the card is skipped.
+func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultModel string) (*RecalculateCostsResult, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list cards: %w", err)
+	}
+
+	result := &RecalculateCostsResult{}
+	var updatedPaths []string
+
+	for _, card := range cards {
+		if card.TokenUsage == nil {
+			continue
+		}
+		if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 {
+			continue
+		}
+		if card.TokenUsage.EstimatedCostUSD != 0 {
+			continue // already has a cost — don't double-count
+		}
+
+		model := card.TokenUsage.Model
+		if model == "" {
+			model = defaultModel
+		}
+
+		rate, ok := s.tokenCosts[model]
+		if !ok {
+			slog.Warn("recalculate_costs: model not in cost map, skipping card",
+				"model", model,
+				"card_id", card.ID,
+			)
+			continue
+		}
+
+		cost := float64(card.TokenUsage.PromptTokens)*rate.Prompt +
+			float64(card.TokenUsage.CompletionTokens)*rate.Completion
+
+		card.TokenUsage.EstimatedCostUSD = cost
+		// Persist the effective model name so future recalculations are idempotent.
+		if card.TokenUsage.Model == "" && model != "" {
+			card.TokenUsage.Model = model
+		}
+		card.Updated = time.Now()
+
+		if err := s.store.UpdateCard(ctx, project, card); err != nil {
+			return nil, fmt.Errorf("update card %s: %w", card.ID, err)
+		}
+
+		updatedPaths = append(updatedPaths, s.cardPath(project, card.ID))
+		result.CardsUpdated++
+		result.TotalCostRecalculated += cost
+	}
+
+	// Batch-commit all recalculated cards in a single git commit.
+	if s.gitAutoCommit && len(updatedPaths) > 0 {
+		msg := fmt.Sprintf("[contextmatrix] %s: recalculated costs for %d cards", project, result.CardsUpdated)
+		if err := s.git.CommitFiles(updatedPaths, msg); err != nil {
+			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
+		}
+	}
+
+	return result, nil
 }
 
 // GetDashboard computes aggregated dashboard data for a project.

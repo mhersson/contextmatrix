@@ -67,7 +67,12 @@ and release your claim if you do not call `heartbeat` within the timeout period
 after each test run, after each significant code change.
 
 **Token usage reporting.** After each `heartbeat`, also call `report_usage` with
-your token consumption since the last report. This tracks cost per card.
+your token consumption since the last report. This tracks cost per card. Always
+include:
+- `card_id`: your card ID
+- `agent_id`: your agent ID
+- `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption since the last report
 
 ### Card body structure
 
@@ -95,7 +100,7 @@ When all work is done and verified:
 
 1. Update `## Progress` to mark all steps complete.
 2. Call `update_card` with the final card body.
-3. Call `report_usage` with your final token consumption.
+3. Call `report_usage` with your final token consumption. Include `model: "claude-sonnet-4-6"`.
 4. Call `complete_task` with your card ID, agent ID, and a one-line summary.
 
 Then print this **exact format** as your final output (the main agent parses

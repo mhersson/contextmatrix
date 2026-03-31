@@ -57,6 +57,17 @@ Assess the work against these criteria:
 - Are there performance implications?
 - Is there technical debt introduced that should be noted?
 
+## Step 2b: Report token usage
+
+**This is the ONE exception to the read-only rule.** Before presenting findings,
+call `report_usage` with:
+- `card_id`: the parent card ID you are reviewing
+- `agent_id`: your agent ID
+- `model`: `"claude-opus-4-6"` (must match the model in Agent Configuration above)
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption for this review session
+
+Reviews use Opus and reading all subtask context is expensive — track this cost.
+
 ## Step 3: Present findings
 
 Structure your assessment as follows:
@@ -92,8 +103,9 @@ State one of:
 
 ## Rules
 
-- **Read only.** Do not call `update_card`, `transition_card`, `claim_card`, or
-  any write operation. You are an observer.
+- **Read only (with one exception).** Do not call `update_card`, `transition_card`,
+  `claim_card`, or any write operation. You are an observer. The only permitted
+  write is `report_usage` (see Step 2b) — this records cost, not card state.
 - **Do not decide.** Present your findings and recommendation, but the human
   makes the final call.
 - **Be specific.** "The code looks fine" is not a review. Reference specific

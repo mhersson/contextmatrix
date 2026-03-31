@@ -89,6 +89,16 @@ Created 3 subtasks for ALPHA-001:
   ALPHA-004: Add login endpoint (depends on ALPHA-002)
 ```
 
+## Step 4b: Report token usage
+
+Call `report_usage` with:
+- `card_id`: the parent card ID you are planning
+- `agent_id`: your agent ID
+- `model`: `"claude-opus-4-6"` (must match the model in Agent Configuration above)
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption for this planning session
+
+This tracks the cost of planning sessions, which use Opus and are significant.
+
 ## Step 5: Offer execution
 
 Ask the human:

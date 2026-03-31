@@ -1,6 +1,10 @@
 port: 8080
 boards_dir: ~/Development/contextmatrix-boards
+skills_dir: ~/Development/contextmatrix/skills
 git_auto_commit: true
+git_deferred_commit: true
 git_auto_push: false
-# git_deferred_commit: false  # When true (and git_auto_commit is true), skip intermediate commits and batch until card reaches done/stalled
 heartbeat_timeout: "30m"
+token_costs:
+  claude-sonnet-4-6: {prompt: 0.000003, completion: 0.000015}
+  claude-opus-4-6: {prompt: 0.000005, completion: 0.000025}

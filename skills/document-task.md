@@ -54,6 +54,14 @@ For each documentation artifact:
 - Place documentation where readers will find it — update existing files rather
   than creating new ones when possible
 
+## Step 3b: Report token usage
+
+Before presenting to the human, call `report_usage` with:
+- `card_id`: the parent card ID you are documenting
+- `agent_id`: your agent ID
+- `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
+
 ## Step 4: Present to human
 
 Show the human what you've written and where you propose to place each artifact.

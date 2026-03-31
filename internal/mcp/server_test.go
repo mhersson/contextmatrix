@@ -178,6 +178,7 @@ func TestListTools(t *testing.T) {
 		"get_subtask_summary",
 		"get_ready_tasks",
 		"report_usage",
+		"recalculate_costs",
 		"create_project",
 		"update_project",
 		"delete_project",
