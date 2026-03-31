@@ -487,7 +487,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 			if serr == nil {
 				out.ReviewSkillName = "review-task"
 				out.ReviewModel = skill.Model
-				out.ReviewContent = skill.Content
+				out.ReviewContent = stripAgentConfig(skill.Content)
 				out.NextStep = fmt.Sprintf(
 					"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
 						"The review-task skill content is included in this response (review_content field). "+
@@ -730,6 +730,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}
-		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Content: result.Content}, nil
+		content := stripAgentConfig(result.Content)
+		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Content: content}, nil
 	})
 }

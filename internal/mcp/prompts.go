@@ -73,6 +73,29 @@ func stripAgentConfig(content string) string {
 	return agentConfigPattern.ReplaceAllString(content, "")
 }
 
+// buildDelegationPrompt returns a short wrapper prompt that instructs the
+// receiving agent to call get_skill with the given arguments and then spawn
+// a sub-agent via the Agent tool with the returned model and content.
+//
+// This is what MCP prompt handlers return — NOT the raw skill content.
+// The delegation wrapper ensures the work runs as a sub-agent on the correct
+// model, not inline in the calling agent's context.
+func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Subagent Required: %s\n\n", skillName)
+	fmt.Fprintf(&b, "This workflow step must run as a sub-agent on the **%s** model.\n", model)
+	fmt.Fprintln(&b, "Do NOT execute it inline — delegation is required.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "**Steps:**")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s)` to retrieve the full skill prompt and the required model.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. Use the **Agent tool** with the returned `model` and `content` to spawn the sub-agent.")
+	fmt.Fprintln(&b, "3. Wait for the sub-agent to complete and relay its structured output back.")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Do NOT read the skill content yourself and execute it — you MUST use the Agent tool with model `%s`.\n", model)
+	return b.String()
+}
+
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	server.AddPrompt(&mcp.Prompt{
@@ -133,9 +156,19 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if err != nil {
 			return nil, err
 		}
+		description := req.Params.Arguments["description"]
+		getSkillArgs := "skill_name='create-task'"
+		if description != "" {
+			getSkillArgs += fmt.Sprintf(", description='%s'", description)
+		}
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "create-task", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
@@ -143,15 +176,22 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // createPlanPromptHandler returns the handler for create-plan prompt.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
-			CardID: req.Params.Arguments["card_id"],
+			CardID: cardID,
 		})
 		if err != nil {
 			return nil, err
 		}
+		getSkillArgs := fmt.Sprintf("skill_name='create-plan', card_id='%s'", cardID)
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "create-plan", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
@@ -159,15 +199,22 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // executeTaskPromptHandler returns the handler for execute-task prompt.
 func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
-			CardID: req.Params.Arguments["card_id"],
+			CardID: cardID,
 		})
 		if err != nil {
 			return nil, err
 		}
+		getSkillArgs := fmt.Sprintf("skill_name='execute-task', card_id='%s'", cardID)
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "execute-task", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Claim and execute a task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
@@ -175,15 +222,22 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 // reviewTaskPromptHandler returns the handler for review-task prompt.
 func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
-			CardID: req.Params.Arguments["card_id"],
+			CardID: cardID,
 		})
 		if err != nil {
 			return nil, err
 		}
+		getSkillArgs := fmt.Sprintf("skill_name='review-task', card_id='%s'", cardID)
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "review-task", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
@@ -191,15 +245,22 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // documentTaskPromptHandler returns the handler for document-task prompt.
 func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
-			CardID: req.Params.Arguments["card_id"],
+			CardID: cardID,
 		})
 		if err != nil {
 			return nil, err
 		}
+		getSkillArgs := fmt.Sprintf("skill_name='document-task', card_id='%s'", cardID)
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "document-task", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Write documentation for a completed task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
@@ -207,15 +268,25 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 // initProjectPromptHandler returns the handler for init-project prompt.
 func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		name := req.Params.Arguments["name"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
-			Name: req.Params.Arguments["name"],
+			Name: name,
 		})
 		if err != nil {
 			return nil, err
 		}
+		getSkillArgs := "skill_name='init-project'"
+		if name != "" {
+			getSkillArgs += fmt.Sprintf(", name='%s'", name)
+		}
+		model := result.Model
+		if model == "" {
+			model = "sonnet"
+		}
+		text := buildDelegationPrompt(model, "init-project", getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Initialize a new project board",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
 }
