@@ -23,6 +23,7 @@ export interface Card {
   parent?: string;
   subtasks?: string[];
   depends_on?: string[];
+  dependencies_met?: boolean;
   context?: string[];
   labels?: string[];
   source?: Source;

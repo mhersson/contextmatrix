@@ -19,6 +19,9 @@ var (
 
 	// ErrInvalidTransition indicates the state transition is not allowed.
 	ErrInvalidTransition = errors.New("invalid state transition")
+
+	// ErrDependenciesNotMet indicates that not all depends_on cards are done.
+	ErrDependenciesNotMet = errors.New("dependencies not met")
 )
 
 // ValidationError provides detailed validation failure information.

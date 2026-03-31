@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Card } from '../../types';
+import { api } from '../../api/client';
 
 interface CardPanelMetadataProps {
   card: Card;
@@ -15,6 +16,29 @@ export function CardPanelMetadata({
   onSubtaskClick,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
+  const [depStates, setDepStates] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!card.depends_on?.length) {
+      setDepStates({});
+      return;
+    }
+    const fetchDeps = async () => {
+      const states: Record<string, string> = {};
+      await Promise.all(
+        card.depends_on!.map(async (depId) => {
+          try {
+            const dep = await api.getCard(card.project, depId);
+            states[depId] = dep.state;
+          } catch {
+            states[depId] = 'unknown';
+          }
+        }),
+      );
+      setDepStates(states);
+    };
+    fetchDeps();
+  }, [card.depends_on, card.project]);
 
   const addLabel = useCallback(() => {
     const trimmed = labelInput.trim();
@@ -93,15 +117,23 @@ export function CardPanelMetadata({
         <div>
           <label className="block text-xs text-[var(--grey1)] mb-1">Dependencies</label>
           <div className="flex flex-wrap gap-2">
-            {card.depends_on.map((depId) => (
-              <button
-                key={depId}
-                onClick={() => onSubtaskClick(depId)}
-                className="px-2 py-1 rounded bg-[var(--bg2)] text-[var(--yellow)] hover:bg-[var(--bg3)] transition-colors text-sm font-mono"
-              >
-                {depId}
-              </button>
-            ))}
+            {card.depends_on.map((depId) => {
+              const state = depStates[depId];
+              const isDone = state === 'done';
+              return (
+                <button
+                  key={depId}
+                  onClick={() => onSubtaskClick(depId)}
+                  className={`px-2 py-1 rounded hover:bg-[var(--bg3)] transition-colors text-sm font-mono ${
+                    isDone
+                      ? 'bg-[var(--bg-green)] text-[var(--green)]'
+                      : 'bg-[var(--bg-red)] text-[var(--red)]'
+                  }`}
+                >
+                  {depId}{state ? ` (${state})` : ''}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

@@ -109,6 +109,20 @@ export function CardItem({ card, onClick, flashCardId }: CardItemProps) {
           </span>
         )}
 
+        {/* Dependency status */}
+        {card.depends_on && card.depends_on.length > 0 && (
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded ${
+              card.dependencies_met
+                ? 'bg-[var(--bg-green)] text-[var(--green)]'
+                : 'bg-[var(--bg-red)] text-[var(--red)]'
+            }`}
+            title={card.dependencies_met ? 'All dependencies met' : 'Blocked by dependencies'}
+          >
+            {card.dependencies_met ? 'deps met' : 'blocked'}
+          </span>
+        )}
+
         {/* Labels */}
         {card.labels?.map((label) => (
           <span

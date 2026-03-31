@@ -750,6 +750,253 @@ func TestListProjectsAndGetProject(t *testing.T) {
 	assert.Equal(t, "TEST", project.Prefix)
 }
 
+func TestUpdateCard_BlockedByDependency(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create dependency card (stays in todo)
+	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependency",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create card that depends on depCard
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Try to transition to in_progress with unmet dependency
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:     "Dependent Card",
+		Type:      "task",
+		State:     "in_progress",
+		Priority:  "medium",
+		DependsOn: []string{depCard.ID},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, board.ErrDependenciesNotMet)
+	assert.Contains(t, err.Error(), depCard.ID)
+	assert.Contains(t, err.Error(), "todo")
+}
+
+func TestPatchCard_BlockedByDependency(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create dependency card (stays in todo)
+	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependency",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create card with depends_on set via UpdateCard (to set DependsOn)
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Set dependency via full update (no state change)
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:     "Dependent Card",
+		Type:      "task",
+		State:     "todo",
+		Priority:  "medium",
+		DependsOn: []string{depCard.ID},
+	})
+	require.NoError(t, err)
+
+	// Try to patch state to in_progress
+	newState := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		State: &newState,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, board.ErrDependenciesNotMet)
+	assert.Contains(t, err.Error(), depCard.ID)
+}
+
+func TestUpdateCard_DependenciesMet(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create dependency card and complete it
+	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependency",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Transition dep: todo -> in_progress -> done
+	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
+		Title: "Dependency", Type: "task", State: "in_progress", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
+		Title: "Dependency", Type: "task", State: "done", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create dependent card and transition to in_progress (should succeed)
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:     "Dependent Card",
+		Type:      "task",
+		State:     "in_progress",
+		Priority:  "medium",
+		DependsOn: []string{depCard.ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updated.State)
+}
+
+func TestGetCard_DependenciesMetField(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create dependency card (todo)
+	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependency",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create card depending on depCard
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Set dependency
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:     "Dependent Card",
+		Type:      "task",
+		State:     "todo",
+		Priority:  "medium",
+		DependsOn: []string{depCard.ID},
+	})
+	require.NoError(t, err)
+
+	// Fetch card — DependenciesMet should be false
+	fetched, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.DependenciesMet)
+	assert.False(t, *fetched.DependenciesMet)
+
+	// Complete the dependency
+	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
+		Title: "Dependency", Type: "task", State: "in_progress", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
+		Title: "Dependency", Type: "task", State: "done", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Fetch again — DependenciesMet should be true
+	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.DependenciesMet)
+	assert.True(t, *fetched.DependenciesMet)
+}
+
+func TestListCards_DependenciesMetField(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create dep card (todo)
+	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependency",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create card with dependency
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Dependent",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:     "Dependent",
+		Type:      "task",
+		State:     "todo",
+		Priority:  "medium",
+		DependsOn: []string{depCard.ID},
+	})
+	require.NoError(t, err)
+
+	// List cards — check DependenciesMet on each
+	cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+
+	for _, c := range cards {
+		if c.ID == card.ID {
+			require.NotNil(t, c.DependenciesMet)
+			assert.False(t, *c.DependenciesMet)
+		}
+		if c.ID == depCard.ID {
+			// No deps, should be nil
+			assert.Nil(t, c.DependenciesMet)
+		}
+	}
+}
+
+func TestUpdateCard_NoDeps_NoBlock(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create card with no dependencies
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "No Deps",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Transition to in_progress should work fine
+	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:    "No Deps",
+		Type:     "task",
+		State:    "in_progress",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updated.State)
+}
+
 func TestCommitMessage(t *testing.T) {
 	tests := []struct {
 		agent    string

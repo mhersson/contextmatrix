@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,12 +123,24 @@ func (s *CardService) GetProject(ctx context.Context, name string) (*board.Proje
 
 // ListCards returns all cards in a project matching the filter.
 func (s *CardService) ListCards(ctx context.Context, project string, filter storage.CardFilter) ([]*board.Card, error) {
-	return s.store.ListCards(ctx, project, filter)
+	cards, err := s.store.ListCards(ctx, project, filter)
+	if err != nil {
+		return nil, err
+	}
+	for _, card := range cards {
+		s.enrichDependenciesMet(ctx, card)
+	}
+	return cards, nil
 }
 
 // GetCard returns a specific card.
 func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
-	return s.store.GetCard(ctx, project, id)
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, err
+	}
+	s.enrichDependenciesMet(ctx, card)
+	return card, nil
 }
 
 // CreateCard creates a new card in the project.
@@ -200,6 +213,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		Timestamp: now,
 	})
 
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
 
@@ -230,6 +244,13 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		validator := s.getValidator(project)
 		if err := validator.ValidateTransition(cfg, oldState, input.State); err != nil {
 			return nil, fmt.Errorf("validate transition: %w", err)
+		}
+		// Block transition to in_progress if dependencies not met
+		if input.State == "in_progress" {
+			met, blockers := s.checkDependencies(ctx, project, input.DependsOn)
+			if !met {
+				return nil, dependencyError(input.State, blockers)
+			}
 		}
 	}
 
@@ -281,6 +302,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		},
 	})
 
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
 
@@ -317,6 +339,13 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 			validator := s.getValidator(project)
 			if err := validator.ValidateTransition(cfg, oldState, newState); err != nil {
 				return nil, fmt.Errorf("validate transition: %w", err)
+			}
+			// Block transition to in_progress if dependencies not met
+			if newState == "in_progress" {
+				met, blockers := s.checkDependencies(ctx, project, card.DependsOn)
+				if !met {
+					return nil, dependencyError(newState, blockers)
+				}
 			}
 			card.State = newState
 			stateChanged = true
@@ -367,6 +396,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		},
 	})
 
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
 
@@ -759,6 +789,55 @@ func (s *CardService) getTemplates(project string) (map[string]string, error) {
 	s.mu.Unlock()
 
 	return templates, nil
+}
+
+// depStatus describes a dependency that is not yet met.
+type depStatus struct {
+	ID    string
+	State string
+}
+
+// checkDependencies checks if all cards in deps are in "done" state.
+// Returns true if all deps are met (or deps is empty), plus a list of blocking deps.
+func (s *CardService) checkDependencies(ctx context.Context, project string, deps []string) (bool, []depStatus) {
+	if len(deps) == 0 {
+		return true, nil
+	}
+	var blockers []depStatus
+	for _, depID := range deps {
+		dep, err := s.store.GetCard(ctx, project, depID)
+		if err != nil {
+			blockers = append(blockers, depStatus{ID: depID, State: "unknown"})
+			continue
+		}
+		if dep.State != "done" {
+			blockers = append(blockers, depStatus{ID: depID, State: dep.State})
+		}
+	}
+	return len(blockers) == 0, blockers
+}
+
+// dependencyError builds a ValidationError for unmet dependencies.
+func dependencyError(targetState string, blockers []depStatus) error {
+	parts := make([]string, len(blockers))
+	for i, b := range blockers {
+		parts[i] = fmt.Sprintf("%s (%s)", b.ID, b.State)
+	}
+	return fmt.Errorf("validate transition: %w", &board.ValidationError{
+		Err:     board.ErrDependenciesNotMet,
+		Field:   "state",
+		Value:   targetState,
+		Message: fmt.Sprintf("cannot transition to %q: blocked by dependencies: %s", targetState, strings.Join(parts, ", ")),
+	})
+}
+
+// enrichDependenciesMet computes and sets the DependenciesMet field on a card.
+func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Card) {
+	if len(card.DependsOn) == 0 {
+		return
+	}
+	met, _ := s.checkDependencies(ctx, card.Project, card.DependsOn)
+	card.DependenciesMet = &met
 }
 
 // commitMessage formats a commit message with optional agent prefix.

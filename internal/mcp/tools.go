@@ -433,12 +433,13 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 		}
 
 		// Filter to unclaimed cards with all dependencies met
+		// ListCards already computes DependenciesMet on each card
 		ready := make([]*board.Card, 0)
 		for _, card := range cards {
 			if card.AssignedAgent != "" {
 				continue // already claimed
 			}
-			if !allDepsDone(ctx, svc, input.Project, card.DependsOn) {
+			if card.DependenciesMet != nil && !*card.DependenciesMet {
 				continue
 			}
 			ready = append(ready, card)
@@ -446,18 +447,4 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 
 		return nil, getReadyTasksOutput{Cards: ready}, nil
 	})
-}
-
-// allDepsDone checks if all dependency cards are in "done" state.
-func allDepsDone(ctx context.Context, svc *service.CardService, project string, deps []string) bool {
-	for _, depID := range deps {
-		dep, err := svc.GetCard(ctx, project, depID)
-		if err != nil {
-			return false // can't verify, treat as not done
-		}
-		if dep.State != "done" {
-			return false
-		}
-	}
-	return true
 }

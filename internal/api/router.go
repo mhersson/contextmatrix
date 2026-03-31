@@ -30,8 +30,9 @@ const (
 	ErrCodeAlreadyClaimed    = "ALREADY_CLAIMED"
 	ErrCodeNotClaimed        = "NOT_CLAIMED"
 	ErrCodeAgentMismatch     = "AGENT_MISMATCH"
-	ErrCodeInternalError     = "INTERNAL_ERROR"
-	ErrCodeBadRequest        = "BAD_REQUEST"
+	ErrCodeDependenciesNotMet = "DEPENDENCIES_NOT_MET"
+	ErrCodeInternalError      = "INTERNAL_ERROR"
+	ErrCodeBadRequest         = "BAD_REQUEST"
 )
 
 // APIError is the standard error response format.
@@ -222,6 +223,13 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
 	case errors.Is(err, storage.ErrCardExists):
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
+	case errors.Is(err, board.ErrDependenciesNotMet):
+		var ve *board.ValidationError
+		details := ""
+		if errors.As(err, &ve) {
+			details = ve.Error()
+		}
+		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", details)
 	case errors.Is(err, board.ErrInvalidTransition):
 		var ve *board.ValidationError
 		details := ""

@@ -22,7 +22,8 @@ type Card struct {
 	LastHeartbeat *time.Time      `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
 	Parent        string          `yaml:"parent,omitempty"         json:"parent,omitempty"`
 	Subtasks      []string        `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
-	DependsOn     []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
+	DependsOn       []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
+	DependenciesMet *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
 	Context       []string        `yaml:"context,omitempty"        json:"context,omitempty"`
 	Labels        []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
 	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`

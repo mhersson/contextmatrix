@@ -671,6 +671,58 @@ func TestGetReadyTasks(t *testing.T) {
 	assert.True(t, readyIDs2[taskB.ID], "Task B should still be ready")
 }
 
+func TestTransitionCard_BlockedByDependency(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create dependency card (stays in todo)
+	depCard := createTestCard(t, env, "Dependency", "task", "medium")
+
+	// Create card that depends on depCard
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":    "test-project",
+		"title":      "Depends on dep",
+		"type":       "task",
+		"priority":   "medium",
+		"depends_on": []string{depCard.ID},
+	})
+	require.False(t, result.IsError)
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	// Try to transition to in_progress — should fail
+	blocked := callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   card.ID,
+		"new_state": "in_progress",
+	})
+	require.True(t, blocked.IsError, "transition should be blocked by unmet dependency")
+
+	// Complete the dependency: todo -> in_progress -> review -> done
+	callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   depCard.ID,
+		"new_state": "in_progress",
+	})
+	callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   depCard.ID,
+		"new_state": "review",
+	})
+	callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   depCard.ID,
+		"new_state": "done",
+	})
+
+	// Now transition should succeed
+	success := callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   card.ID,
+		"new_state": "in_progress",
+	})
+	require.False(t, success.IsError, "transition should succeed after dep is done")
+}
+
 func TestGetReadyTasks_ScopedToParent(t *testing.T) {
 	env := setupMCP(t)
 
