@@ -7,6 +7,7 @@ import type {
   UpdateCardInput,
   PatchCardInput,
   CardContext,
+  DashboardData,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -170,6 +171,10 @@ class APIClient {
 
   async getCardContext(project: string, id: string): Promise<CardContext> {
     return this.request<CardContext>(`/projects/${project}/cards/${id}/context`);
+  }
+
+  async getDashboard(project: string): Promise<DashboardData> {
+    return this.request<DashboardData>(`/projects/${project}/dashboard`);
   }
 }
 

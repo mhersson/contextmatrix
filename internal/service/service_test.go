@@ -1224,3 +1224,76 @@ func TestAggregateUsage(t *testing.T) {
 	// Cost: (1000*0.000003 + 500*0.000015) + (2000*0.000003 + 1000*0.000015) = 0.0105 + 0.021 = 0.0315
 	assert.InDelta(t, 0.0315, usage.EstimatedCostUSD, 0.0001)
 }
+
+func TestGetDashboard(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create cards in different states.
+	card1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Todo card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	card2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "In-progress card", Type: "task", Priority: "high",
+	})
+	require.NoError(t, err)
+
+	card3, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Done card", Type: "bug", Priority: "low",
+	})
+	require.NoError(t, err)
+
+	// Move card2 to in_progress and claim it.
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card2.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Move card3 to in_progress then done.
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", card3.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	_, err = svc.PatchCard(ctx, "test-project", card3.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Report usage on card1 and card2.
+	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, ReportUsageInput{
+		AgentID: "agent-1", Model: "claude-sonnet-4", PromptTokens: 1000, CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
+		AgentID: "agent-1", Model: "claude-sonnet-4", PromptTokens: 2000, CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+
+	dashboard, err := svc.GetDashboard(ctx, "test-project")
+	require.NoError(t, err)
+
+	// State counts.
+	assert.Equal(t, 1, dashboard.StateCounts["todo"])
+	assert.Equal(t, 1, dashboard.StateCounts["in_progress"])
+	assert.Equal(t, 1, dashboard.StateCounts["done"])
+
+	// Active agents: only card2 is in_progress with an agent.
+	require.Len(t, dashboard.ActiveAgents, 1)
+	assert.Equal(t, "agent-1", dashboard.ActiveAgents[0].AgentID)
+	assert.Equal(t, card2.ID, dashboard.ActiveAgents[0].CardID)
+
+	// Cards completed today: card3 was transitioned to done just now.
+	assert.Equal(t, 1, dashboard.CardsCompletedToday)
+
+	// Total cost: same as aggregate.
+	// (1000*0.000003 + 500*0.000015) + (2000*0.000003 + 1000*0.000015) = 0.0315
+	assert.InDelta(t, 0.0315, dashboard.TotalCostUSD, 0.0001)
+
+	// Card costs: 2 cards have usage.
+	assert.Len(t, dashboard.CardCosts, 2)
+
+	// Agent costs: card1 has no assigned agent (grouped as "unassigned"), card2 has "agent-1".
+	assert.Len(t, dashboard.AgentCosts, 2)
+}

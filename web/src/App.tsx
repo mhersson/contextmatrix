@@ -7,7 +7,9 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppHeader } from './components/AppHeader';
+import type { ViewType } from './components/AppHeader';
 import { Board } from './components/Board';
+import { Dashboard } from './components/Dashboard';
 import { CardPanel } from './components/CardPanel';
 import { CreateCardPanel } from './components/CreateCardPanel';
 import { ToastContainer } from './components/Toast';
@@ -16,6 +18,7 @@ import type { Card, ProjectConfig, CreateCardInput } from './types';
 function App() {
   const [projects, setProjects] = useState<ProjectConfig[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
+  const [view, setView] = useState<ViewType>('board');
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
@@ -85,6 +88,8 @@ function App() {
     useMemo(
       () => [
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
+        { key: 'b', handler: () => { if (!panelOpen) setView('board'); } },
+        { key: 'd', handler: () => { if (!panelOpen) setView('dashboard'); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
           handler: () => { if (i < projects.length) setSelectedProject(projects[i].name); },
@@ -103,6 +108,8 @@ function App() {
           onSelectProject={setSelectedProject}
           projectsLoading={projectsLoading}
           connected={connected}
+          view={view}
+          onViewChange={setView}
         />
 
         <ErrorBoundary>
@@ -112,7 +119,9 @@ function App() {
                 {projectsError}
               </div>
             )}
-            {selectedProject && config ? (
+            {selectedProject && view === 'dashboard' ? (
+              <Dashboard project={selectedProject} />
+            ) : selectedProject && config ? (
               <Board cards={cards} config={config} loading={loading} error={error}
                 onCardClick={handleCardClick} onCardMove={handleCardMove}
                 onCreateCard={handleOpenCreate} flashCardId={flashCardId} />

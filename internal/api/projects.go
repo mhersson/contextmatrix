@@ -55,3 +55,20 @@ func (h *projectHandlers) getProjectUsage(w http.ResponseWriter, r *http.Request
 
 	writeJSON(w, http.StatusOK, usage)
 }
+
+// getProjectDashboard handles GET /api/projects/{project}/dashboard
+func (h *projectHandlers) getProjectDashboard(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	if projectName == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+		return
+	}
+
+	dashboard, err := h.svc.GetDashboard(r.Context(), projectName)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dashboard)
+}

@@ -1594,3 +1594,53 @@ func TestGetProjectUsage(t *testing.T) {
 	assert.Equal(t, int64(1500), usage.CompletionTokens)
 	assert.Equal(t, 2, usage.CardCount)
 }
+
+func TestGetProjectDashboard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// Create cards in different states.
+	_, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Todo card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	card2, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Active card", Type: "task", Priority: "high",
+	})
+	require.NoError(t, err)
+
+	// Move card2 to in_progress and claim it.
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card2.ID, service.PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card2.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Hit dashboard endpoint.
+	resp, err := http.Get(server.URL + "/api/projects/test-project/dashboard")
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var dashboard service.DashboardData
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&dashboard))
+
+	assert.Equal(t, 1, dashboard.StateCounts["todo"])
+	assert.Equal(t, 1, dashboard.StateCounts["in_progress"])
+	require.Len(t, dashboard.ActiveAgents, 1)
+	assert.Equal(t, "agent-1", dashboard.ActiveAgents[0].AgentID)
+
+	// Nonexistent project returns 404.
+	resp2, err := http.Get(server.URL + "/api/projects/nonexistent/dashboard")
+	require.NoError(t, err)
+	defer closeBody(t, resp2.Body)
+	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+}

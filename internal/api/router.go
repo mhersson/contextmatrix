@@ -80,8 +80,9 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *ht
 	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/usage", ah.reportUsage)
 
-	// Project usage
+	// Project usage and dashboard
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
+	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler
 	return wrapMux(mux, corsOrigin)
