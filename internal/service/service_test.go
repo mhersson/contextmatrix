@@ -423,7 +423,7 @@ func TestAddLogEntryCapping(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add more than 50 entries
-	for i := 0; i < 55; i++ {
+	for range 55 {
 		entry := board.ActivityEntry{
 			Agent:   "agent",
 			Action:  "update",
@@ -646,7 +646,7 @@ func TestConcurrentCardCreation(t *testing.T) {
 	errs := make([]error, cardCount)
 
 	// Create cards concurrently
-	for i := 0; i < cardCount; i++ {
+	for i := range cardCount {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -696,8 +696,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Create and claim a card
 	createInput := CreateCardInput{
@@ -1266,6 +1265,148 @@ func drainEvents(ch <-chan events.Event) {
 			return
 		}
 	}
+}
+
+// createParentWithChildrenByParentField creates a parent card and the given number
+// of child cards using only the parent field on the child — the parent's Subtasks
+// field is NOT populated. This reflects how agents typically create subtasks.
+func createParentWithChildrenByParentField(t *testing.T, svc *CardService, project string, numChildren int) (*board.Card, []*board.Card) {
+	t.Helper()
+	ctx := context.Background()
+
+	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title:    "Parent Task",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	children := make([]*board.Card, numChildren)
+	for i := range numChildren {
+		child, err := svc.CreateCard(ctx, project, CreateCardInput{
+			Title:    fmt.Sprintf("Child %d", i+1),
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		children[i] = child
+	}
+
+	// Re-fetch parent — its Subtasks field is intentionally NOT updated
+	parent, err = svc.GetCard(ctx, project, parent.ID)
+	require.NoError(t, err)
+	assert.Empty(t, parent.Subtasks, "parent Subtasks must be empty for this test to be meaningful")
+
+	return parent, children
+}
+
+// TestParentAutoTransition_QueryBased_OneOfThreeDoneStaysInProgress verifies that
+// completing only 1 of 3 children (linked via parent field, not Subtasks list) does
+// NOT transition the parent to review.
+func TestParentAutoTransition_QueryBased_OneOfThreeDoneStaysInProgress(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, children := createParentWithChildrenByParentField(t, svc, "test-project", 3)
+	require.Equal(t, "todo", parent.State)
+
+	// Transition all children to in_progress (first one also transitions parent)
+	inProgress := "in_progress"
+	for _, child := range children {
+		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &inProgress})
+		require.NoError(t, err)
+	}
+
+	// Verify parent is in_progress
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, "in_progress", updatedParent.State)
+
+	// Complete only the first child
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", children[0].ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Parent must still be in_progress — two children remain
+	updatedParent, err = svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+}
+
+// TestParentAutoTransition_QueryBased_AllThreeDoneTransitionsToReview verifies that
+// completing all 3 children (linked via parent field only) transitions the parent to review.
+func TestParentAutoTransition_QueryBased_AllThreeDoneTransitionsToReview(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, children := createParentWithChildrenByParentField(t, svc, "test-project", 3)
+
+	// Transition all children to in_progress
+	inProgress := "in_progress"
+	for _, child := range children {
+		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &inProgress})
+		require.NoError(t, err)
+	}
+
+	// Complete all children
+	done := "done"
+	for _, child := range children {
+		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &done})
+		require.NoError(t, err)
+	}
+
+	// Parent should now be in review
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "review", updatedParent.State)
+}
+
+// TestParentAutoTransition_QueryBased_NoChildrenNoTransition verifies that a parent
+// card with no children does not auto-transition when completed cards reference it.
+func TestParentAutoTransition_QueryBased_NoChildrenNoTransition(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a parent card with no children
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent with no children",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "todo", parent.State)
+
+	// Manually transition parent to in_progress so it has a non-todo state to stay in
+	inProgress := "in_progress"
+	parent, err = svc.PatchCard(ctx, "test-project", parent.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	require.Equal(t, "in_progress", parent.State)
+
+	// Create a standalone card (no parent) and mark it done — this should not affect the parent
+	standalone, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Standalone",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.PatchCard(ctx, "test-project", standalone.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", standalone.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Parent must remain in_progress — it has no children so the empty-guard fires
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
 func TestCommitMessage(t *testing.T) {

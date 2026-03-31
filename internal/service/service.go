@@ -1544,20 +1544,27 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 		}
 
 	case "done":
+		// Discover all children via store query (not parent.Subtasks, which may be empty
+		// when children are created with parent field but parent's subtasks list is not updated).
+		children, err := s.store.ListCards(ctx, child.Project, storage.CardFilter{Parent: child.Parent})
+		if err != nil {
+			slog.Warn("parent auto-transition: list children",
+				"parent_id", child.Parent,
+				"error", err,
+			)
+			return
+		}
+
+		// Guard: if no children found, never auto-transition
+		if len(children) == 0 {
+			return
+		}
+
 		// Check if all siblings are done
 		allDone := true
-		for _, siblingID := range parent.Subtasks {
-			if siblingID == child.ID {
+		for _, sibling := range children {
+			if sibling.ID == child.ID {
 				continue // This child is already done (the one we just transitioned)
-			}
-			sibling, err := s.store.GetCard(ctx, child.Project, siblingID)
-			if err != nil {
-				slog.Warn("parent auto-transition: get sibling card",
-					"sibling_id", siblingID,
-					"error", err,
-				)
-				allDone = false
-				break
 			}
 			if sibling.State != "done" {
 				allDone = false
