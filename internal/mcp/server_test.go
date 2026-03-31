@@ -424,15 +424,20 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	})
 	require.False(t, result.IsError)
 
-	var card board.Card
-	unmarshalResult(t, result, &card)
+	var output completeTaskOutput
+	unmarshalResult(t, result, &output)
 
-	assert.Equal(t, "review", card.State, "main task should stop at review")
-	assert.Empty(t, card.AssignedAgent, "agent should be released after completion")
+	assert.Equal(t, "review", output.Card.State, "main task should stop at review")
+	assert.Empty(t, output.Card.AssignedAgent, "agent should be released after completion")
+
+	// Verify next_step instructs review
+	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task skill")
+	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
+	assert.Contains(t, output.NextStep, "get_skill", "next_step should tell agent how to invoke review")
 
 	// Verify log entry was added
-	require.NotEmpty(t, card.ActivityLog)
-	lastLog := card.ActivityLog[len(card.ActivityLog)-1]
+	require.NotEmpty(t, output.Card.ActivityLog)
+	lastLog := output.Card.ActivityLog[len(output.Card.ActivityLog)-1]
 	assert.Equal(t, "completed", lastLog.Action)
 	assert.Equal(t, "All tests passing, feature implemented", lastLog.Message)
 	assert.Equal(t, "agent-done", lastLog.Agent)
@@ -470,11 +475,12 @@ func TestCompleteTask_Subtask(t *testing.T) {
 	})
 	require.False(t, result.IsError)
 
-	var card board.Card
-	unmarshalResult(t, result, &card)
+	var output completeTaskOutput
+	unmarshalResult(t, result, &output)
 
-	assert.Equal(t, "done", card.State, "subtask should go all the way to done")
-	assert.Empty(t, card.AssignedAgent)
+	assert.Equal(t, "done", output.Card.State, "subtask should go all the way to done")
+	assert.Empty(t, output.Card.AssignedAgent)
+	assert.Empty(t, output.NextStep, "subtask completion should have no next_step")
 
 	// Verify via service layer
 	stored, err := env.svc.GetCard(ctx, "test-project", "TEST-002")

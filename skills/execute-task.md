@@ -110,6 +110,17 @@ blockers: none
 needs_human: false
 ```
 
+### Lifecycle continuation
+
+When `complete_task` returns a `next_step` field in its response, you MUST
+follow it before printing the `TASK_COMPLETE` output. This happens for main
+tasks (no parent) that transition to `review` — the `next_step` will instruct
+you to invoke `get_skill(skill_name='review-task', card_id='...')` and follow
+the returned instructions.
+
+Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
+lifecycle is not finished until the review step has been initiated.
+
 ## Step 6: If blocked
 
 If you cannot complete the task due to a dependency, missing information, or

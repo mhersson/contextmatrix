@@ -116,6 +116,10 @@ type completeTaskInput struct {
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
 	Summary string `json:"summary" jsonschema:"required,one-line summary of what was done"`
 }
+type completeTaskOutput struct {
+	Card     *board.Card `json:"card"`
+	NextStep string      `json:"next_step,omitempty"`
+}
 
 type getSubtaskSummaryInput struct {
 	Project  string `json:"project" jsonschema:"required,project name"`
@@ -375,8 +379,8 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
-		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. Use this instead of separate add_log + transition_card calls.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeTaskInput) (*mcp.CallToolResult, *board.Card, error) {
+		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. When a main task transitions to review, the response includes a next_step field with instructions to invoke the review-task skill — follow it. Use this instead of separate add_log + transition_card calls.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeTaskInput) (*mcp.CallToolResult, completeTaskOutput, error) {
 		// Add completion log entry
 		entry := board.ActivityEntry{
 			Agent:   input.AgentID,
@@ -384,13 +388,13 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			Message: input.Summary,
 		}
 		if err := svc.AddLogEntry(ctx, input.Project, input.CardID, entry); err != nil {
-			return nil, nil, fmt.Errorf("add completion log: %w", err)
+			return nil, completeTaskOutput{}, fmt.Errorf("add completion log: %w", err)
 		}
 
 		// Determine target state: subtasks go to done, main tasks go to review
 		card, err := svc.GetCard(ctx, input.Project, input.CardID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("get card: %w", err)
+			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
 		}
 		targetState := "review"
 		if card.Parent != "" {
@@ -399,16 +403,24 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 
 		// Walk through intermediate transitions to reach target state
 		if _, err := svc.TransitionTo(ctx, input.Project, input.CardID, targetState); err != nil {
-			return nil, nil, fmt.Errorf("transition to %s: %w", targetState, err)
+			return nil, completeTaskOutput{}, fmt.Errorf("transition to %s: %w", targetState, err)
 		}
 
 		// Release the claim
 		card, err = svc.ReleaseCard(ctx, input.Project, input.CardID, input.AgentID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("release card: %w", err)
+			return nil, completeTaskOutput{}, fmt.Errorf("release card: %w", err)
 		}
 
-		return nil, card, nil
+		out := completeTaskOutput{Card: card}
+		if targetState == "review" {
+			out.NextStep = fmt.Sprintf(
+				"LIFECYCLE: Card %s is now in 'review'. You MUST invoke the review-task skill next. "+
+					"Call get_skill(skill_name='review-task', card_id='%s') and follow its instructions. Do NOT stop here.",
+				input.CardID, input.CardID,
+			)
+		}
+		return nil, out, nil
 	})
 }
 
