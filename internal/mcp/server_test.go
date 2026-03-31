@@ -662,6 +662,34 @@ func TestClaimCard_AutoTransition(t *testing.T) {
 	assert.Equal(t, "agent-auto", card.AssignedAgent)
 }
 
+func TestClaimCard_NoAutoTransitionFromReview(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create card and move it to review state
+	createTestCard(t, env, "Review me", "task", "medium")
+
+	// Transition: todo -> in_progress -> review
+	_, err := env.svc.TransitionTo(ctx, "test-project", "TEST-001", "in_progress")
+	require.NoError(t, err)
+	_, err = env.svc.TransitionTo(ctx, "test-project", "TEST-001", "review")
+	require.NoError(t, err)
+
+	// Claim the card in review state — should NOT auto-transition to in_progress
+	result := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "review-agent",
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	assert.Equal(t, "review", card.State, "claim should NOT auto-transition from review")
+	assert.Equal(t, "review-agent", card.AssignedAgent)
+}
+
 func TestGetTaskContext(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()

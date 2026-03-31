@@ -10,6 +10,12 @@
 You are helping a human break down a task into an executable plan with subtasks.
 The card context is provided above — read it carefully before proceeding.
 
+## Step 0: Claim the card
+
+Call `claim_card(card_id, agent_id)` to mark the card as actively being planned.
+This makes the planning visible in the UI (pulsating border + agent badge). If
+the card is in `todo`, it auto-transitions to `in_progress`.
+
 ## Step 1: Understand the task
 
 Review the card details provided above. If the card body already contains
@@ -98,6 +104,11 @@ Call `report_usage` with:
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption for this planning session
 
 This tracks the cost of planning sessions, which use Opus and are significant.
+
+## Step 4c: Release the card
+
+Call `release_card(card_id, agent_id)` to release your claim now that planning is
+done. The card stays in `in_progress` with subtasks ready for execution.
 
 ## Step 5: Offer execution
 

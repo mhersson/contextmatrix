@@ -307,8 +307,9 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("claim card %s: %w", input.CardID, err)
 		}
-		// Auto-transition to in_progress if possible
-		if card.State != "in_progress" {
+		// Auto-transition to in_progress only from todo — claiming a card
+		// in review/done/blocked should not change its state.
+		if card.State == "todo" {
 			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, "in_progress"); err == nil {
 				card = transitioned
 			}

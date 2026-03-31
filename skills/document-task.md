@@ -14,9 +14,14 @@ works, and how to use it.
 
 **You write documentation only. You do not modify code or card state.**
 
-## Step 1: Read everything
+## Step 1: Claim the card and read everything
 
-Call `get_task_context` with the card ID to get the latest state. Then review
+First, call `claim_card(card_id, agent_id)` to mark the card as actively being
+documented. This makes the documentation work visible in the UI (pulsating
+border + agent badge). The card stays in its current state — claiming does not
+change it.
+
+Then call `get_task_context` with the card ID to get the latest state. Review
 thoroughly:
 
 - **Parent card**: original requirements, plan, acceptance criteria
@@ -69,9 +74,15 @@ Let them review, suggest changes, and approve before you write anything to disk.
 
 Once approved, write the documentation files.
 
+## Step 5: Release the card
+
+After documentation is written, call `release_card(card_id, agent_id)` to
+release your claim. The main agent handles the final state transition.
+
 ## Rules
 
-- **Documentation only.** Do not modify source code, tests, or card state.
+- **Documentation only.** Do not modify source code, tests, or card state
+  (except `claim_card`/`release_card` to make documentation visible in the UI).
 - **Update existing docs first.** Only create new files when there's no existing
   file to update.
 - **Match the project's style.** Read existing documentation to understand the
