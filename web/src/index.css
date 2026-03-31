@@ -39,6 +39,7 @@
 
   /* Layout */
   --col-width: 280px;
+  --sidebar-width: 240px;
 }
 
 @media (max-width: 1280px) {
@@ -52,6 +53,12 @@
     width: 100%;
     min-width: unset;
     max-width: unset;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
   }
 }
 
