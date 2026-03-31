@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4 — Workhorse tasks with long context and tool use.
+- **Model:** claude-sonnet-4-6 — Workhorse tasks with long context and tool use.
   Cost matters at scale.
 
 ---
@@ -115,8 +115,8 @@ needs_human: false
 When `complete_task` returns a `next_step` field in its response, you MUST
 follow it before printing the `TASK_COMPLETE` output. This happens for main
 tasks (no parent) that transition to `review` — the `next_step` will instruct
-you to invoke `get_skill(skill_name='review-task', card_id='...')` and follow
-the returned instructions.
+you to call `get_skill(skill_name='review-task', card_id='...')` and spawn a
+sub-agent using the Agent tool with the returned `model` and `content`.
 
 Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
 lifecycle is not finished until the review step has been initiated.

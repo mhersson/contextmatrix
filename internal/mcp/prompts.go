@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,6 +41,37 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
 ---
 
 `
+
+// skillResult holds the assembled skill content and parsed metadata.
+type skillResult struct {
+	Content string
+	Model   string
+}
+
+// modelPattern matches "**Model:** claude-<family>-<version>" in skill files.
+var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+claude-(\w+)-`)
+
+// agentConfigPattern matches the full "## Agent Configuration" section
+// (from the heading through the "---" separator) so it can be stripped
+// from the content delivered to agents.
+var agentConfigPattern = regexp.MustCompile(`(?s)## Agent Configuration\n.*?---\n+`)
+
+// parseSkillModel extracts the short model name (sonnet, opus, haiku) from
+// a skill file's "## Agent Configuration" section.
+func parseSkillModel(content string) string {
+	m := modelPattern.FindStringSubmatch(content)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// stripAgentConfig removes the "## Agent Configuration" section from a skill
+// file. This section is metadata for the orchestrator, not instructions for
+// the agent executing the skill.
+func stripAgentConfig(content string) string {
+	return agentConfigPattern.ReplaceAllString(content, "")
+}
 
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
@@ -95,7 +127,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 // createTaskPromptHandler returns the handler for create-task prompt.
 func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "create-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "create-task", skillArgs{
 			Description: req.Params.Arguments["description"],
 		})
 		if err != nil {
@@ -103,7 +135,7 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		}
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -111,7 +143,7 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // createPlanPromptHandler returns the handler for create-plan prompt.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
 			CardID: req.Params.Arguments["card_id"],
 		})
 		if err != nil {
@@ -119,7 +151,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		}
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -127,7 +159,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // executeTaskPromptHandler returns the handler for execute-task prompt.
 func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
 			CardID: req.Params.Arguments["card_id"],
 		})
 		if err != nil {
@@ -135,7 +167,7 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		}
 		return &mcp.GetPromptResult{
 			Description: "Claim and execute a task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -143,7 +175,7 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 // reviewTaskPromptHandler returns the handler for review-task prompt.
 func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
 			CardID: req.Params.Arguments["card_id"],
 		})
 		if err != nil {
@@ -151,7 +183,7 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		}
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -159,7 +191,7 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // documentTaskPromptHandler returns the handler for document-task prompt.
 func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
 			CardID: req.Params.Arguments["card_id"],
 		})
 		if err != nil {
@@ -167,7 +199,7 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 		}
 		return &mcp.GetPromptResult{
 			Description: "Write documentation for a completed task",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -175,7 +207,7 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 // initProjectPromptHandler returns the handler for init-project prompt.
 func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
 			Name: req.Params.Arguments["name"],
 		})
 		if err != nil {
@@ -183,7 +215,7 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		}
 		return &mcp.GetPromptResult{
 			Description: "Initialize a new project board",
-			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: content}}},
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: result.Content}}},
 		}, nil
 	}
 }
@@ -205,8 +237,8 @@ var validSkillNames = []string{
 
 // buildSkillContent reads the skill file and assembles the full prompt text
 // with injected card/project context. Used by both prompt handlers and the
-// get_skill tool.
-func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs) (string, error) {
+// get_skill tool. Returns a skillResult with the content and parsed model.
+func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs) (skillResult, error) {
 	var content string
 	var err error
 
@@ -224,13 +256,16 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 	case "init-project":
 		content, err = buildInitProject(ctx, svc, skillsDir, args.Name)
 	default:
-		return "", fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
+		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
 	if err != nil {
-		return "", err
+		return skillResult{}, err
 	}
 
-	return workflowPreamble + content, nil
+	return skillResult{
+		Content: workflowPreamble + content,
+		Model:   parseSkillModel(content),
+	}, nil
 }
 
 func buildCreateTask(skillsDir, description string) (string, error) {

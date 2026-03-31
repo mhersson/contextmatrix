@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,11 +76,20 @@ func setupMCP(t *testing.T) *testEnv {
 
 	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
 
-	// Create skills directory with stub skill files
+	// Create skills directory with stub skill files (including Agent Configuration for model parsing)
 	skillsDir := filepath.Join(tmpDir, "skills")
 	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
-	for _, name := range []string{"create-task.md", "create-plan.md", "execute-task.md", "review-task.md", "document-task.md", "init-project.md"} {
-		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte("# "+name+"\nSkill instructions here."), 0o644))
+	skillModels := map[string]string{
+		"create-task.md":   "claude-sonnet-4-6",
+		"create-plan.md":   "claude-opus-4-6",
+		"execute-task.md":  "claude-sonnet-4-6",
+		"review-task.md":   "claude-opus-4-6",
+		"document-task.md": "claude-sonnet-4-6",
+		"init-project.md":  "claude-sonnet-4-6",
+	}
+	for name, model := range skillModels {
+		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
+		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte(content), 0o644))
 	}
 
 	// Create MCP server and connect in-memory
@@ -430,10 +440,11 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Equal(t, "review", output.Card.State, "main task should stop at review")
 	assert.Empty(t, output.Card.AssignedAgent, "agent should be released after completion")
 
-	// Verify next_step instructs review
+	// Verify next_step instructs review via Agent tool spawning
 	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task skill")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
 	assert.Contains(t, output.NextStep, "get_skill", "next_step should tell agent how to invoke review")
+	assert.Contains(t, output.NextStep, "Agent tool", "next_step should instruct spawning via Agent tool")
 
 	// Verify log entry was added
 	require.NotEmpty(t, output.Card.ActivityLog)
@@ -1339,6 +1350,7 @@ func TestGetSkill_CreateTask(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "create-task", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, "Build a login page")
 	assert.Contains(t, out.Content, "Skill instructions here.")
 }
@@ -1356,6 +1368,7 @@ func TestGetSkill_CreatePlan(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "create-plan", out.SkillName)
+	assert.Equal(t, "opus", out.Model)
 	assert.Contains(t, out.Content, card.ID)
 	assert.Contains(t, out.Content, "Auth middleware")
 	assert.Contains(t, out.Content, "Skill instructions here.")
@@ -1374,6 +1387,7 @@ func TestGetSkill_ExecuteTask(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "execute-task", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, card.ID)
 	assert.Contains(t, out.Content, "Implement JWT")
 }
@@ -1391,6 +1405,7 @@ func TestGetSkill_ReviewTask(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "review-task", out.SkillName)
+	assert.Equal(t, "opus", out.Model)
 	assert.Contains(t, out.Content, parent.ID)
 }
 
@@ -1406,6 +1421,7 @@ func TestGetSkill_InitProject(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "init-project", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, "my-project")
 	assert.Contains(t, out.Content, "test-project") // existing project listed
 }
@@ -1467,4 +1483,52 @@ func TestGetSkill_MissingCardID(t *testing.T) {
 	require.True(t, result.IsError, "expected error result for missing card_id")
 	text := result.Content[0].(*mcp.TextContent).Text
 	assert.Contains(t, text, "card_id")
+}
+
+func TestParseSkillModel(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "sonnet model",
+			content: "## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Workhorse.\n\n---\n\nInstructions.",
+			want:    "sonnet",
+		},
+		{
+			name:    "opus model",
+			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n\n---\n\nInstructions.",
+			want:    "opus",
+		},
+		{
+			name:    "haiku model",
+			content: "## Agent Configuration\n\n- **Model:** claude-haiku-4-5 — Fast.\n\n---\n\nInstructions.",
+			want:    "haiku",
+		},
+		{
+			name:    "no config section",
+			content: "# Skill\n\nJust instructions.",
+			want:    "",
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseSkillModel(tt.content))
+		})
+	}
+}
+
+func TestStripAgentConfig(t *testing.T) {
+	input := "# Skill\n\n## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Test.\n\n---\n\nInstructions here."
+	got := stripAgentConfig(input)
+	assert.NotContains(t, got, "Agent Configuration")
+	assert.NotContains(t, got, "claude-sonnet")
+	assert.Contains(t, got, "Instructions here.")
+	assert.Contains(t, got, "# Skill")
 }

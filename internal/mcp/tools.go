@@ -415,8 +415,9 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		out := completeTaskOutput{Card: card}
 		if targetState == "review" {
 			out.NextStep = fmt.Sprintf(
-				"LIFECYCLE: Card %s is now in 'review'. You MUST invoke the review-task skill next. "+
-					"Call get_skill(skill_name='review-task', card_id='%s') and follow its instructions. Do NOT stop here.",
+				"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
+					"Call get_skill(skill_name='review-task', card_id='%s') — it returns a 'model' field (e.g. 'opus'). "+
+					"Use the Agent tool with that model and the returned content as the prompt. Do NOT stop here.",
 				input.CardID, input.CardID,
 			)
 		}
@@ -595,15 +596,16 @@ type getSkillInput struct {
 }
 type getSkillOutput struct {
 	SkillName string `json:"skill_name"`
+	Model     string `json:"model,omitempty"`
 	Content   string `json:"content"`
 }
 
 func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_skill",
-		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions that the caller should follow. Use this to programmatically invoke a workflow (create-plan, execute-task, etc.).",
+		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). Use the Agent tool with the returned model and content to spawn the right agent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
-		content, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
+		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
 			Description: input.Description,
 			Name:        input.Name,
@@ -611,6 +613,6 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}
-		return nil, getSkillOutput{SkillName: input.SkillName, Content: content}, nil
+		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Content: result.Content}, nil
 	})
 }

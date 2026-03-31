@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-opus-4 — Devil's advocate reasoning benefits from the
+- **Model:** claude-opus-4-6 — Devil's advocate reasoning benefits from the
   stronger model.
 
 ---
