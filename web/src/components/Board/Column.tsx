@@ -6,6 +6,8 @@ interface ColumnProps {
   state: string;
   cards: Card[];
   config: ProjectConfig;
+  collapsed?: boolean;
+  onToggleCollapse?: (state: string) => void;
   onCardClick?: (card: Card) => void;
   onCreateCard?: (state: string) => void;
   activeCardState?: string | null;
@@ -19,7 +21,7 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, config, onCardClick, onCreateCard, activeCardState, flashCardId }: ColumnProps) {
+export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -38,6 +40,35 @@ export function Column({ state, cards, config, onCardClick, onCreateCard, active
       : '';
   const dimClass = activeCardState && isInvalidTarget ? 'opacity-50' : '';
 
+  if (collapsed) {
+    return (
+      <div
+        ref={setNodeRef}
+        onClick={() => onToggleCollapse?.(state)}
+        className={`
+          flex-shrink-0 flex flex-col items-center
+          bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]
+          cursor-pointer hover:bg-[var(--bg1)] transition-all duration-150
+          w-10
+          ${dropTargetClass}
+          ${dimClass}
+        `}
+      >
+        <div className="flex flex-col items-center gap-2 py-3">
+          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
+            {cards.length}
+          </span>
+          <span
+            className="text-xs font-medium text-[var(--grey2)] whitespace-nowrap"
+            style={{ writingMode: 'vertical-lr' }}
+          >
+            {formatStateName(state)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -51,9 +82,22 @@ export function Column({ state, cards, config, onCardClick, onCreateCard, active
       style={{ width: 'var(--col-width)', minWidth: 'var(--col-width)' }}
     >      {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--bg3)]">
-        <h2 className="text-sm font-medium text-[var(--grey2)]">
-          {formatStateName(state)}
-        </h2>
+        <div className="flex items-center gap-1.5">
+          {onToggleCollapse && (
+            <button
+              onClick={() => onToggleCollapse(state)}
+              className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
+              title="Collapse column"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <h2 className="text-sm font-medium text-[var(--grey2)]">
+            {formatStateName(state)}
+          </h2>
+        </div>
         <div className="flex items-center gap-2">
           {onCreateCard && (
             <button

@@ -11,6 +11,7 @@ import {
 } from '@dnd-kit/core';
 import type { Card, CardFilter, ProjectConfig } from '../../types';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { FilterBar } from './FilterBar';
@@ -31,6 +32,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
   const filterBarRef = useRef<HTMLDivElement>(null);
+  const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -171,6 +173,8 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
                 state={state}
                 cards={cardsByState[state]}
                 config={config}
+                collapsed={collapsedColumns.has(state)}
+                onToggleCollapse={toggleCollapse}
                 onCardClick={onCardClick}
                 onCreateCard={onCreateCard}
                 activeCardState={activeCard?.state}
