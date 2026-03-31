@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -995,6 +996,274 @@ func TestUpdateCard_NoDeps_NoBlock(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "in_progress", updated.State)
+}
+
+// testProjectWithReview creates a project config with a review state,
+// matching the real contextmatrix project config.
+func testProjectWithReview() *board.ProjectConfig {
+	return &board.ProjectConfig{
+		Name:       "test-project",
+		Prefix:     "TEST",
+		NextID:     1,
+		States:     []string{"todo", "in_progress", "blocked", "review", "done", "stalled"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"blocked", "review", "todo", "done"},
+			"blocked":     {"in_progress", "todo"},
+			"review":      {"done", "in_progress"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+		},
+	}
+}
+
+// setupTestWithReview creates a test environment with a project that has a review state.
+func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectWithReview()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
+	return svc, tmpDir, func() {}
+}
+
+// createParentWithSubtasks creates a parent card and the given number of subtask cards,
+// setting the parent's Subtasks field and each child's Parent field.
+func createParentWithSubtasks(t *testing.T, svc *CardService, project string, numSubtasks int) (*board.Card, []*board.Card) {
+	t.Helper()
+	ctx := context.Background()
+
+	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title:    "Parent Task",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	subtasks := make([]*board.Card, numSubtasks)
+	subtaskIDs := make([]string, numSubtasks)
+
+	for i := range numSubtasks {
+		child, err := svc.CreateCard(ctx, project, CreateCardInput{
+			Title:    fmt.Sprintf("Subtask %d", i+1),
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		subtasks[i] = child
+		subtaskIDs[i] = child.ID
+	}
+
+	// Update parent with subtask list
+	updated, err := svc.UpdateCard(ctx, project, parent.ID, UpdateCardInput{
+		Title:    parent.Title,
+		Type:     parent.Type,
+		State:    parent.State,
+		Priority: parent.Priority,
+		Subtasks: subtaskIDs,
+	})
+	require.NoError(t, err)
+	return updated, subtasks
+}
+
+func TestParentAutoTransition_ChildInProgressMovesParentToInProgress(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+	require.Equal(t, "todo", parent.State)
+
+	// Transition first subtask to in_progress → parent should also move to in_progress
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Verify parent is now in_progress
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+}
+
+func TestParentAutoTransition_SecondChildInProgressIdempotent(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+
+	// Transition first subtask to in_progress
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Verify parent in_progress
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+
+	// Transition second subtask to in_progress → parent stays in_progress (idempotent)
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	updatedParent, err = svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+}
+
+func TestParentAutoTransition_OneSubtaskDoneParentStaysInProgress(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parentCard, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+
+	// Transition both subtasks to in_progress (this also moves parent to in_progress)
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Complete first subtask: in_progress → done
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Re-fetch parent — should still be in_progress (not all subtasks done)
+	updatedParent, err := svc.GetCard(ctx, "test-project", parentCard.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+}
+
+func TestParentAutoTransition_AllSubtasksDoneMovesParentToReview(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+
+	// Subscribe to events to verify parent state change event is published
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	// Transition both subtasks to in_progress (parent also moves to in_progress)
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Drain in_progress events
+	drainEvents(ch)
+
+	// Complete first subtask: in_progress → done
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Drain partial-done events
+	drainEvents(ch)
+
+	// Complete last subtask: in_progress → done
+	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Parent should be in review
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "review", updatedParent.State)
+
+	// Verify parent state change event was published
+	found := false
+	timeout := time.After(200 * time.Millisecond)
+	for !found {
+		select {
+		case event := <-ch:
+			if event.Type == events.CardStateChanged && event.CardID == parent.ID {
+				assert.Equal(t, "in_progress", event.Data["old_state"])
+				assert.Equal(t, "review", event.Data["new_state"])
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("expected CardStateChanged event for parent")
+		}
+	}
+}
+
+func TestParentAutoTransition_NoParentNoOp(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a standalone card (no parent)
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Standalone",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Transition to in_progress — should succeed without error (no parent to touch)
+	inProgress := "in_progress"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", patched.State)
+}
+
+func TestParentAutoTransition_GitCommitForParent(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 1)
+	require.Equal(t, "todo", parent.State)
+
+	// Transition subtask to in_progress → parent should also transition and commit
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// The last git commit should reference the parent card
+	msg, err := svc.git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, parent.ID)
+}
+
+// drainEvents reads all buffered events from the channel without blocking.
+func drainEvents(ch <-chan events.Event) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
 }
 
 func TestCommitMessage(t *testing.T) {

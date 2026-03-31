@@ -113,10 +113,17 @@ needs_human: false
 ### Lifecycle continuation
 
 When `complete_task` returns a `next_step` field in its response, you MUST
-follow it before printing the `TASK_COMPLETE` output. This happens for main
-tasks (no parent) that transition to `review` — the `next_step` will instruct
-you to call `get_skill(skill_name='review-task', card_id='...')` and spawn a
-sub-agent using the Agent tool with the returned `model` and `content`.
+follow it before printing the `TASK_COMPLETE` output. This happens when any
+task completion causes a card to reach `review` state — either:
+
+- A main task (no parent) that transitions directly to `review`, or
+- A subtask whose completion auto-transitions the parent to `review` (i.e.,
+  all sibling subtasks are now `done`).
+
+In both cases, the response includes `review_content` with the full
+review-task skill prompt and `review_model` indicating which model to use.
+Use the Agent tool with the returned model and review content to spawn the
+review sub-agent.
 
 Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
 lifecycle is not finished until the review step has been initiated.

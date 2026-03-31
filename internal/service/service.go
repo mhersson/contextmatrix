@@ -612,6 +612,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		},
 	})
 
+	// Auto-transition parent if child state changed
+	if stateChanged {
+		s.maybeTransitionParent(ctx, card)
+	}
+
 	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
@@ -710,6 +715,11 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 			"new_state": card.State,
 		},
 	})
+
+	// Auto-transition parent if child state changed
+	if stateChanged {
+		s.maybeTransitionParent(ctx, card)
+	}
 
 	s.enrichDependenciesMet(ctx, card)
 	return card, nil
@@ -1378,6 +1388,124 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	delete(s.deferredPaths, cardID)
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
 	return s.git.CommitFiles(unique, msg)
+}
+
+// maybeTransitionParent checks if a child's state change should trigger a
+// parent state transition. Called after any child state change while writeMu
+// is held. It does NOT acquire writeMu — callers must hold it.
+//
+// Rules:
+//   - child moved to in_progress AND parent is in todo → transition parent to in_progress
+//   - child moved to done AND ALL sibling subtasks are done → transition parent to review
+func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Card) {
+	if child.Parent == "" {
+		return
+	}
+
+	parent, err := s.store.GetCard(ctx, child.Project, child.Parent)
+	if err != nil {
+		slog.Warn("parent auto-transition: get parent card",
+			"parent_id", child.Parent,
+			"child_id", child.ID,
+			"error", err,
+		)
+		return
+	}
+
+	switch child.State {
+	case "in_progress":
+		if parent.State == "todo" {
+			if err := s.transitionParentDirect(ctx, parent, "in_progress"); err != nil {
+				slog.Warn("parent auto-transition: todo→in_progress",
+					"parent_id", parent.ID,
+					"error", err,
+				)
+			}
+		}
+
+	case "done":
+		// Check if all siblings are done
+		allDone := true
+		for _, siblingID := range parent.Subtasks {
+			if siblingID == child.ID {
+				continue // This child is already done (the one we just transitioned)
+			}
+			sibling, err := s.store.GetCard(ctx, child.Project, siblingID)
+			if err != nil {
+				slog.Warn("parent auto-transition: get sibling card",
+					"sibling_id", siblingID,
+					"error", err,
+				)
+				allDone = false
+				break
+			}
+			if sibling.State != "done" {
+				allDone = false
+				break
+			}
+		}
+		if allDone && parent.State != "review" && parent.State != "done" {
+			if err := s.transitionParentDirect(ctx, parent, "review"); err != nil {
+				slog.Warn("parent auto-transition: in_progress→review",
+					"parent_id", parent.ID,
+					"error", err,
+				)
+			}
+		}
+	}
+}
+
+// transitionParentDirect transitions a parent card to the target state,
+// persists it, commits to git, and publishes events. It walks the shortest
+// valid transition path. Called while writeMu is held — does NOT re-acquire it.
+func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.Card, targetState string) error {
+	if parent.State == targetState {
+		return nil
+	}
+
+	cfg, err := s.getConfig(ctx, parent.Project)
+	if err != nil {
+		return fmt.Errorf("get project config: %w", err)
+	}
+
+	validator := s.getValidator(parent.Project)
+	path, err := validator.FindShortestPath(cfg, parent.State, targetState)
+	if err != nil {
+		return fmt.Errorf("find transition path from %s to %s: %w", parent.State, targetState, err)
+	}
+
+	for _, state := range path {
+		oldState := parent.State
+		parent.State = state
+		parent.Updated = time.Now()
+
+		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {
+			return fmt.Errorf("persist parent card: %w", err)
+		}
+
+		if err := s.commitCardChange(parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
+			slog.Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
+		}
+
+		s.bus.Publish(events.Event{
+			Type:      events.CardStateChanged,
+			Project:   parent.Project,
+			CardID:    parent.ID,
+			Timestamp: parent.Updated,
+			Data: map[string]any{
+				"old_state": oldState,
+				"new_state": state,
+			},
+		})
+
+		slog.Info("parent auto-transitioned",
+			"parent_id", parent.ID,
+			"old_state", oldState,
+			"new_state", state,
+		)
+	}
+
+	return nil
 }
 
 // commitMessage formats a commit message with optional agent prefix.

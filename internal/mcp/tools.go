@@ -24,7 +24,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerHeartbeat(server, svc)
 	registerAddLog(server, svc)
 	registerGetTaskContext(server, svc)
-	registerCompleteTask(server, svc)
+	registerCompleteTask(server, svc, skillsDir)
 	registerGetSubtaskSummary(server, svc)
 	registerGetReadyTasks(server, svc)
 	registerReportUsage(server, svc)
@@ -131,8 +131,11 @@ type completeTaskInput struct {
 	Summary string `json:"summary" jsonschema:"required,one-line summary of what was done"`
 }
 type completeTaskOutput struct {
-	Card     *board.Card `json:"card"`
-	NextStep string      `json:"next_step,omitempty"`
+	Card            *board.Card `json:"card"`
+	NextStep        string      `json:"next_step,omitempty"`
+	ReviewSkillName string      `json:"review_skill_name,omitempty"`
+	ReviewModel     string      `json:"review_model,omitempty"`
+	ReviewContent   string      `json:"review_content,omitempty"`
 }
 
 type getSubtaskSummaryInput struct {
@@ -422,10 +425,10 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 	})
 }
 
-func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
+func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
-		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. When a main task transitions to review, the response includes a next_step field with instructions to invoke the review-task skill — follow it. Use this instead of separate add_log + transition_card calls.",
+		Description: "Atomically complete a task: adds a completion log entry, walks through required state transitions, and releases the claim. Subtasks (cards with a parent) transition to 'done'. Main tasks (no parent) transition to 'review' for the review workflow. When any task completion causes a card to reach 'review' (either directly or via parent auto-transition), the response includes a next_step field and the review-task skill content — follow it to spawn the review sub-agent. Use this instead of separate add_log + transition_card calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeTaskInput) (*mcp.CallToolResult, completeTaskOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -446,8 +449,9 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
 		}
+		parentID := card.Parent
 		targetState := "review"
-		if card.Parent != "" {
+		if parentID != "" {
 			targetState = "done"
 		}
 
@@ -463,14 +467,42 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		}
 
 		out := completeTaskOutput{Card: card}
+
+		// Determine which card (if any) has now reached review and needs the skill.
+		// For main tasks: the card itself just transitioned to review.
+		// For subtasks: the parent may have auto-transitioned to review.
+		reviewCardID := ""
 		if targetState == "review" {
-			out.NextStep = fmt.Sprintf(
-				"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
-					"Call get_skill(skill_name='review-task', card_id='%s') — it returns a 'model' field (e.g. 'opus'). "+
-					"Use the Agent tool with that model and the returned content as the prompt. Do NOT stop here.",
-				input.CardID, input.CardID,
-			)
+			reviewCardID = input.CardID
+		} else if parentID != "" {
+			parent, perr := svc.GetCard(ctx, project, parentID)
+			if perr == nil && parent.State == "review" {
+				reviewCardID = parentID
+			}
 		}
+
+		if reviewCardID != "" {
+			skill, serr := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{CardID: reviewCardID})
+			if serr == nil {
+				out.ReviewSkillName = "review-task"
+				out.ReviewModel = skill.Model
+				out.ReviewContent = skill.Content
+				out.NextStep = fmt.Sprintf(
+					"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
+						"The review-task skill content is included in this response (review_content field). "+
+						"Use the Agent tool with model '%s' and the review_content as the prompt. Do NOT stop here.",
+					reviewCardID, skill.Model,
+				)
+			} else {
+				out.NextStep = fmt.Sprintf(
+					"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
+						"Call get_skill(skill_name='review-task', card_id='%s') — it returns a 'model' field. "+
+						"Use the Agent tool with that model and the returned content as the prompt. Do NOT stop here.",
+					reviewCardID, reviewCardID,
+				)
+			}
+		}
+
 		return nil, out, nil
 	})
 }

@@ -441,10 +441,14 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Empty(t, output.Card.AssignedAgent, "agent should be released after completion")
 
 	// Verify next_step instructs review via Agent tool spawning
-	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task skill")
+	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
-	assert.Contains(t, output.NextStep, "get_skill", "next_step should tell agent how to invoke review")
 	assert.Contains(t, output.NextStep, "Agent tool", "next_step should instruct spawning via Agent tool")
+
+	// Verify the review skill is embedded in the response
+	assert.Equal(t, "review-task", output.ReviewSkillName)
+	assert.NotEmpty(t, output.ReviewModel, "response should include review model")
+	assert.NotEmpty(t, output.ReviewContent, "response should include review skill content")
 
 	// Verify log entry was added
 	require.NotEmpty(t, output.Card.ActivityLog)
@@ -491,12 +495,145 @@ func TestCompleteTask_Subtask(t *testing.T) {
 
 	assert.Equal(t, "done", output.Card.State, "subtask should go all the way to done")
 	assert.Empty(t, output.Card.AssignedAgent)
-	assert.Empty(t, output.NextStep, "subtask completion should have no next_step")
+	// When there is only one subtask and no subtasks list is set on the parent,
+	// maybeTransitionParent treats it as all-done and moves the parent to review.
+	// The response should include the review-task skill prompt.
+	assert.NotEmpty(t, output.NextStep, "last subtask completion should include next_step for review")
 
 	// Verify via service layer
 	stored, err := env.svc.GetCard(ctx, "test-project", "TEST-002")
 	require.NoError(t, err)
 	assert.Equal(t, "done", stored.State)
+}
+
+// TestCompleteTask_LastSubtaskTriggersReview verifies that completing the last
+// subtask causes the response to include the review-task skill content so the
+// calling agent can immediately spawn the review sub-agent.
+func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create parent card
+	createTestCard(t, env, "Parent task", "feature", "high")
+
+	// Create a single subtask (so completing it makes parent the last one done)
+	callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Only subtask",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   "TEST-001",
+	})
+
+	// Claim the subtask
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+	})
+
+	// Complete the last (only) subtask — parent should auto-transition to review
+	result := callTool(t, env, "complete_task", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+		"summary":  "Only subtask done",
+	})
+	require.False(t, result.IsError)
+
+	var output completeTaskOutput
+	unmarshalResult(t, result, &output)
+
+	// Subtask itself should be done
+	assert.Equal(t, "done", output.Card.State, "subtask should be done")
+	assert.Empty(t, output.Card.AssignedAgent)
+
+	// Parent should now be in review (via maybeTransitionParent)
+	parent, err := env.svc.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+	assert.Equal(t, "review", parent.State, "parent should have auto-transitioned to review")
+
+	// Response must include review-task skill prompt
+	assert.Equal(t, "review-task", output.ReviewSkillName, "response should include review-task skill name")
+	assert.NotEmpty(t, output.ReviewModel, "response should include review model")
+	assert.NotEmpty(t, output.ReviewContent, "response should include review skill content")
+
+	// next_step should instruct spawning the review agent
+	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task")
+	assert.Contains(t, output.NextStep, "TEST-001", "next_step should reference the parent card ID")
+	assert.Contains(t, output.NextStep, "Agent tool", "next_step should instruct spawning via Agent tool")
+
+	// The review content should contain the parent card ID (injected context)
+	assert.Contains(t, output.ReviewContent, "TEST-001", "review skill content should include parent card ID")
+}
+
+// TestCompleteTask_NonLastSubtaskNoReviewSkill verifies that completing a
+// subtask when siblings are still pending does NOT include a review skill.
+func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create parent card
+	parent := createTestCard(t, env, "Parent task", "feature", "high")
+
+	// Create two subtasks so completing one is not the last
+	callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "First subtask",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   "TEST-001",
+	})
+	callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Second subtask",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   "TEST-001",
+	})
+
+	// Register both subtasks in parent's Subtasks list so maybeTransitionParent
+	// can correctly determine that not all siblings are done. In real usage,
+	// create-plan does this when it creates the subtasks.
+	_, err := env.svc.UpdateCard(ctx, "test-project", parent.ID, service.UpdateCardInput{
+		Title:    parent.Title,
+		Type:     parent.Type,
+		State:    parent.State,
+		Priority: parent.Priority,
+		Subtasks: []string{"TEST-002", "TEST-003"},
+	})
+	require.NoError(t, err)
+
+	// Claim and complete only the first subtask
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+	})
+
+	result := callTool(t, env, "complete_task", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-002",
+		"agent_id": "agent-sub",
+		"summary":  "First subtask done",
+	})
+	require.False(t, result.IsError)
+
+	var output completeTaskOutput
+	unmarshalResult(t, result, &output)
+
+	assert.Equal(t, "done", output.Card.State, "completed subtask should be done")
+
+	// Parent should still be in_progress, not review
+	parentCard, gerr := env.svc.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, gerr)
+	assert.Equal(t, "in_progress", parentCard.State, "parent should remain in_progress while sibling is pending")
+
+	// No review skill in response
+	assert.Empty(t, output.ReviewSkillName, "should not include review skill when parent not in review")
+	assert.Empty(t, output.ReviewModel, "should not include review model")
+	assert.Empty(t, output.ReviewContent, "should not include review content")
+	assert.Empty(t, output.NextStep, "should not have next_step when parent not in review")
 }
 
 func TestClaimCard_AutoTransition(t *testing.T) {
