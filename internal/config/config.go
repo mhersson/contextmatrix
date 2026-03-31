@@ -20,6 +20,7 @@ type Config struct {
 	GitAutoPush      bool   `yaml:"git_auto_push"`
 	HeartbeatTimeout string `yaml:"heartbeat_timeout"`
 	CORSOrigin       string `yaml:"cors_origin"`
+	SkillsDir        string `yaml:"skills_dir"`
 }
 
 // defaults returns a Config with default values.
@@ -31,6 +32,7 @@ func defaults() *Config {
 		GitAutoPush:      false,
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
+		SkillsDir:        "./skills",
 	}
 }
 
@@ -109,6 +111,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
 		cfg.CORSOrigin = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
+		cfg.SkillsDir = v
 	}
 }
 

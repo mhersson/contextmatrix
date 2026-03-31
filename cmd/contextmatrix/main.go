@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
@@ -81,6 +82,14 @@ func main() {
 	// Create router with all API routes
 	mux := api.NewRouter(svc, bus, cfg.CORSOrigin)
 
+	// Create MCP server and register on the mux
+	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
+	mcpHandler := mcpserver.NewHandler(mcpSrv)
+	mux.Handle("POST /mcp", mcpHandler)
+	mux.Handle("GET /mcp", mcpHandler)
+	mux.Handle("DELETE /mcp", mcpHandler)
+	slog.Info("MCP server registered", "endpoint", "/mcp")
+
 	// Embed frontend and create SPA handler
 	distFS, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
@@ -129,7 +138,7 @@ func main() {
 func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" {
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/mcp" {
 			apiHandler.ServeHTTP(w, r)
 			return
 		}
