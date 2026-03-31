@@ -78,7 +78,7 @@ func setupMCP(t *testing.T) *testEnv {
 	// Create skills directory with stub skill files
 	skillsDir := filepath.Join(tmpDir, "skills")
 	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
-	for _, name := range []string{"create-task.md", "create-plan.md", "execute-task.md", "review-task.md"} {
+	for _, name := range []string{"create-task.md", "create-plan.md", "execute-task.md", "review-task.md", "document-task.md"} {
 		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte("# "+name+"\nSkill instructions here."), 0o644))
 	}
 
@@ -767,6 +767,7 @@ func TestListPrompts(t *testing.T) {
 		"create-plan",
 		"execute-task",
 		"review-task",
+		"document-task",
 	}
 
 	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))
@@ -979,6 +980,33 @@ func TestPrompt_ReviewTask(t *testing.T) {
 	assert.Contains(t, content.Text, parent.ID)
 	assert.Contains(t, content.Text, "Review parent")
 	assert.Contains(t, content.Text, "Sub A for review")
+}
+
+func TestPrompt_DocumentTask(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create parent and subtasks
+	parent := createTestCard(t, env, "Document parent", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Sub A for docs",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   parent.ID,
+	})
+
+	result, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "document-task",
+		Arguments: map[string]string{"card_id": parent.ID},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Messages)
+
+	content, ok := result.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, content.Text, parent.ID)
+	assert.Contains(t, content.Text, "Document parent")
+	assert.Contains(t, content.Text, "Sub A for docs")
 }
 
 func TestPrompt_CreatePlan_MissingCardID(t *testing.T) {

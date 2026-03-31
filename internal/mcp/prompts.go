@@ -47,6 +47,14 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 			{Name: "card_id", Description: "Parent card ID to review (e.g. ALPHA-001)", Required: true},
 		},
 	}, reviewTaskPromptHandler(svc, skillsDir))
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "document-task",
+		Description: "Write external documentation for a completed task. Produces README updates, API docs, architecture notes as needed.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "card_id", Description: "Parent card ID to document (e.g. ALPHA-001)", Required: true},
+		},
+	}, documentTaskPromptHandler(svc, skillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
@@ -190,6 +198,47 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 
 		return &mcp.GetPromptResult{
 			Description: fmt.Sprintf("Review task %s: %s", card.ID, card.Title),
+			Messages: []*mcp.PromptMessage{
+				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
+			},
+		}, nil
+	}
+}
+
+// documentTaskPromptHandler returns the handler for document-task prompt.
+func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		skill, err := readSkillFile(skillsDir, "document-task.md")
+		if err != nil {
+			return nil, err
+		}
+
+		cardID := req.Params.Arguments["card_id"]
+		if cardID == "" {
+			return nil, fmt.Errorf("card_id argument is required")
+		}
+
+		card, project, err := findCard(ctx, svc, cardID)
+		if err != nil {
+			return nil, err
+		}
+
+		var contextParts []string
+		contextParts = append(contextParts, formatCardContext(card, project))
+
+		// Load all subtasks
+		subtasks, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
+		if err == nil && len(subtasks) > 0 {
+			contextParts = append(contextParts, "\n## Subtasks")
+			for _, sub := range subtasks {
+				contextParts = append(contextParts, formatCardBrief(sub))
+			}
+		}
+
+		fullContext := strings.Join(contextParts, "\n") + "\n\n" + skill
+
+		return &mcp.GetPromptResult{
+			Description: fmt.Sprintf("Document task %s: %s", card.ID, card.Title),
 			Messages: []*mcp.PromptMessage{
 				{Role: "user", Content: &mcp.TextContent{Text: fullContext}},
 			},
