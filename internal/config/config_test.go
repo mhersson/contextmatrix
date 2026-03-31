@@ -442,6 +442,7 @@ boards_dir: `+boardsDir+`
 	assert.False(t, cfg.GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
 }
 
 func TestLoad_ValidationFailure_InvalidHeartbeat(t *testing.T) {
@@ -468,4 +469,110 @@ func TestDefaults(t *testing.T) {
 	assert.False(t, cfg.GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+	assert.Equal(t, "", cfg.SkillsDir)
+}
+
+func TestFindConfigPath_XDGConfigHome(t *testing.T) {
+	dir := t.TempDir()
+	xdgDir := filepath.Join(dir, "xdg-config")
+	cmDir := filepath.Join(xdgDir, "contextmatrix")
+	require.NoError(t, os.MkdirAll(cmDir, 0o755))
+	writeConfigFile(t, cmDir, "port: 9090\nboards_dir: /tmp/boards\n")
+
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+
+	got := FindConfigPath()
+	assert.Equal(t, filepath.Join(cmDir, "config.yaml"), got)
+}
+
+func TestFindConfigPath_XDGDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	cmDir := filepath.Join(dir, ".config", "contextmatrix")
+	require.NoError(t, os.MkdirAll(cmDir, 0o755))
+	writeConfigFile(t, cmDir, "port: 9090\nboards_dir: /tmp/boards\n")
+
+	got := FindConfigPath()
+	assert.Equal(t, filepath.Join(cmDir, "config.yaml"), got)
+}
+
+func TestFindConfigPath_FallbackToCwd(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "nonexistent"))
+
+	got := FindConfigPath()
+	assert.Equal(t, "config.yaml", got)
+}
+
+func TestFindConfigPath_XDGSetButNoFile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "empty-xdg"))
+
+	got := FindConfigPath()
+	assert.Equal(t, "config.yaml", got)
+}
+
+func TestLoad_SkillsDirDerivedFromConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards_dir: "+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
+}
+
+func TestLoad_SkillsDirExplicitInYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards_dir: "+boardsDir+"\nskills_dir: /opt/skills\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/skills", cfg.SkillsDir)
+}
+
+func TestLoad_SkillsDirEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards_dir: "+boardsDir+"\n")
+	t.Setenv("CONTEXTMATRIX_SKILLS_DIR", "/custom/skills")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/custom/skills", cfg.SkillsDir)
+}
+
+func TestLoad_SkillsDirTildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards_dir: "+boardsDir+"\nskills_dir: \"~/my-skills\"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.SkillsDir)
+}
+
+func TestLoad_SkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", boardsDir)
+
+	// Load from a nonexistent file — skills_dir derived from its directory
+	cfg, err := Load(filepath.Join(dir, "nonexistent.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
 }

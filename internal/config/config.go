@@ -39,7 +39,7 @@ func defaults() *Config {
 		GitAutoPush:      false,
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
-		SkillsDir:        "./skills",
+		SkillsDir:        "",
 	}
 }
 
@@ -54,6 +54,33 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// FindConfigPath discovers the config file using XDG Base Directory conventions.
+// Search order:
+//  1. $XDG_CONFIG_HOME/contextmatrix/config.yaml (if XDG_CONFIG_HOME is set)
+//  2. ~/.config/contextmatrix/config.yaml (XDG default)
+//  3. config.yaml (relative to cwd — legacy fallback)
+func FindConfigPath() string {
+	var candidates []string
+
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		candidates = append(candidates, filepath.Join(xdg, "contextmatrix", "config.yaml"))
+	} else {
+		if home, err := os.UserHomeDir(); err == nil {
+			candidates = append(candidates, filepath.Join(home, ".config", "contextmatrix", "config.yaml"))
+		}
+	}
+
+	candidates = append(candidates, "config.yaml")
+
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+
+	return candidates[len(candidates)-1]
+}
+
 // Load reads configuration from the given YAML file and applies environment overrides.
 func Load(path string) (*Config, error) {
 	cfg := defaults()
@@ -62,11 +89,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyEnvOverrides(cfg)
-			boardsDir, err := expandTilde(cfg.BoardsDir)
-			if err != nil {
+			if err := resolvePaths(cfg, path); err != nil {
 				return nil, err
 			}
-			cfg.BoardsDir = boardsDir
 			if err := cfg.Validate(); err != nil {
 				return nil, err
 			}
@@ -81,18 +106,36 @@ func Load(path string) (*Config, error) {
 
 	applyEnvOverrides(cfg)
 
-	// Expand ~ in paths
-	boardsDir, err := expandTilde(cfg.BoardsDir)
-	if err != nil {
+	if err := resolvePaths(cfg, path); err != nil {
 		return nil, err
 	}
-	cfg.BoardsDir = boardsDir
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// resolvePaths expands tildes and derives default paths relative to the config file location.
+func resolvePaths(cfg *Config, configPath string) error {
+	boardsDir, err := expandTilde(cfg.BoardsDir)
+	if err != nil {
+		return err
+	}
+	cfg.BoardsDir = boardsDir
+
+	skillsDir, err := expandTilde(cfg.SkillsDir)
+	if err != nil {
+		return err
+	}
+	cfg.SkillsDir = skillsDir
+
+	if cfg.SkillsDir == "" {
+		cfg.SkillsDir = filepath.Join(filepath.Dir(configPath), "skills")
+	}
+
+	return nil
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

@@ -25,17 +25,23 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "config.yaml", "path to config file")
+	configPath := flag.String("config", "", "path to config file")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	if *configPath == "" {
+		resolved := config.FindConfigPath()
+		configPath = &resolved
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("config loaded", "path", *configPath)
 
 	// Parse heartbeat timeout
 	heartbeatTimeout, err := cfg.HeartbeatDuration()
