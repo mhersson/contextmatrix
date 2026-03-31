@@ -77,7 +77,7 @@ transitions:
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Initialize service
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true)
 
 	cleanup := func() {
 		// Temp directory is automatically cleaned up by t.TempDir()
@@ -1661,7 +1661,7 @@ func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true)
 
 	return svc, bus
 }

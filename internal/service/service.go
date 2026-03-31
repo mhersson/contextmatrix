@@ -159,12 +159,13 @@ type CardContext struct {
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 type CardService struct {
-	store      storage.Store
-	git        *gitops.Manager
-	lock       *lock.Manager
-	bus        *events.Bus
-	boardsDir  string
-	tokenCosts map[string]ModelCost
+	store         storage.Store
+	git           *gitops.Manager
+	lock          *lock.Manager
+	bus           *events.Bus
+	boardsDir     string
+	tokenCosts    map[string]ModelCost
+	gitAutoCommit bool
 
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
@@ -186,17 +187,19 @@ func NewCardService(
 	bus *events.Bus,
 	boardsDir string,
 	tokenCosts map[string]ModelCost,
+	gitAutoCommit bool,
 ) *CardService {
 	return &CardService{
-		store:      store,
-		git:        git,
-		lock:       lock,
-		bus:        bus,
-		boardsDir:  boardsDir,
-		tokenCosts: tokenCosts,
-		validators: make(map[string]*board.Validator),
-		configs:    make(map[string]*board.ProjectConfig),
-		templates:  make(map[string]map[string]string),
+		store:         store,
+		git:           git,
+		lock:          lock,
+		bus:           bus,
+		boardsDir:     boardsDir,
+		tokenCosts:    tokenCosts,
+		gitAutoCommit: gitAutoCommit,
+		validators:    make(map[string]*board.Validator),
+		configs:       make(map[string]*board.ProjectConfig),
+		templates:     make(map[string]map[string]string),
 	}
 }
 
@@ -249,9 +252,11 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	}
 
 	// Git commit
-	msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
-	if err := s.git.CommitAll(msg); err != nil {
-		slog.Warn("git commit after project create", "error", err)
+	if s.gitAutoCommit {
+		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
+		if err := s.git.CommitAll(msg); err != nil {
+			slog.Warn("git commit after project create", "error", err)
+		}
 	}
 
 	// Update cache
@@ -332,10 +337,12 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	}
 
 	// Git commit
-	path := filepath.Join(name, ".board.yaml")
-	msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
-	if err := s.git.CommitFile(path, msg); err != nil {
-		slog.Warn("git commit after project update", "error", err)
+	if s.gitAutoCommit {
+		path := filepath.Join(name, ".board.yaml")
+		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
+		if err := s.git.CommitFile(path, msg); err != nil {
+			slog.Warn("git commit after project update", "error", err)
+		}
 	}
 
 	// Invalidate caches so they rebuild with new config
@@ -379,9 +386,11 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	}
 
 	// Git commit
-	msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
-	if err := s.git.CommitAll(msg); err != nil {
-		slog.Warn("git commit after project delete", "error", err)
+	if s.gitAutoCommit {
+		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
+		if err := s.git.CommitAll(msg); err != nil {
+			slog.Warn("git commit after project delete", "error", err)
+		}
 	}
 
 	// Purge all caches
@@ -488,10 +497,12 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	}
 
 	// Git commit
-	path := s.cardPath(project, cardID)
-	msg := commitMessage("", cardID, "created")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, cardID)
+		msg := commitMessage("", cardID, "created")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -569,10 +580,12 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	}
 
 	// Git commit
-	path := s.cardPath(project, id)
-	msg := commitMessage("", id, "updated")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage("", id, "updated")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -663,10 +676,12 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 
 	// Git commit
-	path := s.cardPath(project, id)
-	msg := commitMessage("", id, "updated")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage("", id, "updated")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -706,11 +721,13 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	}
 
 	// Git commit deletion
-	path := s.cardPath(project, id)
-	msg := commitMessage("", id, "deleted")
-	if err := s.git.CommitAll(msg); err != nil {
-		// File already deleted by store, just commit the change
-		slog.Warn("git commit after delete", "error", err, "path", path)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage("", id, "deleted")
+		if err := s.git.CommitAll(msg); err != nil {
+			// File already deleted by store, just commit the change
+			slog.Warn("git commit after delete", "error", err, "path", path)
+		}
 	}
 
 	// Publish event
@@ -757,10 +774,12 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Git commit
-	path := s.cardPath(project, id)
-	msg := commitMessage(entry.Agent, id, "log: "+entry.Action)
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage(entry.Agent, id, "log: "+entry.Action)
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -808,10 +827,12 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	path := s.cardPath(project, id)
-	msg := commitMessage(input.AgentID, id, "usage reported")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage(input.AgentID, id, "usage reported")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	s.bus.Publish(events.Event{
@@ -973,10 +994,12 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	}
 
 	// Git commit
-	path := s.cardPath(project, id)
-	msg := commitMessage(agentID, id, "claimed")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage(agentID, id, "claimed")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -1008,10 +1031,12 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	}
 
 	// Git commit
-	path := s.cardPath(project, id)
-	msg := commitMessage(agentID, id, "released")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage(agentID, id, "released")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event
@@ -1043,10 +1068,12 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	}
 
 	// Git commit (silent, no event)
-	path := s.cardPath(project, id)
-	msg := commitMessage(agentID, id, "heartbeat")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(project, id)
+		msg := commitMessage(agentID, id, "heartbeat")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	return nil
@@ -1117,10 +1144,12 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	}
 
 	// Git commit
-	path := s.cardPath(sc.Project, card.ID)
-	msg := commitMessage("", card.ID, "stalled (heartbeat timeout)")
-	if err := s.git.CommitFile(path, msg); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+	if s.gitAutoCommit {
+		path := s.cardPath(sc.Project, card.ID)
+		msg := commitMessage("", card.ID, "stalled (heartbeat timeout)")
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Publish event

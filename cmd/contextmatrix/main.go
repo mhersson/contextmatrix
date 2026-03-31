@@ -84,7 +84,7 @@ func main() {
 	}
 
 	// Initialize card service
-	svc := service.NewCardService(store, git, lockMgr, bus, cfg.BoardsDir, tokenCosts)
+	svc := service.NewCardService(store, git, lockMgr, bus, cfg.BoardsDir, tokenCosts, cfg.GitAutoCommit)
 	slog.Info("card service initialized")
 
 	// Create context for background tasks

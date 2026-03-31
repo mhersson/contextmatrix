@@ -60,7 +60,7 @@ func setupTest(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
 
 	cleanup := func() {
 		// Cleanup handled by t.TempDir()
@@ -691,7 +691,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 50*time.Millisecond) // Very short timeout
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1099,7 +1099,7 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 		"claude-opus-4":   {Prompt: 0.000015, Completion: 0.000075},
 	}
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true)
 
 	return svc, tmpDir, func() {}
 }
@@ -1315,7 +1315,7 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true)
 	return svc, boardsDir
 }
 
@@ -1571,4 +1571,48 @@ func TestDeleteProject_NotFound(t *testing.T) {
 
 	err := svc.DeleteProject(ctx, "nonexistent")
 	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
+}
+
+// TestGitAutoCommitDisabled verifies that when gitAutoCommit is false,
+// card mutations write files to disk but do not create git commits.
+func TestGitAutoCommitDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	// Create service with gitAutoCommit disabled
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false)
+	ctx := context.Background()
+
+	// Create a card — should write file but not commit
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "No-commit card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// File must exist on disk
+	cardFile := filepath.Join(boardsDir, "test-project", "tasks", card.ID+".md")
+	_, statErr := os.Stat(cardFile)
+	assert.NoError(t, statErr, "card file should exist on disk")
+
+	// Git repo must have zero commits.
+	// GetLastCommitMessage returns ("", nil) when the repo has no commits.
+	msg, headErr := gitMgr.GetLastCommitMessage()
+	require.NoError(t, headErr)
+	assert.Empty(t, msg, "no commit message expected when gitAutoCommit is false")
 }
