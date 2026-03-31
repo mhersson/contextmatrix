@@ -60,7 +60,7 @@ func setupTest(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
 
 	cleanup := func() {
 		// Cleanup handled by t.TempDir()
@@ -691,7 +691,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 50*time.Millisecond) // Very short timeout
 
-	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1013,4 +1013,214 @@ func TestCommitMessage(t *testing.T) {
 		result := commitMessage(tt.agent, tt.cardID, tt.action)
 		assert.Equal(t, tt.expected, result)
 	}
+}
+
+func TestReportUsage(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Token test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Nil(t, card.TokenUsage)
+
+	// Report usage
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(1000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500), updated.TokenUsage.CompletionTokens)
+	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001) // no costs configured
+}
+
+func TestReportUsageAccumulates(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Accumulation test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Report three times
+	for _, delta := range []ReportUsageInput{
+		{AgentID: "a1", PromptTokens: 100, CompletionTokens: 50},
+		{AgentID: "a1", PromptTokens: 200, CompletionTokens: 100},
+		{AgentID: "a1", PromptTokens: 300, CompletionTokens: 150},
+	} {
+		_, err = svc.ReportUsage(ctx, "test-project", card.ID, delta)
+		require.NoError(t, err)
+	}
+
+	// Verify accumulated totals
+	result, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, result.TokenUsage)
+	assert.Equal(t, int64(600), result.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(300), result.TokenUsage.CompletionTokens)
+}
+
+func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	tokenCosts := map[string]ModelCost{
+		"claude-sonnet-4": {Prompt: 0.000003, Completion: 0.000015},
+		"claude-opus-4":   {Prompt: 0.000015, Completion: 0.000075},
+	}
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts)
+
+	return svc, tmpDir, func() {}
+}
+
+func TestReportUsageWithCost(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Cost test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Report with known model
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4",
+		PromptTokens:     10000,
+		CompletionTokens: 2000,
+	})
+	require.NoError(t, err)
+	// Expected: 10000 * 0.000003 + 2000 * 0.000015 = 0.03 + 0.03 = 0.06
+	assert.InDelta(t, 0.06, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// Report again with different model — cost should accumulate as delta
+	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-opus-4",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	// Delta: 1000 * 0.000015 + 500 * 0.000075 = 0.015 + 0.0375 = 0.0525
+	// Total: 0.06 + 0.0525 = 0.1125
+	assert.InDelta(t, 0.1125, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+	assert.Equal(t, int64(11000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
+}
+
+func TestReportUsageEvent(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Event test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Drain the CardCreated event
+	<-ch
+
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "test-model",
+		PromptTokens:     500,
+		CompletionTokens: 200,
+	})
+	require.NoError(t, err)
+
+	select {
+	case event := <-ch:
+		assert.Equal(t, events.CardUsageReported, event.Type)
+		assert.Equal(t, card.ID, event.CardID)
+		assert.Equal(t, "agent-1", event.Agent)
+		assert.Equal(t, int64(500), event.Data["prompt_tokens"])
+		assert.Equal(t, int64(200), event.Data["completion_tokens"])
+		assert.Equal(t, "test-model", event.Data["model"])
+	case <-time.After(time.Second):
+		t.Fatal("expected CardUsageReported event")
+	}
+}
+
+func TestAggregateUsage(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create 3 cards, report usage on 2
+	card1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Card 1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	card2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Card 2", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Card 3 (no usage)", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, ReportUsageInput{
+		AgentID: "a1", Model: "claude-sonnet-4", PromptTokens: 1000, CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, ReportUsageInput{
+		AgentID: "a2", Model: "claude-sonnet-4", PromptTokens: 2000, CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+
+	usage, err := svc.AggregateUsage(ctx, "test-project")
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(3000), usage.PromptTokens)
+	assert.Equal(t, int64(1500), usage.CompletionTokens)
+	assert.Equal(t, 2, usage.CardCount)
+	// Cost: (1000*0.000003 + 500*0.000015) + (2000*0.000003 + 1000*0.000015) = 0.0105 + 0.021 = 0.0315
+	assert.InDelta(t, 0.0315, usage.EstimatedCostUSD, 0.0001)
 }

@@ -19,7 +19,8 @@ const (
 	CardClaimed      EventType = "card.claimed"
 	CardReleased     EventType = "card.released"
 	CardStalled      EventType = "card.stalled"
-	CardLogAdded     EventType = "card.log_added"
+	CardLogAdded        EventType = "card.log_added"
+	CardUsageReported   EventType = "card.usage_reported"
 )
 
 // Event represents a board event that can be published to subscribers.

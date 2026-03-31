@@ -12,15 +12,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ModelCost defines per-token cost rates for a model.
+type ModelCost struct {
+	Prompt     float64 `yaml:"prompt"`
+	Completion float64 `yaml:"completion"`
+}
+
 // Config holds the application configuration.
 type Config struct {
-	Port             int    `yaml:"port"`
-	BoardsDir        string `yaml:"boards_dir"`
-	GitAutoCommit    bool   `yaml:"git_auto_commit"`
-	GitAutoPush      bool   `yaml:"git_auto_push"`
-	HeartbeatTimeout string `yaml:"heartbeat_timeout"`
-	CORSOrigin       string `yaml:"cors_origin"`
-	SkillsDir        string `yaml:"skills_dir"`
+	Port             int                  `yaml:"port"`
+	BoardsDir        string               `yaml:"boards_dir"`
+	GitAutoCommit    bool                 `yaml:"git_auto_commit"`
+	GitAutoPush      bool                 `yaml:"git_auto_push"`
+	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
+	CORSOrigin       string               `yaml:"cors_origin"`
+	SkillsDir        string               `yaml:"skills_dir"`
+	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
 }
 
 // defaults returns a Config with default values.

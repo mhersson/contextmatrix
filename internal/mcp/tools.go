@@ -27,6 +27,7 @@ func registerTools(server *mcp.Server, svc *service.CardService) {
 	registerCompleteTask(server, svc)
 	registerGetSubtaskSummary(server, svc)
 	registerGetReadyTasks(server, svc)
+	registerReportUsage(server, svc)
 }
 
 // --- Input/Output types ---
@@ -446,5 +447,32 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, getReadyTasksOutput{Cards: ready}, nil
+	})
+}
+
+type reportUsageInput struct {
+	Project          string `json:"project" jsonschema:"required,project name"`
+	CardID           string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID          string `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
+	Model            string `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
+	PromptTokens     int64  `json:"prompt_tokens" jsonschema:"required,number of prompt tokens used"`
+	CompletionTokens int64  `json:"completion_tokens" jsonschema:"required,number of completion tokens used"`
+}
+
+func registerReportUsage(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "report_usage",
+		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, and recalculates estimated cost based on the model's configured rates. Call this on heartbeat and when completing a task.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *board.Card, error) {
+		card, err := svc.ReportUsage(ctx, input.Project, input.CardID, service.ReportUsageInput{
+			AgentID:          input.AgentID,
+			Model:            input.Model,
+			PromptTokens:     input.PromptTokens,
+			CompletionTokens: input.CompletionTokens,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
+		}
+		return nil, card, nil
 	})
 }

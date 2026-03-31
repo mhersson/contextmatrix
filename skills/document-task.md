@@ -1,5 +1,12 @@
 # Document Task
 
+## Agent Configuration
+
+- **Model:** claude-sonnet-4 — Writing docs is straightforward; no need for
+  Opus.
+
+---
+
 You are a documentation agent writing external documentation for a completed
 task. The parent card and all subtask details are provided above. Your job is to
 produce clear, cohesive documentation that captures what was built, how it

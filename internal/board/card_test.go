@@ -41,6 +41,10 @@ source:
   external_url: https://company.atlassian.net/browse/PROJ-1234
 custom:
   branch_name: feat/user-auth
+token_usage:
+  prompt_tokens: 12400
+  completion_tokens: 3200
+  estimated_cost_usd: 0.043
 created: 2026-03-30T10:00:00Z
 updated: 2026-03-30T14:30:00Z
 activity_log:
@@ -80,6 +84,12 @@ This is the plan.
 	assert.Equal(t, "https://company.atlassian.net/browse/PROJ-1234", card.Source.ExternalURL)
 
 	assert.Equal(t, "feat/user-auth", card.Custom["branch_name"])
+
+	require.NotNil(t, card.TokenUsage)
+	assert.Equal(t, int64(12400), card.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(3200), card.TokenUsage.CompletionTokens)
+	assert.InDelta(t, 0.043, card.TokenUsage.EstimatedCostUSD, 0.0001)
+
 	assert.Equal(t, created, card.Created)
 	assert.Equal(t, updated, card.Updated)
 
@@ -117,6 +127,7 @@ updated: 2026-03-30T10:00:00Z
 	assert.Nil(t, card.DependsOn)
 	assert.Nil(t, card.Source)
 	assert.Nil(t, card.Custom)
+	assert.Nil(t, card.TokenUsage)
 	assert.Nil(t, card.ActivityLog)
 	assert.Empty(t, card.Body)
 }
@@ -286,6 +297,7 @@ func TestSerializeCard_OmitsEmptyFields(t *testing.T) {
 	assert.NotContains(t, str, "subtasks")
 	assert.NotContains(t, str, "source")
 	assert.NotContains(t, str, "custom")
+	assert.NotContains(t, str, "token_usage")
 	assert.NotContains(t, str, "activity_log")
 }
 
@@ -315,6 +327,11 @@ func TestRoundTrip_FullCard(t *testing.T) {
 		},
 		Custom: map[string]any{
 			"branch_name": "feat/user-auth",
+		},
+		TokenUsage: &TokenUsage{
+			PromptTokens:     12400,
+			CompletionTokens: 3200,
+			EstimatedCostUSD: 0.043,
 		},
 		Created: created,
 		Updated: updated,
@@ -359,6 +376,12 @@ func TestRoundTrip_FullCard(t *testing.T) {
 	assert.Equal(t, original.Source.ExternalURL, parsed.Source.ExternalURL)
 
 	assert.Equal(t, original.Custom["branch_name"], parsed.Custom["branch_name"])
+
+	require.NotNil(t, parsed.TokenUsage)
+	assert.Equal(t, original.TokenUsage.PromptTokens, parsed.TokenUsage.PromptTokens)
+	assert.Equal(t, original.TokenUsage.CompletionTokens, parsed.TokenUsage.CompletionTokens)
+	assert.InDelta(t, original.TokenUsage.EstimatedCostUSD, parsed.TokenUsage.EstimatedCostUSD, 0.0001)
+
 	assert.Equal(t, original.Created, parsed.Created)
 	assert.Equal(t, original.Updated, parsed.Updated)
 

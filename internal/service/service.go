@@ -63,6 +63,28 @@ type PatchCardInput struct {
 	Body     *string
 }
 
+// ModelCost defines per-token cost rates for a model.
+type ModelCost struct {
+	Prompt     float64
+	Completion float64
+}
+
+// ReportUsageInput contains the fields for reporting token usage on a card.
+type ReportUsageInput struct {
+	AgentID          string
+	Model            string
+	PromptTokens     int64
+	CompletionTokens int64
+}
+
+// ProjectUsage contains aggregated token usage across all cards in a project.
+type ProjectUsage struct {
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	CardCount        int     `json:"card_count"`
+}
+
 // CardContext contains a card with its project configuration and template.
 type CardContext struct {
 	Card     *board.Card
@@ -73,11 +95,12 @@ type CardContext struct {
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 type CardService struct {
-	store     storage.Store
-	git       *gitops.Manager
-	lock      *lock.Manager
-	bus       *events.Bus
-	boardsDir string
+	store      storage.Store
+	git        *gitops.Manager
+	lock       *lock.Manager
+	bus        *events.Bus
+	boardsDir  string
+	tokenCosts map[string]ModelCost
 
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
@@ -98,6 +121,7 @@ func NewCardService(
 	lock *lock.Manager,
 	bus *events.Bus,
 	boardsDir string,
+	tokenCosts map[string]ModelCost,
 ) *CardService {
 	return &CardService{
 		store:      store,
@@ -105,6 +129,7 @@ func NewCardService(
 		lock:       lock,
 		bus:        bus,
 		boardsDir:  boardsDir,
+		tokenCosts: tokenCosts,
 		validators: make(map[string]*board.Validator),
 		configs:    make(map[string]*board.ProjectConfig),
 		templates:  make(map[string]map[string]string),
@@ -488,6 +513,77 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	})
 
 	return nil
+}
+
+// ReportUsage increments token usage counters on a card and recalculates cost.
+func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if card.TokenUsage == nil {
+		card.TokenUsage = &board.TokenUsage{}
+	}
+
+	card.TokenUsage.PromptTokens += input.PromptTokens
+	card.TokenUsage.CompletionTokens += input.CompletionTokens
+
+	// Calculate cost delta for this report and add to running total
+	if rate, ok := s.tokenCosts[input.Model]; ok {
+		deltaCost := float64(input.PromptTokens)*rate.Prompt + float64(input.CompletionTokens)*rate.Completion
+		card.TokenUsage.EstimatedCostUSD += deltaCost
+	}
+
+	card.Updated = time.Now()
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	path := s.cardPath(project, id)
+	msg := commitMessage(input.AgentID, id, "usage reported")
+	if err := s.git.CommitFile(path, msg); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardUsageReported,
+		Project:   project,
+		CardID:    id,
+		Agent:     input.AgentID,
+		Timestamp: card.Updated,
+		Data: map[string]any{
+			"prompt_tokens":     input.PromptTokens,
+			"completion_tokens": input.CompletionTokens,
+			"model":             input.Model,
+		},
+	})
+
+	s.enrichDependenciesMet(ctx, card)
+	return card, nil
+}
+
+// AggregateUsage returns total token usage across all cards in a project.
+func (s *CardService) AggregateUsage(ctx context.Context, project string) (*ProjectUsage, error) {
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list cards: %w", err)
+	}
+
+	usage := &ProjectUsage{}
+	for _, card := range cards {
+		if card.TokenUsage != nil {
+			usage.PromptTokens += card.TokenUsage.PromptTokens
+			usage.CompletionTokens += card.TokenUsage.CompletionTokens
+			usage.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			usage.CardCount++
+		}
+	}
+	return usage, nil
 }
 
 // GetCardContext returns a card with its project configuration and template.

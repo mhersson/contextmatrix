@@ -73,7 +73,7 @@ func setupMCP(t *testing.T) *testEnv {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir)
+	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil)
 
 	// Create skills directory with stub skill files
 	skillsDir := filepath.Join(tmpDir, "skills")
@@ -167,6 +167,7 @@ func TestListTools(t *testing.T) {
 		"complete_task",
 		"get_subtask_summary",
 		"get_ready_tasks",
+		"report_usage",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -1105,4 +1106,42 @@ func TestAddMultipleLogs(t *testing.T) {
 		assert.Equal(t, e.action, card.ActivityLog[i].Action)
 		assert.Equal(t, e.message, card.ActivityLog[i].Message)
 	}
+}
+
+func TestReportUsage(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create a card
+	card := createTestCard(t, env, "Usage test", "task", "medium")
+
+	// Report usage
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-1",
+		"prompt_tokens":     int64(5000),
+		"completion_tokens": int64(1500),
+	})
+	require.False(t, result.IsError)
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(1500), updated.TokenUsage.CompletionTokens)
+
+	// Report again — verify accumulation
+	result = callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-1",
+		"prompt_tokens":     int64(3000),
+		"completion_tokens": int64(1000),
+	})
+	require.False(t, result.IsError)
+
+	unmarshalResult(t, result, &updated)
+	assert.Equal(t, int64(8000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
 }

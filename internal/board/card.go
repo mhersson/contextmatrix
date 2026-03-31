@@ -28,6 +28,7 @@ type Card struct {
 	Labels        []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
 	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom        map[string]any  `yaml:"custom,omitempty"         json:"custom,omitempty"`
+	TokenUsage    *TokenUsage     `yaml:"token_usage,omitempty"    json:"token_usage,omitempty"`
 	Created       time.Time       `yaml:"created"         json:"created"`
 	Updated       time.Time       `yaml:"updated"         json:"updated"`
 	ActivityLog   []ActivityEntry `yaml:"activity_log,omitempty"   json:"activity_log,omitempty"`
@@ -47,6 +48,13 @@ type Source struct {
 	System      string `yaml:"system"       json:"system"`
 	ExternalID  string `yaml:"external_id"  json:"external_id"`
 	ExternalURL string `yaml:"external_url" json:"external_url"`
+}
+
+// TokenUsage tracks cumulative token consumption and estimated cost for a card.
+type TokenUsage struct {
+	PromptTokens     int64   `yaml:"prompt_tokens"     json:"prompt_tokens"`
+	CompletionTokens int64   `yaml:"completion_tokens" json:"completion_tokens"`
+	EstimatedCostUSD float64 `yaml:"estimated_cost_usd" json:"estimated_cost_usd"`
 }
 
 var (

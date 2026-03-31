@@ -77,7 +77,7 @@ transitions:
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	// Initialize service
-	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil)
 
 	cleanup := func() {
 		// Temp directory is automatically cleaned up by t.TempDir()
@@ -1505,4 +1505,92 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	card, err = svc.GetCard(context.Background(), "test-project", card.ID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, card.AssignedAgent, "card should be claimed by one agent")
+}
+
+func TestReportUsageEndpoint(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card
+	createBody, _ := json.Marshal(createCardRequest{
+		Title:    "Usage endpoint test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(createBody))
+	require.NoError(t, err)
+	var card board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+	closeBody(t, resp.Body)
+
+	// Report usage
+	usageBody, _ := json.Marshal(map[string]any{
+		"agent_id":          "agent-1",
+		"prompt_tokens":     5000,
+		"completion_tokens": 2000,
+	})
+	req, _ := http.NewRequest(http.MethodPost,
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/usage",
+		bytes.NewReader(usageBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var updated board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2000), updated.TokenUsage.CompletionTokens)
+}
+
+func TestGetProjectUsage(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "")
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// Create two cards and report usage via service
+	card1, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Card 1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	card2, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Card 2", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReportUsage(ctx, "test-project", card1.ID, service.ReportUsageInput{
+		AgentID: "a1", PromptTokens: 1000, CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ReportUsage(ctx, "test-project", card2.ID, service.ReportUsageInput{
+		AgentID: "a2", PromptTokens: 2000, CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+
+	// Hit the usage endpoint
+	resp, err := http.Get(server.URL + "/api/projects/test-project/usage")
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var usage service.ProjectUsage
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&usage))
+	assert.Equal(t, int64(3000), usage.PromptTokens)
+	assert.Equal(t, int64(1500), usage.CompletionTokens)
+	assert.Equal(t, 2, usage.CardCount)
 }

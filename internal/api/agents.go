@@ -191,6 +191,50 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ctx)
 }
 
+// reportUsageRequest is the JSON body for reporting token usage.
+type reportUsageRequest struct {
+	AgentID          string `json:"agent_id"`
+	Model            string `json:"model"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+}
+
+// reportUsage handles POST /api/projects/{project}/cards/{id}/usage
+func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	cardID := r.PathValue("id")
+
+	if projectName == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+		return
+	}
+
+	var req reportUsageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		return
+	}
+
+	agentID := extractAgentID(r, req.AgentID)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		return
+	}
+
+	card, err := h.svc.ReportUsage(r.Context(), projectName, cardID, service.ReportUsageInput{
+		AgentID:          agentID,
+		Model:            req.Model,
+		PromptTokens:     req.PromptTokens,
+		CompletionTokens: req.CompletionTokens,
+	})
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, card)
+}
+
 // extractAgentID gets the agent ID from X-Agent-ID header with fallback to body value.
 // The result is trimmed of whitespace.
 func extractAgentID(r *http.Request, bodyAgentID string) string {

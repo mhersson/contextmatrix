@@ -68,8 +68,17 @@ func main() {
 	lockMgr := lock.NewManager(store, heartbeatTimeout)
 	slog.Info("lock manager initialized", "timeout", heartbeatTimeout)
 
+	// Convert token costs from config to service types
+	var tokenCosts map[string]service.ModelCost
+	if cfg.TokenCosts != nil {
+		tokenCosts = make(map[string]service.ModelCost, len(cfg.TokenCosts))
+		for model, cost := range cfg.TokenCosts {
+			tokenCosts[model] = service.ModelCost{Prompt: cost.Prompt, Completion: cost.Completion}
+		}
+	}
+
 	// Initialize card service
-	svc := service.NewCardService(store, git, lockMgr, bus, cfg.BoardsDir)
+	svc := service.NewCardService(store, git, lockMgr, bus, cfg.BoardsDir, tokenCosts)
 	slog.Info("card service initialized")
 
 	// Create context for background tasks

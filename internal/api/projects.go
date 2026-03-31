@@ -38,3 +38,20 @@ func (h *projectHandlers) getProject(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, project)
 }
+
+// getProjectUsage handles GET /api/projects/{project}/usage
+func (h *projectHandlers) getProjectUsage(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	if projectName == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+		return
+	}
+
+	usage, err := h.svc.AggregateUsage(r.Context(), projectName)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, usage)
+}

@@ -1,5 +1,12 @@
 # Create Task
 
+## Agent Configuration
+
+- **Model:** claude-sonnet-4 — Structured interview flow, no deep reasoning
+  needed.
+
+---
+
 You are helping a human create a new task on the ContextMatrix board. Your goal
 is to gather enough detail to create a well-defined card that an agent can later
 pick up and execute without ambiguity.

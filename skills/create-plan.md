@@ -1,5 +1,12 @@
 # Create Plan
 
+## Agent Configuration
+
+- **Model:** claude-opus-4 — Planning shapes everything downstream; worth the
+  cost.
+
+---
+
 You are helping a human break down a task into an executable plan with subtasks.
 The card context is provided above — read it carefully before proceeding.
 

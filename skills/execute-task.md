@@ -1,5 +1,12 @@
 # Execute Task
 
+## Agent Configuration
+
+- **Model:** claude-sonnet-4 — Workhorse tasks with long context and tool use.
+  Cost matters at scale.
+
+---
+
 You are a sub-agent executing a single task on the ContextMatrix board. The task
 card, parent card, and sibling cards are provided above. You have access to
 ContextMatrix MCP tools to manage your card's lifecycle.
@@ -59,6 +66,9 @@ and release your claim if you do not call `heartbeat` within the timeout period
 (default: 30 minutes). Call `heartbeat` proactively and often — after each step,
 after each test run, after each significant code change.
 
+**Token usage reporting.** After each `heartbeat`, also call `report_usage` with
+your token consumption since the last report. This tracks cost per card.
+
 ### Card body structure
 
 Maintain this structure throughout execution:
@@ -85,7 +95,8 @@ When all work is done and verified:
 
 1. Update `## Progress` to mark all steps complete.
 2. Call `update_card` with the final card body.
-3. Call `complete_task` with your card ID, agent ID, and a one-line summary.
+3. Call `report_usage` with your final token consumption.
+4. Call `complete_task` with your card ID, agent ID, and a one-line summary.
 
 Then print this **exact format** as your final output (the main agent parses
 this):
