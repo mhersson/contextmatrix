@@ -12,6 +12,7 @@ import {
 import type { Card, CardFilter, ProjectConfig } from '../../types';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
+import { useCollapsedCards } from '../../hooks/useCollapsedCards';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { FilterBar } from './FilterBar';
@@ -33,6 +34,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const [filter, setFilter] = useState<CardFilter>({});
   const filterBarRef = useRef<HTMLDivElement>(null);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name);
+  const [collapsedCards, toggleCardCollapse] = useCollapsedCards(config.name);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -179,6 +181,8 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
                 onCreateCard={onCreateCard}
                 activeCardState={activeCard?.state}
                 flashCardId={flashCardId}
+                collapsedCards={collapsedCards}
+                onToggleCardCollapse={toggleCardCollapse}
               />
             ))}
           </div>

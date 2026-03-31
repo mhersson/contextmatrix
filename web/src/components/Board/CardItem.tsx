@@ -7,6 +7,8 @@ interface CardItemProps {
   card: Card;
   onClick?: () => void;
   flashCardId?: string | null;
+  isCollapsed?: boolean;
+  onToggleCollapse?: (cardId: string) => void;
 }
 
 const typeColors: Record<string, string> = {
@@ -22,7 +24,7 @@ const priorityColors: Record<string, string> = {
   low: 'var(--grey1)',
 };
 
-export function CardItem({ card, onClick, flashCardId }: CardItemProps) {
+export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleCollapse }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { card },
@@ -56,6 +58,54 @@ export function CardItem({ card, onClick, flashCardId }: CardItemProps) {
       ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
       : 'border-l-[3px] border-l-transparent';
 
+  const collapseButton = onToggleCollapse ? (
+    <button
+      onClick={(e) => { e.stopPropagation(); onToggleCollapse(card.id); }}
+      className="w-4 h-4 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg3)] transition-colors flex-shrink-0"
+      title={isCollapsed ? 'Expand card' : 'Collapse card'}
+    >
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+          d={isCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+      </svg>
+    </button>
+  ) : null;
+
+  if (isCollapsed) {
+    return (
+      <div
+        ref={setRefs}
+        style={style}
+        {...listeners}
+        {...attributes}
+        onClick={onClick}
+        className={`
+          bg-[var(--bg1)] rounded-md px-3 py-1.5 mb-2 cursor-grab active:cursor-grabbing
+          transition-colors duration-150 hover:bg-[var(--bg2)]
+          ${borderClass}
+          ${isDragging ? 'shadow-lg z-50' : ''}
+          ${isFlashing ? 'animate-card-flash' : ''}
+        `}
+      >
+        {/* Collapsed header: ID, type badge, and toggle button */}
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-[var(--grey1)] flex-shrink-0">{card.id}</span>
+          <span
+            className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${typeColors[card.type] || 'var(--grey1)'} 20%, transparent)`,
+              color: typeColors[card.type] || 'var(--grey1)',
+            }}
+          >
+            {card.type}
+          </span>
+          <div className="flex-1" />
+          {collapseButton}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setRefs}
@@ -71,18 +121,21 @@ export function CardItem({ card, onClick, flashCardId }: CardItemProps) {
         ${isFlashing ? 'animate-card-flash' : ''}
       `}
     >
-      {/* Header: ID and Type badge */}
+      {/* Header: ID, Type badge, and collapse toggle */}
       <div className="flex items-center justify-between mb-2">
         <span className="font-mono text-xs text-[var(--grey1)]">{card.id}</span>
-        <span
-          className="text-xs px-1.5 py-0.5 rounded"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${typeColors[card.type] || 'var(--grey1)'} 20%, transparent)`,
-            color: typeColors[card.type] || 'var(--grey1)',
-          }}
-        >
-          {card.type}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className="text-xs px-1.5 py-0.5 rounded"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${typeColors[card.type] || 'var(--grey1)'} 20%, transparent)`,
+              color: typeColors[card.type] || 'var(--grey1)',
+            }}
+          >
+            {card.type}
+          </span>
+          {collapseButton}
+        </div>
       </div>
 
       {/* Title */}

@@ -40,7 +40,11 @@ Open `http://localhost:8080` for the web UI.
 
 ## Web UI
 
-- **Board view** — drag-and-drop kanban columns per project, with card detail panel
+- **Board view** — drag-and-drop kanban columns per project, with card detail panel.
+  Columns can be collapsed to a narrow vertical strip by clicking the left-arrow
+  button in the column header. Individual cards can be collapsed to a single header
+  row (ID + type badge) using the chevron button on each card. Both collapsed column
+  and collapsed card sets are persisted per-project in `localStorage`.
 - **Dashboard** — per-project state counts, active agents, and token cost breakdown
 - **Swimlane view** — all projects in a single horizontal view (`/all`)
 - **Theme toggle** — sun/moon icon in the header switches between Everforest dark and
