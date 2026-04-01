@@ -54,20 +54,24 @@ Present the plan to the human in this format:
 ## Plan for ALPHA-001: Add JWT auth middleware
 
 1. SUBTASK: Implement JWT token generation and validation
-   Type: task | Priority: high | Labels: [backend, security]
+   Priority: high | Labels: [backend, security]
    Depends on: (none)
    Body: Create jwt.go with Sign() and Verify() functions. Use RS256. Add unit tests.
 
 2. SUBTASK: Add auth middleware to HTTP router
-   Type: task | Priority: high | Labels: [backend]
+   Priority: high | Labels: [backend]
    Depends on: subtask 1
    Body: Create middleware that extracts Bearer token, calls Verify(), sets user context. Return 401 on failure.
 
 3. SUBTASK: Add login endpoint
-   Type: task | Priority: high | Labels: [backend, api]
+   Priority: high | Labels: [backend, api]
    Depends on: subtask 1
    Body: POST /api/login accepting username/password, returning JWT. Add integration test.
 ```
+
+Note: Do not include `Type` in subtask plans. The backend automatically sets the
+type to `subtask` for any card created with a `parent` field — you do not need
+to specify it.
 
 ## Step 3: Iterate
 
@@ -84,7 +88,9 @@ Once approved:
    - `parent` set to the parent card ID
    - `depends_on` set to the IDs of prerequisite subtasks (use the card IDs
      returned from previous `create_card` calls)
-   - Clear title, type, priority, labels, and body as discussed
+   - Clear title, priority, labels, and body as discussed
+   - Note: the `type` field is automatically set to `subtask` by the backend
+     when `parent` is provided — you do not need to specify it
 
 Confirm all subtasks created. List them with their IDs:
 

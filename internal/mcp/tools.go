@@ -76,7 +76,7 @@ type getCardInput struct {
 type createCardInput struct {
 	Project   string   `json:"project" jsonschema:"required,project name"`
 	Title     string   `json:"title" jsonschema:"required,card title"`
-	Type      string   `json:"type" jsonschema:"required,card type (task/bug/feature)"`
+	Type      string   `json:"type" jsonschema:"required,card type (task/bug/feature). Overridden to 'subtask' when parent is set."`
 	Priority  string   `json:"priority" jsonschema:"required,priority (low/medium/high/critical)"`
 	Labels    []string `json:"labels,omitempty" jsonschema:"optional labels"`
 	Body      string   `json:"body,omitempty" jsonschema:"optional markdown body"`

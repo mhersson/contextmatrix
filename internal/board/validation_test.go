@@ -40,6 +40,8 @@ func TestValidateType(t *testing.T) {
 		{"valid task", "task", false, nil},
 		{"valid bug", "bug", false, nil},
 		{"valid feature", "feature", false, nil},
+		// subtask is always valid as a built-in type even though it's not in cfg.Types
+		{"built-in subtask", "subtask", false, nil},
 		{"invalid type", "epic", true, ErrInvalidType},
 		{"empty type", "", true, ErrInvalidType},
 	}
@@ -404,6 +406,37 @@ func TestFindShortestPath_NoPath(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoPath)
 	assert.Nil(t, path)
+}
+
+func TestValidateType_SubtaskIsBuiltIn(t *testing.T) {
+	v := NewValidator()
+
+	// Project config that does NOT include "subtask" in its types list
+	cfg := &ProjectConfig{
+		Name:       "test",
+		Prefix:     "TEST",
+		States:     []string{"todo", "in_progress", "done", "stalled"},
+		Types:      []string{"task", "bug"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done"},
+			"done":        {"todo"},
+			"stalled":     {"todo"},
+		},
+	}
+
+	// subtask must be valid even though it's not in cfg.Types
+	err := v.ValidateType(cfg, SubtaskType)
+	assert.NoError(t, err)
+
+	// Regular types still work
+	assert.NoError(t, v.ValidateType(cfg, "task"))
+	assert.NoError(t, v.ValidateType(cfg, "bug"))
+
+	// Unknown types still fail
+	require.Error(t, v.ValidateType(cfg, "epic"))
+	assert.ErrorIs(t, v.ValidateType(cfg, "epic"), ErrInvalidType)
 }
 
 func TestValidationError_Unwrap(t *testing.T) {

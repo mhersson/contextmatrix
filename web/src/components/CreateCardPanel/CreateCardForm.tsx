@@ -31,10 +31,26 @@ export function CreateCardForm({
   const { theme } = useTheme();
   const titleRef = useRef<HTMLInputElement>(null);
   const [labelInput, setLabelInput] = useState('');
+  // Tracks the type the user had selected before a parent was set, so we can restore it on clear.
+  const prevTypeRef = useRef<string>(type);
 
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
+
+  // Auto-lock type to "subtask" when a parent is selected; restore on clear.
+  useEffect(() => {
+    if (parent) {
+      prevTypeRef.current = type;
+      setType('subtask');
+    } else {
+      // Restore previous type (never restore to "subtask" itself)
+      const restored = prevTypeRef.current === 'subtask' ? (config.types[0] ?? 'task') : prevTypeRef.current;
+      setType(restored);
+    }
+    // We intentionally omit `type` from the dependency array to avoid a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parent]);
 
   const handleTypeChange = useCallback((newType: string) => {
     const template = config.templates?.[newType];
@@ -90,15 +106,30 @@ export function CreateCardForm({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs text-[var(--grey1)] mb-1">Type</label>
-          <select
-            value={type}
-            onChange={(e) => handleTypeChange(e.target.value)}
-            className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
-          >
-            {config.types.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          {parent ? (
+            <div className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] flex items-center">
+              <span
+                className="text-xs px-1.5 py-0.5 rounded"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--aqua) 20%, transparent)',
+                  color: 'var(--aqua)',
+                }}
+              >
+                subtask
+              </span>
+              <span className="ml-2 text-xs text-[var(--grey1)]">(set by parent)</span>
+            </div>
+          ) : (
+            <select
+              value={type}
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
+            >
+              {config.types.filter((t) => t !== 'subtask').map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          )}
         </div>
         <div>
           <label className="block text-xs text-[var(--grey1)] mb-1">Priority</label>

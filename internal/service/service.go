@@ -485,13 +485,19 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 
 	s.mu.Unlock()
 
+	// Cards with a parent are always subtasks regardless of what the caller passes.
+	cardType := input.Type
+	if input.Parent != "" {
+		cardType = board.SubtaskType
+	}
+
 	// Build card
 	now := time.Now()
 	card := &board.Card{
 		ID:       cardID,
 		Title:    input.Title,
 		Project:  project,
-		Type:     input.Type,
+		Type:     cardType,
 		State:    cfg.States[0], // Default to first state
 		Priority: input.Priority,
 		Labels:   input.Labels,
@@ -581,6 +587,26 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 				return nil, dependencyError(input.State, blockers)
 			}
 		}
+	}
+
+	// Enforce subtask type invariants:
+	// - A card with a parent must keep type "subtask"; type changes are not allowed.
+	// - A card without a parent cannot have type "subtask".
+	if card.Parent != "" && input.Type != board.SubtaskType {
+		return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "type",
+			Value:   input.Type,
+			Message: "cannot change type of a subtask; cards with a parent must have type \"subtask\"",
+		})
+	}
+	if card.Parent == "" && input.Type == board.SubtaskType {
+		return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "type",
+			Value:   input.Type,
+			Message: "only cards with a parent can have type \"subtask\"",
+		})
 	}
 
 	// Update mutable fields

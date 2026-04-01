@@ -15,6 +15,7 @@ const typeColors: Record<string, string> = {
   task: 'var(--blue)',
   bug: 'var(--red)',
   feature: 'var(--green)',
+  subtask: 'var(--aqua)',
 };
 
 const priorityColors: Record<string, string> = {

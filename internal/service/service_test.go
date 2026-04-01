@@ -2856,3 +2856,217 @@ func TestDeferredCommitBoardYamlIncluded(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, hasUncommitted, ".board.yaml should be committed along with the card")
 }
+
+// TestCreateCard_SubtaskTypeEnforcement verifies that cards created with a parent
+// always get type "subtask" regardless of what the caller passes.
+func TestCreateCard_SubtaskTypeEnforcement(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a parent card first
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "task", parent.Type)
+
+	tests := []struct {
+		name         string
+		inputType    string
+		parent       string
+		expectedType string
+	}{
+		{
+			name:         "card with parent and type task gets subtask",
+			inputType:    "task",
+			parent:       parent.ID,
+			expectedType: "subtask",
+		},
+		{
+			name:         "card with parent and type bug gets subtask",
+			inputType:    "bug",
+			parent:       parent.ID,
+			expectedType: "subtask",
+		},
+		{
+			name:         "card with parent and type feature gets subtask",
+			inputType:    "feature",
+			parent:       parent.ID,
+			expectedType: "subtask",
+		},
+		{
+			name:         "card with parent and type subtask stays subtask",
+			inputType:    "subtask",
+			parent:       parent.ID,
+			expectedType: "subtask",
+		},
+		{
+			name:         "card without parent preserves task type",
+			inputType:    "task",
+			parent:       "",
+			expectedType: "task",
+		},
+		{
+			name:         "card without parent preserves bug type",
+			inputType:    "bug",
+			parent:       "",
+			expectedType: "bug",
+		},
+		{
+			name:         "card without parent preserves feature type",
+			inputType:    "feature",
+			parent:       "",
+			expectedType: "feature",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title:    "Test Card",
+				Type:     tt.inputType,
+				Priority: "medium",
+				Parent:   tt.parent,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedType, card.Type)
+		})
+	}
+}
+
+// TestUpdateCard_SubtaskTypeEnforcement verifies that UpdateCard enforces subtask
+// type invariants: subtasks cannot change type, and non-subtasks cannot become subtasks.
+func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a parent card
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create a subtask (parent set → type auto-set to subtask)
+	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Subtask Card",
+		Type:     "task", // will be overridden to subtask
+		Priority: "medium",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "subtask", subtask.Type)
+
+	// Create a standalone card
+	standalone, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Standalone Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "task", standalone.Type)
+
+	t.Run("reject changing subtask type away from subtask", func(t *testing.T) {
+		_, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
+			Title:    subtask.Title,
+			Type:     "task", // trying to change away from subtask
+			State:    subtask.State,
+			Priority: subtask.Priority,
+			Parent:   parent.ID,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "subtask")
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
+
+	t.Run("reject changing subtask type to bug", func(t *testing.T) {
+		_, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
+			Title:    subtask.Title,
+			Type:     "bug",
+			State:    subtask.State,
+			Priority: subtask.Priority,
+			Parent:   parent.ID,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
+
+	t.Run("allow keeping subtask type on subtask", func(t *testing.T) {
+		updated, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
+			Title:    "Updated Subtask Title",
+			Type:     "subtask",
+			State:    subtask.State,
+			Priority: subtask.Priority,
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "subtask", updated.Type)
+		assert.Equal(t, "Updated Subtask Title", updated.Title)
+	})
+
+	t.Run("reject setting type to subtask on card without parent", func(t *testing.T) {
+		_, err := svc.UpdateCard(ctx, "test-project", standalone.ID, UpdateCardInput{
+			Title:    standalone.Title,
+			Type:     "subtask", // invalid — no parent
+			State:    standalone.State,
+			Priority: standalone.Priority,
+			Parent:   "",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "subtask")
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
+
+	t.Run("allow normal type update on card without parent", func(t *testing.T) {
+		updated, err := svc.UpdateCard(ctx, "test-project", standalone.ID, UpdateCardInput{
+			Title:    standalone.Title,
+			Type:     "bug",
+			State:    standalone.State,
+			Priority: standalone.Priority,
+			Parent:   "",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "bug", updated.Type)
+	})
+}
+
+// TestPatchCard_DoesNotChangeType verifies that PatchCard never modifies the type field.
+func TestPatchCard_DoesNotChangeType(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a parent and subtask
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Subtask",
+		Type:     "task", // overridden to subtask
+		Priority: "medium",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "subtask", subtask.Type)
+
+	// Patch title only — type must remain subtask
+	newTitle := "Patched Subtask"
+	patched, err := svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{
+		Title: &newTitle,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "subtask", patched.Type, "PatchCard must not change the type field")
+	assert.Equal(t, "Patched Subtask", patched.Title)
+}

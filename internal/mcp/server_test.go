@@ -1495,6 +1495,66 @@ func TestDeleteProject_MCP(t *testing.T) {
 	assert.Len(t, listOutput.Projects, 1) // only test-project remains
 }
 
+// TestCreateCard_SubtaskTypeEnforced verifies that creating a card via MCP with
+// a parent always results in type=subtask regardless of the type passed in.
+func TestCreateCard_SubtaskTypeEnforced(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create parent card
+	parent := createTestCard(t, env, "Parent task", "feature", "high")
+
+	// Create a subtask passing type="task" explicitly — backend should override to "subtask"
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Child card",
+		"type":     "task",
+		"priority": "medium",
+		"parent":   parent.ID,
+	})
+	require.False(t, result.IsError, "create_card with parent should not error")
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	assert.Equal(t, "subtask", card.Type, "type should be overridden to 'subtask' when parent is set")
+	assert.Equal(t, parent.ID, card.Parent)
+
+	// Also verify with type="bug" — it should still be overridden
+	result2 := callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Another child",
+		"type":     "bug",
+		"priority": "low",
+		"parent":   parent.ID,
+	})
+	require.False(t, result2.IsError)
+
+	var card2 board.Card
+	unmarshalResult(t, result2, &card2)
+	assert.Equal(t, "subtask", card2.Type, "type should be overridden regardless of passed type value")
+}
+
+// TestCreateCard_TypePreservedWithoutParent verifies that creating a card via
+// MCP without a parent preserves the type as given.
+func TestCreateCard_TypePreservedWithoutParent(t *testing.T) {
+	env := setupMCP(t)
+
+	for _, typ := range []string{"task", "bug", "feature"} {
+		result := callTool(t, env, "create_card", map[string]any{
+			"project":  "test-project",
+			"title":    "Card type " + typ,
+			"type":     typ,
+			"priority": "medium",
+		})
+		require.False(t, result.IsError, "create_card type=%s should not error", typ)
+
+		var card board.Card
+		unmarshalResult(t, result, &card)
+		assert.Equal(t, typ, card.Type, "type=%s should be preserved when no parent is set", typ)
+		assert.Empty(t, card.Parent, "card should have no parent")
+	}
+}
+
 func TestInitProjectPrompt(t *testing.T) {
 	env := setupMCP(t)
 

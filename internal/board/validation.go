@@ -6,6 +6,10 @@ import (
 	"slices"
 )
 
+// SubtaskType is the built-in card type assigned to all cards that have a parent.
+// It is always valid regardless of whether it appears in ProjectConfig.Types.
+const SubtaskType = "subtask"
+
 // Sentinel errors for validation failures.
 var (
 	// ErrInvalidType indicates the card type is not in ProjectConfig.Types.
@@ -55,8 +59,13 @@ func NewValidator() *Validator {
 }
 
 // ValidateType checks if cardType is valid for the project.
+// SubtaskType ("subtask") is always valid as a built-in type, even if not listed
+// in ProjectConfig.Types — callers do not need to add it to their board config.
 // Returns nil if valid, *ValidationError if invalid.
 func (v *Validator) ValidateType(cfg *ProjectConfig, cardType string) error {
+	if cardType == SubtaskType {
+		return nil
+	}
 	if !slices.Contains(cfg.Types, cardType) {
 		return &ValidationError{
 			Err:     ErrInvalidType,
