@@ -1865,6 +1865,8 @@ func TestWorkflowPreambleInjected(t *testing.T) {
 				"skill %q content should contain workflow preamble", s.name)
 			assert.Contains(t, out.Content, "Never work on a card without claiming it first",
 				"skill %q preamble should include claim rule", s.name)
+			assert.Contains(t, out.Content, "Always use MCP tools for ContextMatrix interactions",
+				"skill %q preamble should include MCP-only rule", s.name)
 		})
 	}
 

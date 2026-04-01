@@ -95,3 +95,7 @@ release your claim. The main agent handles the final state transition.
   describes..." preambles.
 - **Be accurate.** Cross-reference subtask progress notes and code changes. Do
   not document features that weren't actually built.
+- **Always use MCP tools.** For all ContextMatrix board interactions, use the
+  provided MCP tools (`claim_card`, `heartbeat`, `report_usage`, etc.). Never
+  use curl, wget, or direct HTTP API calls — the MCP tools are the only
+  supported interface.

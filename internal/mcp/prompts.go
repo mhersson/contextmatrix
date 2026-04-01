@@ -39,6 +39,11 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   a sub-agent to complete, or otherwise idle for more than a few minutes, call
   heartbeat every 5 minutes to prevent your claim from going stale. Idle waits
   are the most common cause of stalled cards.
+- **Always use MCP tools for ContextMatrix interactions.** For all board
+  operations (claiming cards, sending heartbeats, updating cards, completing
+  tasks, etc.), ALWAYS use the provided MCP tools. NEVER use curl, wget, REST
+  API calls, or any direct HTTP approach. The MCP tools are the only supported
+  interface for agent operations.
 - **When in doubt, use /contextmatrix:execute-task <card_id>.** It handles the
   entire lifecycle for you.
 

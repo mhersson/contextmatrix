@@ -170,3 +170,7 @@ on based on your structured output.
 - **Be fair.** Acknowledge what was done well before listing concerns. Criticize
   the work, not the agent.
 - **Be actionable.** Every concern should include what should be done about it.
+- **Always use MCP tools.** For all ContextMatrix board interactions, use the
+  provided MCP tools (`claim_card`, `heartbeat`, `report_usage`, etc.). Never
+  use curl, wget, or direct HTTP API calls — the MCP tools are the only
+  supported interface.

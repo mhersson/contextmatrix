@@ -157,6 +157,8 @@ mkdir -p project-alpha/tasks project-alpha/templates
 2. Full suite passes: `make test` — no regressions.
 3. Code compiles cleanly: `go build ./...` — zero errors.
 4. Manual verification for API tasks: curl endpoints, confirm response codes.
+   _(This is for human developers verifying API handler code. Agents must use
+   MCP tools — see "Agent interaction rules" below.)_
 5. Manual verification for frontend tasks: browser user flow end-to-end.
 6. Manual verification for MCP tasks: connect Claude Code, invoke tools/prompts.
 7. Lint passes: `golangci-lint run` clean.
@@ -193,3 +195,16 @@ feat(skills): Add execute-task skill with heartbeat discipline
   rendering.
 
 Run tests frequently. Write tests alongside each function. Use `t.TempDir()`.
+
+## Agent interaction rules
+
+Agents interacting with ContextMatrix (via MCP) must follow these rules:
+
+- **Always use MCP tools.** For all board interactions — claiming cards,
+  heartbeats, updating cards, completing tasks, creating cards, transitioning
+  state — ALWAYS use the provided MCP tools. Never use `curl`, `wget`, or direct
+  HTTP API calls to interact with the board.
+- The REST API exists for the web UI and for human developers to verify behavior
+  during development. It is not the agent interface.
+- If an MCP tool does not exist for an operation you need, report it as blocked
+  rather than falling back to HTTP calls.

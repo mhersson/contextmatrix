@@ -53,3 +53,10 @@
 - **Health-check polling interval:** the monitoring loop in `create-plan.md`
   polls every 1 minute (not 2-3 min). Shorter intervals mean stalled agents are
   detected and respawned faster, reducing idle time for the user.
+- **Agents must never use curl:** `CLAUDE.md` mentions `curl` for "Manual
+  verification for API tasks" — that applies to human developers checking API
+  handler code, NOT to agents interacting with the board. Agents must use MCP
+  tools exclusively (`claim_card`, `heartbeat`, `update_card`, `complete_task`,
+  etc.). Using curl bypasses claim tracking, heartbeats, and the event bus,
+  leaving cards orphaned. This rule is enforced in the `workflowPreamble`
+  prepended to every skill prompt.

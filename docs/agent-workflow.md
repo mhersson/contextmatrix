@@ -20,6 +20,13 @@ Human ↔ CC (main agent)
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 
+**Agents MUST always use MCP tools for all ContextMatrix interactions.** This
+means `claim_card`, `heartbeat`, `update_card`, `complete_task`, etc. — never
+`curl`, `wget`, or any direct REST API call. Direct HTTP is for human developers
+verifying API handler code; it is not a supported interface for agent board
+operations. This rule is enforced in the `workflowPreamble` injected into every
+skill prompt and is explicitly stated in each skill file's Rules section.
+
 ## Skill files
 
 Skill files are markdown documents in `skills/`. They serve two purposes:

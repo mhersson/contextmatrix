@@ -255,3 +255,7 @@ Follow these standards in all work you produce:
   it, the main agent must detect this via stale heartbeats and respawn a
   replacement. Always print structured output as the very last thing you do,
   even if preceding steps partially failed.
+- **Always use MCP tools.** For all ContextMatrix board interactions, use the
+  provided MCP tools (`claim_card`, `heartbeat`, `update_card`, `complete_task`,
+  etc.). Never use curl, wget, or direct HTTP API calls — the MCP tools are the
+  only supported interface.
