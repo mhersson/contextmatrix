@@ -136,9 +136,47 @@ If **yes**:
    - `prompt`: the `content` from `get_skill`
    Spawn all ready tasks **in parallel** (multiple `Agent` tool calls in one
    message).
-3. Monitor sub-agent completions. When a sub-agent finishes and unblocks new
-   tasks, call `get_ready_tasks` again and spawn agents for the newly ready
-   tasks.
+3. **Monitor sub-agents with health checking.** After spawning agents, enter
+   a monitoring loop:
+
+   a. Wait 2-3 minutes between checks.
+   b. Call `check_agent_health(parent_id=<parent_id>)` to get the health
+      status of all subtask agents.
+   c. For each subtask, act on its status:
+      - **`active`** — healthy, no action needed.
+      - **`completed`** — finished. Call `get_ready_tasks` to find newly
+        unblocked tasks and spawn agents for them.
+      - **`warning`** — heartbeat is stale (>15 min). Note it but do not
+        act yet — the agent may be in a long operation.
+      - **`stalled`** — agent is dead (heartbeat exceeded 30 min timeout,
+        or card already transitioned to `stalled` by the server). Respawn
+        it (see below).
+      - **`unassigned`** — card has no agent. If it is in `todo` state,
+        it should be picked up by `get_ready_tasks`. If it is in
+        `in_progress` or `stalled` with no agent, respawn it.
+   d. Call `get_subtask_summary(parent_id=<parent_id>)` to check overall
+      progress. When all subtasks are `done`, exit the loop and proceed
+      to review (step 4).
+   e. Repeat from (a) until all subtasks are done.
+
+   ### Respawning a dead agent
+
+   When a subtask has status `stalled` or is in `stalled`/`in_progress`
+   state with no assigned agent:
+
+   1. If the card is in `stalled` state, call
+      `transition_card(card_id=<id>, new_state='todo')` then
+      `transition_card(card_id=<id>, new_state='in_progress')` to reset it.
+   2. Track respawn count per card. **Maximum 2 respawns per card.** After
+      the second respawn fails (agent stalls again), stop and tell the human:
+      "Card <id> has stalled 3 times. Likely a persistent issue — please
+      investigate."
+   3. Call `get_skill(skill_name='execute-task', card_id=<id>)` and spawn a
+      new sub-agent via the `Agent` tool with the returned `model` and
+      `content`, just as in step 2 above.
+   4. Call `add_log(card_id=<id>, action='respawned',
+      message='Agent stalled, respawning (attempt N)')`.
+
 4. When all subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
    review sub-agent using the `Agent` tool with `model` from the response,
@@ -180,8 +218,11 @@ If the user chooses to execute, you MUST follow through the **entire pipeline**
 to completion. Do NOT stop partway:
 
 1. **Execute** — Spawn agents (via `get_skill` + `Agent` tool) for all ready
-   subtasks. Monitor completions. When a subtask finishes and unblocks new
-   tasks, spawn agents for the newly ready tasks.
+   subtasks. Monitor agent health during execution using
+   `check_agent_health`. Do NOT simply wait for agents to return — poll
+   every 2-3 minutes and respawn any stalled agents (max 2 respawns per
+   card before escalating to the human). When a subtask finishes, spawn
+   agents for newly unblocked tasks.
 2. **Review** — When ALL subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
    review sub-agent via the `Agent` tool with the returned `model` and `content`.

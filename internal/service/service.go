@@ -1209,6 +1209,11 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	return card, nil
 }
 
+// HeartbeatTimeout returns the configured heartbeat timeout duration.
+func (s *CardService) HeartbeatTimeout() time.Duration {
+	return s.lock.Timeout()
+}
+
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
 	id = strings.ToUpper(id)

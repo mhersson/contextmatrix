@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -26,6 +27,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerGetTaskContext(server, svc)
 	registerCompleteTask(server, svc, skillsDir)
 	registerGetSubtaskSummary(server, svc)
+	registerCheckAgentHealth(server, svc)
 	registerGetReadyTasks(server, svc)
 	registerReportUsage(server, svc)
 	registerRecalculateCosts(server, svc)
@@ -147,6 +149,30 @@ type getSubtaskSummaryOutput struct {
 	ParentID string         `json:"parent_id"`
 	Total    int            `json:"total"`
 	Counts   map[string]int `json:"counts"`
+}
+
+type checkAgentHealthInput struct {
+	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from parent ID if omitted)"`
+	ParentID string `json:"parent_id" jsonschema:"required,parent card ID whose subtasks to check"`
+}
+
+// AgentHealthStatus represents the computed health of a single subtask's agent.
+type AgentHealthStatus struct {
+	CardID            string `json:"card_id"`
+	Title             string `json:"title"`
+	State             string `json:"state"`
+	AssignedAgent     string `json:"assigned_agent,omitempty"`
+	LastHeartbeat     string `json:"last_heartbeat,omitempty"`
+	SecondsSinceHbeat *int64 `json:"seconds_since_heartbeat,omitempty"`
+	Status            string `json:"status"` // active, warning, stalled, unassigned, completed
+}
+
+type checkAgentHealthOutput struct {
+	ParentID       string              `json:"parent_id"`
+	TimeoutSeconds int64               `json:"timeout_seconds"`
+	WarningSeconds int64               `json:"warning_seconds"`
+	Subtasks       []AgentHealthStatus `json:"subtasks"`
+	Summary        string              `json:"summary"`
 }
 
 type getReadyTasksInput struct {
@@ -534,6 +560,84 @@ func registerGetSubtaskSummary(server *mcp.Server, svc *service.CardService) {
 			ParentID: input.ParentID,
 			Total:    len(cards),
 			Counts:   counts,
+		}, nil
+	})
+}
+
+func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "check_agent_health",
+		Description: "Check health status of all subtask agents for a parent card. Returns heartbeat age and computed status (active/warning/stalled/unassigned/completed) for each subtask. Use this to detect dead sub-agents that need respawning.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input checkAgentHealthInput) (*mcp.CallToolResult, checkAgentHealthOutput, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.ParentID)
+		if err != nil {
+			return nil, checkAgentHealthOutput{}, err
+		}
+
+		cards, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: input.ParentID})
+		if err != nil {
+			return nil, checkAgentHealthOutput{}, fmt.Errorf("list subtasks: %w", err)
+		}
+
+		timeout := svc.HeartbeatTimeout()
+		warningThreshold := timeout / 2
+		now := time.Now()
+
+		var subtasks []AgentHealthStatus
+		var stalledCount, warningCount, activeCount, completedCount int
+
+		for _, card := range cards {
+			status := AgentHealthStatus{
+				CardID:        card.ID,
+				Title:         card.Title,
+				State:         card.State,
+				AssignedAgent: card.AssignedAgent,
+			}
+
+			switch {
+			case card.State == "done" || card.State == "review":
+				status.Status = "completed"
+				completedCount++
+			case card.State == "stalled":
+				status.Status = "stalled"
+				stalledCount++
+			case card.AssignedAgent == "":
+				status.Status = "unassigned"
+			default:
+				if card.LastHeartbeat != nil {
+					status.LastHeartbeat = card.LastHeartbeat.Format(time.RFC3339)
+					elapsed := int64(now.Sub(*card.LastHeartbeat).Seconds())
+					status.SecondsSinceHbeat = &elapsed
+
+					switch {
+					case now.Sub(*card.LastHeartbeat) >= timeout:
+						status.Status = "stalled"
+						stalledCount++
+					case now.Sub(*card.LastHeartbeat) >= warningThreshold:
+						status.Status = "warning"
+						warningCount++
+					default:
+						status.Status = "active"
+						activeCount++
+					}
+				} else {
+					status.Status = "warning"
+					warningCount++
+				}
+			}
+
+			subtasks = append(subtasks, status)
+		}
+
+		summary := fmt.Sprintf("%d active, %d warning, %d stalled, %d completed, %d total",
+			activeCount, warningCount, stalledCount, completedCount, len(cards))
+
+		return nil, checkAgentHealthOutput{
+			ParentID:       input.ParentID,
+			TimeoutSeconds: int64(timeout.Seconds()),
+			WarningSeconds: int64(warningThreshold.Seconds()),
+			Subtasks:       subtasks,
+			Summary:        summary,
 		}, nil
 	})
 }

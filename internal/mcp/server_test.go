@@ -45,6 +45,7 @@ func testProjectConfig() *board.ProjectConfig {
 type testEnv struct {
 	session   *mcp.ClientSession
 	svc       *service.CardService
+	store     storage.Store
 	boardsDir string
 	skillsDir string
 	cancel    context.CancelFunc
@@ -113,6 +114,7 @@ func setupMCP(t *testing.T) *testEnv {
 	return &testEnv{
 		session:   session,
 		svc:       svc,
+		store:     store,
 		boardsDir: boardsDir,
 		skillsDir: skillsDir,
 		cancel:    cancel,
@@ -176,6 +178,7 @@ func TestListTools(t *testing.T) {
 		"get_task_context",
 		"complete_task",
 		"get_subtask_summary",
+		"check_agent_health",
 		"get_ready_tasks",
 		"report_usage",
 		"recalculate_costs",
@@ -826,6 +829,116 @@ func TestGetSubtaskSummary(t *testing.T) {
 	assert.Equal(t, 1, output.Counts["todo"], "should have 1 todo")
 	assert.Equal(t, 1, output.Counts["in_progress"], "should have 1 in_progress")
 	assert.Equal(t, 1, output.Counts["done"], "should have 1 done")
+}
+
+func TestCheckAgentHealth(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create parent
+	parent := createTestCard(t, env, "Health check parent", "feature", "high")
+
+	// Create 3 subtasks
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub A", "type": "task",
+		"priority": "medium", "parent": parent.ID,
+	})
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub B", "type": "task",
+		"priority": "medium", "parent": parent.ID,
+	})
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub C", "type": "task",
+		"priority": "medium", "parent": parent.ID,
+	})
+
+	// Claim Sub A (TEST-002) — will be "active"
+	callTool(t, env, "claim_card", map[string]any{
+		"project": "test-project", "card_id": "TEST-002", "agent_id": "agent-a",
+	})
+
+	// Sub B (TEST-003) stays unclaimed — "unassigned"
+
+	// Complete Sub C (TEST-004) via claim + complete
+	callTool(t, env, "claim_card", map[string]any{
+		"project": "test-project", "card_id": "TEST-004", "agent_id": "agent-c",
+	})
+	callTool(t, env, "complete_task", map[string]any{
+		"project": "test-project", "card_id": "TEST-004",
+		"agent_id": "agent-c", "summary": "Done",
+	})
+
+	// Check health
+	result := callTool(t, env, "check_agent_health", map[string]any{
+		"project":   "test-project",
+		"parent_id": parent.ID,
+	})
+	require.False(t, result.IsError)
+
+	var output checkAgentHealthOutput
+	unmarshalResult(t, result, &output)
+
+	assert.Equal(t, parent.ID, output.ParentID)
+	assert.Equal(t, int64(1800), output.TimeoutSeconds)
+	assert.Equal(t, int64(900), output.WarningSeconds)
+	require.Len(t, output.Subtasks, 3)
+
+	// Build map for easier assertions
+	byID := make(map[string]AgentHealthStatus)
+	for _, s := range output.Subtasks {
+		byID[s.CardID] = s
+	}
+
+	assert.Equal(t, "active", byID["TEST-002"].Status)
+	assert.Equal(t, "agent-a", byID["TEST-002"].AssignedAgent)
+	assert.NotNil(t, byID["TEST-002"].SecondsSinceHbeat)
+
+	assert.Equal(t, "unassigned", byID["TEST-003"].Status)
+	assert.Empty(t, byID["TEST-003"].AssignedAgent)
+
+	assert.Equal(t, "completed", byID["TEST-004"].Status)
+
+	assert.Contains(t, output.Summary, "1 active")
+	assert.Contains(t, output.Summary, "1 completed")
+}
+
+func TestCheckAgentHealth_Stalled(t *testing.T) {
+	env := setupMCP(t)
+
+	parent := createTestCard(t, env, "Stall test parent", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Stalling sub", "type": "task",
+		"priority": "medium", "parent": parent.ID,
+	})
+
+	// Claim the subtask
+	callTool(t, env, "claim_card", map[string]any{
+		"project": "test-project", "card_id": "TEST-002", "agent_id": "agent-stale",
+	})
+
+	// Manipulate heartbeat to 31 minutes ago via store
+	ctx := context.Background()
+	card, err := env.svc.GetCard(ctx, "test-project", "TEST-002")
+	require.NoError(t, err)
+	staleTime := time.Now().Add(-31 * time.Minute)
+	card.LastHeartbeat = &staleTime
+	err = env.store.UpdateCard(ctx, "test-project", card)
+	require.NoError(t, err)
+
+	// Check health
+	result := callTool(t, env, "check_agent_health", map[string]any{
+		"project":   "test-project",
+		"parent_id": parent.ID,
+	})
+	require.False(t, result.IsError)
+
+	var output checkAgentHealthOutput
+	unmarshalResult(t, result, &output)
+
+	require.Len(t, output.Subtasks, 1)
+	assert.Equal(t, "stalled", output.Subtasks[0].Status)
+	assert.Equal(t, "agent-stale", output.Subtasks[0].AssignedAgent)
+	assert.NotNil(t, output.Subtasks[0].SecondsSinceHbeat)
+	assert.GreaterOrEqual(t, *output.Subtasks[0].SecondsSinceHbeat, int64(1860))
 }
 
 func TestGetReadyTasks(t *testing.T) {
