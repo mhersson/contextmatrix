@@ -100,7 +100,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           >
             {card.type}
           </span>
-          <div className="flex-1" />
+          <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
           {collapseButton}
         </div>
       </div>
