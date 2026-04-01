@@ -137,6 +137,17 @@ updated: 2026-03-30T11:00:00Z
 ---
 ```
 
+The `parent` field is displayed in the web UI wherever a subtask card appears:
+
+- **Board (CardItem):** a clickable monospace badge showing the parent card ID
+  appears in both the expanded footer and the collapsed header row. Clicking
+  navigates to the parent card.
+- **Detail panel (CardPanelMetadata):** a "Parent" section appears above
+  "Subtasks" with a clickable button for the parent ID. Uses the same navigation
+  handler as subtask links.
+
+See `web/CLAUDE.md` → "Subtask parent navigation" for styling details.
+
 The frontmatter is delimited by `---` lines. The body is freeform markdown. When
 parsing, split on `---` — first element is empty (before opening delimiter),
 second is YAML, third is body.

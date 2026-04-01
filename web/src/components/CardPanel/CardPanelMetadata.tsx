@@ -94,6 +94,21 @@ export function CardPanelMetadata({
         </div>
       </div>
 
+      {/* Parent */}
+      {card.parent && (
+        <div>
+          <label className="block text-xs text-[var(--grey1)] mb-1">Parent</label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => onSubtaskClick(card.parent!)}
+              className="px-2 py-1 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:bg-[var(--bg3)] transition-colors text-sm font-mono"
+            >
+              {card.parent}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Subtasks */}
       {card.subtasks && card.subtasks.length > 0 && (
         <div>

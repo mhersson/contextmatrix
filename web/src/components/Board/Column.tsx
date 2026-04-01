@@ -16,6 +16,7 @@ interface ColumnProps {
   onToggleCardCollapse?: (cardId: string) => void;
   onCollapseAll?: (cardIds: string[]) => void;
   onExpandAll?: (cardIds: string[]) => void;
+  onParentClick?: (cardId: string) => void;
 }
 
 function formatStateName(state: string): string {
@@ -25,7 +26,7 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll }: ColumnProps) {
+export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -169,6 +170,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               flashCardId={flashCardId}
               isCollapsed={collapsedCards?.has(card.id)}
               onToggleCollapse={onToggleCardCollapse}
+              onParentClick={onParentClick}
             />
           ))
         )}

@@ -76,3 +76,41 @@ throughout all components. Do not hardcode hex values in components.
 - Column headers: use `--grey2` text on `--bg0`
 - Interactive elements (buttons, links): `--green` primary, `--aqua` secondary
 - Destructive actions: `--red`
+- Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
+  active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
+
+## Subtask parent navigation
+
+Subtask cards display their parent card ID as a clickable badge. Clicking it
+navigates to the parent card (same handler as subtask navigation).
+
+**CardItem (board view):**
+
+- Collapsed view: badge appears in the header row between the type badge and
+  card title.
+- Expanded view: badge appears in the footer row alongside the priority dot,
+  agent indicator, and labels.
+- The badge uses `e.stopPropagation()` so clicking it does not open the subtask
+  card itself.
+- Prop: `onParentClick?: (cardId: string) => void` — threaded through
+  `ProjectShell → Board → Column → CardItem`.
+- `ProjectShell` wires `onParentClick={handleSubtaskClick}`, reusing the same
+  handler that navigates to subtasks (card-by-ID lookup in local state).
+
+**CardPanelMetadata (detail panel):**
+
+- A "Parent" section is rendered above "Subtasks" when `card.parent` is defined.
+- The parent ID button reuses the existing `onSubtaskClick` prop — no new prop
+  required.
+- Styling: `--bg-blue` background, `--aqua` text, monospace font — consistent
+  with subtask ID buttons.
+
+**Known UX notes (tracked for future polish):**
+
+- In the expanded CardItem footer, the parent badge and agent indicator share
+  identical colours (`--bg-blue`/`--aqua`). They are visually distinguishable
+  only by content (card ID vs. agent name). `title` tooltips disambiguate on
+  hover. A future pass may add a small icon prefix or border to the parent badge.
+- The parent badge button in CardItem has no `aria-label`. Adding
+  `aria-label={\`Navigate to parent \${card.parent}\`}` would improve screen
+  reader accessibility.

@@ -9,6 +9,7 @@ interface CardItemProps {
   flashCardId?: string | null;
   isCollapsed?: boolean;
   onToggleCollapse?: (cardId: string) => void;
+  onParentClick?: (cardId: string) => void;
 }
 
 const typeColors: Record<string, string> = {
@@ -25,7 +26,7 @@ const priorityColors: Record<string, string> = {
   low: 'var(--grey1)',
 };
 
-export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleCollapse }: CardItemProps) {
+export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { card },
@@ -88,7 +89,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           ${isFlashing ? 'animate-card-flash' : ''}
         `}
       >
-        {/* Collapsed header: ID, type badge, and toggle button */}
+        {/* Collapsed header: ID, type badge, parent badge, and toggle button */}
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-[var(--grey1)] flex-shrink-0">{card.id}</span>
           <span
@@ -100,6 +101,15 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           >
             {card.type}
           </span>
+          {card.parent && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
+              className="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity"
+              title={`Parent: ${card.parent}`}
+            >
+              {card.parent}
+            </button>
+          )}
           <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
           {collapseButton}
         </div>
@@ -144,7 +154,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {card.title}
       </h3>
 
-      {/* Footer: Priority, Agent, Labels */}
+      {/* Footer: Priority, Parent, Agent, Labels */}
       <div className="flex items-center flex-wrap gap-2">
         {/* Priority dot */}
         <span
@@ -152,6 +162,17 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           style={{ backgroundColor: priorityColors[card.priority] || 'var(--grey1)' }}
           title={card.priority}
         />
+
+        {/* Parent ID badge */}
+        {card.parent && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
+            className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity"
+            title={`Parent: ${card.parent}`}
+          >
+            {card.parent}
+          </button>
+        )}
 
         {/* Agent indicator */}
         {card.assigned_agent && (

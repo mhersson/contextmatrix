@@ -122,6 +122,7 @@ export function ProjectShell() {
                   cards={cards} config={config} loading={loading} error={error}
                   onCardClick={handleCardClick} onCardMove={handleCardMove}
                   onCreateCard={handleOpenCreate} flashCardId={flashCardId}
+                  onParentClick={handleSubtaskClick}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">

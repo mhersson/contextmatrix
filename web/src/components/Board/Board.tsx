@@ -53,9 +53,10 @@ interface BoardProps {
   onCardMove?: (cardId: string, newState: string) => Promise<void>;
   onCreateCard?: (state: string) => void;
   flashCardId?: string | null;
+  onParentClick?: (cardId: string) => void;
 }
 
-export function Board({ cards, config, loading, error, onCardClick, onCardMove, onCreateCard, flashCardId }: BoardProps) {
+export function Board({ cards, config, loading, error, onCardClick, onCardMove, onCreateCard, flashCardId, onParentClick }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
   const filterBarRef = useRef<HTMLDivElement>(null);
@@ -221,6 +222,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
                 onToggleCardCollapse={toggleCardCollapse}
                 onCollapseAll={collapseMany}
                 onExpandAll={expandMany}
+                onParentClick={onParentClick}
               />
             ))}
           </div>
