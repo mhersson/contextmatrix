@@ -1332,6 +1332,10 @@ func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 	// User approval must NOT be delegated to a sub-agent.
 	assert.Contains(t, text, "User Approval")
 	assert.Contains(t, text, "YOU handle this directly")
+	assert.Contains(t, text, "no sub-agent")
+
+	// Phase 1 revision loop: orchestrator must re-run Phase 1 on user changes.
+	assert.Contains(t, text, "user requests changes")
 
 	// Inline plan presentation shortcut.
 	assert.Contains(t, text, "drafted the plan inline, present it directly")
