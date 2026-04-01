@@ -35,7 +35,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const filterBarRef = useRef<HTMLDivElement>(null);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
-  const [collapsedCards, toggleCardCollapse] = useCollapsedCards(config.name, cardIds);
+  const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -184,6 +184,8 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
                 flashCardId={flashCardId}
                 collapsedCards={collapsedCards}
                 onToggleCardCollapse={toggleCardCollapse}
+                onCollapseAll={collapseMany}
+                onExpandAll={expandMany}
               />
             ))}
           </div>

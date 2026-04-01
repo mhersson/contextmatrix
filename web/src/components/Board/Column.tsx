@@ -14,6 +14,8 @@ interface ColumnProps {
   flashCardId?: string | null;
   collapsedCards?: Set<string>;
   onToggleCardCollapse?: (cardId: string) => void;
+  onCollapseAll?: (cardIds: string[]) => void;
+  onExpandAll?: (cardIds: string[]) => void;
 }
 
 function formatStateName(state: string): string {
@@ -23,7 +25,7 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse }: ColumnProps) {
+export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -41,6 +43,19 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
       ? 'ring-2 ring-[var(--red)] bg-[var(--bg-red)]'
       : '';
   const dimClass = activeCardState && isInvalidTarget ? 'opacity-50' : '';
+
+  // Bulk collapse/expand logic: show button only for 2+ cards
+  const cardIds = cards.map((c) => c.id);
+  const allCollapsed = cardIds.length >= 2 && cardIds.every((id) => collapsedCards?.has(id));
+  const showBulkToggle = cards.length >= 2 && (onCollapseAll || onExpandAll);
+
+  function handleBulkToggle() {
+    if (allCollapsed) {
+      onExpandAll?.(cardIds);
+    } else {
+      onCollapseAll?.(cardIds);
+    }
+  }
 
   if (collapsed) {
     return (
@@ -101,6 +116,27 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
           </h2>
         </div>
         <div className="flex items-center gap-2">
+          {showBulkToggle && (
+            <button
+              onClick={handleBulkToggle}
+              className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
+              title={allCollapsed ? 'Expand all cards' : 'Collapse all cards'}
+            >
+              {allCollapsed ? (
+                /* Double chevron down — expand all */
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 4l-7 7-7-7" />
+                </svg>
+              ) : (
+                /* Double chevron up — collapse all */
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 20l7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          )}
           {onCreateCard && (
             <button
               onClick={() => onCreateCard(state)}
