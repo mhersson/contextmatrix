@@ -175,7 +175,17 @@ execution. If **yes**:
 3. **Monitor sub-agents with health checking.** After spawning agents, enter
    a monitoring loop. **Call `heartbeat` on the parent card every 5 minutes
    during this loop** if you have an active claim — idle monitoring is the most
-   common cause of stalled cards.
+   common cause of stalled cards. **After each `heartbeat`, also call
+   `report_usage` to record your own token consumption since the last report:**
+   - `card_id`: the parent card ID
+   - `agent_id`: your agent ID
+   - `model`: your own model identifier from your system context (e.g., the
+     "You are powered by the model named X" line — do NOT hardcode a specific
+     model name)
+   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
+     since the last report
+   This tracks the orchestrator's own cost against the parent card — it does
+   NOT replace the sub-agents' own `report_usage` calls.
 
    a. Wait 1 minute between checks.
    b. Call `check_agent_health(parent_id=<parent_id>)` to get the health
@@ -302,7 +312,18 @@ to completion. Do NOT stop partway:
 5. **Documentation** — After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
    documentation sub-agent via the `Agent` tool with the returned `model` and `content`.
-6. **Done** — After documentation, transition the parent card to `done`.
+6. **Done** — After documentation, call `report_usage` one final time to
+   capture any remaining orchestrator token consumption (e.g., tokens used
+   during review presentation, user interaction, and documentation spawning
+   that occurred after the last monitoring-loop report):
+   - `card_id`: the parent card ID
+   - `agent_id`: your agent ID
+   - `model`: your own model identifier from your system context (e.g., the
+     "You are powered by the model named X" line — do NOT hardcode a specific
+     model name)
+   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
+     since the last report
+   Then transition the parent card to `done`.
 
 Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
 spawn execution agents and then stop. Do NOT complete review and then stop. Do

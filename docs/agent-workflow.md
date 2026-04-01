@@ -173,6 +173,16 @@ sub-agents ignore any `next_step` field returned by `complete_task` — they
 print `TASK_COMPLETE` and stop. The orchestrator is responsible for detecting
 that the parent entered `review` and spawning the review sub-agent.
 
+During the monitoring loop the orchestrator (CC) calls `heartbeat` on the parent
+card every 5 minutes and immediately follows each heartbeat with `report_usage`
+to record the orchestrator's own token consumption against the parent card. The
+`model` field must be the orchestrator's own model identifier (from its system
+context — "You are powered by the model named X") — it must not be hardcoded.
+This is separate from sub-agents' own `report_usage` calls; both are required.
+After documentation completes, the orchestrator makes one final `report_usage`
+call to capture tokens consumed during review presentation, user interaction, and
+documentation spawning before transitioning the parent to `done`.
+
 **4. Review** (`/contextmatrix:review-task <card_id>`)
 
 Uses a two-phase flow to avoid sub-agent death during user-approval waits:
@@ -323,9 +333,9 @@ approval. No sub-agent in the current workflow idles for user input.
 
 ## Token cost configuration
 
-Each skill step calls `report_usage` with the model that ran it so costs
-accumulate on the parent card. Model rates are configured in `config.yaml`
-under `token_costs` as cost-per-token values:
+Each skill step — and the orchestrator itself — calls `report_usage` with the
+model that ran it so costs accumulate on the parent card. Model rates are
+configured in `config.yaml` under `token_costs` as cost-per-token values:
 
 ```yaml
 token_costs:
