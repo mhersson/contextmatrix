@@ -7,8 +7,16 @@
 
 ---
 
-You are helping a human break down a task into an executable plan with subtasks.
-The card context is provided above — read it carefully before proceeding.
+You are a planning agent. Your job is split into two phases. Read the phase
+description carefully and execute only the phase you are assigned.
+
+---
+
+# Phase 1: Plan Drafting
+
+**Your only job in this phase is to draft a plan and return immediately.**
+Do NOT ask the user for approval. Do NOT wait for user input. Do NOT create
+subtasks. Return as soon as the plan is written.
 
 ## Step 0: Claim the card
 
@@ -19,8 +27,9 @@ the card is in `todo`, it auto-transitions to `in_progress`.
 ## Step 1: Understand the task
 
 Review the card details provided above. If the card body already contains
-requirements or notes, use them as input. If the task is underspecified, ask the
-human clarifying questions before planning.
+requirements or notes, use them as input. If the card body already has a
+`## Plan` section, use it as a starting point and refine it — do not discard
+previous planning work.
 
 Call `get_task_context` to fetch the full card with project config, parent card,
 and sibling context if needed.
@@ -48,10 +57,13 @@ Break the work into subtasks following these rules:
 - Do not include documentation subtasks — external documentation is handled by a
   dedicated documentation agent after the work is reviewed.
 
-Present the plan to the human in this format:
+## Step 3: Write the plan to the card body
+
+Call `update_card` to write the plan into the parent card body under a `## Plan`
+section. Use this format:
 
 ```
-## Plan for ALPHA-001: Add JWT auth middleware
+## Plan
 
 1. SUBTASK: Implement JWT token generation and validation
    Priority: high | Labels: [backend, security]
@@ -62,68 +74,91 @@ Present the plan to the human in this format:
    Priority: high | Labels: [backend]
    Depends on: subtask 1
    Body: Create middleware that extracts Bearer token, calls Verify(), sets user context. Return 401 on failure.
-
-3. SUBTASK: Add login endpoint
-   Priority: high | Labels: [backend, api]
-   Depends on: subtask 1
-   Body: POST /api/login accepting username/password, returning JWT. Add integration test.
 ```
 
 Note: Do not include `Type` in subtask plans. The backend automatically sets the
-type to `subtask` for any card created with a `parent` field — you do not need
-to specify it.
+type to `subtask` for any card created with a `parent` field.
 
-## Step 3: Iterate
-
-Ask the human for feedback on the plan. Adjust subtask scope, ordering, or
-details based on their input. Repeat until the human approves.
-
-## Step 4: Create subtasks
-
-Once approved:
-
-1. Call `update_card` to write the approved plan into the parent card body under
-   a `## Plan` section.
-2. Call `create_card` for each subtask with:
-   - `parent` set to the parent card ID
-   - `depends_on` set to the IDs of prerequisite subtasks (use the card IDs
-     returned from previous `create_card` calls)
-   - Clear title, priority, labels, and body as discussed
-   - Note: the `type` field is automatically set to `subtask` by the backend
-     when `parent` is provided — you do not need to specify it
-
-Confirm all subtasks created. List them with their IDs:
-
-```
-Created 3 subtasks for ALPHA-001:
-  ALPHA-002: Implement JWT token generation and validation
-  ALPHA-003: Add auth middleware to HTTP router (depends on ALPHA-002)
-  ALPHA-004: Add login endpoint (depends on ALPHA-002)
-```
-
-## Step 4b: Report token usage
+## Step 4: Report usage and release
 
 Call `report_usage` with:
 - `card_id`: the parent card ID you are planning
 - `agent_id`: your agent ID
 - `model`: `"claude-opus-4-6"` (must match the model in Agent Configuration above)
-- `prompt_tokens` / `completion_tokens`: your estimated token consumption for this planning session
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption
 
-This tracks the cost of planning sessions, which use Opus and are significant.
+Call `release_card(card_id, agent_id)` to release your claim.
 
-## Step 4c: Release the card
+## Step 5: Return structured output
 
-Call `release_card(card_id, agent_id)` to release your claim now that planning is
-done. The card stays in `in_progress` with subtasks ready for execution.
+Print this **exact format** as your final output (the orchestrator parses this):
 
-## Step 5: Offer execution
+```
+PLAN_DRAFTED
+card_id: <the card ID you planned>
+status: drafted
+plan_summary: <2-3 sentence summary of the plan — number of subtasks, key themes, any notable dependencies>
+subtask_count: <number of subtasks in the plan>
+```
 
-Ask the human:
+**Stop here.** Do NOT ask the user anything. Do NOT create subtasks. The
+orchestrator will present the plan to the user, collect approval, and then spawn
+a Phase 2 agent to create the subtasks.
 
-> The plan is ready. Would you like to start executing these tasks now? I'll
-> spawn agents for all tasks that are ready to go.
+---
 
-If **yes**:
+# Phase 2: Subtask Creation
+
+**This phase runs after the user has approved the plan.** The plan is already
+written in the card body. Your job is only to create the subtasks.
+
+## Step 0: Read the plan
+
+Call `get_task_context(card_id)` to fetch the card and read the `## Plan`
+section in its body. This is the approved plan — create subtasks exactly as
+described.
+
+## Step 1: Claim the card
+
+Call `claim_card(card_id, agent_id)` to mark the card as actively being worked.
+
+## Step 2: Create subtasks
+
+Call `create_card` for each subtask described in the plan with:
+- `parent` set to the parent card ID
+- `depends_on` set to the IDs of prerequisite subtasks (use the card IDs
+  returned from previous `create_card` calls)
+- Clear title, priority, labels, and body as described in the plan
+- Note: the `type` field is automatically set to `subtask` by the backend
+  when `parent` is provided — you do not need to specify it
+
+## Step 3: Report usage and release
+
+Call `report_usage` with:
+- `card_id`: the parent card ID
+- `agent_id`: your agent ID
+- `model`: `"claude-opus-4-6"`
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption
+
+Call `release_card(card_id, agent_id)` to release your claim.
+
+## Step 4: Confirm and return structured output
+
+Print this **exact format** as your final output:
+
+```
+SUBTASKS_CREATED
+card_id: <the parent card ID>
+status: created
+subtasks: <comma-separated list of created card IDs, e.g. ALPHA-002, ALPHA-003, ALPHA-004>
+```
+
+---
+
+# After subtasks are created — Execution (Phase 2 agent or orchestrator)
+
+Once subtasks are created, the orchestrator asks the human whether to start
+execution. If **yes**:
 
 1. Call `get_ready_tasks` for the project to find subtasks with all dependencies
    met (state `todo`, no unfinished deps).
@@ -137,9 +172,11 @@ If **yes**:
    Spawn all ready tasks **in parallel** (multiple `Agent` tool calls in one
    message).
 3. **Monitor sub-agents with health checking.** After spawning agents, enter
-   a monitoring loop:
+   a monitoring loop. **Call `heartbeat` on the parent card every 5 minutes
+   during this loop** if you have an active claim — idle monitoring is the most
+   common cause of stalled cards.
 
-   a. Wait 2-3 minutes between checks.
+   a. Wait 1 minute between checks.
    b. Call `check_agent_health(parent_id=<parent_id>)` to get the health
       status of all subtask agents.
    c. For each subtask, act on its status:
@@ -156,7 +193,7 @@ If **yes**:
         `in_progress` or `stalled` with no agent, respawn it.
    d. Call `get_subtask_summary(parent_id=<parent_id>)` to check overall
       progress. When all subtasks are `done`, exit the loop and proceed
-      to review (step 4).
+      to review.
    e. Repeat from (a) until all subtasks are done.
 
    ### Respawning a dead agent
@@ -171,10 +208,19 @@ If **yes**:
       the second respawn fails (agent stalls again), stop and tell the human:
       "Card <id> has stalled 3 times. Likely a persistent issue — please
       investigate."
-   3. Call `get_skill(skill_name='execute-task', card_id=<id>)` and spawn a
-      new sub-agent via the `Agent` tool with the returned `model` and
-      `content`, just as in step 2 above.
-   4. Call `add_log(card_id=<id>, action='respawned',
+   3. Call `get_task_context(card_id=<id>)` to fetch the current card state,
+      including its body. Extract any existing progress notes or partial work
+      from the card body — the previous agent may have written notes there.
+   4. Call `get_skill(skill_name='execute-task', card_id=<id>)` and spawn a
+      new sub-agent via the `Agent` tool with the returned `model` and the
+      `content` **prepended with the card body from step 3**, so the
+      respawned agent can pick up where the previous one left off:
+      - Include the full card body text at the top of the `prompt`
+      - Instruct the respawned agent: "The previous agent on this card
+        stalled. The card body above contains any progress notes left by the
+        previous agent. Review it and continue from where it left off rather
+        than starting from scratch."
+   5. Call `add_log(card_id=<id>, action='respawned',
       message='Agent stalled, respawning (attempt N)')`.
 
 4. When all subtasks are done, call
@@ -182,8 +228,10 @@ If **yes**:
    review sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"review-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
-5. Wait for the review sub-agent to complete. Parse its structured output:
-   - **`REVIEW_APPROVED`**: proceed to step 6 (documentation).
+5. Wait for the review sub-agent to complete. The review sub-agent will wait for
+   human input — this can take many minutes. **If you hold an active claim, call
+   `heartbeat` every 5 minutes while waiting.** Parse its structured output:
+   - **`REVIEW_APPROVED`**: proceed to documentation.
    - **`REVIEW_REJECTED`**: handle the rejection loop (see below).
 6. After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
@@ -220,7 +268,7 @@ to completion. Do NOT stop partway:
 1. **Execute** — Spawn agents (via `get_skill` + `Agent` tool) for all ready
    subtasks. Monitor agent health during execution using
    `check_agent_health`. Do NOT simply wait for agents to return — poll
-   every 2-3 minutes and respawn any stalled agents (max 2 respawns per
+   every 1 minute and respawn any stalled agents (max 2 respawns per
    card before escalating to the human). When a subtask finishes, spawn
    agents for newly unblocked tasks.
 2. **Review** — When ALL subtasks are done, call

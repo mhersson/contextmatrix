@@ -66,6 +66,11 @@ and release your claim if you do not call `heartbeat` within the timeout period
 (default: 30 minutes). Call `heartbeat` proactively and often — after each step,
 after each test run, after each significant code change.
 
+**Heartbeat during idle waits.** If you are waiting for a sub-agent (e.g., the
+review sub-agent spawned by `complete_task`) or any other blocking operation,
+call `heartbeat` every 5 minutes while waiting. Do not assume a short wait — sub-agents
+can take 10+ minutes.
+
 **Token usage reporting.** After each `heartbeat`, also call `report_usage` with
 your token consumption since the last report. This tracks cost per card. Always
 include:

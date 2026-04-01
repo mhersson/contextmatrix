@@ -1278,12 +1278,55 @@ func TestPrompt_CreatePlan(t *testing.T) {
 
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
-	// Prompt handlers now return delegation wrappers — card details are passed as get_skill args.
+
+	// Must use the two-phase delegation prompt, not the generic one.
+	assert.Contains(t, content.Text, "Two-Phase Planning Workflow")
+	assert.Contains(t, content.Text, "Phase 1")
+	assert.Contains(t, content.Text, "Phase 2")
+	assert.Contains(t, content.Text, "PLAN_DRAFTED")
+	assert.Contains(t, content.Text, "SUBTASKS_CREATED")
 	assert.Contains(t, content.Text, "get_skill")
 	assert.Contains(t, content.Text, "`Agent` tool")
 	assert.Contains(t, content.Text, "skill_name='create-plan'")
 	assert.Contains(t, content.Text, "TEST-001")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
+	// User approval must be handled by the orchestrator, not a sub-agent.
+	assert.Contains(t, content.Text, "User Approval")
+	assert.Contains(t, content.Text, "YOU handle this directly")
+}
+
+// TestBuildCreatePlanDelegationPrompt tests the structured output expected
+// by the two-phase create-plan delegation prompt.
+func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
+	cardID := "ALPHA-001"
+	model := "opus"
+	getSkillArgs := "skill_name='create-plan', card_id='ALPHA-001'"
+
+	text := buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs)
+
+	// Phase 1: plan drafting sub-agent.
+	assert.Contains(t, text, "Phase 1: Plan Drafting")
+	assert.Contains(t, text, "create-plan phase-1 ALPHA-001")
+	assert.Contains(t, text, "PLAN_DRAFTED")
+	assert.Contains(t, text, "plan_summary")
+	assert.Contains(t, text, "subtask_count")
+
+	// User approval must NOT be delegated to a sub-agent.
+	assert.Contains(t, text, "User Approval")
+	assert.Contains(t, text, "YOU handle this directly")
+	assert.NotContains(t, text, "spawn a sub-agent")
+
+	// Phase 2: subtask creation sub-agent.
+	assert.Contains(t, text, "Phase 2: Subtask Creation")
+	assert.Contains(t, text, "create-plan phase-2 ALPHA-001")
+	assert.Contains(t, text, "SUBTASKS_CREATED")
+	assert.Contains(t, text, "subtasks:")
+
+	// Model must be included for both phases.
+	assert.Contains(t, text, `"`+model+`"`)
+
+	// get_skill args must appear.
+	assert.Contains(t, text, getSkillArgs)
 }
 
 func TestPrompt_ExecuteTask(t *testing.T) {

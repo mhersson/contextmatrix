@@ -34,11 +34,11 @@ duplication — single source of truth.
 When a slash command is invoked, the prompt handler returns a **delegation
 wrapper**, not the raw skill content. The wrapper instructs the receiving agent
 to call `get_skill(...)` to fetch the full instructions and the required model,
-then spawn a sub-agent via the `Agent` tool with the returned `model` and `content`.
-Skill files include an `## Agent Configuration` section that specifies the
-model; this section is stripped from all content delivered to agents (via
-`get_skill` and `complete_task`) since the model is communicated as a separate
-`model` field.
+then spawn a sub-agent via the `Agent` tool with the returned `model` and
+`content`. Skill files include an `## Agent Configuration` section that
+specifies the model; this section is stripped from all content delivered to
+agents (via `get_skill` and `complete_task`) since the model is communicated as
+a separate `model` field.
 
 ```
 skills/
@@ -89,12 +89,28 @@ board, then asks if the human wants a plan created immediately.
 
 **2. Planning** (`/contextmatrix:create-plan <card_id>`)
 
-The slash command returns a delegation prompt. CC calls
-`get_skill(skill_name='create-plan', card_id=...)` to get the full prompt and
-model, then spawns a plan sub-agent via the `Agent` tool (passing the `model` from
-`get_skill`). The plan agent interviews the human, drafts a plan, and when
-approved: updates the parent card body with the plan and creates all subtasks
-linked via `parent` field.
+The slash command returns a **two-phase delegation prompt** instead of the
+generic delegation wrapper used by other skills. This two-phase design prevents
+sub-agent death during the user-approval wait — a sub-agent that waits for human
+input can be killed by Claude Code before the user responds, leaving the
+workflow stranded.
+
+The flow is:
+
+1. **Phase 1 — Plan drafting**: CC spawns a short-lived plan sub-agent that
+   drafts the plan, writes it to the parent card body via `update_card`, and
+   returns a `PLAN_DRAFTED` structured output immediately — without asking the
+   user or waiting for approval.
+2. **User approval (CC handles directly)**: CC reads the card body, presents the
+   `## Plan` section to the user, and asks for approval. CC is always alive for
+   this — no sub-agent needed.
+3. **Phase 2 — Subtask creation**: Once the user approves, CC spawns a second
+   short-lived sub-agent that reads the approved plan from the card body and
+   creates all subtasks linked via the `parent` field.
+
+Each phase uses a fresh sub-agent with a clean context and a short expected
+lifetime. Neither phase waits for the user, so neither is vulnerable to
+sub-agent timeout during an idle approval wait.
 
 **3. Execution** (`/contextmatrix:execute-task <card_id>`)
 
@@ -238,6 +254,19 @@ Sub-agents **must** call `heartbeat` proactively after every significant unit of
 work, before moving to the next step. The timeout checker (default 30min) will
 mark a card `stalled` if heartbeat lapses. This is explicitly called out in
 `execute-task.md` — it is not optional.
+
+**Idle waits are the most common cause of stalled cards.** Any agent that holds
+an active claim and waits for user input or a sub-agent to complete must call
+`heartbeat` every 5 minutes during that wait. This rule is enforced in the
+workflow preamble injected into every skill prompt, and is explicitly called out
+in each skill that has user-facing or sub-agent-facing idle waits
+(`execute-task.md`, `review-task.md`, `create-task.md`).
+
+The two-phase create-plan design eliminates the most common idle-wait failure
+mode entirely: the plan-drafting agent never idles for user input, and the
+subtask-creation agent starts from an already-approved plan.
+Heartbeat-during-idle is a defense-in-depth measure for waits that cannot be
+eliminated (e.g., review awaiting human decision).
 
 ## Implementation order
 

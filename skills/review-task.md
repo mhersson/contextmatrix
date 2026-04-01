@@ -117,6 +117,10 @@ After presenting your findings, explicitly ask the human:
 
 Wait for the human's explicit answer before proceeding. Do not assume approval.
 
+**Heartbeat while waiting.** While waiting for the human's response, call
+`heartbeat` every 5 minutes to keep your claim active. Human review can take
+many minutes — do not let the card go stale while you wait.
+
 Based on the human's response, print **exactly one** of the following structured
 output blocks. The main agent parses this to determine next steps — the format
 must be exact.

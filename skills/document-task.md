@@ -72,6 +72,10 @@ Before presenting to the human, call `report_usage` with:
 Show the human what you've written and where you propose to place each artifact.
 Let them review, suggest changes, and approve before you write anything to disk.
 
+**Heartbeat while waiting.** While waiting for human review and approval, call
+`heartbeat` every 5 minutes to keep your claim active. Document review can take
+many minutes — do not let the card go stale while you wait.
+
 Once approved, write the documentation files.
 
 ## Step 5: Release the card

@@ -31,6 +31,10 @@ choose a different name.
 
 ## Step 3: Confirm configuration with human
 
+**Heartbeat during human interaction.** This skill involves multiple rounds of
+human confirmation. Call `heartbeat` every 5 minutes while waiting for human
+responses to keep your session active.
+
 Present the detected defaults and ask the human to confirm or adjust:
 
 ```

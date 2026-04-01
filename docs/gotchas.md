@@ -40,3 +40,16 @@
   API share the same `CardService` instance. The `## Agent Configuration`
   section is stripped from all skill content delivered via `get_skill` and
   `complete_task` — the required model is returned as a separate `model` field.
+- **Sub-agent death during idle user-approval wait:** Claude Code can kill a
+  sub-agent between turns if the conversation goes quiet (e.g., while waiting
+  for the user to read and approve a plan). The fix is to never have a sub-agent
+  wait for user input — instead, the sub-agent should write its output to the
+  card body and return immediately, and let the always-alive main agent (CC)
+  handle the user interaction. The `create-plan` skill uses this pattern: Phase 1
+  drafts and writes the plan then returns `PLAN_DRAFTED`; CC presents the plan
+  to the user and collects approval; Phase 2 creates subtasks from the already-approved
+  plan. Any skill that must get user approval before continuing should follow
+  this split-phase pattern.
+- **Health-check polling interval:** the monitoring loop in `create-plan.md`
+  polls every 1 minute (not 2-3 min). Shorter intervals mean stalled agents are
+  detected and respawned faster, reducing idle time for the user.
