@@ -1302,30 +1302,33 @@ func TestPrompt_CreatePlan(t *testing.T) {
 func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 	cardID := "ALPHA-001"
 	model := "opus"
+	phase2Model := "haiku"
 	getSkillArgs := "skill_name='create-plan', card_id='ALPHA-001'"
 
-	text := buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs)
+	text := buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
 
-	// Phase 1: plan drafting sub-agent.
+	// Phase 1: plan drafting sub-agent uses the Phase 1 (opus) model.
 	assert.Contains(t, text, "Phase 1: Plan Drafting")
 	assert.Contains(t, text, "create-plan phase-1 ALPHA-001")
 	assert.Contains(t, text, "PLAN_DRAFTED")
 	assert.Contains(t, text, "plan_summary")
 	assert.Contains(t, text, "subtask_count")
+	assert.Contains(t, text, `"`+model+`"`)
 
 	// User approval must NOT be delegated to a sub-agent.
 	assert.Contains(t, text, "User Approval")
 	assert.Contains(t, text, "YOU handle this directly")
 	assert.NotContains(t, text, "spawn a sub-agent")
 
-	// Phase 2: subtask creation sub-agent.
+	// Phase 2: subtask creation sub-agent uses the Phase 2 (haiku) model.
 	assert.Contains(t, text, "Phase 2: Subtask Creation")
 	assert.Contains(t, text, "create-plan phase-2 ALPHA-001")
 	assert.Contains(t, text, "SUBTASKS_CREATED")
 	assert.Contains(t, text, "subtasks:")
+	assert.Contains(t, text, `"`+phase2Model+`"`)
 
-	// Model must be included for both phases.
-	assert.Contains(t, text, `"`+model+`"`)
+	// Phase 1 and Phase 2 models must be distinct.
+	assert.NotEqual(t, model, phase2Model)
 
 	// get_skill args must appear.
 	assert.Contains(t, text, getSkillArgs)
@@ -2012,6 +2015,45 @@ func TestParseSkillModel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, parseSkillModel(tt.content))
+		})
+	}
+}
+
+func TestParsePhase2Model(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "haiku phase2 model",
+			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation.\n\n---\n\nInstructions.",
+			want:    "haiku",
+		},
+		{
+			name:    "sonnet phase2 model",
+			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n- **Phase 2 Model:** claude-sonnet-4-6 — Fast.\n\n---\n\nInstructions.",
+			want:    "sonnet",
+		},
+		{
+			name:    "no phase2 model line",
+			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n\n---\n\nInstructions.",
+			want:    "",
+		},
+		{
+			name:    "no config section",
+			content: "# Skill\n\nJust instructions.",
+			want:    "",
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, parsePhase2Model(tt.content))
 		})
 	}
 }

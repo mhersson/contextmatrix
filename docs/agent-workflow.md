@@ -47,6 +47,21 @@ section that specifies the model; this section is stripped from all content
 delivered to agents (via `get_skill` and `complete_task`) since the model is
 communicated as a separate `model` field.
 
+Skills that use a two-phase sub-agent flow (currently only `create-plan`) can
+specify a separate model for each phase in `## Agent Configuration`:
+
+```markdown
+## Agent Configuration
+
+- **Model:** claude-opus-4-6 — Planning shapes everything downstream; worth the cost.
+- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation is mechanical; haiku is sufficient.
+```
+
+`get_skill` returns both models as separate fields: `model` (Phase 1) and
+`phase2_model` (Phase 2, omitted when not present). Orchestrators must use
+`phase2_model` when spawning the Phase 2 sub-agent so the correct (cheaper)
+model is used for mechanical work like subtask creation.
+
 **Exception — interview skills run inline:** `create-task` and `init-project`
 require multi-turn conversations with the user, so their prompt handlers return
 the **raw skill content** (with `## Agent Configuration` stripped) rather than
@@ -92,9 +107,11 @@ Usage examples:
 For delegation-wrapper skills (`create-plan`, `execute-task`, `review-task`,
 `document-task`), the server builds a delegation prompt instructing the
 receiving agent to call `get_skill(...)` — which returns the full skill
-instructions with injected card context and a `model` field — then spawn a
-sub-agent via the `Agent` tool with the returned `model`, `description` (short
-summary), and `prompt` (set to the returned content). For inline skills
+instructions with injected card context, a `model` field, and optionally a
+`phase2_model` field — then spawn a sub-agent via the `Agent` tool with the
+returned `model`, `description` (short summary), and `prompt` (set to the
+returned content). When `phase2_model` is present, use it for the Phase 2
+sub-agent (e.g., subtask creation in `create-plan`). For inline skills
 (`create-task`, `init-project`), the server returns raw skill content directly;
 no sub-agent is involved.
 
@@ -118,16 +135,19 @@ workflow stranded.
 
 The flow is:
 
-1. **Phase 1 — Plan drafting**: CC spawns a short-lived plan sub-agent that
-   drafts the plan, writes it to the parent card body via `update_card`, and
-   returns a `PLAN_DRAFTED` structured output immediately — without asking the
-   user or waiting for approval.
+1. **Phase 1 — Plan drafting** (model: `claude-opus-4-6`): CC spawns a
+   short-lived plan sub-agent that drafts the plan, writes it to the parent
+   card body via `update_card`, and returns a `PLAN_DRAFTED` structured output
+   immediately — without asking the user or waiting for approval. Opus is used
+   here because planning quality affects all downstream work.
 2. **User approval (CC handles directly)**: CC reads the card body, presents the
    `## Plan` section to the user, and asks for approval. CC is always alive for
    this — no sub-agent needed.
-3. **Phase 2 — Subtask creation**: Once the user approves, CC spawns a second
-   short-lived sub-agent that reads the approved plan from the card body and
-   creates all subtasks linked via the `parent` field.
+3. **Phase 2 — Subtask creation** (model: `claude-haiku-4-5`): Once the user
+   approves, CC spawns a second short-lived sub-agent that reads the approved
+   plan from the card body and creates all subtasks linked via the `parent`
+   field. Haiku is used here because subtask creation is mechanical — reading a
+   plan and calling `create_card` in a loop requires no reasoning depth.
 
 Each phase uses a fresh sub-agent with a clean context and a short expected
 lifetime. Neither phase waits for the user, so neither is vulnerable to
@@ -300,6 +320,24 @@ the card body and return immediately; the always-alive orchestrator handles all
 user interactions. The `document-task` skill uses the same principle — the doc
 sub-agent writes to disk and returns `DOCS_WRITTEN` without waiting for
 approval. No sub-agent in the current workflow idles for user input.
+
+## Token cost configuration
+
+Each skill step calls `report_usage` with the model that ran it so costs
+accumulate on the parent card. Model rates are configured in `config.yaml`
+under `token_costs` as cost-per-token values:
+
+```yaml
+token_costs:
+  claude-haiku-4-5:  { prompt: 0.0000008,  completion: 0.000004  }  # $0.80 / $4.00 per MTok
+  claude-sonnet-4-6: { prompt: 0.000003,   completion: 0.000015  }  # $3.00 / $15.00 per MTok
+  claude-opus-4-6:   { prompt: 0.000005,   completion: 0.000025  }  # $5.00 / $25.00 per MTok
+```
+
+The `report_usage` call must pass `model` matching one of these keys. Costs for
+the two planning phases differ deliberately: Phase 1 (plan drafting) runs on
+`claude-opus-4-6` and Phase 2 (subtask creation) runs on `claude-haiku-4-5`,
+reducing the cost of the mechanical subtask-creation pass significantly.
 
 ## Required permissions for target projects
 

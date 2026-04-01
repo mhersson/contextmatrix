@@ -4,6 +4,7 @@
 
 - **Model:** claude-opus-4-6 — Planning shapes everything downstream; worth the
   cost.
+- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation is mechanical; haiku is sufficient.
 
 ---
 
@@ -137,7 +138,7 @@ Call `create_card` for each subtask described in the plan with:
 Call `report_usage` with:
 - `card_id`: the parent card ID
 - `agent_id`: your agent ID
-- `model`: `"claude-opus-4-6"`
+- `model`: `"claude-haiku-4-5"`
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
 
 Call `release_card(card_id, agent_id)` to release your claim.

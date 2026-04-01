@@ -819,9 +819,10 @@ type getSkillInput struct {
 	Name        string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
 }
 type getSkillOutput struct {
-	SkillName string `json:"skill_name"`
-	Model     string `json:"model,omitempty"`
-	Content   string `json:"content"`
+	SkillName   string `json:"skill_name"`
+	Model       string `json:"model,omitempty"`
+	Phase2Model string `json:"phase2_model,omitempty"`
+	Content     string `json:"content"`
 }
 
 func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
@@ -838,6 +839,6 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}
 		content := stripAgentConfig(result.Content)
-		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Content: content}, nil
+		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Phase2Model: result.Phase2Model, Content: content}, nil
 	})
 }

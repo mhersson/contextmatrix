@@ -6,5 +6,6 @@ git_deferred_commit: true
 git_auto_push: false
 heartbeat_timeout: "30m"
 token_costs:
+  claude-haiku-4-5: {prompt: 0.0000008, completion: 0.000004}
   claude-sonnet-4-6: {prompt: 0.000003, completion: 0.000015}
   claude-opus-4-6: {prompt: 0.000005, completion: 0.000025}

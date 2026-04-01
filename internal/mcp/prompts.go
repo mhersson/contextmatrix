@@ -53,12 +53,16 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
 
 // skillResult holds the assembled skill content and parsed metadata.
 type skillResult struct {
-	Content string
-	Model   string
+	Content     string
+	Model       string
+	Phase2Model string
 }
 
 // modelPattern matches "**Model:** claude-<family>-<version>" in skill files.
 var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+claude-(\w+)-`)
+
+// phase2ModelPattern matches "**Phase 2 Model:** claude-<family>-<version>" in skill files.
+var phase2ModelPattern = regexp.MustCompile(`\*\*Phase 2 Model:\*\*\s+claude-(\w+)-`)
 
 // agentConfigPattern matches the full "## Agent Configuration" section
 // (from the heading through the "---" separator) so it can be stripped
@@ -69,6 +73,17 @@ var agentConfigPattern = regexp.MustCompile(`(?s)## Agent Configuration\n.*?---\
 // a skill file's "## Agent Configuration" section.
 func parseSkillModel(content string) string {
 	m := modelPattern.FindStringSubmatch(content)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// parsePhase2Model extracts the short model name for Phase 2 from a skill
+// file's "## Agent Configuration" section (e.g. from "**Phase 2 Model:** claude-haiku-4-5").
+// Returns an empty string if no Phase 2 Model line is present.
+func parsePhase2Model(content string) string {
+	m := phase2ModelPattern.FindStringSubmatch(content)
 	if len(m) < 2 {
 		return ""
 	}
@@ -124,7 +139,7 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 //
 // This eliminates the idle-wait that kills sub-agents when they wait for user
 // input between drafting and subtask creation.
-func buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs string) string {
+func buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs string) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "## Two-Phase Planning Workflow")
 	fmt.Fprintln(&b)
@@ -172,7 +187,7 @@ func buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs string) string 
 	fmt.Fprintf(&b, "10. Call `get_skill(%s)` again to get a fresh copy of the skill prompt.\n", getSkillArgs)
 	fmt.Fprintln(&b, "11. Append `\\n\\nYou are executing **Phase 2: Subtask Creation** only. The plan is already written in the card body — read it with get_task_context and create the subtasks exactly as described.` to the skill content.")
 	fmt.Fprintln(&b, "12. Spawn a sub-agent using the **`Agent`** tool with:")
-	fmt.Fprintf(&b, "    - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", model)
+	fmt.Fprintf(&b, "    - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", phase2Model)
 	fmt.Fprintf(&b, "    - `description`: `\"create-plan phase-2 %s\"`\n", cardID)
 	fmt.Fprintln(&b, "    - `prompt`: the skill content with the Phase 2 instruction appended")
 	fmt.Fprintln(&b, "13. Wait for the Phase 2 sub-agent to complete.")
@@ -192,7 +207,7 @@ func buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs string) string 
 	fmt.Fprintln(&b, "    - If **yes**: use `get_ready_tasks` and spawn execute-task agents per the skill instructions.")
 	fmt.Fprintln(&b, "    - If **no**: let the user know they can run `/contextmatrix:execute-task <card_id>` later.")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s` (Phase 1) or `%s` (Phase 2).\n", model, phase2Model)
 	return b.String()
 }
 
@@ -334,7 +349,11 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if model == "" {
 			model = "opus"
 		}
-		text := buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs)
+		phase2Model := result.Phase2Model
+		if phase2Model == "" {
+			phase2Model = "haiku"
+		}
+		text := buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -533,8 +552,9 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 	}
 
 	return skillResult{
-		Content: workflowPreamble + content,
-		Model:   parseSkillModel(content),
+		Content:     workflowPreamble + content,
+		Model:       parseSkillModel(content),
+		Phase2Model: parsePhase2Model(content),
 	}, nil
 }
 
