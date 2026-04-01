@@ -589,24 +589,37 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
-	// Enforce subtask type invariants:
-	// - A card with a parent must keep type "subtask"; type changes are not allowed.
-	// - A card without a parent cannot have type "subtask".
-	if card.Parent != "" && input.Type != board.SubtaskType {
-		return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
-			Err:     board.ErrInvalidType,
-			Field:   "type",
-			Value:   input.Type,
-			Message: "cannot change type of a subtask; cards with a parent must have type \"subtask\"",
-		})
-	}
-	if card.Parent == "" && input.Type == board.SubtaskType {
-		return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
-			Err:     board.ErrInvalidType,
-			Field:   "type",
-			Value:   input.Type,
-			Message: "only cards with a parent can have type \"subtask\"",
-		})
+	// Enforce subtask type invariants based on parent field transitions:
+	switch {
+	case input.Parent != "" && card.Parent == "":
+		// Card is gaining a parent: auto-force type to "subtask", matching CreateCard behavior.
+		input.Type = board.SubtaskType
+	case input.Parent == "" && card.Parent != "":
+		// Card is losing its parent: if the caller still passes "subtask", reset to the first
+		// project type so the card becomes a valid standalone card again.
+		if input.Type == board.SubtaskType {
+			input.Type = cfg.Types[0]
+		}
+	case input.Parent == "" && card.Parent == "":
+		// No parent before or after: reject "subtask" — it requires a parent.
+		if input.Type == board.SubtaskType {
+			return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrInvalidType,
+				Field:   "type",
+				Value:   input.Type,
+				Message: "only cards with a parent can have type \"subtask\"",
+			})
+		}
+	case input.Parent != "" && card.Parent != "":
+		// Already a subtask and staying a subtask: type changes away from "subtask" are not allowed.
+		if input.Type != board.SubtaskType {
+			return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrInvalidType,
+				Field:   "type",
+				Value:   input.Type,
+				Message: "cannot change type of a subtask; cards with a parent must have type \"subtask\"",
+			})
+		}
 	}
 
 	// Update mutable fields

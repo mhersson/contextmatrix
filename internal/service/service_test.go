@@ -3035,6 +3035,54 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "bug", updated.Type)
 	})
+
+	t.Run("auto-set type to subtask when card gains a parent", func(t *testing.T) {
+		// Create a fresh standalone card with type "task"
+		fresh, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Fresh Standalone",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		require.Equal(t, "task", fresh.Type)
+		require.Equal(t, "", fresh.Parent)
+
+		// UpdateCard sets parent — type must be auto-forced to "subtask"
+		updated, err := svc.UpdateCard(ctx, "test-project", fresh.ID, UpdateCardInput{
+			Title:    fresh.Title,
+			Type:     "task", // caller passes "task" — should be overridden
+			State:    fresh.State,
+			Priority: fresh.Priority,
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "subtask", updated.Type)
+		assert.Equal(t, parent.ID, updated.Parent)
+	})
+
+	t.Run("auto-reset type from subtask when card loses its parent", func(t *testing.T) {
+		// Create a subtask via CreateCard so it has type "subtask"
+		orphaned, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Soon-to-be-orphaned",
+			Type:     "task", // overridden to "subtask"
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "subtask", orphaned.Type)
+
+		// UpdateCard clears parent and still passes type="subtask" — should be auto-reset
+		updated, err := svc.UpdateCard(ctx, "test-project", orphaned.ID, UpdateCardInput{
+			Title:    orphaned.Title,
+			Type:     "subtask", // caller still passes subtask — should be reset to first project type
+			State:    orphaned.State,
+			Priority: orphaned.Priority,
+			Parent:   "", // clearing parent
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "task", updated.Type, "type should be reset to first project type when parent is cleared")
+		assert.Equal(t, "", updated.Parent)
+	})
 }
 
 // TestPatchCard_DoesNotChangeType verifies that PatchCard never modifies the type field.

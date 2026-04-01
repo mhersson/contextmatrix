@@ -57,13 +57,22 @@
    skill content in the response, so the calling agent can spawn the review
    sub-agent immediately.
 
-10. **Subtask type is automatic and immutable.** Any card created with a
-    non-empty `parent` field is automatically assigned `type: "subtask"` by the
-    service layer, regardless of what the caller passes. The `subtask` type is a
-    built-in type — it is always valid and does not need to appear in the
-    project's `types` list in `.board.yaml`. A card's type cannot be changed
-    away from `subtask` once it has a parent, and a card without a parent cannot
-    be set to type `subtask`.
+10. **Subtask type is automatic and immutable.** The service layer enforces
+    subtask type invariants on both `CreateCard` and `UpdateCard` based on
+    parent field transitions:
+
+    | Scenario | Behaviour |
+    |---|---|
+    | Card is created with a non-empty `parent` | `type` is auto-forced to `"subtask"` regardless of caller input |
+    | `UpdateCard` sets `parent` on a card that had none | `type` is auto-forced to `"subtask"` regardless of caller input |
+    | `UpdateCard` clears `parent` on a card that had one | if `type` is still `"subtask"`, it is auto-reset to the first type in the project's `types` list (e.g. `"task"`) |
+    | `UpdateCard` keeps an existing `parent` | `type` must remain `"subtask"`; any other value returns 422 |
+    | Card has no `parent` (before or after) | `type: "subtask"` is rejected with 422 |
+
+    The `subtask` type is built-in — it is always valid and does not need to
+    appear in the project's `types` list in `.board.yaml`. A card's type is
+    fully managed by the service layer whenever the `parent` field changes; do
+    not pass `type` when setting or clearing `parent`.
 
 ## Card file format
 
