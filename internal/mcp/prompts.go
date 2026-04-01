@@ -101,7 +101,8 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 	fmt.Fprintln(&b, "3. Wait for the sub-agent to complete and relay its structured output back.")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Do NOT read the skill content yourself and execute it — you MUST use TaskCreate with model `%s`.\n", model)
-	fmt.Fprintf(&b, "Do NOT use SendMessage — that is for team communication, not for spawning sub-agents.\n")
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use TaskCreate.\n")
+	fmt.Fprintf(&b, "After spawning, if the sub-agent asks the user a question and the user responds, relay their response to the sub-agent using SendMessage. Always include the `summary` parameter (a brief description of the message).\n")
 	return b.String()
 }
 

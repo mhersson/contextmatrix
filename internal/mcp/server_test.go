@@ -1838,8 +1838,8 @@ func TestBuildDelegationPrompt(t *testing.T) {
 			assert.NotContains(t, got, "## Agent Configuration")
 			// Regression guard: "Agent tool" must never appear — it's not a real tool name and causes SendMessage fallback
 			assert.NotContains(t, got, "Agent tool", "delegation prompt must not reference 'Agent tool' — use TaskCreate")
-			// SendMessage must never be recommended as a spawning mechanism
-			assert.NotContains(t, got, "Use SendMessage", "delegation prompt must not recommend SendMessage for spawning")
+			// SendMessage must not be recommended for spawning — only for relaying user messages
+			assert.Contains(t, got, "Do NOT use SendMessage to spawn", "delegation prompt must prohibit SendMessage for spawning")
 		})
 	}
 }
