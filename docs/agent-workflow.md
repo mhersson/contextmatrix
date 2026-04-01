@@ -62,6 +62,18 @@ specify a separate model for each phase in `## Agent Configuration`:
 `phase2_model` when spawning the Phase 2 sub-agent so the correct (cheaper)
 model is used for mechanical work like subtask creation.
 
+**Why delegation wrappers exist:** An earlier design returned the full skill
+content directly to the orchestrator agent. In practice, agents ignored model
+requirements, skipped sub-agent spawning, ignored the ContextMatrix workflow
+(claim/heartbeat/complete), and just solved the underlying task — leaving
+orphaned cards across the board. The delegation wrapper pattern was introduced
+specifically to force agents through the `get_skill` → `Agent` tool → sub-agent
+pipeline, where lifecycle enforcement is structurally guaranteed rather than
+relying on voluntary compliance. Any optimization to this flow must preserve
+the forced indirection. The server-side inline execution mechanism (see below)
+is the approved alternative: it still enforces lifecycle steps by wrapping the
+content in a lifecycle-enforcing preamble before returning it.
+
 **Exception — interview skills run inline:** `create-task` and `init-project`
 require multi-turn conversations with the user, so their prompt handlers return
 the **raw skill content** (with `## Agent Configuration` stripped) rather than

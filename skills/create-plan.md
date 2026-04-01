@@ -161,12 +161,20 @@ subtasks: <comma-separated list of created card IDs, e.g. ALPHA-002, ALPHA-003, 
 Once subtasks are created, the orchestrator asks the human whether to start
 execution. If **yes**:
 
+**Inline execution rule:** Always pass `caller_model='<your_model>'` when
+calling `get_skill` (extract your model family — **opus**, **sonnet**, or
+**haiku** — from your system context). If the response has `inline: true`,
+execute the returned content directly instead of spawning a sub-agent — you
+already match the required model. If `inline` is false or absent, spawn a
+sub-agent with the returned `model` as described below.
+
 1. Call `get_ready_tasks` for the project to find subtasks with all dependencies
    met (state `todo`, no unfinished deps).
 2. For each ready task, call
-   `get_skill(skill_name='execute-task', card_id=<id>)`. The response contains
-   `model` (which model to use, e.g. `"sonnet"`) and `content` (the full
-   prompt). Spawn a sub-agent using the **`Agent`** tool with:
+   `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
+   The response contains `model` (which model to use, e.g. `"sonnet"`) and
+   `content` (the full prompt). If `inline` is true, execute directly; otherwise
+   spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
    - `prompt`: the `content` from `get_skill`
@@ -222,8 +230,9 @@ execution. If **yes**:
    3. Call `get_task_context(card_id=<id>)` to fetch the current card state,
       including its body. Extract any existing progress notes or partial work
       from the card body — the previous agent may have written notes there.
-   4. Call `get_skill(skill_name='execute-task', card_id=<id>)` and spawn a
-      new sub-agent via the `Agent` tool with the returned `model` and the
+   4. Call `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
+      If `inline` is true, execute directly; otherwise spawn a new sub-agent
+      via the `Agent` tool with the returned `model` and the
       `content` **prepended with the card body from step 3**, so the
       respawned agent can pick up where the previous one left off:
       - Include the full card body text at the top of the `prompt`
@@ -235,7 +244,8 @@ execution. If **yes**:
       message='Agent stalled, respawning (attempt N)')`.
 
 4. When all subtasks are done, call
-   `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
+   `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   If `inline` is true, execute the review directly. Otherwise, spawn a
    review sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"review-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
@@ -251,7 +261,8 @@ execution. If **yes**:
      - **User rejects** (says "reject", "send back", "needs work", etc.): handle
        the rejection loop (see below).
 6. After the user approves, call
-   `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
+   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   If `inline` is true, execute the documentation directly. Otherwise, spawn a
    documentation sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"document-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
@@ -265,11 +276,13 @@ When the user says "reject" / "send back" / "needs work" (after reviewing the
    the parent back from `review` to `in_progress`.
 2. Do **not** touch existing subtasks — they remain in `done` state with
    their work preserved.
-3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and spawn
-   a new planning sub-agent via the `Agent` tool with the returned `model` and
-   `content`. **Include the review feedback** from the `## Review Findings`
-   section in the `Agent` tool `prompt` so the planner knows exactly what
-   needs fixing and creates new subtasks scoped only to the fixes.
+3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>, caller_model='<your_model>')`.
+   If `inline` is true, execute the re-planning directly with the review
+   feedback included. Otherwise, spawn a new planning sub-agent via the
+   `Agent` tool with the returned `model` and `content`. **Include the review
+   feedback** from the `## Review Findings` section in the `Agent` tool
+   `prompt` so the planner knows exactly what needs fixing and creates new
+   subtasks scoped only to the fixes.
 4. After the planning sub-agent finishes and the new fix subtasks are
    created, resume the execute → review cycle from step 1 above.
 5. This loop (plan fix subtasks → execute → review) repeats until the user
@@ -290,9 +303,10 @@ to completion. Do NOT stop partway:
    card before escalating to the human). When a subtask finishes, spawn
    agents for newly unblocked tasks.
 2. **Review** — When ALL subtasks are done, call
-   `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
-   review sub-agent via the `Agent` tool with the returned `model` and `content`.
-   Wait for the review sub-agent to complete and parse its structured output.
+   `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   If `inline` is true, execute directly; otherwise spawn a review sub-agent
+   via the `Agent` tool with the returned `model` and `content`.
+   Wait for the review to complete and parse its structured output.
    When you receive `REVIEW_FINDINGS`, call `get_card(card_id=<parent_id>)` to
    read the `## Review Findings` section, present it to the user, and ask:
    **"Do you approve this work, or should it be sent back for revision?"**
@@ -303,15 +317,17 @@ to completion. Do NOT stop partway:
       move the parent back from `review` to `in_progress`.
    b. Do **not** reset or touch existing done subtasks — their work is
       preserved.
-   c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and
-      spawn a new planning sub-agent via the `Agent` tool. Include the rejection
-      feedback from the `## Review Findings` section in the `prompt` so the
-      planner creates fix subtasks scoped only to the issues raised.
+   c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>, caller_model='<your_model>')`.
+      If `inline` is true, execute directly with the rejection feedback.
+      Otherwise, spawn a new planning sub-agent via the `Agent` tool. Include
+      the rejection feedback from the `## Review Findings` section in the
+      `prompt` so the planner creates fix subtasks scoped only to the issues raised.
    d. After new subtasks are created, loop back to step 1 (Execute). Repeat
       steps 1–4 until the user approves.
 5. **Documentation** — After review approval, call
-   `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
-   documentation sub-agent via the `Agent` tool with the returned `model` and `content`.
+   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   If `inline` is true, execute directly; otherwise spawn a documentation
+   sub-agent via the `Agent` tool with the returned `model` and `content`.
 6. **Done** — After documentation, call `report_usage` one final time to
    capture any remaining orchestrator token consumption (e.g., tokens used
    during review presentation, user interaction, and documentation spawning
