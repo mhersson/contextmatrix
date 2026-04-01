@@ -1255,11 +1255,13 @@ func TestPrompt_CreateTask(t *testing.T) {
 
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
-	// Prompt handlers now return delegation wrappers, not raw skill content.
-	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "`Agent` tool")
-	assert.Contains(t, content.Text, "skill_name='create-task'")
+	// Prompt handlers now return raw skill content, not delegation wrappers.
+	assert.Contains(t, content.Text, "ContextMatrix Workflow Rules")
+	assert.Contains(t, content.Text, "Skill instructions here.")
 	assert.Contains(t, content.Text, "Build a new login page")
+	assert.NotContains(t, content.Text, "Subagent Required")
+	assert.NotContains(t, content.Text, "`Agent` tool")
+	assert.NotContains(t, content.Text, "Do NOT execute it inline")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
 }
 
@@ -1390,12 +1392,57 @@ func TestPrompt_ReviewTask(t *testing.T) {
 
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
-	// Prompt handlers now return delegation wrappers.
+
+	// Must use the review-task delegation prompt, not the generic one.
+	assert.Contains(t, content.Text, "Review Task Workflow")
+	assert.Contains(t, content.Text, "REVIEW_FINDINGS")
 	assert.Contains(t, content.Text, "get_skill")
 	assert.Contains(t, content.Text, "`Agent` tool")
 	assert.Contains(t, content.Text, "skill_name='review-task'")
 	assert.Contains(t, content.Text, parent.ID)
 	assert.NotContains(t, content.Text, "## Agent Configuration")
+
+	// User approval must be handled by the orchestrator, not a sub-agent.
+	assert.Contains(t, content.Text, "User Approval")
+	assert.Contains(t, content.Text, "YOU handle this directly")
+
+	// Orchestrator prints REVIEW_APPROVED or REVIEW_REJECTED, not the sub-agent.
+	assert.Contains(t, content.Text, "REVIEW_APPROVED")
+	assert.Contains(t, content.Text, "REVIEW_REJECTED")
+}
+
+// TestBuildReviewTaskDelegationPrompt tests the structured output expected
+// by the review-task delegation prompt.
+func TestBuildReviewTaskDelegationPrompt(t *testing.T) {
+	cardID := "ALPHA-001"
+	model := "opus"
+	getSkillArgs := "skill_name='review-task', card_id='ALPHA-001'"
+
+	text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
+
+	// Review sub-agent spawning instructions.
+	assert.Contains(t, text, "Review Task Workflow")
+	assert.Contains(t, text, "review-task ALPHA-001")
+	assert.Contains(t, text, "REVIEW_FINDINGS")
+	assert.Contains(t, text, "recommendation:")
+	assert.Contains(t, text, "summary:")
+
+	// User approval must NOT be delegated to a sub-agent.
+	assert.Contains(t, text, "User Approval")
+	assert.Contains(t, text, "YOU handle this directly")
+
+	// Orchestrator prints REVIEW_APPROVED or REVIEW_REJECTED.
+	assert.Contains(t, text, "REVIEW_APPROVED")
+	assert.Contains(t, text, "REVIEW_REJECTED")
+
+	// Model must be included.
+	assert.Contains(t, text, `"`+model+`"`)
+
+	// get_skill args must appear.
+	assert.Contains(t, text, getSkillArgs)
+
+	// Card ID must appear.
+	assert.Contains(t, text, cardID)
 }
 
 func TestPrompt_DocumentTask(t *testing.T) {
@@ -1426,6 +1473,41 @@ func TestPrompt_DocumentTask(t *testing.T) {
 	assert.Contains(t, content.Text, "skill_name='document-task'")
 	assert.Contains(t, content.Text, parent.ID)
 	assert.NotContains(t, content.Text, "## Agent Configuration")
+	// New single-phase fire-and-report: must contain DOCS_WRITTEN structured output.
+	assert.Contains(t, content.Text, "DOCS_WRITTEN")
+	assert.Contains(t, content.Text, "files_written")
+	// Must NOT contain human approval gate or heartbeat-while-waiting language.
+	assert.NotContains(t, content.Text, "present to human")
+	assert.NotContains(t, content.Text, "heartbeat while waiting")
+}
+
+// TestBuildDocumentTaskDelegationPrompt tests the structured output expected
+// by the single-phase document-task delegation prompt.
+func TestBuildDocumentTaskDelegationPrompt(t *testing.T) {
+	cardID := "ALPHA-001"
+	model := "sonnet"
+	getSkillArgs := "skill_name='document-task', card_id='ALPHA-001'"
+
+	text := buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs)
+
+	// Must contain DOCS_WRITTEN structured output format.
+	assert.Contains(t, text, "DOCS_WRITTEN")
+	assert.Contains(t, text, "files_written")
+
+	// Must contain model, card ID, and get_skill args.
+	assert.Contains(t, text, `"`+model+`"`)
+	assert.Contains(t, text, cardID)
+	assert.Contains(t, text, getSkillArgs)
+
+	// Must contain Agent tool instruction.
+	assert.Contains(t, text, "`Agent`")
+
+	// Must NOT contain human approval gate or heartbeat-while-waiting language.
+	assert.NotContains(t, text, "present to human")
+	assert.NotContains(t, text, "heartbeat while waiting")
+
+	// Single-phase only — no Phase 2 reference.
+	assert.NotContains(t, text, "Phase 2")
 }
 
 func TestPrompt_CreatePlan_MissingCardID(t *testing.T) {
@@ -1734,11 +1816,13 @@ func TestInitProjectPrompt(t *testing.T) {
 	require.Len(t, promptResult.Messages, 1)
 
 	text := promptResult.Messages[0].Content.(*mcp.TextContent).Text
-	// Prompt handlers return delegation wrappers; name arg is in the get_skill call.
-	assert.Contains(t, text, "get_skill")
-	assert.Contains(t, text, "`Agent` tool")
-	assert.Contains(t, text, "skill_name='init-project'")
+	// Prompt handlers now return raw skill content, not delegation wrappers.
+	assert.Contains(t, text, "ContextMatrix Workflow Rules")
+	assert.Contains(t, text, "Skill instructions here.")
 	assert.Contains(t, text, "my-new-project")
+	assert.NotContains(t, text, "Subagent Required")
+	assert.NotContains(t, text, "`Agent` tool")
+	assert.NotContains(t, text, "Do NOT execute it inline")
 	assert.NotContains(t, text, "## Agent Configuration")
 }
 

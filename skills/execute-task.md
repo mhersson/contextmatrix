@@ -120,33 +120,15 @@ blockers: none
 needs_human: false
 ```
 
-### Lifecycle continuation
+### Note on `complete_task` response
 
-When `complete_task` returns a `next_step` field in its response, you MUST
-follow it before printing the `TASK_COMPLETE` output. This happens when any
-task completion causes a card to reach `review` state — either:
+If `complete_task` returns a `next_step` field (e.g., indicating the parent card
+moved to `review`), **ignore it**. The orchestrator (the main agent running the
+create-plan workflow) handles all lifecycle transitions including spawning review
+agents. Your job ends when you print `TASK_COMPLETE`.
 
-- A main task (no parent) that transitions directly to `review`, or
-- A subtask whose completion auto-transitions the parent to `review` (i.e.,
-  all sibling subtasks are now `done`).
-
-In both cases, the response includes `review_content` with the full
-review-task skill prompt and `review_model` indicating which model to use.
-Use the `Agent` tool with `model` set to the `review_model` value (**CRITICAL** —
-do not omit), `description` set to "review-task for <card_id>", and `prompt`
-set to the `review_content` to spawn the review sub-agent.
-
-Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
-lifecycle is not finished until the review step has been initiated.
-
-**The review cycle may repeat.** After the review sub-agent completes, the
-main agent (create-plan) parses the structured output. If the human rejects
-the work, the main agent transitions the parent back to `in_progress` and
-spawns a new planning round for fix subtasks — which will result in new
-execution rounds. As an execution sub-agent, your job is the same in every
-round: claim your subtask, do the work, complete it. The structured output
-format (`TASK_COMPLETE` / `TASK_BLOCKED`) is the same regardless of which
-round you are in. Do not assume your round is the last one.
+Do NOT spawn review sub-agents. Do NOT wait for review to finish. Print your
+structured output and stop.
 
 ## Step 6: If blocked
 
@@ -214,6 +196,27 @@ consumption.
 structured outputs as the very last thing you do. Even if every tool call failed.
 Even if you are unsure whether the work succeeded. An honest summary with
 `needs_human: true` is always better than silent exit.
+
+### Permission denied errors
+
+If the `Edit` or `Write` tool is denied, this means the target project's Claude
+Code permissions do not include these tools. Report immediately:
+
+```
+TASK_BLOCKED
+card_id: <your card ID>
+status: blocked
+reason: Edit/Write tool permission denied — the target project's Claude Code
+  permissions must include Edit and Write in its settings (e.g.,
+  .claude/settings.local.json permissions.allow). Ask the project owner to add
+  "Edit" and "Write" to the allowlist.
+blocker_cards: []
+needs_human: true
+```
+
+Do NOT retry the edit, do NOT ask for permission in your output (sub-agent
+output is not shown to the user), and do NOT silently stop. Report blocked
+immediately so the orchestrator can surface the issue.
 
 ## Engineering standards
 

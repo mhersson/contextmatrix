@@ -228,12 +228,18 @@ execution. If **yes**:
    review sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"review-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
-5. Wait for the review sub-agent to complete. The review sub-agent will wait for
-   human input — this can take many minutes. **If you hold an active claim, call
-   `heartbeat` every 5 minutes while waiting.** Parse its structured output:
-   - **`REVIEW_APPROVED`**: proceed to documentation.
-   - **`REVIEW_REJECTED`**: handle the rejection loop (see below).
-6. After review approval, call
+5. Wait for the review sub-agent to complete. Parse its structured output:
+   - **`REVIEW_FINDINGS`**: the sub-agent has written its findings to the card
+     body and released the card. Call `get_card(card_id=<parent_id>)` to read
+     the `## Review Findings` section from the card body. Present the findings
+     to the user and ask: **"Do you approve this work, or should it be sent back
+     for revision?"**
+   - Based on the user's response, proceed:
+     - **User approves** (says "approve", "looks good", etc.): proceed to
+       documentation.
+     - **User rejects** (says "reject", "send back", "needs work", etc.): handle
+       the rejection loop (see below).
+6. After the user approves, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
    documentation sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"document-task for <parent_id>"`, and `prompt` set to
@@ -241,7 +247,8 @@ execution. If **yes**:
 
 ### Review rejection loop
 
-When the review sub-agent returns `REVIEW_REJECTED`:
+When the user says "reject" / "send back" / "needs work" (after reviewing the
+`## Review Findings` section you presented):
 
 1. Call `transition_card(card_id=<parent_id>, state='in_progress')` to move
    the parent back from `review` to `in_progress`.
@@ -249,12 +256,12 @@ When the review sub-agent returns `REVIEW_REJECTED`:
    their work preserved.
 3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and spawn
    a new planning sub-agent via the `Agent` tool with the returned `model` and
-   `content`. **Include the review feedback** from the `REVIEW_REJECTED`
-   output in the `Agent` tool `prompt` so the planner knows exactly what
+   `content`. **Include the review feedback** from the `## Review Findings`
+   section in the `Agent` tool `prompt` so the planner knows exactly what
    needs fixing and creates new subtasks scoped only to the fixes.
 4. After the planning sub-agent finishes and the new fix subtasks are
    created, resume the execute → review cycle from step 1 above.
-5. This loop (plan fix subtasks → execute → review) repeats until the human
+5. This loop (plan fix subtasks → execute → review) repeats until the user
    approves.
 
 If **no**: let the human know they can run
@@ -275,18 +282,22 @@ to completion. Do NOT stop partway:
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
    review sub-agent via the `Agent` tool with the returned `model` and `content`.
    Wait for the review sub-agent to complete and parse its structured output.
-3. **If `REVIEW_APPROVED`** — Proceed to documentation.
-4. **If `REVIEW_REJECTED`** — Handle the rejection loop:
+   When you receive `REVIEW_FINDINGS`, call `get_card(card_id=<parent_id>)` to
+   read the `## Review Findings` section, present it to the user, and ask:
+   **"Do you approve this work, or should it be sent back for revision?"**
+3. **If user approves** — Proceed to documentation.
+4. **If user rejects** (says "reject", "send back", "needs work", etc.) — Handle
+   the rejection loop:
    a. Call `transition_card(card_id=<parent_id>, state='in_progress')` to
       move the parent back from `review` to `in_progress`.
    b. Do **not** reset or touch existing done subtasks — their work is
       preserved.
    c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and
       spawn a new planning sub-agent via the `Agent` tool. Include the rejection
-      feedback from the `REVIEW_REJECTED` output in the `prompt` so the
+      feedback from the `## Review Findings` section in the `prompt` so the
       planner creates fix subtasks scoped only to the issues raised.
    d. After new subtasks are created, loop back to step 1 (Execute). Repeat
-      steps 1–4 until review approval is obtained.
+      steps 1–4 until the user approves.
 5. **Documentation** — After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
    documentation sub-agent via the `Agent` tool with the returned `model` and `content`.

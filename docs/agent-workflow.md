@@ -39,13 +39,21 @@ The MCP server reads skill files from disk and serves them as named prompts. No
 duplication — single source of truth.
 
 When a slash command is invoked, the prompt handler returns a **delegation
-wrapper**, not the raw skill content. The wrapper instructs the receiving agent
-to call `get_skill(...)` to fetch the full instructions and the required model,
-then spawn a sub-agent via the `Agent` tool with the returned `model` and
-`content`. Skill files include an `## Agent Configuration` section that
-specifies the model; this section is stripped from all content delivered to
-agents (via `get_skill` and `complete_task`) since the model is communicated as
-a separate `model` field.
+wrapper** for most skills — not the raw skill content. The wrapper instructs
+the receiving agent to call `get_skill(...)` to fetch the full instructions and
+the required model, then spawn a sub-agent via the `Agent` tool with the
+returned `model` and `content`. Skill files include an `## Agent Configuration`
+section that specifies the model; this section is stripped from all content
+delivered to agents (via `get_skill` and `complete_task`) since the model is
+communicated as a separate `model` field.
+
+**Exception — interview skills run inline:** `create-task` and `init-project`
+require multi-turn conversations with the user, so their prompt handlers return
+the **raw skill content** (with `## Agent Configuration` stripped) rather than
+a delegation wrapper. These skills run directly in the main agent's context,
+never as sub-agents. Delegating an interview skill to a sub-agent would break
+the multi-turn flow because sub-agents cannot relay back-and-forth user messages
+through the `Agent` tool.
 
 ```
 skills/
@@ -81,18 +89,24 @@ Usage examples:
 /contextmatrix:document-task ALPHA-001
 ```
 
-The server uses the arguments to build a delegation wrapper prompt. When the
-receiving agent acts on a slash command, it calls `get_skill(...)` — which
-returns the full skill instructions with injected card context and a `model`
-field — then spawns a sub-agent via the `Agent` tool with the returned `model`,
-`description` (short summary), and `prompt` (set to the returned content).
+For delegation-wrapper skills (`create-plan`, `execute-task`, `review-task`,
+`document-task`), the server builds a delegation prompt instructing the
+receiving agent to call `get_skill(...)` — which returns the full skill
+instructions with injected card context and a `model` field — then spawn a
+sub-agent via the `Agent` tool with the returned `model`, `description` (short
+summary), and `prompt` (set to the returned content). For inline skills
+(`create-task`, `init-project`), the server returns raw skill content directly;
+no sub-agent is involved.
 
 ## Workflow
 
 **1. Task creation** (`/contextmatrix:create-task <description>`)
 
-Main agent (CC) interviews the human to gather details, creates the card on the
-board, then asks if the human wants a plan created immediately.
+The prompt handler returns raw skill content (not a delegation wrapper). Main
+agent (CC) runs the interview inline — gathering details from the human,
+creating the card on the board, and offering next steps — all without spawning
+a sub-agent. This is required because the interview needs multi-turn back-and-forth
+with the user, which only works in the main agent's context.
 
 **2. Planning** (`/contextmatrix:create-plan <card_id>`)
 
@@ -134,46 +148,56 @@ CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
 card state is managed automatically by the service layer:** when the first
 subtask is claimed, the parent transitions `todo → in_progress`; when all
-subtasks reach `done`, the parent transitions to `review`. The `complete_task`
-tool returns embedded `review-task` skill content when this happens, so the main
-agent can immediately spawn the review sub-agent.
+subtasks reach `done`, the parent transitions to `review`. Execute-task
+sub-agents ignore any `next_step` field returned by `complete_task` — they
+print `TASK_COMPLETE` and stop. The orchestrator is responsible for detecting
+that the parent entered `review` and spawning the review sub-agent.
 
 **4. Review** (`/contextmatrix:review-task <card_id>`)
 
-Spawned automatically by main agent when all subtasks are done. The review agent
-reads the parent card + all subtasks, presents a devils-advocate assessment,
-asks the human for an explicit approve/reject decision, and prints one of two
-structured output blocks:
+Uses a two-phase flow to avoid sub-agent death during user-approval waits:
 
-- `REVIEW_APPROVED` — main agent proceeds to documentation (step 5).
-- `REVIEW_REJECTED` — main agent handles the rejection loop:
-  1. Calls `transition_card` to move parent from `review` back to `in_progress`.
-  2. Leaves existing `done` subtasks untouched — their work is preserved.
-  3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
-     injected into the prompt, so it creates fix subtasks scoped to the issues.
-  4. Resumes the execute → review cycle. This loop repeats until the human
-     approves.
+- **Phase 1 — Review sub-agent**: CC spawns a short-lived review sub-agent that
+  evaluates the work, writes a `## Review Findings` section to the parent card
+  body via `update_card`, releases its claim, and prints `REVIEW_FINDINGS`
+  immediately — without asking the user or waiting for a decision.
+- **User decision (CC handles directly)**: CC reads the card body, presents the
+  `## Review Findings` section to the user, and asks for approve/reject. CC is
+  always alive for this — no sub-agent needed.
+- Based on the user's response, CC (the orchestrator) prints one of:
+  - `REVIEW_APPROVED` — main agent proceeds to documentation (step 5).
+  - `REVIEW_REJECTED` — main agent handles the rejection loop:
+    1. Calls `transition_card` to move parent from `review` back to `in_progress`.
+    2. Leaves existing `done` subtasks untouched — their work is preserved.
+    3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
+       injected into the prompt, so it creates fix subtasks scoped to the issues.
+    4. Resumes the execute → review cycle. This loop repeats until the human
+       approves.
 
 The parent card lifecycle with potential rejections:
 `todo → in_progress → review → (rejected) in_progress → review → … → (approved) done`
 
 **5. Documentation** (`/contextmatrix:document-task <card_id>`)
 
-Spawned by main agent after review approval. The documentation agent reads the
-parent card + all subtasks and writes external documentation (README updates,
-API docs, architecture notes) as appropriate. Presents docs to human for
-approval before writing. After docs are done, main agent transitions parent to
-`done`.
+Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
+sub-agent that reads the parent card + all subtasks and writes external
+documentation (README updates, API docs, architecture notes) directly to disk —
+no human approval gate before writing, since docs are generated from
+already-reviewed, completed code. The sub-agent returns `DOCS_WRITTEN`
+immediately with a list of files written. CC presents the summary to the user
+and transitions the parent card to `done`.
 
 ## Board update ownership
 
 - **Sub-agents** own their subtask: claim → write body throughout → complete
-- **Main agent** owns parent task state transitions
-- **Review agent** reads only during evaluation. Asks the human for an explicit
-  approve/reject decision, then prints structured output (`REVIEW_APPROVED` /
-  `REVIEW_REJECTED`) for the main agent to parse. Does not write to the board
-  (only `claim_card`/`release_card`).
-- **Documentation agent** writes documentation files only, never modifies cards
+- **Main agent** owns parent task state transitions, user interactions, and
+  approve/reject decisions
+- **Review agent** evaluates the work, writes `## Review Findings` to the parent
+  card body via `update_card`, releases its claim, and prints `REVIEW_FINDINGS`.
+  It never asks the user for a decision — the orchestrator handles that after
+  the sub-agent returns.
+- **Documentation agent** writes documentation files only, never modifies cards.
+  Returns `DOCS_WRITTEN` immediately — no human approval gate before writing.
 
 ## Sub-agent structured output
 
@@ -263,17 +287,40 @@ mark a card `stalled` if heartbeat lapses. This is explicitly called out in
 `execute-task.md` — it is not optional.
 
 **Idle waits are the most common cause of stalled cards.** Any agent that holds
-an active claim and waits for user input or a sub-agent to complete must call
-`heartbeat` every 5 minutes during that wait. This rule is enforced in the
-workflow preamble injected into every skill prompt, and is explicitly called out
-in each skill that has user-facing or sub-agent-facing idle waits
-(`execute-task.md`, `review-task.md`, `create-task.md`).
+an active claim and waits for a sub-agent to complete must call `heartbeat`
+every 5 minutes during that wait. This rule is enforced in the workflow preamble
+injected into every skill prompt, and is explicitly called out in each skill
+that has sub-agent-facing idle waits (`execute-task.md`). The main agent (CC)
+never holds a card claim during user-facing waits — it handles those directly
+between turns, making stalls in the main context impossible.
 
-The two-phase create-plan design eliminates the most common idle-wait failure
-mode entirely: the plan-drafting agent never idles for user input, and the
-subtask-creation agent starts from an already-approved plan.
-Heartbeat-during-idle is a defense-in-depth measure for waits that cannot be
-eliminated (e.g., review awaiting human decision).
+The two-phase design (used by `create-plan` and `review-task`) eliminates the
+most common idle-wait failure mode entirely: sub-agents write their output to
+the card body and return immediately; the always-alive orchestrator handles all
+user interactions. The `document-task` skill uses the same principle — the doc
+sub-agent writes to disk and returns `DOCS_WRITTEN` without waiting for
+approval. No sub-agent in the current workflow idles for user input.
+
+## Required permissions for target projects
+
+Agents working on code repositories need the following Claude Code permissions
+configured in the target project (e.g., `.claude/settings.local.json`):
+
+**Claude Code tools:**
+- `Edit` — modify existing files
+- `Write` — create new files
+
+**MCP tools (auto-available via MCP config):**
+All `mcp__contextmatrix__*` tools are available once the MCP server is
+configured. No per-tool allowlisting is needed for MCP tools.
+
+**Bash tools (project-specific):**
+- `Bash(go test:*)`, `Bash(make test:*)`, `Bash(make build:*)` etc. — vary by
+  project language and build system
+
+If `Edit` or `Write` is not in the target project's allowlist, execution agents
+will report `TASK_BLOCKED` with an actionable error message explaining what
+permissions are needed. The user must update the project's permissions config.
 
 ## Implementation order
 

@@ -149,6 +149,14 @@ mkdir -p project-alpha/tasks project-alpha/templates
 # "url": "http://contextmatrix:8080/mcp"
 ```
 
+## Agent permissions in target projects
+
+When ContextMatrix agents work on code in other repositories, those projects
+must allow `Edit` and `Write` tools in their Claude Code permissions (e.g.,
+`.claude/settings.local.json`). Without these, agents cannot modify files and
+will report `TASK_BLOCKED`. See `docs/agent-workflow.md` for the full list of
+required permissions.
+
 ## Mandatory verification before proceeding
 
 **Every task must be fully tested and verified before moving to the next task.**

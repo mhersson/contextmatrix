@@ -21,10 +21,6 @@ is unclear or underspecified. Do not ask about fields the human has already
 answered — extract what you can from their description first, then ask only
 about what's missing.
 
-**Heartbeat during human interaction.** This skill involves back-and-forth with
-the human. Call `heartbeat` every 5 minutes while waiting for human responses to
-keep your session active.
-
 **Required:**
 
 - **Title** — short, imperative sentence (e.g., "Add JWT auth middleware", "Fix

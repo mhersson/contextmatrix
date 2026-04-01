@@ -59,34 +59,38 @@ For each documentation artifact:
 - Place documentation where readers will find it — update existing files rather
   than creating new ones when possible
 
-## Step 3b: Report token usage
+Write each artifact directly to disk immediately. Documentation is generated
+from already-reviewed, completed code — no human gate is needed before writing.
 
-Before presenting to the human, call `report_usage` with:
+## Step 4: Release the card
+
+After documentation is written, call `report_usage` followed by
+`release_card(card_id, agent_id)` to release your claim. The main agent handles
+the final state transition.
+
+Call `report_usage` with:
 - `card_id`: the parent card ID you are documenting
 - `agent_id`: your agent ID
 - `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
 
-## Step 4: Present to human
+## Step 5: Structured output
 
-Show the human what you've written and where you propose to place each artifact.
-Let them review, suggest changes, and approve before you write anything to disk.
+After releasing the card, return the following structured output immediately:
 
-**Heartbeat while waiting.** While waiting for human review and approval, call
-`heartbeat` every 5 minutes to keep your claim active. Document review can take
-many minutes — do not let the card go stale while you wait.
-
-Once approved, write the documentation files.
-
-## Step 5: Release the card
-
-After documentation is written, call `release_card(card_id, agent_id)` to
-release your claim. The main agent handles the final state transition.
+```
+DOCS_WRITTEN
+card_id: <card_id>
+status: written
+files_written: <list of files written or updated>
+```
 
 ## Rules
 
 - **Documentation only.** Do not modify source code, tests, or card state
-  (except `claim_card`/`release_card` to make documentation visible in the UI).
+  (except `claim_card`/`release_card`).
+- **Write directly to disk.** Do not present drafts for approval — write
+  documentation files immediately after drafting.
 - **Update existing docs first.** Only create new files when there's no existing
   file to update.
 - **Match the project's style.** Read existing documentation to understand the

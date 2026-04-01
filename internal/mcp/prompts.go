@@ -196,6 +196,58 @@ func buildCreatePlanDelegationPrompt(model, cardID, getSkillArgs string) string 
 	return b.String()
 }
 
+// buildDocumentTaskDelegationPrompt returns a single-phase "fire-and-report"
+// delegation prompt for the document-task workflow. Unlike create-plan's
+// two-phase flow, documentation writing requires no human approval gate:
+// the sub-agent writes docs directly to disk and returns a DOCS_WRITTEN
+// structured output immediately, then the orchestrator presents the summary
+// to the user.
+//
+// Flow:
+//   - Spawn one sub-agent that writes docs and returns DOCS_WRITTEN.
+//   - Orchestrator parses the output and shows the user what was written.
+//   - No Phase 2 needed.
+func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "## Documentation Workflow")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Documenting card **%s** uses a single-phase fire-and-report flow.\n", cardID)
+	fmt.Fprintln(&b, "Do NOT execute this inline — delegation to a sub-agent is required.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Step 1: Spawn the documentation sub-agent")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s)` to retrieve the full skill prompt and the required model.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. Spawn a sub-agent using the **`Agent`** tool with:")
+	fmt.Fprintf(&b, "   - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", model)
+	fmt.Fprintf(&b, "   - `description`: `\"document-task %s\"`\n", cardID)
+	fmt.Fprintln(&b, "   - `prompt`: the full `content` returned by `get_skill`")
+	fmt.Fprintln(&b, "3. Wait for the sub-agent to complete.")
+	fmt.Fprintln(&b, "   The sub-agent writes documentation directly to disk — no approval step needed.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Step 2: Parse structured output and report to user")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "4. Parse the sub-agent's structured output. It will be in this format:")
+	fmt.Fprintln(&b, "   ```")
+	fmt.Fprintln(&b, "   DOCS_WRITTEN")
+	fmt.Fprintf(&b, "   card_id: %s\n", cardID)
+	fmt.Fprintln(&b, "   status: written")
+	fmt.Fprintln(&b, "   files_written: <list of files written or updated>")
+	fmt.Fprintln(&b, "   ```")
+	fmt.Fprintln(&b, "5. Present a summary to the user:")
+	fmt.Fprintln(&b, "   > Documentation for [card title] has been written.")
+	fmt.Fprintln(&b, "   > Files written/updated: [list from files_written]")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
+	fmt.Fprintf(&b, "Do NOT execute the skill inline — the sub-agent writes docs and reports back immediately.\n")
+	return b.String()
+}
+
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	server.AddPrompt(&mcp.Prompt{
@@ -256,16 +308,7 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if err != nil {
 			return nil, err
 		}
-		description := req.Params.Arguments["description"]
-		getSkillArgs := "skill_name='create-task'"
-		if description != "" {
-			getSkillArgs += fmt.Sprintf(", description='%s'", description)
-		}
-		model := result.Model
-		if model == "" {
-			model = "sonnet"
-		}
-		text := buildDelegationPrompt(model, "create-task", getSkillArgs)
+		text := stripAgentConfig(result.Content)
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -322,7 +365,68 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 	}
 }
 
+// buildReviewTaskDelegationPrompt returns a delegation prompt for the
+// review-task workflow. Unlike the generic buildDelegationPrompt, this
+// encodes the two-step flow explicitly:
+//
+//   - Step 1 (review sub-agent): spawn a sub-agent that evaluates the work,
+//     writes a "## Review Findings" section to the card body via update_card,
+//     releases the card, and returns a REVIEW_FINDINGS structured output
+//     immediately — without asking the user or waiting for a decision.
+//   - User decision: the orchestrator (main Claude, always alive) reads the
+//     card body, presents the findings to the user, and collects the
+//     approve/reject decision directly.
+//   - The orchestrator prints REVIEW_APPROVED or REVIEW_REJECTED based on
+//     the user's answer — no second sub-agent needed.
+//
+// This eliminates the idle-wait that kills sub-agents when they wait for user
+// input between writing findings and collecting the human's decision.
+func buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs string) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "## Review Task Workflow")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Reviewing card **%s** uses a two-step flow to avoid agent timeouts.\n", cardID)
+	fmt.Fprintln(&b, "Do NOT execute this inline — the review must run as a sub-agent.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Step 1: Review Sub-Agent")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s)` to retrieve the full skill prompt and the required model.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. Spawn a sub-agent using the **`Agent`** tool with:")
+	fmt.Fprintf(&b, "   - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", model)
+	fmt.Fprintf(&b, "   - `description`: `\"review-task %s\"`\n", cardID)
+	fmt.Fprintln(&b, "   - `prompt`: the full skill content returned by `get_skill`")
+	fmt.Fprintln(&b, "3. Wait for the review sub-agent to complete.")
+	fmt.Fprintln(&b, "4. Parse its structured output. It will be in this format:")
+	fmt.Fprintln(&b, "   ```")
+	fmt.Fprintln(&b, "   REVIEW_FINDINGS")
+	fmt.Fprintf(&b, "   card_id: %s\n", cardID)
+	fmt.Fprintln(&b, "   recommendation: approve | approve_with_notes | revise")
+	fmt.Fprintln(&b, "   summary: <one-line summary>")
+	fmt.Fprintln(&b, "   ```")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### User Approval (YOU handle this directly — no sub-agent)")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "5. Call `get_card` to read the current card body, which now contains the `## Review Findings` section.")
+	fmt.Fprintln(&b, "6. Present the findings to the user directly:")
+	fmt.Fprintln(&b, "   > Here are the review findings for [card title]:")
+	fmt.Fprintln(&b, "   > [paste the ## Review Findings section from the card body]")
+	fmt.Fprintln(&b, "   > Do you approve this work, or should it be sent back for revision?")
+	fmt.Fprintln(&b, "7. Based on the user's answer, YOU (the orchestrator) print one of:")
+	fmt.Fprintln(&b, "   - `REVIEW_APPROVED` — if the user approves the work")
+	fmt.Fprintln(&b, "   - `REVIEW_REJECTED` — if the user wants the work sent back for revision")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
+	return b.String()
+}
+
 // reviewTaskPromptHandler returns the handler for review-task prompt.
+// It uses a two-step delegation prompt to avoid sub-agent timeouts during
+// user approval: the review sub-agent writes findings to the card body and
+// returns immediately, and the orchestrator handles user approve/reject directly.
 func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
@@ -335,9 +439,9 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		getSkillArgs := fmt.Sprintf("skill_name='review-task', card_id='%s'", cardID)
 		model := result.Model
 		if model == "" {
-			model = "sonnet"
+			model = "opus"
 		}
-		text := buildDelegationPrompt(model, "review-task", getSkillArgs)
+		text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -360,7 +464,7 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 		if model == "" {
 			model = "sonnet"
 		}
-		text := buildDelegationPrompt(model, "document-task", getSkillArgs)
+		text := buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Write documentation for a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -378,15 +482,7 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		if err != nil {
 			return nil, err
 		}
-		getSkillArgs := "skill_name='init-project'"
-		if name != "" {
-			getSkillArgs += fmt.Sprintf(", name='%s'", name)
-		}
-		model := result.Model
-		if model == "" {
-			model = "sonnet"
-		}
-		text := buildDelegationPrompt(model, "init-project", getSkillArgs)
+		text := stripAgentConfig(result.Content)
 		return &mcp.GetPromptResult{
 			Description: "Initialize a new project board",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
