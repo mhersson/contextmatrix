@@ -18,6 +18,29 @@ import { CardItem } from './CardItem';
 import { FilterBar } from './FilterBar';
 import { BoardSkeleton } from './BoardSkeleton';
 
+const PRIORITY_RANK: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+const TYPE_RANK: Record<string, number> = {
+  bug: 0,
+  feature: 1,
+  task: 2,
+  subtask: 3,
+};
+
+function compareTodoCards(a: Card, b: Card): number {
+  const pa = PRIORITY_RANK[a.priority] ?? 999;
+  const pb = PRIORITY_RANK[b.priority] ?? 999;
+  if (pa !== pb) return pa - pb;
+  const ta = TYPE_RANK[a.type] ?? 999;
+  const tb = TYPE_RANK[b.type] ?? 999;
+  return ta - tb;
+}
+
 interface BoardProps {
   cards: Card[];
   config: ProjectConfig;
@@ -64,6 +87,15 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
     for (const card of filteredCards) {
       if (grouped[card.state]) {
         grouped[card.state].push(card);
+      }
+    }
+    for (const state of config.states) {
+      if (state === 'todo') {
+        grouped[state].sort(compareTodoCards);
+      } else {
+        grouped[state].sort(
+          (a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime()
+        );
       }
     }
     return grouped;
