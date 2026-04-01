@@ -70,6 +70,18 @@ never as sub-agents. Delegating an interview skill to a sub-agent would break
 the multi-turn flow because sub-agents cannot relay back-and-forth user messages
 through the `Agent` tool.
 
+**Server-side inline execution for model-matched skills:** `review-task` and
+`create-plan` (Phase 1 only) support **inline execution** when the
+orchestrator's model matches the skill's required model. This is controlled by
+the `get_skill` tool: when the orchestrator passes its model family as
+`caller_model` and it matches the skill model, `get_skill` returns the content
+wrapped in a lifecycle-enforcing inline preamble and sets `inline: true` in the
+response. The delegation wrapper instructs the orchestrator to execute inline
+when `inline` is true, or delegate as usual when false. This saves the overhead
+of spawning a sub-agent on the same model the orchestrator is already running.
+When `caller_model` is absent (backward compatibility), `inline` is always
+false and behavior is identical to the standard delegation flow.
+
 ```
 skills/
   create-task.md    # /contextmatrix:create-task

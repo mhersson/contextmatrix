@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -817,18 +818,24 @@ type getSkillInput struct {
 	CardID      string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task)"`
 	Description string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name        string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
+	CallerModel string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
 }
 type getSkillOutput struct {
 	SkillName   string `json:"skill_name"`
 	Model       string `json:"model,omitempty"`
 	Phase2Model string `json:"phase2_model,omitempty"`
 	Content     string `json:"content"`
+	Inline      bool   `json:"inline,omitempty"`
 }
 
 func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_skill",
-		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). CRITICAL: You MUST pass the returned 'model' value when spawning the sub-agent — use the `Agent` tool with model set to the returned value, description set to a short summary, and prompt set to the returned content.",
+		Name: "get_skill",
+		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, " +
+			"plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). " +
+			"When the response has 'inline: true', you MAY execute the content directly instead of spawning a sub-agent — " +
+			"the content already includes lifecycle enforcement instructions. " +
+			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
@@ -839,6 +846,24 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}
 		content := stripAgentConfig(result.Content)
-		return nil, getSkillOutput{SkillName: input.SkillName, Model: result.Model, Phase2Model: result.Phase2Model, Content: content}, nil
+
+		// Server-side inline decision: caller model must match skill model
+		// (case-insensitive — agents may pass "Opus" from system context)
+		// AND the skill must be on the inline-eligible whitelist.
+		canInline := input.CallerModel != "" &&
+			strings.EqualFold(input.CallerModel, result.Model) &&
+			isInlineEligible(input.SkillName)
+
+		if canInline {
+			content = buildInlineExecutionPrompt(content, input.CardID, input.SkillName)
+		}
+
+		return nil, getSkillOutput{
+			SkillName:   input.SkillName,
+			Model:       result.Model,
+			Phase2Model: result.Phase2Model,
+			Content:     content,
+			Inline:      canInline,
+		}, nil
 	})
 }

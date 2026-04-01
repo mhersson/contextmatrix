@@ -89,7 +89,13 @@ func setupMCP(t *testing.T) *testEnv {
 		"init-project.md":  "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
-		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
+		var content string
+		if name == "create-plan.md" {
+			// create-plan has a Phase 2 Model in its Agent Configuration.
+			content = fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation.\n\n---\n\nSkill instructions here.", name, model)
+		} else {
+			content = fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
+		}
 		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte(content), 0o644))
 	}
 
@@ -1295,6 +1301,9 @@ func TestPrompt_CreatePlan(t *testing.T) {
 	// User approval must be handled by the orchestrator, not a sub-agent.
 	assert.Contains(t, content.Text, "User Approval")
 	assert.Contains(t, content.Text, "YOU handle this directly")
+	// Inline routing instructions for Phase 1.
+	assert.Contains(t, content.Text, "Model-Aware Routing")
+	assert.Contains(t, content.Text, "caller_model")
 }
 
 // TestBuildCreatePlanDelegationPrompt tests the structured output expected
@@ -1307,7 +1316,7 @@ func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 
 	text := buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
 
-	// Phase 1: plan drafting sub-agent uses the Phase 1 (opus) model.
+	// Phase 1: plan drafting with inline routing option.
 	assert.Contains(t, text, "Phase 1: Plan Drafting")
 	assert.Contains(t, text, "create-plan phase-1 ALPHA-001")
 	assert.Contains(t, text, "PLAN_DRAFTED")
@@ -1315,13 +1324,20 @@ func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 	assert.Contains(t, text, "subtask_count")
 	assert.Contains(t, text, `"`+model+`"`)
 
+	// Phase 1 inline routing instructions.
+	assert.Contains(t, text, "Model-Aware Routing")
+	assert.Contains(t, text, "caller_model")
+	assert.Contains(t, text, "`inline: true`")
+
 	// User approval must NOT be delegated to a sub-agent.
 	assert.Contains(t, text, "User Approval")
 	assert.Contains(t, text, "YOU handle this directly")
-	assert.NotContains(t, text, "spawn a sub-agent")
 
-	// Phase 2: subtask creation sub-agent uses the Phase 2 (haiku) model.
-	assert.Contains(t, text, "Phase 2: Subtask Creation")
+	// Inline plan presentation shortcut.
+	assert.Contains(t, text, "drafted the plan inline, present it directly")
+
+	// Phase 2: subtask creation — always delegated.
+	assert.Contains(t, text, "Phase 2: Subtask Creation (always delegated)")
 	assert.Contains(t, text, "create-plan phase-2 ALPHA-001")
 	assert.Contains(t, text, "SUBTASKS_CREATED")
 	assert.Contains(t, text, "subtasks:")
@@ -1412,6 +1428,10 @@ func TestPrompt_ReviewTask(t *testing.T) {
 	// Orchestrator prints REVIEW_APPROVED or REVIEW_REJECTED, not the sub-agent.
 	assert.Contains(t, content.Text, "REVIEW_APPROVED")
 	assert.Contains(t, content.Text, "REVIEW_REJECTED")
+
+	// Inline routing instructions.
+	assert.Contains(t, content.Text, "Model-Aware Routing")
+	assert.Contains(t, content.Text, "caller_model")
 }
 
 // TestBuildReviewTaskDelegationPrompt tests the structured output expected
@@ -1423,12 +1443,20 @@ func TestBuildReviewTaskDelegationPrompt(t *testing.T) {
 
 	text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
 
-	// Review sub-agent spawning instructions.
+	// Review sub-agent spawning instructions (delegation path).
 	assert.Contains(t, text, "Review Task Workflow")
 	assert.Contains(t, text, "review-task ALPHA-001")
 	assert.Contains(t, text, "REVIEW_FINDINGS")
 	assert.Contains(t, text, "recommendation:")
 	assert.Contains(t, text, "summary:")
+
+	// Inline routing instructions.
+	assert.Contains(t, text, "Model-Aware Routing")
+	assert.Contains(t, text, "caller_model")
+	assert.Contains(t, text, "`inline: true`")
+
+	// Inline review presentation shortcut.
+	assert.Contains(t, text, "executed the review inline, present the findings you just wrote directly")
 
 	// User approval must NOT be delegated to a sub-agent.
 	assert.Contains(t, text, "User Approval")
@@ -2145,6 +2173,178 @@ func TestGetSkill_StripsAgentConfig(t *testing.T) {
 	assert.Equal(t, "sonnet", out.Model)
 	// Skill body instructions should still be present
 	assert.Contains(t, out.Content, "Skill instructions here.")
+}
+
+// TestBuildInlineExecutionPrompt verifies the lifecycle-enforcing inline wrapper.
+func TestBuildInlineExecutionPrompt(t *testing.T) {
+	content := "## ContextMatrix Workflow Rules\n\nSome rules.\n\nSkill instructions here."
+	cardID := "ALPHA-003"
+	skillName := "review-task"
+
+	result := buildInlineExecutionPrompt(content, cardID, skillName)
+
+	// Must contain lifecycle enforcement gates.
+	assert.Contains(t, result, "INLINE EXECUTION")
+	assert.Contains(t, result, "Lifecycle Checkpoints Required")
+	assert.Contains(t, result, "claim_card")
+	assert.Contains(t, result, "heartbeat")
+	assert.Contains(t, result, "release_card")
+	assert.Contains(t, result, "report_usage")
+	assert.Contains(t, result, cardID)
+	assert.Contains(t, result, skillName)
+
+	// Must contain the skill content.
+	assert.Contains(t, result, "Skill instructions here.")
+	assert.Contains(t, result, "BEGIN SKILL INSTRUCTIONS")
+	assert.Contains(t, result, "END SKILL INSTRUCTIONS")
+
+	// Must contain verification step.
+	assert.Contains(t, result, "get_card")
+}
+
+// TestIsInlineEligible verifies the inline eligibility whitelist.
+func TestIsInlineEligible(t *testing.T) {
+	assert.True(t, isInlineEligible("review-task"))
+	assert.True(t, isInlineEligible("create-plan"))
+	assert.False(t, isInlineEligible("execute-task"))
+	assert.False(t, isInlineEligible("document-task"))
+	assert.False(t, isInlineEligible("create-task"))
+	assert.False(t, isInlineEligible("init-project"))
+	assert.False(t, isInlineEligible("nonexistent"))
+}
+
+// TestGetSkill_InlineWhenModelMatches verifies that get_skill returns inline=true
+// when caller_model matches the skill model and the skill is inline-eligible.
+func TestGetSkill_InlineWhenModelMatches(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Inline review test", "feature", "high")
+	// Create a subtask so review-task has something to review.
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub for inline", "type": "task",
+		"priority": "medium", "parent": card.ID,
+	})
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "review-task",
+		"card_id":      card.ID,
+		"caller_model": "opus", // review-task requires opus — match
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "inline should be true when caller model matches")
+	assert.Equal(t, "opus", out.Model)
+	assert.Contains(t, out.Content, "INLINE EXECUTION")
+	assert.Contains(t, out.Content, "Lifecycle Checkpoints Required")
+}
+
+// TestGetSkill_InlineCaseInsensitive verifies that caller_model matching is
+// case-insensitive — agents may pass "Opus" from their system context.
+func TestGetSkill_InlineCaseInsensitive(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Case test", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub for case", "type": "task",
+		"priority": "medium", "parent": card.ID,
+	})
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "review-task",
+		"card_id":      card.ID,
+		"caller_model": "Opus", // Capital O — should still match "opus"
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "inline should be true even with different casing")
+}
+
+// TestGetSkill_DelegatesWhenModelMismatch verifies that get_skill returns
+// inline=false when caller_model does not match the skill model.
+func TestGetSkill_DelegatesWhenModelMismatch(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Mismatch test", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub for mismatch", "type": "task",
+		"priority": "medium", "parent": card.ID,
+	})
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "review-task",
+		"card_id":      card.ID,
+		"caller_model": "sonnet", // review-task requires opus — mismatch
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.False(t, out.Inline, "inline should be false when caller model mismatches")
+	assert.NotContains(t, out.Content, "INLINE EXECUTION")
+}
+
+// TestGetSkill_DelegatesWhenCallerModelAbsent verifies backward compatibility:
+// when caller_model is not provided, inline is always false.
+func TestGetSkill_DelegatesWhenCallerModelAbsent(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "No caller model test", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub for absent", "type": "task",
+		"priority": "medium", "parent": card.ID,
+	})
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "review-task",
+		"card_id":    card.ID,
+		// No caller_model — backward compat
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.False(t, out.Inline, "inline should be false when caller_model is absent")
+	assert.NotContains(t, out.Content, "INLINE EXECUTION")
+}
+
+// TestGetSkill_InlineNotEligibleSkill verifies that non-whitelisted skills
+// always return inline=false even when model matches.
+func TestGetSkill_InlineNotEligibleSkill(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Not eligible test", "task", "medium")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "execute-task",
+		"card_id":      card.ID,
+		"caller_model": "sonnet", // execute-task requires sonnet — match, but not eligible
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.False(t, out.Inline, "inline should be false for non-eligible skills even with model match")
+	assert.NotContains(t, out.Content, "INLINE EXECUTION")
+}
+
+// TestGetSkill_CreatePlanInline verifies that create-plan returns inline=true
+// when caller_model matches opus.
+func TestGetSkill_CreatePlanInline(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Plan inline test", "feature", "high")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "create-plan",
+		"card_id":      card.ID,
+		"caller_model": "opus", // create-plan requires opus — match
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "inline should be true for create-plan with opus caller")
+	assert.Equal(t, "opus", out.Model)
+	assert.Equal(t, "haiku", out.Phase2Model)
+	assert.Contains(t, out.Content, "INLINE EXECUTION")
 }
 
 // TestCompleteTask_ReviewContentStripped verifies that complete_task strips
