@@ -75,11 +75,16 @@ func stripAgentConfig(content string) string {
 
 // buildDelegationPrompt returns a short wrapper prompt that instructs the
 // receiving agent to call get_skill with the given arguments and then spawn
-// a sub-agent via the Agent tool with the returned model and content.
+// a sub-agent via the TaskCreate tool with the returned model and content.
 //
 // This is what MCP prompt handlers return — NOT the raw skill content.
 // The delegation wrapper ensures the work runs as a sub-agent on the correct
 // model, not inline in the calling agent's context.
+//
+// IMPORTANT: The tool name must be "TaskCreate" to match the actual Claude Code
+// tool for spawning sub-agents. Using wrong names (e.g. "Agent tool") can cause
+// the model to pick SendMessage instead, which fails with "summary is required
+// when message is a string". The model parameter must be explicitly included.
 func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Subagent Required: %s\n\n", skillName)
@@ -89,10 +94,14 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 	fmt.Fprintln(&b, "**Steps:**")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "1. Call `get_skill(%s)` to retrieve the full skill prompt and the required model.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. Use the **Agent tool** with the returned `model` and `content` to spawn the sub-agent.")
+	fmt.Fprintln(&b, "2. Use **TaskCreate** to spawn the sub-agent with:")
+	fmt.Fprintf(&b, "   - `model`: `\"%s\"` — this is **CRITICAL**, using the wrong model breaks cost/quality\n", model)
+	fmt.Fprintf(&b, "   - `subject`: `\"%s <card_id>\"`\n", skillName)
+	fmt.Fprintln(&b, "   - `description`: the full `content` returned by `get_skill`")
 	fmt.Fprintln(&b, "3. Wait for the sub-agent to complete and relay its structured output back.")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Do NOT read the skill content yourself and execute it — you MUST use the Agent tool with model `%s`.\n", model)
+	fmt.Fprintf(&b, "Do NOT read the skill content yourself and execute it — you MUST use TaskCreate with model `%s`.\n", model)
+	fmt.Fprintf(&b, "Do NOT use SendMessage — that is for team communication, not for spawning sub-agents.\n")
 	return b.String()
 }
 

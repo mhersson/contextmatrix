@@ -441,10 +441,11 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Equal(t, "review", output.Card.State, "main task should stop at review")
 	assert.Empty(t, output.Card.AssignedAgent, "agent should be released after completion")
 
-	// Verify next_step instructs review via Agent tool spawning
+	// Verify next_step instructs review via TaskCreate spawning with model
 	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
-	assert.Contains(t, output.NextStep, "Agent tool", "next_step should instruct spawning via Agent tool")
+	assert.Contains(t, output.NextStep, "TaskCreate", "next_step should instruct spawning via TaskCreate")
+	assert.Contains(t, output.NextStep, "review_model", "next_step should reference review_model field")
 
 	// Verify the review skill is embedded in the response
 	assert.Equal(t, "review-task", output.ReviewSkillName)
@@ -566,7 +567,7 @@ func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
 	// next_step should instruct spawning the review agent
 	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should reference the parent card ID")
-	assert.Contains(t, output.NextStep, "Agent tool", "next_step should instruct spawning via Agent tool")
+	assert.Contains(t, output.NextStep, "TaskCreate", "next_step should instruct spawning via TaskCreate")
 
 	// The review content should contain the parent card ID (injected context)
 	assert.Contains(t, output.ReviewContent, "TEST-001", "review skill content should include parent card ID")
@@ -1143,7 +1144,7 @@ func TestPrompt_CreateTask(t *testing.T) {
 	require.True(t, ok)
 	// Prompt handlers now return delegation wrappers, not raw skill content.
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "Agent tool")
+	assert.Contains(t, content.Text, "TaskCreate")
 	assert.Contains(t, content.Text, "skill_name='create-task'")
 	assert.Contains(t, content.Text, "Build a new login page")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
@@ -1166,7 +1167,7 @@ func TestPrompt_CreatePlan(t *testing.T) {
 	require.True(t, ok)
 	// Prompt handlers now return delegation wrappers — card details are passed as get_skill args.
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "Agent tool")
+	assert.Contains(t, content.Text, "TaskCreate")
 	assert.Contains(t, content.Text, "skill_name='create-plan'")
 	assert.Contains(t, content.Text, "TEST-001")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
@@ -1203,7 +1204,7 @@ func TestPrompt_ExecuteTask(t *testing.T) {
 	require.True(t, ok)
 	// Prompt handlers now return delegation wrappers — card details are in get_skill args.
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "Agent tool")
+	assert.Contains(t, content.Text, "TaskCreate")
 	assert.Contains(t, content.Text, "skill_name='execute-task'")
 	assert.Contains(t, content.Text, "TEST-002")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
@@ -1235,7 +1236,7 @@ func TestPrompt_ReviewTask(t *testing.T) {
 	require.True(t, ok)
 	// Prompt handlers now return delegation wrappers.
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "Agent tool")
+	assert.Contains(t, content.Text, "TaskCreate")
 	assert.Contains(t, content.Text, "skill_name='review-task'")
 	assert.Contains(t, content.Text, parent.ID)
 	assert.NotContains(t, content.Text, "## Agent Configuration")
@@ -1265,7 +1266,7 @@ func TestPrompt_DocumentTask(t *testing.T) {
 	require.True(t, ok)
 	// Prompt handlers now return delegation wrappers.
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "Agent tool")
+	assert.Contains(t, content.Text, "TaskCreate")
 	assert.Contains(t, content.Text, "skill_name='document-task'")
 	assert.Contains(t, content.Text, parent.ID)
 	assert.NotContains(t, content.Text, "## Agent Configuration")
@@ -1579,7 +1580,7 @@ func TestInitProjectPrompt(t *testing.T) {
 	text := promptResult.Messages[0].Content.(*mcp.TextContent).Text
 	// Prompt handlers return delegation wrappers; name arg is in the get_skill call.
 	assert.Contains(t, text, "get_skill")
-	assert.Contains(t, text, "Agent tool")
+	assert.Contains(t, text, "TaskCreate")
 	assert.Contains(t, text, "skill_name='init-project'")
 	assert.Contains(t, text, "my-new-project")
 	assert.NotContains(t, text, "## Agent Configuration")
@@ -1799,7 +1800,7 @@ func TestBuildDelegationPrompt(t *testing.T) {
 				"sonnet",
 				"get_skill",
 				"skill_name='execute-task', card_id='ALPHA-003'",
-				"Agent tool",
+				"TaskCreate",
 				"Do NOT execute it inline",
 			},
 		},
@@ -1812,7 +1813,7 @@ func TestBuildDelegationPrompt(t *testing.T) {
 				"opus",
 				"get_skill",
 				"skill_name='create-plan', card_id='BETA-001'",
-				"Agent tool",
+				"TaskCreate",
 			},
 		},
 		{
@@ -1823,7 +1824,7 @@ func TestBuildDelegationPrompt(t *testing.T) {
 			wantContains: []string{
 				"get_skill",
 				"skill_name='create-task', description='Fix the login bug'",
-				"Agent tool",
+				"TaskCreate",
 			},
 		},
 	}
@@ -1835,6 +1836,10 @@ func TestBuildDelegationPrompt(t *testing.T) {
 			}
 			// Must never contain raw skill instructions
 			assert.NotContains(t, got, "## Agent Configuration")
+			// Regression guard: "Agent tool" must never appear — it's not a real tool name and causes SendMessage fallback
+			assert.NotContains(t, got, "Agent tool", "delegation prompt must not reference 'Agent tool' — use TaskCreate")
+			// SendMessage must never be recommended as a spawning mechanism
+			assert.NotContains(t, got, "Use SendMessage", "delegation prompt must not recommend SendMessage for spawning")
 		})
 	}
 }

@@ -71,14 +71,17 @@ Ask the human what they want to do with the new card:
 > 3. **Leave it on the board** — Pick it up later
 
 **How to invoke a follow-up skill:** Call `get_skill(skill_name=..., card_id=...)`
-— it returns a `model` field and `content` field. Use the Agent tool with that
-model and the returned content as the prompt to spawn a sub-agent.
+— it returns a `model` field and `content` field. Use **TaskCreate** with
+`model` set to the returned model value (**CRITICAL** — do not omit), `subject`
+set to a short description, and `description` set to the returned content.
 
 - If **plan**: call `get_skill(skill_name='create-plan', card_id='<card_id>')`,
-  then spawn a sub-agent with the returned model and content.
+  then use TaskCreate with `model` from the response, subject
+  "create-plan for <card_id>", and description set to the returned content.
 - If **work on it now**: call
-  `get_skill(skill_name='execute-task', card_id='<card_id>')`, then spawn a
-  sub-agent with the returned model and content.
+  `get_skill(skill_name='execute-task', card_id='<card_id>')`, then use
+  TaskCreate with `model` from the response, subject
+  "execute-task for <card_id>", and description set to the returned content.
 - If **leave it**: let the human know they can run
   `/contextmatrix:create-plan <card_id>` or
   `/contextmatrix:execute-task <card_id>` later.

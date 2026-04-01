@@ -127,8 +127,9 @@ task completion causes a card to reach `review` state — either:
 
 In both cases, the response includes `review_content` with the full
 review-task skill prompt and `review_model` indicating which model to use.
-Use the Agent tool with the returned model and review content to spawn the
-review sub-agent.
+Use TaskCreate with `model` set to the `review_model` value (**CRITICAL** —
+do not omit), subject "review-task for <card_id>", and `description` set to
+the `review_content` to spawn the review sub-agent.
 
 Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
 lifecycle is not finished until the review step has been initiated.

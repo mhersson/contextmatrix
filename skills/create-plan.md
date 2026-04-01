@@ -130,23 +130,25 @@ If **yes**:
 2. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>)`. The response contains
    `model` (which model to use, e.g. `"sonnet"`) and `content` (the full
-   prompt). Spawn a sub-agent using the **Agent tool** with:
-   - `prompt`: the `content` from `get_skill`
-   - `model`: the `model` from `get_skill`
-   - `description`: `"execute <card_id>"`
-   Spawn all ready tasks **in parallel** (multiple Agent tool calls in one
+   prompt). Spawn a sub-agent using **TaskCreate** with:
+   - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
+   - `subject`: `"execute-task for <card_id>"`
+   - `description`: the `content` from `get_skill`
+   Spawn all ready tasks **in parallel** (multiple TaskCreate calls in one
    message).
 3. Monitor sub-agent completions. When a sub-agent finishes and unblocks new
    tasks, call `get_ready_tasks` again and spawn agents for the newly ready
    tasks.
 4. When all subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
-   review sub-agent using the Agent tool with the returned `model` and
-   `content`.
+   review sub-agent using TaskCreate with `model` from the response,
+   subject `"review-task for <parent_id>"`, and `description` set to the
+   returned `content`.
 5. After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
-   documentation sub-agent using the Agent tool with the returned `model` and
-   `content`.
+   documentation sub-agent using TaskCreate with `model` from the response,
+   subject `"document-task for <parent_id>"`, and `description` set to the
+   returned `content`.
 
 If **no**: let the human know they can run
 `/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
@@ -156,15 +158,15 @@ If **no**: let the human know they can run
 If the user chooses to execute, you MUST follow through the **entire pipeline**
 to completion. Do NOT stop partway:
 
-1. **Execute** — Spawn agents (via `get_skill` + Agent tool) for all ready
+1. **Execute** — Spawn agents (via `get_skill` + TaskCreate) for all ready
    subtasks. Monitor completions. When a subtask finishes and unblocks new
    tasks, spawn agents for the newly ready tasks.
 2. **Review** — When ALL subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
-   review sub-agent via the Agent tool with the returned `model` and `content`.
+   review sub-agent via TaskCreate with the returned `model` and `content`.
 3. **Documentation** — After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
-   documentation sub-agent via the Agent tool.
+   documentation sub-agent via TaskCreate with the returned `model` and `content`.
 4. **Done** — After documentation, transition the parent card to `done`.
 
 Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
