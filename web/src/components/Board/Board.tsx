@@ -38,7 +38,10 @@ function compareTodoCards(a: Card, b: Card): number {
   if (pa !== pb) return pa - pb;
   const ta = TYPE_RANK[a.type] ?? 999;
   const tb = TYPE_RANK[b.type] ?? 999;
-  return ta - tb;
+  if (ta !== tb) return ta - tb;
+  const ca = new Date(a.created).getTime();
+  const cb = new Date(b.created).getTime();
+  return ca - cb;
 }
 
 interface BoardProps {
