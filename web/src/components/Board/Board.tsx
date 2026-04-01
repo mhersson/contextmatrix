@@ -33,8 +33,9 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
   const filterBarRef = useRef<HTMLDivElement>(null);
-  const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name);
-  const [collapsedCards, toggleCardCollapse] = useCollapsedCards(config.name);
+  const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
+  const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
+  const [collapsedCards, toggleCardCollapse] = useCollapsedCards(config.name, cardIds);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
