@@ -41,6 +41,10 @@ Assess the work against these criteria:
 
 ### Quality
 
+> **Note:** Code from the task under review is NOT expected to be committed at
+> review time. Commits happen after the documentation step, when the task
+> transitions to `done`. Do not flag uncommitted changes as an issue.
+
 - Were tests written where appropriate?
 - Is the code consistent with the project's existing patterns?
 - Are there obvious bugs, race conditions, or error handling gaps?
@@ -145,6 +149,9 @@ on based on your structured output.
   `transition_card`, or any card-mutating operation. You are an observer. The
   only permitted writes are `claim_card`/`release_card` (to make review visible
   in the UI) and `report_usage` (to record cost).
+- **Uncommitted code is expected.** Code changes from the task under review are
+  NOT committed at review time — commits happen after the documentation step
+  when the task moves to `done`. Never flag uncommitted changes as an issue.
 - **Do not decide.** Present your findings and recommendation, but the human
   makes the final call.
 - **Wait for the human's explicit decision.** After presenting findings, you
