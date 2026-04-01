@@ -7,6 +7,17 @@
   `ProjectConfig` is sufficient. Multi-instance would need file locking.
 - **`go-git` performance:** fine for ContextMatrix boards (small files, <10k
   cards). If it becomes an issue, shell out to `git` binary.
+- **Deferred git commits (`git_deferred_commit`):** When
+  `git_deferred_commit: true` in `config.yaml`, agent mutations (heartbeats,
+  log entries, intermediate updates) are batched and committed in a single flush
+  at release/complete time instead of per-operation. This reduces git churn
+  during long agent work sessions. However, two categories of mutation **always
+  commit immediately**, even when deferred mode is on: (1) card creation — both
+  the card file and `.board.yaml` are committed together so the new card
+  survives a `git pull` on another machine; (2) human edits to unclaimed cards
+  via the REST API — the PUT/PATCH handlers set `ImmediateCommit: true` when
+  `card.AssignedAgent == ""`, triggering an immediate commit. MCP tool callers
+  (agents) never set this flag, so their commits continue to defer normally.
 - **SSE headers:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
   `Connection: keep-alive`. Must call `Flusher.Flush()` after each event.
 - **Frontend embed:** `//go:embed web/dist/*` in `main.go`. Must build frontend

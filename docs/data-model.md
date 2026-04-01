@@ -24,10 +24,13 @@
    web UI stores the human's agent ID in localStorage and sends it via
    `X-Agent-ID` header.
 
-5. **Every mutation auto-commits.** The service layer writes the file, then
-   calls `GitManager.CommitFile()`. Commit message format:
+5. **Every mutation auto-commits (with optional deferral).** The service layer
+   writes the file, then commits via `GitManager`. Commit message format:
    `[contextmatrix] CARD-ID: description` or
-   `[agent:AGENT-ID] CARD-ID: description`.
+   `[agent:AGENT-ID] CARD-ID: description`. When `git_deferred_commit: true` in
+   `config.yaml`, agent mutations during a work session are batched and flushed
+   as a single commit at claim release/completion. Card creation and human edits
+   to unclaimed cards are always committed immediately regardless of this setting.
 
 6. **Activity log is append-only, capped at 50 entries.** Agents add entries via
    `POST /cards/{id}/log`. Older entries beyond 50 are dropped from the card

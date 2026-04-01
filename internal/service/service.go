@@ -42,27 +42,29 @@ type CreateCardInput struct {
 // UpdateCardInput contains all mutable fields for a full card update.
 // Immutable fields (id, project, created, source) are not included.
 type UpdateCardInput struct {
-	Title     string
-	Type      string
-	State     string
-	Priority  string
-	Labels    []string
-	Parent    string
-	Subtasks  []string
-	DependsOn []string
-	Context   []string
-	Custom    map[string]any
-	Body      string
+	Title           string
+	Type            string
+	State           string
+	Priority        string
+	Labels          []string
+	Parent          string
+	Subtasks        []string
+	DependsOn       []string
+	Context         []string
+	Custom          map[string]any
+	Body            string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
 }
 
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
-	Title    *string
-	State    *string
-	Priority *string
-	Labels   []string // nil = don't change, empty slice = clear
-	Body     *string
+	Title           *string
+	State           *string
+	Priority        *string
+	Labels          []string // nil = don't change, empty slice = clear
+	Body            *string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -519,19 +521,15 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, fmt.Errorf("create card: %w", err)
 	}
 
-	// Git commit (or defer); include .board.yaml (next_id increment)
-	configPath := filepath.Join(project, ".board.yaml")
-	if s.gitAutoCommit && !s.gitDeferredCommit {
+	// Card creation always commits immediately — even when gitDeferredCommit is
+	// true — because a new card is a discrete, durable event. Both the card file
+	// and .board.yaml (next_id increment) must be persisted together so the card
+	// survives a git pull on another machine.
+	if s.gitAutoCommit {
 		cardPath := s.cardPath(project, cardID)
+		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", cardID, "created")
 		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
-			return nil, fmt.Errorf("git commit: %w", err)
-		}
-	} else {
-		if s.gitAutoCommit && s.gitDeferredCommit {
-			s.deferredPaths[cardID] = append(s.deferredPaths[cardID], configPath)
-		}
-		if err := s.commitCardChange(project, cardID, "", "created"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 	}
@@ -648,8 +646,17 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, "", "updated"); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if input.ImmediateCommit && s.gitAutoCommit {
+		// Human edit: commit immediately regardless of deferred mode.
+		cardPath := s.cardPath(project, id)
+		msg := commitMessage("", id, "updated")
+		if err := s.git.CommitFile(cardPath, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
+	} else {
+		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Flush deferred commit when card reaches a final state
@@ -753,8 +760,17 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, "", "updated"); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	if input.ImmediateCommit && s.gitAutoCommit {
+		// Human edit: commit immediately regardless of deferred mode.
+		cardPath := s.cardPath(project, id)
+		msg := commitMessage("", id, "updated")
+		if err := s.git.CommitFile(cardPath, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
+	} else {
+		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
 	}
 
 	// Flush deferred commit when card reaches a final state

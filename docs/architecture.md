@@ -7,7 +7,7 @@ API handler (deserialize request, validate input)
   → CardService.CreateCard()
     → StateMachine.ValidateCard() — check type, state, priority are valid
     → Store.CreateCard() — write .md file to disk, update in-memory index
-    → GitManager.CommitFile() — git add + commit
+    → GitManager.CommitFiles() — git add + commit (card file + .board.yaml)
     → EventBus.Publish(CardCreated) — notify SSE subscribers
   ← return card to handler
 ← serialize response

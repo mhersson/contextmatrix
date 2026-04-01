@@ -182,17 +182,18 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.UpdateCardInput{
-		Title:     req.Title,
-		Type:      req.Type,
-		State:     req.State,
-		Priority:  req.Priority,
-		Labels:    req.Labels,
-		Parent:    req.Parent,
-		Subtasks:  req.Subtasks,
-		DependsOn: req.DependsOn,
-		Context:   req.Context,
-		Custom:    req.Custom,
-		Body:      req.Body,
+		Title:           req.Title,
+		Type:            req.Type,
+		State:           req.State,
+		Priority:        req.Priority,
+		Labels:          req.Labels,
+		Parent:          req.Parent,
+		Subtasks:        req.Subtasks,
+		DependsOn:       req.DependsOn,
+		Context:         req.Context,
+		Custom:          req.Custom,
+		Body:            req.Body,
+		ImmediateCommit: existingCard.AssignedAgent == "",
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -232,11 +233,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.PatchCardInput{
-		Title:    req.Title,
-		State:    req.State,
-		Priority: req.Priority,
-		Labels:   req.Labels,
-		Body:     req.Body,
+		Title:           req.Title,
+		State:           req.State,
+		Priority:        req.Priority,
+		Labels:          req.Labels,
+		Body:            req.Body,
+		ImmediateCommit: existingCard.AssignedAgent == "",
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

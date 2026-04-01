@@ -2159,23 +2159,26 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 }
 
 // TestDeferredCommitAccumulates verifies that with deferred mode on,
-// intermediate card mutations do not produce commits.
+// CreateCard commits immediately but subsequent mutations do not.
 func TestDeferredCommitAccumulates(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — should defer the commit.
+	// Create card — must commit immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Deferred Card", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	// No commit yet.
+	// Creation commit must exist.
 	msg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.Empty(t, msg, "no commit expected after create in deferred mode")
+	assert.Contains(t, msg, card.ID, "creation commit must reference the card ID")
 
-	// Update card twice.
+	// Remember the creation commit message before further mutations.
+	creationMsg := msg
+
+	// Update card twice — these should be deferred, no new commits.
 	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
 		Title: "Updated Once", Type: "task", State: "todo", Priority: "medium",
 	})
@@ -2186,16 +2189,16 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Still no commit.
+	// No new commits after updates — last commit is still the creation commit.
 	msg, err = gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.Empty(t, msg, "no commit expected after updates in deferred mode")
+	assert.Equal(t, creationMsg, msg, "no new commit expected after updates in deferred mode")
 
-	// Deferred paths should be non-empty.
+	// Deferred paths should be non-empty (updates accumulated).
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferredPaths should have entries")
+	assert.Greater(t, pathCount, 0, "deferredPaths should have entries after updates")
 }
 
 // TestDeferredCommitFlushOnDone verifies that transitioning to "done"
@@ -2749,6 +2752,11 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// CreateCard commits immediately; record that commit message.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
+
 	// Claim the card
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
@@ -2758,9 +2766,9 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
 
-	// No commits should exist yet (all deferred)
+	// Post-creation mutations (claim, in_progress) should be deferred — no new commits.
 	msg, _ := gitMgr.GetLastCommitMessage()
-	assert.Empty(t, msg, "no commits should exist while card is being worked on")
+	assert.Equal(t, creationMsg, msg, "no new commits should exist while card is being worked on (post-creation mutations deferred)")
 
 	// Release the card — should flush all deferred changes
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
@@ -2855,6 +2863,43 @@ func TestDeferredCommitBoardYamlIncluded(t *testing.T) {
 	hasUncommitted, err := gitMgr.HasUncommittedChanges()
 	require.NoError(t, err)
 	assert.False(t, hasUncommitted, ".board.yaml should be committed along with the card")
+}
+
+// TestCreateCard_CommitsImmediatelyWithDeferredMode verifies that CreateCard
+// always produces an immediate commit even when gitDeferredCommit is true,
+// and that subsequent mutations (log entries) still defer normally.
+func TestCreateCard_CommitsImmediatelyWithDeferredMode(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	// Create a card — must commit immediately even though deferredCommit=true
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Immediate commit test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// No uncommitted changes: both card file and .board.yaml must be committed.
+	hasUncommitted, err := gitMgr.HasUncommittedChanges()
+	require.NoError(t, err)
+	assert.False(t, hasUncommitted, "CreateCard must commit immediately even with gitDeferredCommit=true")
+
+	// The commit message must reference the new card ID.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, card.ID, "immediate creation commit should include the card ID")
+
+	// Subsequent mutation (add log entry) must still defer.
+	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+		Agent:  "test-agent",
+		Action: "tested",
+	})
+	require.NoError(t, err)
+
+	// After the log entry the working tree should have uncommitted changes
+	// because deferred mode is on for post-creation mutations.
+	hasUncommitted, err = gitMgr.HasUncommittedChanges()
+	require.NoError(t, err)
+	assert.True(t, hasUncommitted, "post-creation mutations must still defer when gitDeferredCommit=true")
 }
 
 // TestCreateCard_SubtaskTypeEnforcement verifies that cards created with a parent
@@ -3117,4 +3162,111 @@ func TestPatchCard_DoesNotChangeType(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "subtask", patched.Type, "PatchCard must not change the type field")
 	assert.Equal(t, "Patched Subtask", patched.Title)
+}
+
+// TestImmediateCommitPatchCard_WhenDeferredOn verifies that PatchCard with
+// ImmediateCommit=true commits immediately even when gitDeferredCommit=true.
+// It checks that a commit is produced (last commit message references the card ID),
+// contrasting with the deferred mode where no commit exists yet.
+func TestImmediateCommitPatchCard_WhenDeferredOn(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card — commits immediately even in deferred mode.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Human Editable Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Record the creation commit message.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
+
+	// Patch with ImmediateCommit=true — should produce a new commit immediately.
+	newTitle := "Human Updated Title"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Title:           &newTitle,
+		ImmediateCommit: true,
+	})
+	require.NoError(t, err)
+
+	// A new commit should have been produced for this patch.
+	msgAfter, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEqual(t, creationMsg, msgAfter, "PatchCard with ImmediateCommit=true should produce a new commit")
+	assert.Contains(t, msgAfter, card.ID, "commit message should reference the card ID")
+	assert.Contains(t, msgAfter, "updated", "commit message should say updated")
+}
+
+// TestDeferredCommitPatchCard_WhenImmediateCommitFalse verifies that PatchCard
+// with ImmediateCommit=false still defers when gitDeferredCommit=true.
+func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card — commits immediately even in deferred mode.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Agent Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Record the creation commit.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID)
+
+	// Patch with ImmediateCommit=false (default) — should defer.
+	newTitle := "Agent Updated Title"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Title:           &newTitle,
+		ImmediateCommit: false,
+	})
+	require.NoError(t, err)
+
+	// No new commit should have been produced — last commit is still creation.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, creationMsg, msg, "PatchCard with ImmediateCommit=false should not commit in deferred mode")
+
+	// deferredPaths should have accumulated entries.
+	svc.writeMu.Lock()
+	pathCount := len(svc.deferredPaths[card.ID])
+	svc.writeMu.Unlock()
+	assert.Greater(t, pathCount, 0, "deferredPaths should have entries when ImmediateCommit=false")
+}
+
+// TestImmediateCommitUpdateCard_WhenDeferredOn verifies that UpdateCard with
+// ImmediateCommit=true commits immediately even when gitDeferredCommit=true.
+func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card — commits immediately even in deferred mode.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Human Full Update Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Record the creation commit.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
+
+	// UpdateCard with ImmediateCommit=true — should produce a new commit immediately.
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:           "Human Updated Full Title",
+		Type:            "task",
+		State:           "todo",
+		Priority:        "high",
+		ImmediateCommit: true,
+	})
+	require.NoError(t, err)
+
+	// A new commit should have been produced for this update.
+	msgAfter, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEqual(t, creationMsg, msgAfter, "UpdateCard with ImmediateCommit=true should produce a new commit")
+	assert.Contains(t, msgAfter, card.ID, "commit message should reference the card ID")
+	assert.Contains(t, msgAfter, "updated", "commit message should say updated")
 }
