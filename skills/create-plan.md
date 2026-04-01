@@ -130,28 +130,28 @@ If **yes**:
 2. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>)`. The response contains
    `model` (which model to use, e.g. `"sonnet"`) and `content` (the full
-   prompt). Spawn a sub-agent using **TaskCreate** with:
+   prompt). Spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
-   - `subject`: `"execute-task for <card_id>"`
-   - `description`: the `content` from `get_skill`
-   Spawn all ready tasks **in parallel** (multiple TaskCreate calls in one
+   - `description`: `"execute <card_id>"`
+   - `prompt`: the `content` from `get_skill`
+   Spawn all ready tasks **in parallel** (multiple `Agent` tool calls in one
    message).
 3. Monitor sub-agent completions. When a sub-agent finishes and unblocks new
    tasks, call `get_ready_tasks` again and spawn agents for the newly ready
    tasks.
 4. When all subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
-   review sub-agent using TaskCreate with `model` from the response,
-   subject `"review-task for <parent_id>"`, and `description` set to the
-   returned `content`.
+   review sub-agent using the `Agent` tool with `model` from the response,
+   `description` set to `"review-task for <parent_id>"`, and `prompt` set to
+   the returned `content`.
 5. Wait for the review sub-agent to complete. Parse its structured output:
    - **`REVIEW_APPROVED`**: proceed to step 6 (documentation).
    - **`REVIEW_REJECTED`**: handle the rejection loop (see below).
 6. After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
-   documentation sub-agent using TaskCreate with `model` from the response,
-   subject `"document-task for <parent_id>"`, and `description` set to the
-   returned `content`.
+   documentation sub-agent using the `Agent` tool with `model` from the response,
+   `description` set to `"document-task for <parent_id>"`, and `prompt` set to
+   the returned `content`.
 
 ### Review rejection loop
 
@@ -162,9 +162,9 @@ When the review sub-agent returns `REVIEW_REJECTED`:
 2. Do **not** touch existing subtasks — they remain in `done` state with
    their work preserved.
 3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and spawn
-   a new planning sub-agent via TaskCreate with the returned `model` and
+   a new planning sub-agent via the `Agent` tool with the returned `model` and
    `content`. **Include the review feedback** from the `REVIEW_REJECTED`
-   output in the TaskCreate `description` so the planner knows exactly what
+   output in the `Agent` tool `prompt` so the planner knows exactly what
    needs fixing and creates new subtasks scoped only to the fixes.
 4. After the planning sub-agent finishes and the new fix subtasks are
    created, resume the execute → review cycle from step 1 above.
@@ -179,12 +179,12 @@ If **no**: let the human know they can run
 If the user chooses to execute, you MUST follow through the **entire pipeline**
 to completion. Do NOT stop partway:
 
-1. **Execute** — Spawn agents (via `get_skill` + TaskCreate) for all ready
+1. **Execute** — Spawn agents (via `get_skill` + `Agent` tool) for all ready
    subtasks. Monitor completions. When a subtask finishes and unblocks new
    tasks, spawn agents for the newly ready tasks.
 2. **Review** — When ALL subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
-   review sub-agent via TaskCreate with the returned `model` and `content`.
+   review sub-agent via the `Agent` tool with the returned `model` and `content`.
    Wait for the review sub-agent to complete and parse its structured output.
 3. **If `REVIEW_APPROVED`** — Proceed to documentation.
 4. **If `REVIEW_REJECTED`** — Handle the rejection loop:
@@ -193,14 +193,14 @@ to completion. Do NOT stop partway:
    b. Do **not** reset or touch existing done subtasks — their work is
       preserved.
    c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and
-      spawn a new planning sub-agent via TaskCreate. Include the rejection
-      feedback from the `REVIEW_REJECTED` output in the `description` so the
+      spawn a new planning sub-agent via the `Agent` tool. Include the rejection
+      feedback from the `REVIEW_REJECTED` output in the `prompt` so the
       planner creates fix subtasks scoped only to the issues raised.
    d. After new subtasks are created, loop back to step 1 (Execute). Repeat
       steps 1–4 until review approval is obtained.
 5. **Documentation** — After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
-   documentation sub-agent via TaskCreate with the returned `model` and `content`.
+   documentation sub-agent via the `Agent` tool with the returned `model` and `content`.
 6. **Done** — After documentation, transition the parent card to `done`.
 
 Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT

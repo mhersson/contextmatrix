@@ -492,16 +492,16 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 				out.NextStep = fmt.Sprintf(
 					"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
 						"The review-task skill content is in the review_content field. The required model is in the review_model field. "+
-						"Use TaskCreate with model set to the review_model value, subject 'review-task for %s', "+
-						"and description set to the review_content. Do NOT stop here.",
+						"Use the `Agent` tool with model set to the review_model value, description 'review-task for %s', "+
+						"and prompt set to the review_content. Do NOT stop here.",
 					reviewCardID, reviewCardID,
 				)
 			} else {
 				out.NextStep = fmt.Sprintf(
 					"LIFECYCLE: Card %s is now in 'review'. You MUST spawn a sub-agent for review. "+
 						"Call get_skill(skill_name='review-task', card_id='%s') — it returns the full skill content and the required model. "+
-						"Use TaskCreate with model set to the returned model value, subject 'review-task for %s', "+
-						"and description set to the returned content. Do NOT stop here.",
+						"Use the `Agent` tool with model set to the returned model value, description 'review-task for %s', "+
+						"and prompt set to the returned content. Do NOT stop here.",
 					reviewCardID, reviewCardID, reviewCardID,
 				)
 			}
@@ -723,7 +723,7 @@ type getSkillOutput struct {
 func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_skill",
-		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). CRITICAL: You MUST pass the returned 'model' value when spawning the sub-agent — use TaskCreate with model set to the returned value, subject set to a short description, and description set to the returned content.",
+		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). CRITICAL: You MUST pass the returned 'model' value when spawning the sub-agent — use the `Agent` tool with model set to the returned value, description set to a short summary, and prompt set to the returned content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,

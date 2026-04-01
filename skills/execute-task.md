@@ -127,9 +127,9 @@ task completion causes a card to reach `review` state — either:
 
 In both cases, the response includes `review_content` with the full
 review-task skill prompt and `review_model` indicating which model to use.
-Use TaskCreate with `model` set to the `review_model` value (**CRITICAL** —
-do not omit), subject "review-task for <card_id>", and `description` set to
-the `review_content` to spawn the review sub-agent.
+Use the `Agent` tool with `model` set to the `review_model` value (**CRITICAL** —
+do not omit), `description` set to "review-task for <card_id>", and `prompt`
+set to the `review_content` to spawn the review sub-agent.
 
 Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
 lifecycle is not finished until the review step has been initiated.
@@ -166,6 +166,50 @@ Set `needs_human: false` ONLY if every card in `blocker_cards` is currently in
 already working on it and will unblock you when it finishes. In **all other
 cases**, set `needs_human: true`.
 
+## Error Handling
+
+**Never exit silently.** If any step fails with an unexpected error — a tool
+call returns an error, a build breaks, tests fail unexpectedly, or anything
+else you cannot recover from — do NOT silently stop.
+
+Your structured output (`TASK_COMPLETE` or `TASK_BLOCKED`) is the **only signal
+the main agent has that you finished**. Without it, the main agent waits for
+your heartbeat to go stale (up to 30 minutes), then must respawn a replacement
+to redo your work. This wastes time and tokens.
+
+If you cannot complete normally, always end with one of:
+
+**Option A — Partial completion** (you did meaningful work but couldn't finish):
+
+```
+TASK_COMPLETE
+card_id: <your card ID>
+status: done
+summary: Partial: <what was accomplished>. <what was NOT completed and why>
+blockers: none
+needs_human: true
+```
+
+**Option B — Blocked by error** (an error prevents meaningful progress):
+
+```
+TASK_BLOCKED
+card_id: <your card ID>
+status: blocked
+reason: <exact error message or description of what failed>
+blocker_cards: []
+needs_human: true
+```
+
+Before printing either format: call `add_log` describing what failed and what
+partial work was done, then call `report_usage` with your current token
+consumption.
+
+**The minimum guarantee:** No matter what happens, always print one of these two
+structured outputs as the very last thing you do. Even if every tool call failed.
+Even if you are unsure whether the work succeeded. An honest summary with
+`needs_human: true` is always better than silent exit.
+
 ## Engineering standards
 
 Follow these standards in all work you produce:
@@ -201,3 +245,8 @@ Follow these standards in all work you produce:
   `complete_task`) or report it as blocked (via `transition_card` to `blocked`).
   There is no third option. Leaving a card in `in_progress` without completing
   or blocking it is never acceptable.
+- **Structured output is your lifeline.** Your `TASK_COMPLETE` or `TASK_BLOCKED`
+  output is how the main agent knows you finished. If you crash without printing
+  it, the main agent must detect this via stale heartbeats and respawn a
+  replacement. Always print structured output as the very last thing you do,
+  even if preceding steps partially failed.

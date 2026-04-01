@@ -6,16 +6,16 @@ through ContextMatrix in Phase 2.
 ## Orchestration model
 
 **Claude Code (CC) is the main agent.** There is no separate Go daemon
-orchestrator for the primary workflow. The `Task` tool built into CC handles
+orchestrator for the primary workflow. The `Agent` tool built into CC handles
 sub-agent spawning with clean contexts. P2.9 (Go orchestrator) is deferred — it
 becomes a future headless/cron mode, not a Phase 2 core requirement.
 
 ```
 Human ↔ CC (main agent)
-           ├── Task tool → sub-agent (execute-task)
-           ├── Task tool → sub-agent (execute-task)
-           ├── Task tool → sub-agent (execute-task)
-           └── Task tool → review agent (review-task)
+           ├── Agent → sub-agent (execute-task)
+           ├── Agent → sub-agent (execute-task)
+           ├── Agent → sub-agent (execute-task)
+           └── Agent → review agent (review-task)
 ```
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
@@ -34,7 +34,7 @@ duplication — single source of truth.
 When a slash command is invoked, the prompt handler returns a **delegation
 wrapper**, not the raw skill content. The wrapper instructs the receiving agent
 to call `get_skill(...)` to fetch the full instructions and the required model,
-then spawn a sub-agent via TaskCreate with the returned `model` and `content`.
+then spawn a sub-agent via the `Agent` tool with the returned `model` and `content`.
 Skill files include an `## Agent Configuration` section that specifies the
 model; this section is stripped from all content delivered to agents (via
 `get_skill` and `complete_task`) since the model is communicated as a separate
@@ -77,8 +77,8 @@ Usage examples:
 The server uses the arguments to build a delegation wrapper prompt. When the
 receiving agent acts on a slash command, it calls `get_skill(...)` — which
 returns the full skill instructions with injected card context and a `model`
-field — then spawns a sub-agent via TaskCreate with the returned `model`,
-`subject`, and `description` (set to the returned content).
+field — then spawns a sub-agent via the `Agent` tool with the returned `model`,
+`description` (short summary), and `prompt` (set to the returned content).
 
 ## Workflow
 
@@ -91,7 +91,7 @@ board, then asks if the human wants a plan created immediately.
 
 The slash command returns a delegation prompt. CC calls
 `get_skill(skill_name='create-plan', card_id=...)` to get the full prompt and
-model, then spawns a plan sub-agent via TaskCreate (passing the `model` from
+model, then spawns a plan sub-agent via the `Agent` tool (passing the `model` from
 `get_skill`). The plan agent interviews the human, drafts a plan, and when
 approved: updates the parent card body with the plan and creates all subtasks
 linked via `parent` field.
@@ -108,7 +108,7 @@ CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 6. Calls `complete_task(id, agent_id, summary)` when done
 7. Prints structured completion summary (see below)
 
-Main agent awaits all Task tool completions and checks for blockers. **Parent
+Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
 card state is managed automatically by the service layer:** when the first
 subtask is claimed, the parent transitions `todo → in_progress`; when all
 subtasks reach `done`, the parent transitions to `review`. The `complete_task`
@@ -154,7 +154,7 @@ approval before writing. After docs are done, main agent transitions parent to
 
 ## Sub-agent structured output
 
-Sub-agents print a structured summary as their final output (Task tool return
+Sub-agents print a structured summary as their final output (`Agent` tool return
 value). Main agent parses this to determine next steps.
 
 On success:
