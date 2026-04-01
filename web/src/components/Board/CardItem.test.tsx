@@ -45,6 +45,11 @@ describe('CardItem — parent ID badge', () => {
       expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('TEST-001');
     });
 
+    it('parent badge has correct aria-label', () => {
+      render(<CardItem card={subtaskCard} />);
+      expect(screen.getByRole('button', { name: 'Navigate to parent TEST-001' })).toBeInTheDocument();
+    });
+
     it('does not render parent badge when card.parent is absent', () => {
       render(<CardItem card={baseCard} />);
       expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
@@ -73,6 +78,11 @@ describe('CardItem — parent ID badge', () => {
       render(<CardItem card={subtaskCard} isCollapsed />);
       expect(screen.getByTitle('Parent: TEST-001')).toBeInTheDocument();
       expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('TEST-001');
+    });
+
+    it('parent badge has correct aria-label', () => {
+      render(<CardItem card={subtaskCard} isCollapsed />);
+      expect(screen.getByRole('button', { name: 'Navigate to parent TEST-001' })).toBeInTheDocument();
     });
 
     it('does not render parent badge when card.parent is absent', () => {

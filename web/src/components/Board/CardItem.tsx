@@ -104,9 +104,13 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           {card.parent && (
             <button
               onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-              className="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity"
+              className="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity flex items-center gap-1"
               title={`Parent: ${card.parent}`}
+              aria-label={`Navigate to parent ${card.parent}`}
             >
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
               {card.parent}
             </button>
           )}
@@ -167,9 +171,13 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {card.parent && (
           <button
             onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-            className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity"
+            className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity flex items-center gap-1"
             title={`Parent: ${card.parent}`}
+            aria-label={`Navigate to parent ${card.parent}`}
           >
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
             {card.parent}
           </button>
         )}
