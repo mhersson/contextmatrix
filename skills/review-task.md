@@ -105,10 +105,39 @@ State one of:
 - **Send back for revision** — specific issues must be addressed before this can
   be considered done
 
-## Step 4: Release the card
+## Step 4: Collect the human's decision
 
-After presenting your findings, call `release_card(card_id, agent_id)` to
-release your claim. The card remains in `review` state for the human to act on.
+After presenting your findings, explicitly ask the human:
+
+> "Do you approve this work, or should it be sent back for revision?"
+
+Wait for the human's explicit answer before proceeding. Do not assume approval.
+
+Based on the human's response, print **exactly one** of the following structured
+output blocks. The main agent parses this to determine next steps — the format
+must be exact.
+
+On approval:
+
+```
+REVIEW_APPROVED
+card_id: <id>
+summary: <one-line summary of what was approved>
+```
+
+On rejection:
+
+```
+REVIEW_REJECTED
+card_id: <id>
+feedback: <concise summary of the issues the human wants addressed>
+```
+
+## Step 5: Release the card
+
+After printing the structured output, call `release_card(card_id, agent_id)` to
+release your claim. The card remains in `review` state for the main agent to act
+on based on your structured output.
 
 ## Rules
 
@@ -118,6 +147,13 @@ release your claim. The card remains in `review` state for the human to act on.
   in the UI) and `report_usage` (to record cost).
 - **Do not decide.** Present your findings and recommendation, but the human
   makes the final call.
+- **Wait for the human's explicit decision.** After presenting findings, you
+  must ask the human directly and wait for a clear approve or reject answer
+  before proceeding to Step 5. Do not infer approval from silence or ambiguity.
+- **Structured output is mandatory.** You must print either `REVIEW_APPROVED` or
+  `REVIEW_REJECTED` in the exact format specified in Step 4. The main agent
+  depends on this output to determine next steps — deviation will break the
+  workflow.
 - **Be specific.** "The code looks fine" is not a review. Reference specific
   cards, files, and decisions.
 - **Be fair.** Acknowledge what was done well before listing concerns. Criticize

@@ -144,11 +144,32 @@ If **yes**:
    review sub-agent using TaskCreate with `model` from the response,
    subject `"review-task for <parent_id>"`, and `description` set to the
    returned `content`.
-5. After review approval, call
+5. Wait for the review sub-agent to complete. Parse its structured output:
+   - **`REVIEW_APPROVED`**: proceed to step 6 (documentation).
+   - **`REVIEW_REJECTED`**: handle the rejection loop (see below).
+6. After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
    documentation sub-agent using TaskCreate with `model` from the response,
    subject `"document-task for <parent_id>"`, and `description` set to the
    returned `content`.
+
+### Review rejection loop
+
+When the review sub-agent returns `REVIEW_REJECTED`:
+
+1. Call `transition_card(card_id=<parent_id>, state='in_progress')` to move
+   the parent back from `review` to `in_progress`.
+2. Do **not** touch existing subtasks — they remain in `done` state with
+   their work preserved.
+3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and spawn
+   a new planning sub-agent via TaskCreate with the returned `model` and
+   `content`. **Include the review feedback** from the `REVIEW_REJECTED`
+   output in the TaskCreate `description` so the planner knows exactly what
+   needs fixing and creates new subtasks scoped only to the fixes.
+4. After the planning sub-agent finishes and the new fix subtasks are
+   created, resume the execute → review cycle from step 1 above.
+5. This loop (plan fix subtasks → execute → review) repeats until the human
+   approves.
 
 If **no**: let the human know they can run
 `/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
@@ -164,16 +185,30 @@ to completion. Do NOT stop partway:
 2. **Review** — When ALL subtasks are done, call
    `get_skill(skill_name='review-task', card_id=<parent_id>)` and spawn a
    review sub-agent via TaskCreate with the returned `model` and `content`.
-3. **Documentation** — After review approval, call
+   Wait for the review sub-agent to complete and parse its structured output.
+3. **If `REVIEW_APPROVED`** — Proceed to documentation.
+4. **If `REVIEW_REJECTED`** — Handle the rejection loop:
+   a. Call `transition_card(card_id=<parent_id>, state='in_progress')` to
+      move the parent back from `review` to `in_progress`.
+   b. Do **not** reset or touch existing done subtasks — their work is
+      preserved.
+   c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>)` and
+      spawn a new planning sub-agent via TaskCreate. Include the rejection
+      feedback from the `REVIEW_REJECTED` output in the `description` so the
+      planner creates fix subtasks scoped only to the issues raised.
+   d. After new subtasks are created, loop back to step 1 (Execute). Repeat
+      steps 1–4 until review approval is obtained.
+5. **Documentation** — After review approval, call
    `get_skill(skill_name='document-task', card_id=<parent_id>)` and spawn a
    documentation sub-agent via TaskCreate with the returned `model` and `content`.
-4. **Done** — After documentation, transition the parent card to `done`.
+6. **Done** — After documentation, transition the parent card to `done`.
 
 Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
-spawn execution agents and then stop. Do NOT complete review and then stop.
+spawn execution agents and then stop. Do NOT complete review and then stop. Do
+NOT stop after a rejection — re-plan and try again.
 
 The parent card's full lifecycle is:
-`todo → in_progress (subtasks start) → review (all subtasks done) → done (after review + docs)`
+`todo → in_progress → review → (if rejected) in_progress → review → … → (if approved) done`
 
 **Abandoning the workflow mid-stream is never acceptable.** If you cannot
 continue (e.g., the user asks to pause), clearly communicate where in the

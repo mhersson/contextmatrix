@@ -134,6 +134,15 @@ the `review_content` to spawn the review sub-agent.
 Do NOT ignore `next_step`. Do NOT print `TASK_COMPLETE` and stop. The card
 lifecycle is not finished until the review step has been initiated.
 
+**The review cycle may repeat.** After the review sub-agent completes, the
+main agent (create-plan) parses the structured output. If the human rejects
+the work, the main agent transitions the parent back to `in_progress` and
+spawns a new planning round for fix subtasks — which will result in new
+execution rounds. As an execution sub-agent, your job is the same in every
+round: claim your subtask, do the work, complete it. The structured output
+format (`TASK_COMPLETE` / `TASK_BLOCKED`) is the same regardless of which
+round you are in. Do not assume your round is the last one.
+
 ## Step 6: If blocked
 
 If you cannot complete the task due to a dependency, missing information, or
