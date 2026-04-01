@@ -1,0 +1,195 @@
+# CLAUDE.md — ContextMatrix
+
+## What is this project?
+
+ContextMatrix is a kanban-style task coordination system designed for AI agents
+and humans. Cards are markdown files with YAML frontmatter, stored in a git
+repository. It exposes a REST API and web UI for managing tasks across multiple
+projects. The primary users are AI coding agents (Claude Code, Gemini, etc.)
+that claim tasks, execute them in separate project repos, and report progress
+back to the board.
+
+ContextMatrix is a **coordination layer only**. It does not clone, build, or
+interact with project code repositories. Each project's `.board.yaml` has a
+`repo` field pointing to the code repo — agents use this to know where to work,
+but ContextMatrix never touches it.
+
+## Reference documents
+
+Read these when working on the relevant area:
+
+| Document                                           | Contents                                                                                                                                                                   |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)     | Component responsibilities, data flow, git repo scope, file layout. Read when modifying service layer, store, git, or lock interactions.                                   |
+| [`docs/agent-workflow.md`](docs/agent-workflow.md) | Phase 2 orchestration model, skill files, slash commands, workflow steps, blocker recovery, implementation order. Read when working on MCP, skills, or agent coordination. |
+| [`docs/data-model.md`](docs/data-model.md)         | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation.                |
+| [`docs/api-reference.md`](docs/api-reference.md)   | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                                         |
+| [`docs/gotchas.md`](docs/gotchas.md)               | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                                           |
+| [`web/CLAUDE.md`](web/CLAUDE.md)                   | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                                  |
+
+## Architecture
+
+```
+cmd/contextmatrix/main.go    → entrypoint, wires dependencies, starts server
+internal/board/              → domain types: Card, ProjectConfig, StateMachine
+internal/storage/            → Store interface + FilesystemStore implementation
+internal/gitops/             → GitManager (commit, pull, push via go-git)
+internal/lock/               → agent claim/release/heartbeat + timeout checker
+internal/service/            → CardService: orchestrates store, git, lock, events, state machine
+internal/api/                → REST API handlers (stdlib http.ServeMux) + SSE endpoint
+internal/mcp/                → MCP server: tools + prompts (Phase 2)
+internal/events/             → in-process pub/sub event bus
+internal/config/             → global config loading
+web/                         → React frontend (Vite + TypeScript + Tailwind)
+skills/                      → Agent skill files (markdown, served via MCP prompts)
+```
+
+The boards data directory is a **separate git repository** (see
+`docs/architecture.md`). It is NOT part of the source tree. See
+`docs/architecture.md` for component responsibilities, data flow, and git repo
+details.
+
+## Tech stack
+
+- **Go 1.26+** — backend
+- **net/http** — stdlib HTTP router (Go 1.22+ supports method routing and path
+  params)
+- **go-git** — git operations (`github.com/go-git/go-git/v5`)
+- **go-yaml v3** — YAML frontmatter (`gopkg.in/yaml.v3`)
+- **goldmark** — markdown rendering for preview (`github.com/yuin/goldmark`)
+- **Go MCP SDK** — MCP server via Streamable HTTP
+  (`github.com/modelcontextprotocol/go-sdk`) (Phase 2)
+- **React 19 + TypeScript** — frontend
+- **Vite** — frontend build
+- **Tailwind CSS** — styling
+- **@dnd-kit** — drag and drop (`@dnd-kit/core`, `@dnd-kit/sortable`)
+- **@uiw/react-md-editor** — markdown editor
+- **embed.FS** — frontend embedded into Go binary for single-binary distribution
+
+## Coding conventions
+
+### Go
+
+- Use `internal/` for all packages — nothing exported outside the module.
+- Interfaces belong in the package that _uses_ them, not the package that
+  implements them. Exception: `storage.Store` is defined in `storage/` because
+  multiple packages use it.
+- Error handling: wrap with `fmt.Errorf("operation: %w", err)`. Never swallow
+  errors.
+- Use `context.Context` as the first parameter for any function that does I/O.
+- No global state. Dependencies injected via struct fields, wired in `main.go`.
+- Tests next to code: `card.go` → `card_test.go`. Use table-driven tests.
+- Use `t.Helper()` in test helpers. Use `testify/assert` for assertions and
+  `testify/require` for fatal checks (`github.com/stretchr/testify`).
+- No `init()` functions.
+- Logging: `log/slog` with structured fields. No `fmt.Println` in production.
+- Names: `CardFilter` not `CardFilterStruct`. `ParseCard` not
+  `ParseCardFromBytes`.
+- Prefer returning concrete types from constructors, interfaces from consumers.
+- All exported functions that write to disk or network must accept
+  `context.Context`.
+
+### Frontend
+
+Frontend conventions and Everforest palette: see `web/CLAUDE.md` (auto-loaded
+when working in `web/`).
+
+## Key domain rules (summary)
+
+Full details with examples: `docs/data-model.md`.
+
+1. **Card IDs:** `PREFIX-NNN`, zero-padded, server-generated, immutable.
+2. **State transitions:** enforced per `.board.yaml` `transitions` map. 409 on
+   invalid.
+3. **One agent per card.** Claim required. Agent checked via `X-Agent-ID` header
+   (403 on mismatch).
+4. **Human identity:** agent IDs prefixed with `human:` (e.g., `human:alice`).
+5. **Every mutation auto-commits** via `GitManager.CommitFile()`.
+6. **Activity log:** append-only, capped at 50 entries per card.
+7. **Heartbeat timeout:** default 30min, service layer sets card to `stalled` +
+   clears agent.
+8. **External source tracking:** `source` field for Jira/GitHub imports,
+   immutable after creation.
+9. **Parent auto-transitions:** parent goes `in_progress` when first subtask
+   claimed, `review` when all subtasks done.
+10. **Subtask type:** automatic when `parent` is set, immutable, built-in (not
+    in `.board.yaml` types).
+
+## Running the project
+
+```bash
+# Backend
+make build        # builds binary with embedded frontend
+make run          # runs on :8080
+make test         # runs all Go tests
+
+# Frontend dev (hot reload, proxies API to :8080)
+cd web && npm run dev
+
+# Initialize the boards repo (separate from source code)
+mkdir -p ~/boards/contextmatrix
+cd ~/boards/contextmatrix && git init
+
+# Create a new project board
+mkdir -p project-alpha/tasks project-alpha/templates
+# create project-alpha/.board.yaml (see format above)
+# update config.yaml: boards_dir: ~/boards/contextmatrix
+
+# Claude Code MCP config (~/.claude/claude.json or project .claude/claude.json)
+# {
+#   "mcpServers": {
+#     "contextmatrix": {
+#       "type": "http",
+#       "url": "http://localhost:8080/mcp"
+#     }
+#   }
+# }
+#
+# For container deployments, point at the container:
+# "url": "http://contextmatrix:8080/mcp"
+```
+
+## Mandatory verification before proceeding
+
+**Every task must be fully tested and verified before moving to the next task.**
+
+1. All unit tests pass: `go test ./internal/...` — zero failures.
+2. Full suite passes: `make test` — no regressions.
+3. Code compiles cleanly: `go build ./...` — zero errors.
+4. Manual verification for API tasks: curl endpoints, confirm response codes.
+5. Manual verification for frontend tasks: browser user flow end-to-end.
+6. Manual verification for MCP tasks: connect Claude Code, invoke tools/prompts.
+7. Lint passes: `golangci-lint run` clean.
+
+If any check fails, fix before proceeding.
+
+## Commit discipline
+
+```bash
+make test   # must be clean before every commit
+make lint   # must be clean before every commit
+make build  # must build
+```
+
+**NEVER** commit code without manual approval from the user. No exceptions.
+
+**NEVER** reference the plan phase or task number in commit messages. Use
+conventional commits:
+
+```
+feat(mcp): Add MCP server with Streamable HTTP transport and tool definitions
+feat(mcp): Add prompts capability for Claude Code slash commands
+feat(skills): Add execute-task skill with heartbeat discipline
+```
+
+## Testing
+
+- **Unit tests:** card parsing, state machine, lock manager, ID generation,
+  event bus.
+- **Integration tests:** service layer (real filesystem, temp dir), API
+  (`httptest`), git commit verification.
+- **Concurrent tests:** multiple goroutines claiming/updating simultaneously.
+- **MCP tests:** tool call round-trips via in-process MCP client, prompt
+  rendering.
+
+Run tests frequently. Write tests alongside each function. Use `t.TempDir()`.
