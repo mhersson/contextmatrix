@@ -32,8 +32,8 @@ requirements or notes, use them as input. If the card body already has a
 `## Plan` section, use it as a starting point and refine it — do not discard
 previous planning work.
 
-Call `get_task_context` to fetch the full card with project config, parent card,
-and sibling context if needed.
+The card details above already include the full context. Only call
+`get_task_context` if you need to verify the absolute latest state.
 
 ## Step 2: Draft the plan
 

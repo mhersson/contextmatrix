@@ -18,6 +18,37 @@ up from whatever state the card is currently in.
 - Read the card context provided above carefully — it tells you the current
   state, whether subtasks exist, and what phase to start from.
 
+## Task Complexity
+
+The server has classified this task. Check the card context above for
+`Complexity: simple` or `Complexity: standard`.
+
+### Simple Task Fast Path
+
+If `Complexity: simple`:
+
+1. Claim the card: `claim_card(card_id, agent_id)`.
+2. Create or switch to the feature branch (if `branch_name` is set).
+3. Execute the work directly — make the changes described in the card body.
+4. Run tests (`make test` or the project's test command). If tests fail, fix
+   and retry once. If still failing, report blocked and stop.
+5. Commit with a conventional commit message. Push to the feature branch.
+6. Create a PR if `create_pr` is enabled.
+7. Call `report_push(card_id, branch, pr_url)` after pushing.
+8. Call `report_usage` with your token consumption.
+9. Transition to `done`: `transition_card(card_id, new_state='done')`.
+10. Release: `release_card(card_id, agent_id)`.
+11. Print `AUTONOMOUS_COMPLETE` structured output and stop.
+
+The fast path skips planning, subtask creation, review, and documentation.
+It NEVER skips: card claim, heartbeat, tests, branch protection, release_card.
+
+**NEVER push to main or master.** This is non-negotiable even on the fast path.
+
+### Standard Task Path
+
+If `Complexity: standard`, follow the full pipeline below.
+
 ## Determine Starting Point
 
 Based on the card's current state and body content:
@@ -55,8 +86,13 @@ Based on the card's current state and body content:
 11. Call `get_ready_tasks(project, parent_id='<card_id>')` to get unclaimed
     subtasks with dependencies met.
 12. For each ready subtask, spawn a sub-agent:
-    - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')`.
-    - Use the `Agent` tool with the returned model and content.
+    - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>',
+      caller_model='<your_model>')`.
+    - If `inline` is true, execute the content directly (you match the model).
+    - Otherwise, use the `Agent` tool with the returned `model` and `content`.
+      **CRITICAL: always set the `model` parameter** from the `get_skill`
+      response — do NOT omit it or the sub-agent will inherit your model
+      (opus) instead of the intended model (typically sonnet).
     - Spawn subtasks in **parallel** where possible.
 13. Call `heartbeat(card_id='<card_id>', agent_id=<your_id>)` on the parent
     every 5 minutes while waiting.
@@ -88,8 +124,10 @@ Based on the card's current state and body content:
 
 ## Phase 5: Documentation
 
-21. Call `get_skill(skill_name='document-task', card_id='<card_id>')`.
-22. Spawn a documentation sub-agent. Wait for `DOCS_WRITTEN`.
+21. Call `get_skill(skill_name='document-task', card_id='<card_id>',
+    caller_model='<your_model>')`.
+22. If `inline` is true, execute directly. Otherwise spawn a documentation
+    sub-agent with the returned `model`. Wait for `DOCS_WRITTEN`.
 
 ## Phase 6: Finalization
 

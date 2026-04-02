@@ -513,7 +513,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 		}
 
 		if reviewCardID != "" {
-			skill, serr := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{CardID: reviewCardID})
+			skill, serr := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{CardID: reviewCardID}, true)
 			if serr == nil {
 				out.ReviewSkillName = "review-task"
 				out.ReviewModel = skill.Model
@@ -816,11 +816,12 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 }
 
 type getSkillInput struct {
-	SkillName   string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project"`
-	CardID      string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task)"`
-	Description string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
-	Name        string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
-	CallerModel string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project"`
+	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task)"`
+	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
+	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
+	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
+	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 type getSkillOutput struct {
 	SkillName   string `json:"skill_name"`
@@ -839,11 +840,12 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 			"the content already includes lifecycle enforcement instructions. " +
 			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
+		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
 		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
 			Description: input.Description,
 			Name:        input.Name,
-		})
+		}, includePreamble)
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}

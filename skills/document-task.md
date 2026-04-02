@@ -21,8 +21,8 @@ documented. This makes the documentation work visible in the UI (pulsating
 border + agent badge). The card stays in its current state — claiming does not
 change it.
 
-Then call `get_task_context` with the card ID to get the latest state. Review
-thoroughly:
+Review the card details provided above thoroughly. Only call `get_task_context`
+if you need to verify the absolute latest state. Review:
 
 - **Parent card**: original requirements, plan, acceptance criteria
 - **All subtasks**: progress notes, decisions made, work completed

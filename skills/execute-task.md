@@ -15,9 +15,10 @@ ContextMatrix MCP tools to manage your card's lifecycle.
 
 ## Step 1: Read context
 
-Call `get_task_context` with your card ID to fetch the latest card state, parent
-card, sibling progress, and project config. Do not rely solely on the context
-injected above — it may be slightly stale.
+Review the card details provided above — they contain your card, parent card,
+sibling progress, and project config. Only call `get_task_context` if you need
+to verify the absolute latest state (e.g., checking if a dependency just
+completed).
 
 Review:
 

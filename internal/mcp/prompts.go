@@ -507,7 +507,7 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		result, err := buildSkillContent(ctx, svc, skillsDir, "create-task", skillArgs{
 			Description: req.Params.Arguments["description"],
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -528,7 +528,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
 			CardID: cardID,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -569,7 +569,7 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
 			CardID: cardID,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -671,7 +671,7 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
 			CardID: cardID,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -708,7 +708,7 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
 			CardID: cardID,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -731,7 +731,7 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		name := req.Params.Arguments["name"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
 			Name: name,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -750,7 +750,7 @@ func runAutonomousPromptHandler(svc *service.CardService, skillsDir string) mcp.
 		cardID := req.Params.Arguments["card_id"]
 		result, err := buildSkillContent(ctx, svc, skillsDir, "run-autonomous", skillArgs{
 			CardID: cardID,
-		})
+		}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -781,7 +781,10 @@ var validSkillNames = []string{
 // buildSkillContent reads the skill file and assembles the full prompt text
 // with injected card/project context. Used by both prompt handlers and the
 // get_skill tool. Returns a skillResult with the content and parsed model.
-func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs) (skillResult, error) {
+// When includePreamble is false, the workflow rules preamble is omitted to
+// avoid re-injecting it into agents that already have it (e.g. orchestrators
+// calling get_skill multiple times during an autonomous run).
+func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs, includePreamble bool) (skillResult, error) {
 	var content string
 	var err error
 
@@ -807,8 +810,12 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 		return skillResult{}, err
 	}
 
+	prefix := ""
+	if includePreamble {
+		prefix = workflowPreamble
+	}
 	return skillResult{
-		Content:     workflowPreamble + content,
+		Content:     prefix + content,
 		Model:       parseSkillModel(content),
 		Phase2Model: parsePhase2Model(content),
 	}, nil
@@ -846,7 +853,7 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, fi
 	if includeFamily && card.Parent != "" {
 		parent, perr := svc.GetCard(ctx, project, card.Parent)
 		if perr == nil {
-			parts = append(parts, "\n## Parent Card\n"+formatCardBrief(parent))
+			parts = append(parts, "\n## Parent Card\n"+formatCardBriefWithBody(parent))
 		}
 		siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
 		if serr == nil {
@@ -914,8 +921,13 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir
 	var parts []string
 	parts = append(parts, formatCardContext(card, project))
 
-	// Include subtasks if any
+	// Inject server-side complexity classification so the skill can route
+	// simple tasks to the fast path (skip planning/review/docs).
 	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
+	complexity := classifyComplexity(card, subtasks, serr)
+	parts = append(parts, fmt.Sprintf("- **Complexity:** %s", complexity))
+
+	// Include subtasks if any
 	if serr == nil && len(subtasks) > 0 {
 		parts = append(parts, "\n## Subtasks")
 		for _, sub := range subtasks {
@@ -924,6 +936,22 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir
 	}
 
 	return strings.Join(parts, "\n") + "\n\n" + skill, nil
+}
+
+// classifyComplexity determines whether a task is simple enough for the fast
+// path (skip planning/review/docs). A task is simple only if it has the
+// "simple" label AND has no existing subtasks.
+func classifyComplexity(card *board.Card, subtasks []*board.Card, subtaskErr error) string {
+	// Already has subtasks — standard pipeline needed.
+	if subtaskErr == nil && len(subtasks) > 0 {
+		return "standard"
+	}
+	for _, l := range card.Labels {
+		if l == "simple" {
+			return "simple"
+		}
+	}
+	return "standard"
 }
 
 func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, name string) (string, error) {
@@ -1018,7 +1046,8 @@ func formatCardContext(c *board.Card, project string) string {
 	return b.String()
 }
 
-// formatCardBrief formats a card as a brief summary.
+// formatCardBrief formats a card as a brief summary without the body.
+// Use formatCardBriefWithBody when the caller genuinely needs body content.
 func formatCardBrief(c *board.Card) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n### %s: %s\n", c.ID, c.Title)
@@ -1026,8 +1055,14 @@ func formatCardBrief(c *board.Card) string {
 	if c.AssignedAgent != "" {
 		fmt.Fprintf(&b, "- Agent: %s\n", c.AssignedAgent)
 	}
-	if c.Body != "" {
-		fmt.Fprintf(&b, "\n%s\n", c.Body)
-	}
 	return b.String()
+}
+
+// formatCardBriefWithBody formats a card as a brief summary including the full body.
+func formatCardBriefWithBody(c *board.Card) string {
+	s := formatCardBrief(c)
+	if c.Body != "" {
+		s += fmt.Sprintf("\n%s\n", c.Body)
+	}
+	return s
 }
