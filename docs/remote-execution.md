@@ -201,10 +201,16 @@ Resolution order:
 1. Project's `remote_execution.enabled` (if set)
 2. Global `runner.enabled` (fallback)
 
+**API responses reflect the effective state.** `GET /api/projects` and
+`GET /api/projects/{project}` always return `remote_execution.enabled` as the
+resolved value — global disabled overrides any per-project setting. Clients
+do not need to consult the global config separately; the response value is
+authoritative for whether the "Run Now" button should be enabled.
+
 ### Global Kill Switch
 
 Set `runner.enabled: false` in `config.yaml` to disable remote execution
-entirely. The "Run Now" button will not appear in the UI and trigger endpoints
+entirely. The "Run Now" button will not appear in the UI, and trigger endpoints
 return 503.
 
 ## Configuration Reference

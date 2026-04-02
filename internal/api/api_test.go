@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -2190,5 +2191,183 @@ func TestReportPush_AgentMismatch(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+// testSetupWithRemoteExecution creates a test environment with a project that has
+// remote_execution configured. The boardConfig parameter overrides the default board config.
+func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*service.CardService, *events.Bus, func()) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfigYAML), 0o644))
+
+	git, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+
+	return svc, bus, func() {}
+}
+
+func TestGetProjectRunnerStatus(t *testing.T) {
+	boardConfigWithRemoteExec := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: my-runner:latest
+`
+
+	boardConfigPerProjectDisabled := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: false
+  runner_image: my-runner:latest
+`
+
+	t.Run("runner disabled globally returns remote_execution.enabled false", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
+		defer cleanup()
+
+		// No runner client passed → runnerEnabled = false
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/projects/test-project")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var project board.ProjectConfig
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
+
+		require.NotNil(t, project.RemoteExecution)
+		require.NotNil(t, project.RemoteExecution.Enabled)
+		assert.False(t, *project.RemoteExecution.Enabled,
+			"remote_execution.enabled should be false when runner is globally disabled")
+	})
+
+	t.Run("runner enabled globally but per-project disabled returns false", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigPerProjectDisabled)
+		defer cleanup()
+
+		// Passing a non-nil runner client → runnerEnabled = true
+		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/projects/test-project")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var project board.ProjectConfig
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
+
+		require.NotNil(t, project.RemoteExecution)
+		require.NotNil(t, project.RemoteExecution.Enabled)
+		assert.False(t, *project.RemoteExecution.Enabled,
+			"remote_execution.enabled should be false when per-project config disables it")
+	})
+
+	t.Run("runner enabled globally with no per-project override returns nil remote_execution", func(t *testing.T) {
+		// Use the default board config (no remote_execution section)
+		svc, bus, cleanup := testSetup(t)
+		defer cleanup()
+
+		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/projects/test-project")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var project board.ProjectConfig
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
+
+		assert.Nil(t, project.RemoteExecution,
+			"remote_execution should be nil when runner is enabled but no per-project override exists")
+	})
+}
+
+func TestListProjectsRunnerStatus(t *testing.T) {
+	boardConfigWithRemoteExec := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: my-runner:latest
+`
+
+	t.Run("runner disabled globally returns remote_execution.enabled false for all projects", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
+		defer cleanup()
+
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/projects")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var projects []board.ProjectConfig
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&projects))
+
+		require.Len(t, projects, 1)
+		require.NotNil(t, projects[0].RemoteExecution)
+		require.NotNil(t, projects[0].RemoteExecution.Enabled)
+		assert.False(t, *projects[0].RemoteExecution.Enabled,
+			"remote_execution.enabled should be false in list when runner is globally disabled")
 	})
 }

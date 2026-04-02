@@ -68,7 +68,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Create handlers
-	ph := &projectHandlers{svc: cfg.Service}
+	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil}
 	ch := &cardHandlers{svc: cfg.Service}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)

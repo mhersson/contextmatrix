@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -29,7 +30,28 @@ type updateProjectRequest struct {
 
 // projectHandlers contains handlers for project-related endpoints.
 type projectHandlers struct {
-	svc *service.CardService
+	svc           *service.CardService
+	runnerEnabled bool
+}
+
+// effectiveRemoteExecution returns a cloned project config with remote_execution.enabled
+// forced to false when the runner is globally disabled. This ensures the frontend sees
+// the effective state rather than the raw per-project configuration.
+func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) board.ProjectConfig {
+	if h.runnerEnabled {
+		return cfg
+	}
+	// Runner is globally disabled — force enabled=false so the frontend disables the button.
+	disabled := false
+	if cfg.RemoteExecution != nil {
+		// Clone the existing config to avoid mutating the original.
+		re := *cfg.RemoteExecution
+		re.Enabled = &disabled
+		cfg.RemoteExecution = &re
+	} else {
+		cfg.RemoteExecution = &board.RemoteExecutionConfig{Enabled: &disabled}
+	}
+	return cfg
 }
 
 // listProjects handles GET /api/projects
@@ -40,7 +62,12 @@ func (h *projectHandlers) listProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, projects)
+	effective := make([]board.ProjectConfig, len(projects))
+	for i, p := range projects {
+		effective[i] = h.effectiveRemoteExecution(p)
+	}
+
+	writeJSON(w, http.StatusOK, effective)
 }
 
 // getProject handles GET /api/projects/{project}
@@ -57,7 +84,7 @@ func (h *projectHandlers) getProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, project)
+	writeJSON(w, http.StatusOK, h.effectiveRemoteExecution(*project))
 }
 
 // getProjectUsage handles GET /api/projects/{project}/usage
