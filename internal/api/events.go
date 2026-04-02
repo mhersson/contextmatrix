@@ -86,8 +86,9 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Filter by project if specified
-			if projectFilter != "" && event.Project != projectFilter {
+			// Filter by project if specified. Global events (empty project)
+			// always pass through regardless of the project filter.
+			if projectFilter != "" && event.Project != projectFilter && event.Project != "" {
 				continue
 			}
 

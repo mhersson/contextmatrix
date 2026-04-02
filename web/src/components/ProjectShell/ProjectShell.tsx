@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
+import { useSync } from '../../hooks/useSync';
 import { useAgentId } from '../../hooks/useAgentId';
 import { useCardActions } from '../../hooks/useCardActions';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -36,7 +37,8 @@ export function ProjectShell() {
     setCreatePanelOpen(false);
   }, [project]);
 
-  const { config, cards, loading, error, connected, updateCardLocally } = useBoard(project || '');
+  const { syncStatus, triggerSync, handleSyncEvent } = useSync();
+  const { config, cards, loading, error, connected, updateCardLocally } = useBoard(project || '', undefined, handleSyncEvent);
 
   const { handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard } =
     useCardActions({
@@ -111,7 +113,7 @@ export function ProjectShell() {
 
   return (
     <>
-      <AppHeader project={project || ''} connected={connected} />
+      <AppHeader project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync} />
       <main className="flex-1 overflow-hidden">
         <Routes>
           <Route

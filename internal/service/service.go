@@ -186,6 +186,10 @@ type CardService struct {
 	// Protected by writeMu (always held during card mutations).
 	deferredPaths map[string][]string
 
+	// onCommit is called after each successful git commit.
+	// Used by the sync layer to trigger push-after-commit.
+	onCommit func()
+
 	// Per-project caches
 	mu         sync.RWMutex
 	validators map[string]*board.Validator
@@ -218,6 +222,39 @@ func NewCardService(
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
+}
+
+// SetOnCommit registers a callback invoked after each successful git commit.
+func (s *CardService) SetOnCommit(fn func()) {
+	s.onCommit = fn
+}
+
+// notifyCommit calls the onCommit callback if set.
+func (s *CardService) notifyCommit() {
+	if s.onCommit != nil {
+		s.onCommit()
+	}
+}
+
+// ClearCaches resets all per-project caches (validators, configs, templates).
+// Called after a git pull that may have changed project files.
+func (s *CardService) ClearCaches() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.validators = make(map[string]*board.Validator)
+	s.configs = make(map[string]*board.ProjectConfig)
+	s.templates = make(map[string]map[string]string)
+}
+
+// LockWrites acquires the write mutex, preventing all card mutations.
+// Used by the sync layer during pull+index-rebuild.
+func (s *CardService) LockWrites() {
+	s.writeMu.Lock()
+}
+
+// UnlockWrites releases the write mutex.
+func (s *CardService) UnlockWrites() {
+	s.writeMu.Unlock()
 }
 
 // ListProjects returns all discovered projects.
@@ -273,6 +310,8 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
 		if err := s.git.CommitAll(msg); err != nil {
 			slog.Warn("git commit after project create", "error", err)
+		} else {
+			s.notifyCommit()
 		}
 	}
 
@@ -359,6 +398,8 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
 		if err := s.git.CommitFile(path, msg); err != nil {
 			slog.Warn("git commit after project update", "error", err)
+		} else {
+			s.notifyCommit()
 		}
 	}
 
@@ -407,6 +448,8 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
 		if err := s.git.CommitAll(msg); err != nil {
 			slog.Warn("git commit after project delete", "error", err)
+		} else {
+			s.notifyCommit()
 		}
 	}
 
@@ -532,6 +575,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+		s.notifyCommit()
 	}
 
 	// Publish event
@@ -653,6 +697,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		if err := s.git.CommitFile(cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+		s.notifyCommit()
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
@@ -767,6 +812,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		if err := s.git.CommitFile(cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+		s.notifyCommit()
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
@@ -832,6 +878,8 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		if err := s.git.CommitAll(msg); err != nil {
 			// File already deleted by store, just commit the change
 			slog.Warn("git commit after delete", "error", err, "path", path)
+		} else {
+			s.notifyCommit()
 		}
 	}
 
@@ -1053,6 +1101,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 		if err := s.git.CommitFiles(updatedPaths, msg); err != nil {
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
+		s.notifyCommit()
 	}
 
 	return result, nil
@@ -1559,7 +1608,11 @@ func (s *CardService) commitCardChange(project, cardID, agentID, action string) 
 		return nil
 	}
 	msg := commitMessage(agentID, cardID, action)
-	return s.git.CommitFile(path, msg)
+	if err := s.git.CommitFile(path, msg); err != nil {
+		return err
+	}
+	s.notifyCommit()
+	return nil
 }
 
 // flushDeferredCommit stages all accumulated deferred paths for cardID and
@@ -1584,7 +1637,11 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	}
 	delete(s.deferredPaths, cardID)
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
-	return s.git.CommitFiles(unique, msg)
+	if err := s.git.CommitFiles(unique, msg); err != nil {
+		return err
+	}
+	s.notifyCommit()
+	return nil
 }
 
 // maybeTransitionParent checks if a child's state change should trigger a

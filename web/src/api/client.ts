@@ -10,6 +10,7 @@ import type {
   PatchCardInput,
   CardContext,
   DashboardData,
+  SyncStatus,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -200,6 +201,15 @@ class APIClient {
 
   async getDashboard(project: string): Promise<DashboardData> {
     return this.request<DashboardData>(`/projects/${project}/dashboard`);
+  }
+
+  // Sync
+  async triggerSync(): Promise<SyncStatus> {
+    return this.request<SyncStatus>('/sync', { method: 'POST' });
+  }
+
+  async getSyncStatus(): Promise<SyncStatus> {
+    return this.request<SyncStatus>('/sync');
   }
 }
 

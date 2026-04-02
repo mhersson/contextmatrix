@@ -17,6 +17,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -94,8 +95,30 @@ func main() {
 	// Start timeout checker (checks every minute)
 	svc.StartTimeoutChecker(ctx, time.Minute)
 
+	// Initialize git sync
+	var syncer *gitsync.Syncer
+	if git.HasRemote() {
+		pullInterval, _ := cfg.PullIntervalDuration()
+		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.BoardsDir,
+			cfg.GitAutoPull, cfg.GitAutoPush, pullInterval)
+		if syncer != nil {
+			if err := syncer.PullOnStartup(ctx); err != nil {
+				slog.Warn("initial pull failed", "error", err)
+			}
+			if cfg.GitAutoPush {
+				svc.SetOnCommit(syncer.NotifyCommit)
+			}
+			syncer.Start(ctx)
+			slog.Info("git sync initialized",
+				"auto_pull", cfg.GitAutoPull,
+				"auto_push", cfg.GitAutoPush,
+				"pull_interval", pullInterval,
+			)
+		}
+	}
+
 	// Create router with all API routes
-	mux := api.NewRouter(svc, bus, cfg.CORSOrigin)
+	mux := api.NewRouter(svc, bus, cfg.CORSOrigin, syncer)
 
 	// Create MCP server and register on the mux
 	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)

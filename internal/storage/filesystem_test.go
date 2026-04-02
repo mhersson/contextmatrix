@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -570,4 +572,57 @@ func TestFilesystemStore_ProjectCardCount_NotFound(t *testing.T) {
 
 	_, err = store.ProjectCardCount(context.Background(), "nonexistent")
 	assert.ErrorIs(t, err, ErrProjectNotFound)
+}
+
+func TestFilesystemStore_ReloadIndex(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Create a card through the store
+	card := testCard("TEST-001", "todo")
+	require.NoError(t, store.CreateCard(ctx, "test-project", card))
+
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 1)
+
+	// Simulate an external change: write a new card file directly to disk
+	newCardContent := `---
+id: TEST-002
+title: External Card
+project: test-project
+type: task
+state: todo
+priority: high
+created: 2026-04-01T00:00:00Z
+updated: 2026-04-01T00:00:00Z
+---
+
+Created externally.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test-project", "tasks", "TEST-002.md"), []byte(newCardContent), 0o644))
+
+	// Before reload, the index doesn't know about TEST-002
+	cards, err = store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 1)
+
+	// Reload the index
+	require.NoError(t, store.ReloadIndex())
+
+	// Now we should see both cards
+	cards, err = store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 2)
+
+	// Verify the externally created card is findable
+	got, err := store.GetCard(ctx, "test-project", "TEST-002")
+	require.NoError(t, err)
+	assert.Equal(t, "External Card", got.Title)
+	assert.Equal(t, "high", got.Priority)
 }

@@ -81,7 +81,18 @@ export type EventType =
   | 'card.usage_reported'
   | 'project.created'
   | 'project.updated'
-  | 'project.deleted';
+  | 'project.deleted'
+  | 'sync.started'
+  | 'sync.completed'
+  | 'sync.conflict'
+  | 'sync.error';
+
+export interface SyncStatus {
+  last_sync_time: string | null;
+  last_sync_error?: string;
+  syncing: boolean;
+  enabled: boolean;
+}
 
 export interface BoardEvent {
   type: EventType;

@@ -116,6 +116,15 @@ func (s *FilesystemStore) loadIndex() error {
 	return nil
 }
 
+// ReloadIndex rebuilds the in-memory index from disk.
+// This is used after a git pull brings new/changed card files.
+func (s *FilesystemStore) ReloadIndex() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.projects = make(map[string]*projectIndex)
+	return s.loadIndex()
+}
+
 // buildCardIndex creates a cardIndex from a Card.
 func (s *FilesystemStore) buildCardIndex(card *board.Card, filePath string) *cardIndex {
 	idx := &cardIndex{

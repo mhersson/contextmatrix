@@ -47,7 +47,7 @@ type APIError struct {
 // NewRouter creates a new HTTP router with all API routes registered.
 // corsOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
 // If empty, CORS headers are not set.
-func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *http.ServeMux {
+func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string, syncer Syncer) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Create handlers
@@ -55,6 +55,7 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *ht
 	ch := &cardHandlers{svc: svc}
 	ah := &agentHandlers{svc: svc}
 	eh := newEventHandlers(bus)
+	sh := &syncHandlers{syncer: syncer}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -89,6 +90,10 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string) *ht
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
 	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
+
+	// Sync routes
+	mux.HandleFunc("POST /api/sync", sh.triggerSync)
+	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
 
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler
 	return wrapMux(mux, corsOrigin)

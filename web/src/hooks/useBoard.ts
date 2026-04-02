@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSE } from './useSSE';
@@ -13,7 +13,11 @@ interface UseBoardResult {
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
 }
 
-export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
+export function useBoard(
+  project: string,
+  filter?: CardFilter,
+  onSyncEvent?: (event: BoardEvent) => void
+): UseBoardResult {
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,8 +52,23 @@ export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
     fetchData();
   }, [fetchData]);
 
+  const onSyncEventRef = useRef(onSyncEvent);
+  useEffect(() => {
+    onSyncEventRef.current = onSyncEvent;
+  }, [onSyncEvent]);
+
   const handleEvent = useCallback(
     (event: BoardEvent) => {
+      // Forward sync events to the sync handler.
+      if (event.type.startsWith('sync.')) {
+        onSyncEventRef.current?.(event);
+        // Also reload board when changes were pulled.
+        if (event.type === 'sync.completed' && event.data?.changes_pulled) {
+          fetchData();
+        }
+        return;
+      }
+
       if (event.project !== project) return;
 
       switch (event.type) {
@@ -78,7 +97,7 @@ export function useBoard(project: string, filter?: CardFilter): UseBoardResult {
           break;
       }
     },
-    [project]
+    [project, fetchData]
   );
 
   const { connected, error: sseError } = useSSE({

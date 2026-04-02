@@ -24,6 +24,11 @@ const (
 	ProjectCreated      EventType = "project.created"
 	ProjectUpdated      EventType = "project.updated"
 	ProjectDeleted      EventType = "project.deleted"
+
+	SyncStarted   EventType = "sync.started"
+	SyncCompleted EventType = "sync.completed"
+	SyncConflict  EventType = "sync.conflict"
+	SyncError     EventType = "sync.error"
 )
 
 // Event represents a board event that can be published to subscribers.

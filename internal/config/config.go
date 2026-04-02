@@ -24,6 +24,8 @@ type Config struct {
 	BoardsDir           string               `yaml:"boards_dir"`
 	GitAutoCommit       bool                 `yaml:"git_auto_commit"`
 	GitAutoPush         bool                 `yaml:"git_auto_push"`
+	GitAutoPull         bool                 `yaml:"git_auto_pull"`
+	GitPullInterval     string               `yaml:"git_pull_interval"`
 	GitDeferredCommit   bool                 `yaml:"git_deferred_commit"`
 	HeartbeatTimeout    string               `yaml:"heartbeat_timeout"`
 	CORSOrigin          string               `yaml:"cors_origin"`
@@ -38,6 +40,8 @@ func defaults() *Config {
 		BoardsDir:        "", // No default — must be configured
 		GitAutoCommit:    true,
 		GitAutoPush:      false,
+		GitAutoPull:      false,
+		GitPullInterval:  "60s",
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
@@ -51,6 +55,11 @@ func (c *Config) Validate() error {
 	}
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
+	}
+	if c.GitPullInterval != "" {
+		if _, err := time.ParseDuration(c.GitPullInterval); err != nil {
+			return fmt.Errorf("invalid git_pull_interval %q: %w", c.GitPullInterval, err)
+		}
 	}
 	return nil
 }
@@ -157,6 +166,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PUSH"); v != "" {
 		cfg.GitAutoPush = v == "true" || v == "1"
 	}
+	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PULL"); v != "" {
+		cfg.GitAutoPull = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GIT_PULL_INTERVAL"); v != "" {
+		cfg.GitPullInterval = v
+	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_DEFERRED_COMMIT"); v != "" {
 		cfg.GitDeferredCommit = v == "true" || v == "1"
 	}
@@ -174,6 +189,11 @@ func applyEnvOverrides(cfg *Config) {
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
 func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
+}
+
+// PullIntervalDuration parses GitPullInterval as a time.Duration.
+func (c *Config) PullIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(c.GitPullInterval)
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.

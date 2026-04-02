@@ -422,3 +422,48 @@ func TestRepoPath(t *testing.T) {
 
 	assert.Equal(t, tmpDir, mgr.RepoPath())
 }
+
+func TestHasRemote_NoRemote(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	assert.False(t, mgr.HasRemote())
+}
+
+func TestHasRemote_WithRemote(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	err = mgr.AddRemote("origin", "https://github.com/test/repo.git")
+	require.NoError(t, err)
+
+	assert.True(t, mgr.HasRemote())
+}
+
+func TestCurrentBranch(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	// Create an initial commit so HEAD exists
+	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile("init.txt", "initial commit")
+	require.NoError(t, err)
+
+	branch, err := mgr.CurrentBranch()
+	require.NoError(t, err)
+	assert.Equal(t, "master", branch)
+}
+
+func TestCurrentBranch_NoCommits(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	// Empty repo has no HEAD
+	_, err = mgr.CurrentBranch()
+	assert.Error(t, err)
+}

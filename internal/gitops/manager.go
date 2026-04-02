@@ -260,6 +260,25 @@ func (m *Manager) RepoPath() string {
 	return m.repoPath
 }
 
+// HasRemote reports whether the repository has an "origin" remote configured.
+func (m *Manager) HasRemote() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hasRemote("origin")
+}
+
+// CurrentBranch returns the short name of the currently checked-out branch.
+func (m *Manager) CurrentBranch() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	head, err := m.repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("get HEAD: %w", err)
+	}
+	return head.Name().Short(), nil
+}
+
 // HasUncommittedChanges checks if there are staged or unstaged changes.
 func (m *Manager) HasUncommittedChanges() (bool, error) {
 	m.mu.Lock()

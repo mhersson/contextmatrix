@@ -1,9 +1,13 @@
 import { NavLink } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
+import { SyncIndicator } from './SyncIndicator';
+import type { SyncStatus } from '../../types';
 
 interface AppHeaderProps {
   project: string;
   connected: boolean;
+  syncStatus?: SyncStatus | null;
+  onSyncClick?: () => void;
 }
 
 const VIEWS = [
@@ -12,7 +16,7 @@ const VIEWS = [
   { label: 'Settings', to: '/settings' },
 ] as const;
 
-export function AppHeader({ project, connected }: AppHeaderProps) {
+export function AppHeader({ project, connected, syncStatus, onSyncClick }: AppHeaderProps) {
   const base = `/projects/${project}`;
   return (
     <header
@@ -44,6 +48,7 @@ export function AppHeader({ project, connected }: AppHeaderProps) {
 
       <div className="flex items-center gap-3">
         <ThemeToggle />
+        <SyncIndicator status={syncStatus} onClick={onSyncClick} />
         <div className="flex items-center gap-2">
           <span
             className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}

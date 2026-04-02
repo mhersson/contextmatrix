@@ -45,6 +45,28 @@ cors_origin: "https://example.com"
 	assert.Equal(t, "https://example.com", cfg.CORSOrigin)
 }
 
+func TestLoad_WithGitSyncFields(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_auto_pull: true
+git_pull_interval: "30s"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GitAutoPull)
+	assert.Equal(t, "30s", cfg.GitPullInterval)
+
+	d, err := cfg.PullIntervalDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, d)
+}
+
 func TestLoad_MissingFile_FallsBackToDefaults(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
@@ -60,6 +82,8 @@ func TestLoad_MissingFile_FallsBackToDefaults(t *testing.T) {
 	assert.Equal(t, boardsDir, cfg.BoardsDir)
 	assert.True(t, cfg.GitAutoCommit)
 	assert.False(t, cfg.GitAutoPush)
+	assert.False(t, cfg.GitAutoPull)
+	assert.Equal(t, "60s", cfg.GitPullInterval)
 	assert.False(t, cfg.GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
@@ -165,6 +189,42 @@ cors_origin: "http://localhost:5173"
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
 				assert.False(t, cfg.GitAutoPush)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_AUTO_PULL true",
+			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			envValue: "true",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.True(t, cfg.GitAutoPull)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_AUTO_PULL 1",
+			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			envValue: "1",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.True(t, cfg.GitAutoPull)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_AUTO_PULL false",
+			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			envValue: "false",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.False(t, cfg.GitAutoPull)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_PULL_INTERVAL",
+			envKey:   "CONTEXTMATRIX_GIT_PULL_INTERVAL",
+			envValue: "120s",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.Equal(t, "120s", cfg.GitPullInterval)
 			},
 		},
 		{
@@ -475,6 +535,28 @@ boards_dir: `+boardsDir+`
 	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
 }
 
+func TestLoad_ValidationFailure_InvalidPullInterval(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_pull_interval: "notaduration"
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid git_pull_interval")
+}
+
+func TestPullIntervalDuration(t *testing.T) {
+	cfg := &Config{GitPullInterval: "90s"}
+	d, err := cfg.PullIntervalDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 90*time.Second, d)
+}
+
 func TestLoad_ValidationFailure_InvalidHeartbeat(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
@@ -497,6 +579,8 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "", cfg.BoardsDir)
 	assert.True(t, cfg.GitAutoCommit)
 	assert.False(t, cfg.GitAutoPush)
+	assert.False(t, cfg.GitAutoPull)
+	assert.Equal(t, "60s", cfg.GitPullInterval)
 	assert.False(t, cfg.GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
