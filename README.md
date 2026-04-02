@@ -181,7 +181,7 @@ slash commands:
 
 ## Agent Workflow
 
-Claude Code acts as the main orchestrator, spawning sub-agents via the `Task`
+Claude Code acts as the main orchestrator, spawning sub-agents via the `Agent`
 tool. The typical workflow:
 
 1. **Create** — `/contextmatrix:create-task` interviews the human and creates a
@@ -253,7 +253,7 @@ plan → subtask creation → execute (parallel) → review → document → don
 ```
 
 The orchestrator agent handles each phase in sequence, spawning sub-agents via
-the `Task` tool for execution, review, and documentation.
+the `Agent` tool for execution, review, and documentation.
 
 ### Guardrails
 
@@ -287,16 +287,17 @@ curl -X POST http://localhost:8080/api/projects \
     "name": "my-project",
     "prefix": "MYPROJ",
     "repo": "git@github.com:org/my-project.git",
-    "states": ["todo", "in_progress", "blocked", "review", "done", "stalled"],
+    "states": ["todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"],
     "types": ["task", "bug", "feature"],
     "priorities": ["low", "medium", "high", "critical"],
     "transitions": {
-      "todo": ["in_progress"],
+      "todo": ["in_progress", "not_planned"],
       "in_progress": ["blocked", "review", "todo"],
       "blocked": ["in_progress", "todo"],
       "review": ["done", "in_progress"],
       "done": ["todo"],
-      "stalled": ["todo", "in_progress"]
+      "stalled": ["todo", "in_progress"],
+      "not_planned": ["todo"]
     }
   }'
 
