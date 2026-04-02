@@ -1,6 +1,6 @@
 // Package gitsync provides automatic git pull/push synchronization for the
-// boards repository. It uses shell-based git for fetch+rebase (go-git lacks
-// rebase support) and go-git for push.
+// boards repository. It uses shell-based git for all network operations
+// (fetch, rebase, push) so that OpenSSH's full auth chain is available.
 package gitsync
 
 import (
@@ -225,7 +225,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 // pushWithRetry attempts to push. On non-fast-forward failure, it performs a
 // pull-rebase then retries once. Never force-pushes.
 func (s *Syncer) pushWithRetry(ctx context.Context) error {
-	err := s.git.Push()
+	err := s.git.Push(ctx)
 	if err == nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return fmt.Errorf("pull before push retry: %w", err)
 	}
 
-	if err := s.git.Push(); err != nil {
+	if err := s.git.Push(ctx); err != nil {
 		slog.Error("git sync: push failed after rebase", "error", err)
 		s.setError(err)
 		s.publishError("push", err)

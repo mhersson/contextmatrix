@@ -3,18 +3,21 @@
 package gitops
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 // DefaultAuthor is used when no author is configured.
@@ -164,60 +167,63 @@ func (m *Manager) CommitAll(message string) error {
 	return nil
 }
 
-// Pull fetches and merges from the origin remote.
+// Pull fetches and rebases from the origin remote using shell git.
 // Returns nil if no remote is configured (with a warning logged).
-func (m *Manager) Pull() error {
+func (m *Manager) Pull(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	wt, err := m.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("get worktree: %w", err)
-	}
-
-	// Check if origin remote exists
 	if !m.hasRemote("origin") {
 		slog.Warn("no remote 'origin' configured, skipping pull")
 		return nil
 	}
 
-	err = wt.Pull(&git.PullOptions{
-		RemoteName: "origin",
-	})
-	if err != nil {
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return nil
-		}
-		if errors.Is(err, transport.ErrEmptyRemoteRepository) {
-			slog.Warn("remote repository is empty, skipping pull")
-			return nil
-		}
+	if err := m.runGit(ctx, "pull", "--rebase", "origin"); err != nil {
 		return fmt.Errorf("pull: %w", err)
 	}
 
 	return nil
 }
 
-// Push pushes commits to the origin remote.
+// Push pushes commits to the origin remote using shell git.
+// Uses "git push --set-upstream origin HEAD" so it works whether or not
+// the current branch already has a tracking upstream configured.
 // Returns nil if no remote is configured (with a warning logged).
-func (m *Manager) Push() error {
+func (m *Manager) Push(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if origin remote exists
 	if !m.hasRemote("origin") {
 		slog.Warn("no remote 'origin' configured, skipping push")
 		return nil
 	}
 
-	err := m.repo.Push(&git.PushOptions{
-		RemoteName: "origin",
-	})
-	if err != nil {
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return nil
-		}
+	if err := m.runGit(ctx, "push", "--set-upstream", "origin", "HEAD"); err != nil {
 		return fmt.Errorf("push: %w", err)
+	}
+
+	return nil
+}
+
+// runGit executes a git command in the repository directory.
+// Must be called without mu held (or from a context that already holds it,
+// as this method does not re-acquire the lock).
+func (m *Manager) runGit(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = m.repoPath
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	slog.Debug("gitops: running", "cmd", "git "+strings.Join(args, " "), "dir", m.repoPath)
+
+	if err := cmd.Run(); err != nil {
+		output := strings.TrimSpace(stderr.String())
+		if output == "" {
+			output = strings.TrimSpace(stdout.String())
+		}
+		return fmt.Errorf("%s: %s", err, output)
 	}
 
 	return nil

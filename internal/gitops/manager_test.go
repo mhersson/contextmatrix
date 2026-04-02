@@ -1,7 +1,9 @@
 package gitops
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -137,7 +139,7 @@ func TestPull_NoRemote(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pull should succeed gracefully when no remote exists
-	err = mgr.Pull()
+	err = mgr.Pull(context.Background())
 	assert.NoError(t, err)
 }
 
@@ -147,8 +149,68 @@ func TestPush_NoRemote(t *testing.T) {
 	require.NoError(t, err)
 
 	// Push should succeed gracefully when no remote exists
-	err = mgr.Push()
+	err = mgr.Push(context.Background())
 	assert.NoError(t, err)
+}
+
+// TestPushPull_BareRemote verifies that Push and Pull work against a local
+// bare repository so that the shell-git path is exercised without requiring
+// network access or SSH credentials.
+func TestPushPull_BareRemote(t *testing.T) {
+	// Skip if git binary is not available.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found, skipping")
+	}
+
+	ctx := context.Background()
+
+	// Create a bare remote repo.
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	// Create the working repo, make a commit, add the bare repo as origin.
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir)
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	err = os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile("hello.txt", "initial commit")
+	require.NoError(t, err)
+
+	err = mgr.AddRemote("origin", "file://"+bareDir)
+	require.NoError(t, err)
+
+	// Push to the bare remote — should succeed.
+	err = mgr.Push(ctx)
+	require.NoError(t, err, "push to local bare remote should succeed")
+
+	// Create a second working repo cloned from the bare remote.
+	cloneDir := t.TempDir()
+	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{
+		URL: "file://" + bareDir,
+	})
+	require.NoError(t, err)
+
+	// Add a commit to the bare remote via the clone.
+	cloneMgr, err := NewManager(cloneDir)
+	require.NoError(t, err)
+	cloneMgr.SetAuthor("Clone User", "clone@example.com")
+	err = os.WriteFile(filepath.Join(cloneDir, "world.txt"), []byte("world"), 0o644)
+	require.NoError(t, err)
+	err = cloneMgr.CommitFile("world.txt", "second commit")
+	require.NoError(t, err)
+	err = cloneMgr.Push(ctx)
+	require.NoError(t, err)
+
+	// Pull (rebase) in the original working repo — should succeed and bring in world.txt.
+	err = mgr.Pull(ctx)
+	require.NoError(t, err, "pull --rebase from local bare remote should succeed")
+
+	_, err = os.Stat(filepath.Join(workDir, "world.txt"))
+	assert.NoError(t, err, "world.txt should exist after pull")
 }
 
 func TestAddRemote(t *testing.T) {
