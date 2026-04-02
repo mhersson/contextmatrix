@@ -62,7 +62,49 @@ For each documentation artifact:
 Write each artifact directly to disk immediately. Documentation is generated
 from already-reviewed, completed code — no human gate is needed before writing.
 
-## Step 4: Release the card
+## Step 4: Commit documentation changes
+
+After writing documentation, commit your changes following the git workflow
+based on the card context injected above.
+
+### Feature Branch Mode
+
+If the card context shows a **Branch** (e.g., `feat/some-feature`):
+
+1. Switch to the feature branch: `git checkout <branch_name>`. The branch
+   already exists — execute-task agents created it during the execution phase.
+2. Stage only the documentation files you wrote or updated.
+3. Commit with a documentation-specific conventional commit message:
+   `docs(scope): summary` + blank line + bullet-point list of files changed.
+   **No card IDs in commit messages** — they are internal to ContextMatrix.
+4. **NEVER push to main or master.** If you find yourself on main, switch to
+   the feature branch before committing.
+
+### Autonomous Mode
+
+If the card context shows **Autonomous: true**:
+
+- Commit and push to the feature branch automatically.
+- Call `report_push(card_id=<card_id>, branch=<branch_name>, pr_url=<url>)`
+  after pushing. Use the parent card ID from your card context.
+- **NEVER push to main or master.** This is non-negotiable.
+
+### HITL Mode (No Autonomous)
+
+If the card context does not show **Autonomous: true**:
+
+- Ask: "Want me to commit these documentation changes?"
+- If on a feature branch, follow up with: "Want me to push?"
+- Never push without explicit human approval in HITL mode.
+
+### No Feature Branch
+
+If no **Branch** is shown in the card context:
+
+- Commit your documentation changes on the current branch.
+- Do NOT push.
+
+## Step 5: Release the card
 
 After documentation is written, call `report_usage` followed by
 `release_card(card_id, agent_id)` to release your claim. The main agent handles
@@ -74,7 +116,7 @@ Call `report_usage` with:
 - `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
 
-## Step 5: Structured output
+## Step 6: Structured output
 
 After releasing the card, return the following structured output immediately:
 

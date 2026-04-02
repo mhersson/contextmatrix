@@ -53,9 +53,9 @@ Include the failing test output in your review findings.
 
 ### Quality
 
-> **Note:** Code from the task under review is NOT expected to be committed at
-> review time. Commits happen after the documentation step, when the task
-> transitions to `done`. Do not flag uncommitted changes as an issue.
+> **Note:** In autonomous mode, execute-task agents commit during execution —
+> code may already be committed at review time. In HITL mode, code may still be
+> uncommitted. Either way, do not flag commit status as a review issue.
 
 - Were tests written where appropriate?
 - Is the code consistent with the project's existing patterns?
@@ -159,9 +159,9 @@ summary: <one-line summary>
   append the `## Review Findings` section before calling `release_card` or
   printing `REVIEW_FINDINGS`. This is mandatory — the orchestrator reads the
   card body to present findings to the human.
-- **Uncommitted code is expected.** Code changes from the task under review are
-  NOT committed at review time — commits happen after the documentation step
-  when the task moves to `done`. Never flag uncommitted changes as an issue.
+- **Commit status is not a review concern.** In autonomous mode, execute-task
+  agents commit during execution — code may already be committed. In HITL mode,
+  code may still be uncommitted. Either way, never flag commit status as an issue.
 - **Do not decide.** Present your findings and recommendation, but the human
   makes the final call. The orchestrator (not you) collects the human's
   approve/reject response after you return.
