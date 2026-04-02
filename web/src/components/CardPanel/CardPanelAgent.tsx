@@ -58,7 +58,7 @@ export function CardPanelAgent({
             <span className="text-sm text-[var(--grey0)]">Unassigned</span>
           )}
         </div>
-        <div>
+        <div className="flex gap-2">
           {canClaim && (
             <button
               type="button"
