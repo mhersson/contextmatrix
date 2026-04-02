@@ -32,6 +32,9 @@ var (
 
 	// ErrInvalidAutonomousConfig indicates an invalid combination of autonomous fields.
 	ErrInvalidAutonomousConfig = errors.New("invalid autonomous configuration")
+
+	// ErrInvalidRunnerStatus indicates an invalid runner_status value.
+	ErrInvalidRunnerStatus = errors.New("invalid runner status")
 )
 
 // ValidationError provides detailed validation failure information.
@@ -178,6 +181,42 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 	}
 	if err := v.ValidateAutonomousFields(card); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validRunnerStatuses is the set of valid runner_status values.
+var validRunnerStatuses = []string{"", "queued", "running", "failed", "killed"}
+
+// validRunnerCallbackStatuses is the subset of statuses a runner callback can set.
+// "queued" and "killed" are server-only; the runner can only report "running" or "failed".
+var validRunnerCallbackStatuses = []string{"running", "failed"}
+
+// ValidateRunnerStatus checks if the given status is a valid runner_status value.
+func (v *Validator) ValidateRunnerStatus(status string) error {
+	if !slices.Contains(validRunnerStatuses, status) {
+		return &ValidationError{
+			Err:     ErrInvalidRunnerStatus,
+			Field:   "runner_status",
+			Value:   status,
+			Allowed: validRunnerStatuses[1:], // exclude empty string from display
+			Message: fmt.Sprintf("invalid runner_status %q; valid values: %v", status, validRunnerStatuses[1:]),
+		}
+	}
+	return nil
+}
+
+// ValidateRunnerCallbackStatus checks if the status is valid for a runner callback.
+// Only "running" and "failed" are accepted from the runner — other statuses are server-managed.
+func (v *Validator) ValidateRunnerCallbackStatus(status string) error {
+	if !slices.Contains(validRunnerCallbackStatuses, status) {
+		return &ValidationError{
+			Err:     ErrInvalidRunnerStatus,
+			Field:   "runner_status",
+			Value:   status,
+			Allowed: validRunnerCallbackStatuses,
+			Message: fmt.Sprintf("invalid runner callback status %q; valid values: %v", status, validRunnerCallbackStatuses),
+		}
 	}
 	return nil
 }

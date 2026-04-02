@@ -11,6 +11,7 @@ import type {
   CardContext,
   DashboardData,
   SyncStatus,
+  StopAllResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -210,6 +211,26 @@ class APIClient {
 
   async getSyncStatus(): Promise<SyncStatus> {
     return this.request<SyncStatus>('/sync');
+  }
+
+  // Runner
+  async runCard(project: string, id: string): Promise<Card> {
+    return this.request<Card>(`/projects/${project}/cards/${id}/run`, {
+      method: 'POST',
+    });
+  }
+
+  async stopCard(project: string, id: string): Promise<Card> {
+    return this.request<Card>(`/projects/${project}/cards/${id}/stop`, {
+      method: 'POST',
+    });
+  }
+
+  async stopAllCards(project: string): Promise<StopAllResponse> {
+    return this.request<StopAllResponse>(
+      `/projects/${project}/stop-all`,
+      { method: 'POST' }
+    );
   }
 }
 

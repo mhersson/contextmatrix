@@ -18,6 +18,17 @@ type ModelCost struct {
 	Completion float64 `yaml:"completion"`
 }
 
+// MinRunnerAPIKeyLength is the minimum required length for runner.api_key.
+const MinRunnerAPIKeyLength = 32
+
+// RunnerConfig holds configuration for the remote execution runner.
+type RunnerConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	URL       string `yaml:"url"`        // base URL, e.g. http://localhost:9090
+	APIKey    string `yaml:"api_key"`    // shared secret for HMAC signing
+	PublicURL string `yaml:"public_url"` // public URL for MCP endpoint sent to runner containers
+}
+
 // Config holds the application configuration.
 type Config struct {
 	Port                int                  `yaml:"port"`
@@ -31,6 +42,8 @@ type Config struct {
 	CORSOrigin          string               `yaml:"cors_origin"`
 	SkillsDir           string               `yaml:"skills_dir"`
 	TokenCosts          map[string]ModelCost `yaml:"token_costs"`
+	MCPAPIKey           string               `yaml:"mcp_api_key"`
+	Runner              RunnerConfig         `yaml:"runner"`
 }
 
 // defaults returns a Config with default values.
@@ -59,6 +72,20 @@ func (c *Config) Validate() error {
 	if c.GitPullInterval != "" {
 		if _, err := time.ParseDuration(c.GitPullInterval); err != nil {
 			return fmt.Errorf("invalid git_pull_interval %q: %w", c.GitPullInterval, err)
+		}
+	}
+	if c.Runner.Enabled {
+		if c.Runner.URL == "" {
+			return fmt.Errorf("runner.url is required when runner is enabled")
+		}
+		if c.Runner.APIKey == "" {
+			return fmt.Errorf("runner.api_key is required when runner is enabled")
+		}
+		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
+			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
+		}
+		if c.Runner.PublicURL == "" {
+			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
 	}
 	return nil
@@ -183,6 +210,21 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
 		cfg.SkillsDir = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_MCP_API_KEY"); v != "" {
+		cfg.MCPAPIKey = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ENABLED"); v != "" {
+		cfg.Runner.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_URL"); v != "" {
+		cfg.Runner.URL = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
+		cfg.Runner.APIKey = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL"); v != "" {
+		cfg.Runner.PublicURL = v
 	}
 }
 

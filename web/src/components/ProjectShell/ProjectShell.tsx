@@ -40,8 +40,10 @@ export function ProjectShell() {
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
   const { config, cards, loading, error, connected, updateCardLocally } = useBoard(project || '', undefined, handleSyncEvent);
 
-  const { handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard } =
-    useCardActions({
+  const {
+    handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
+    handleRunCard, handleStopCard, handleStopAll,
+  } = useCardActions({
       selectedProject: project || '',
       selectedCard,
       cards,
@@ -94,6 +96,10 @@ export function ProjectShell() {
     ? cards.find((c) => c.id === selectedCard.id) || selectedCard
     : null;
   const panelOpen = !!currentSelectedCard || createPanelOpen;
+  const hasActiveRunners = useMemo(
+    () => cards.some((c) => c.runner_status === 'queued' || c.runner_status === 'running'),
+    [cards]
+  );
 
   useKeyboardShortcuts(
     useMemo(
@@ -113,7 +119,11 @@ export function ProjectShell() {
 
   return (
     <>
-      <AppHeader project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync} />
+      <AppHeader
+        project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync}
+        hasActiveRunners={hasActiveRunners}
+        onStopAll={handleStopAll}
+      />
       <main className="flex-1 overflow-hidden">
         <Routes>
           <Route
@@ -157,6 +167,7 @@ export function ProjectShell() {
           onClaim={handleClaim} onRelease={handleRelease}
           onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
           onPromptAgentId={promptForAgentId}
+          onRunCard={handleRunCard} onStopCard={handleStopCard}
         />
       )}
       {createPanelOpen && config && (

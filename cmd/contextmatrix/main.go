@@ -20,6 +20,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
+	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
@@ -117,12 +118,31 @@ func main() {
 		}
 	}
 
+	// Create runner client if enabled
+	var runnerClient *runner.Client
+	if cfg.Runner.Enabled {
+		runnerClient = runner.NewClient(cfg.Runner.URL, cfg.Runner.APIKey)
+		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
+	}
+
 	// Create router with all API routes
-	mux := api.NewRouter(svc, bus, cfg.CORSOrigin, syncer)
+	mux := api.NewRouter(api.RouterConfig{
+		Service:    svc,
+		Bus:        bus,
+		CORSOrigin: cfg.CORSOrigin,
+		Syncer:     syncer,
+		Runner:     runnerClient,
+		RunnerCfg:  cfg.Runner,
+		MCPAPIKey:  cfg.MCPAPIKey,
+		Port:       cfg.Port,
+	})
 
 	// Create MCP server and register on the mux
 	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
-	mcpHandler := mcpserver.NewHandler(mcpSrv)
+	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
+	if cfg.MCPAPIKey != "" {
+		slog.Info("MCP authentication enabled")
+	}
 	mux.Handle("POST /mcp", mcpHandler)
 	mux.Handle("GET /mcp", mcpHandler)
 	mux.Handle("DELETE /mcp", mcpHandler)

@@ -34,6 +34,7 @@ export interface Card {
   branch_name?: string;
   pr_url?: string;
   review_attempts?: number;
+  runner_status?: 'queued' | 'running' | 'failed' | 'killed';
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -56,6 +57,10 @@ export interface ProjectConfig {
   types: string[];
   priorities: string[];
   transitions: Record<string, string[]>;
+  remote_execution?: {
+    enabled?: boolean;
+    runner_image?: string;
+  };
   templates?: Record<string, string>;
 }
 
@@ -91,7 +96,11 @@ export type EventType =
   | 'sync.started'
   | 'sync.completed'
   | 'sync.conflict'
-  | 'sync.error';
+  | 'sync.error'
+  | 'runner.triggered'
+  | 'runner.started'
+  | 'runner.failed'
+  | 'runner.killed';
 
 export interface SyncStatus {
   last_sync_time: string | null;
@@ -204,3 +213,16 @@ export interface UpdateProjectInput {
   priorities: string[];
   transitions: Record<string, string[]>;
 }
+
+export interface StopAllResponse {
+  affected_cards: string[];
+}
+
+export type RunnerStatus = NonNullable<Card['runner_status']>;
+
+export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
+  queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
+  running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },
+  failed: { bg: 'var(--bg-red)', text: 'var(--red)', label: 'Runner failed' },
+  killed: { bg: 'var(--bg4)', text: 'var(--grey1)', label: 'Runner killed' },
+};

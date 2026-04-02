@@ -12,18 +12,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RemoteExecutionConfig controls per-project remote execution settings.
+type RemoteExecutionConfig struct {
+	Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
+	RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
+}
+
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml
 type ProjectConfig struct {
-	Name        string              `yaml:"name" json:"name"`
-	Prefix      string              `yaml:"prefix" json:"prefix"`
-	NextID      int                 `yaml:"next_id" json:"next_id"`
-	Repo        string              `yaml:"repo,omitempty" json:"repo,omitempty"`
-	States      []string            `yaml:"states" json:"states"`
-	Types       []string            `yaml:"types" json:"types"`
-	Priorities  []string            `yaml:"priorities" json:"priorities"`
-	Transitions map[string][]string `yaml:"transitions" json:"transitions"`
-	Templates   map[string]string   `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
+	Name            string                 `yaml:"name" json:"name"`
+	Prefix          string                 `yaml:"prefix" json:"prefix"`
+	NextID          int                    `yaml:"next_id" json:"next_id"`
+	Repo            string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
+	States          []string               `yaml:"states" json:"states"`
+	Types           []string               `yaml:"types" json:"types"`
+	Priorities      []string               `yaml:"priorities" json:"priorities"`
+	Transitions     map[string][]string    `yaml:"transitions" json:"transitions"`
+	RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
+	Templates       map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 
 var (

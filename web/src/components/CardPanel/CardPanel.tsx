@@ -17,6 +17,8 @@ interface CardPanelProps {
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
   onPromptAgentId: () => string | null;
+  onRunCard: () => void;
+  onStopCard: () => void;
 }
 
 export function CardPanel({
@@ -29,6 +31,8 @@ export function CardPanel({
   onSubtaskClick,
   currentAgentId,
   onPromptAgentId,
+  onRunCard,
+  onStopCard,
 }: CardPanelProps) {
   const { theme } = useTheme();
   const [editedCard, setEditedCard] = useState(card);
@@ -131,6 +135,10 @@ export function CardPanel({
             canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
             onClaim={handleClaim}
             onRelease={handleRelease}
+            canRun={!!card.autonomous && card.state === 'todo' && (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed') && config.remote_execution?.enabled !== false}
+            canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
+            onRun={onRunCard}
+            onStop={onStopCard}
           />
 
           <div data-color-mode={theme}>

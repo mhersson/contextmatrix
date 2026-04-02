@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
+import { runnerStatusStyles } from '../../types';
 
 interface CardItemProps {
   card: Card;
@@ -216,6 +217,21 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
             title="Autonomous mode"
           >
             auto
+          </span>
+        )}
+
+        {/* Runner status badge */}
+        {card.runner_status && runnerStatusStyles[card.runner_status] && (
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
+            style={{
+              backgroundColor: runnerStatusStyles[card.runner_status].bg,
+              color: runnerStatusStyles[card.runner_status].text,
+            }}
+            title={`Runner: ${card.runner_status}`}
+            aria-label={`Runner status: ${card.runner_status}`}
+          >
+            {card.runner_status}
           </span>
         )}
 

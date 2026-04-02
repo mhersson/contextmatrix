@@ -12,8 +12,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -37,6 +39,7 @@ const (
 	ErrCodeBadRequest         = "BAD_REQUEST"
 	ErrCodeHumanOnlyField     = "HUMAN_ONLY_FIELD"
 	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
+	ErrCodeInvalidSignature   = "INVALID_SIGNATURE"
 )
 
 // APIError is the standard error response format.
@@ -46,18 +49,30 @@ type APIError struct {
 	Details string `json:"details,omitempty"`
 }
 
+// RouterConfig holds all dependencies for creating the HTTP router.
+type RouterConfig struct {
+	Service    *service.CardService
+	Bus        *events.Bus
+	CORSOrigin string
+	Syncer     Syncer
+	Runner     *runner.Client
+	RunnerCfg  config.RunnerConfig
+	MCPAPIKey  string
+	Port       int
+}
+
 // NewRouter creates a new HTTP router with all API routes registered.
 // corsOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
 // If empty, CORS headers are not set.
-func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string, syncer Syncer) *http.ServeMux {
+func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Create handlers
-	ph := &projectHandlers{svc: svc}
-	ch := &cardHandlers{svc: svc}
-	ah := &agentHandlers{svc: svc}
-	eh := newEventHandlers(bus)
-	sh := &syncHandlers{syncer: syncer}
+	ph := &projectHandlers{svc: cfg.Service}
+	ch := &cardHandlers{svc: cfg.Service}
+	ah := &agentHandlers{svc: cfg.Service}
+	eh := newEventHandlers(cfg.Bus)
+	sh := &syncHandlers{syncer: cfg.Syncer}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -98,8 +113,18 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string, syn
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
 
+	// Runner routes
+	rh := &runnerHandlers{svc: cfg.Service, runner: cfg.Runner, runnerCfg: cfg.RunnerCfg, mcpAPIKey: cfg.MCPAPIKey, port: cfg.Port}
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
+	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
+	// Only register the runner status callback when the runner is enabled.
+	if cfg.Runner != nil {
+		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
+	}
+
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler
-	return wrapMux(mux, corsOrigin)
+	return wrapMux(mux, cfg.CORSOrigin)
 }
 
 // wrapMux wraps the mux with all middleware.
@@ -157,7 +182,7 @@ func corsMiddleware(origin string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Request-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Request-ID, X-Signature-256")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 
 			if r.Method == http.MethodOptions {

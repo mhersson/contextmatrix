@@ -585,6 +585,128 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Equal(t, "", cfg.SkillsDir)
+	assert.Equal(t, "", cfg.MCPAPIKey)
+	assert.False(t, cfg.Runner.Enabled)
+	assert.Equal(t, "", cfg.Runner.URL)
+	assert.Equal(t, "", cfg.Runner.APIKey)
+}
+
+func TestLoad_RunnerConfig(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+mcp_api_key: "test-mcp-key"
+runner:
+  enabled: true
+  url: "http://localhost:9090"
+  api_key: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"
+  public_url: "http://contextmatrix:8080"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-mcp-key", cfg.MCPAPIKey)
+	assert.True(t, cfg.Runner.Enabled)
+	assert.Equal(t, "http://localhost:9090", cfg.Runner.URL)
+	assert.Equal(t, "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh", cfg.Runner.APIKey)
+	assert.Equal(t, "http://contextmatrix:8080", cfg.Runner.PublicURL)
+}
+
+func TestLoad_RunnerDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.Runner.Enabled)
+	assert.Equal(t, "", cfg.Runner.URL)
+	assert.Equal(t, "", cfg.Runner.APIKey)
+	assert.Equal(t, "", cfg.MCPAPIKey)
+}
+
+func TestValidate_RunnerEnabledMissingURL(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		Runner:           RunnerConfig{Enabled: true, APIKey: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh", PublicURL: "http://cm:8080"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner.url is required")
+}
+
+func TestValidate_RunnerEnabledMissingAPIKey(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090", PublicURL: "http://cm:8080"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner.api_key is required")
+}
+
+func TestValidate_RunnerEnabledShortAPIKey(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: "too-short", PublicURL: "http://cm:8080"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner.api_key must be at least")
+}
+
+func TestValidate_RunnerEnabledMissingPublicURL(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner.public_url is required")
+}
+
+func TestValidate_RunnerDisabledNoValidation(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		Runner:           RunnerConfig{Enabled: false},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}
+
+func TestLoad_RunnerEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_RUNNER_ENABLED", "true")
+	t.Setenv("CONTEXTMATRIX_RUNNER_URL", "http://runner:9090")
+	t.Setenv("CONTEXTMATRIX_RUNNER_API_KEY", "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh")
+	t.Setenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL", "http://contextmatrix:8080")
+	t.Setenv("CONTEXTMATRIX_MCP_API_KEY", "env-mcp-key")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.Runner.Enabled)
+	assert.Equal(t, "http://runner:9090", cfg.Runner.URL)
+	assert.Equal(t, "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh", cfg.Runner.APIKey)
+	assert.Equal(t, "http://contextmatrix:8080", cfg.Runner.PublicURL)
+	assert.Equal(t, "env-mcp-key", cfg.MCPAPIKey)
 }
 
 func TestFindConfigPath_XDGConfigHome(t *testing.T) {

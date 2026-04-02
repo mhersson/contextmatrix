@@ -83,5 +83,48 @@ export function useCardActions({
     [selectedProject, showToast]
   );
 
-  return { handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard };
+  const handleRunCard = useCallback(async () => {
+    if (!selectedCard) return;
+    try {
+      const updated = await api.runCard(selectedProject, selectedCard.id);
+      updateCardLocally(selectedCard.id, {
+        runner_status: updated.runner_status,
+        assigned_agent: updated.assigned_agent,
+      });
+      showToast('Task queued for runner', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to trigger runner', 'error');
+    }
+  }, [selectedCard, selectedProject, updateCardLocally, showToast]);
+
+  const handleStopCard = useCallback(async () => {
+    if (!selectedCard) return;
+    try {
+      const updated = await api.stopCard(selectedProject, selectedCard.id);
+      updateCardLocally(selectedCard.id, {
+        runner_status: updated.runner_status,
+        assigned_agent: updated.assigned_agent,
+      });
+      showToast('Runner task stopped', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to stop runner', 'error');
+    }
+  }, [selectedCard, selectedProject, updateCardLocally, showToast]);
+
+  const handleStopAll = useCallback(async () => {
+    try {
+      const result = await api.stopAllCards(selectedProject);
+      for (const cardId of result.affected_cards) {
+        updateCardLocally(cardId, { runner_status: 'killed', assigned_agent: undefined });
+      }
+      showToast('All runner tasks stopped', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to stop all', 'error');
+    }
+  }, [selectedProject, updateCardLocally, showToast]);
+
+  return {
+    handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
+    handleRunCard, handleStopCard, handleStopAll,
+  };
 }

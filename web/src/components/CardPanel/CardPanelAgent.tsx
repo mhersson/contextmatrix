@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { Card } from '../../types';
+import { runnerStatusStyles } from '../../types';
 import { formatRelativeTime } from './utils';
 
 interface CardPanelAgentProps {
@@ -7,6 +9,10 @@ interface CardPanelAgentProps {
   canRelease: boolean;
   onClaim: () => void;
   onRelease: () => void;
+  canRun: boolean;
+  canStop: boolean;
+  onRun: () => void;
+  onStop: () => void;
 }
 
 export function CardPanelAgent({
@@ -15,7 +21,25 @@ export function CardPanelAgent({
   canRelease,
   onClaim,
   onRelease,
+  canRun,
+  canStop,
+  onRun,
+  onStop,
 }: CardPanelAgentProps) {
+  const [runLoading, setRunLoading] = useState(false);
+  const [stopLoading, setStopLoading] = useState(false);
+
+  const handleRun = async () => {
+    setRunLoading(true);
+    try { await onRun(); } finally { setRunLoading(false); }
+  };
+
+  const handleStop = async () => {
+    if (!window.confirm('Stop this task? The container will be destroyed and uncommitted work discarded.')) return;
+    setStopLoading(true);
+    try { await onStop(); } finally { setStopLoading(false); }
+  };
+
   return (
     <div className="p-3 rounded bg-[var(--bg0)] border border-[var(--bg3)]">
       <div className="flex items-center justify-between">
@@ -37,6 +61,7 @@ export function CardPanelAgent({
         <div>
           {canClaim && (
             <button
+              type="button"
               onClick={onClaim}
               className="px-3 py-1.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-90 transition-opacity text-sm"
             >
@@ -45,14 +70,46 @@ export function CardPanelAgent({
           )}
           {canRelease && (
             <button
+              type="button"
               onClick={onRelease}
               className="px-3 py-1.5 rounded bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90 transition-opacity text-sm"
             >
               Release
             </button>
           )}
+          {canRun && (
+            <button
+              type="button"
+              onClick={handleRun}
+              disabled={runLoading}
+              className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
+            >
+              {runLoading ? 'Starting...' : 'Run Now'}
+            </button>
+          )}
+          {canStop && (
+            <button
+              type="button"
+              onClick={handleStop}
+              disabled={stopLoading}
+              className="px-3 py-1.5 rounded bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
+            >
+              {stopLoading ? 'Stopping...' : 'Stop'}
+            </button>
+          )}
         </div>
       </div>
+      {card.runner_status && runnerStatusStyles[card.runner_status] && (
+        <div
+          className={`mt-2 px-2 py-1 rounded text-xs${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
+          style={{
+            backgroundColor: runnerStatusStyles[card.runner_status].bg,
+            color: runnerStatusStyles[card.runner_status].text,
+          }}
+        >
+          {runnerStatusStyles[card.runner_status].label}
+        </div>
+      )}
     </div>
   );
 }

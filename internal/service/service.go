@@ -746,6 +746,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
+	// Clear runner_status when card reaches a terminal state (before disk write).
+	if stateChanged && (card.State == board.StateDone || card.State == board.StateNotPlanned) {
+		card.RunnerStatus = ""
+	}
+
 	// Persist card
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
@@ -883,6 +888,11 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	validator := s.validator
 	if err := validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
+	}
+
+	// Clear runner_status when card reaches a terminal state (before disk write).
+	if stateChanged && (card.State == board.StateDone || card.State == board.StateNotPlanned) {
+		card.RunnerStatus = ""
 	}
 
 	// Persist card
@@ -2044,6 +2054,9 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 // ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
+// ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
+var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
+
 // IncrementReviewAttempts atomically increments the review_attempts counter on a card.
 // Returns lock.ErrAgentMismatch if the caller is not the assigned agent, and
 // ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
@@ -2085,6 +2098,72 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 			"action":          "review_attempts_incremented",
 			"review_attempts": card.ReviewAttempts,
 		},
+	})
+
+	return card, nil
+}
+
+// UpdateRunnerStatus sets the runner_status field on a card.
+func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	if err := s.validator.ValidateRunnerStatus(status); err != nil {
+		return nil, err
+	}
+
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	card.RunnerStatus = status
+	card.Updated = time.Now()
+
+	// Clear agent claim on terminal runner statuses.
+	if status == "failed" || status == "killed" {
+		card.AssignedAgent = ""
+		card.LastHeartbeat = nil
+	}
+
+	if message != "" {
+		card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+			Agent:     "runner",
+			Timestamp: time.Now(),
+			Action:    "runner_status",
+			Message:   message,
+		})
+		if len(card.ActivityLog) > maxActivityLogEntries {
+			card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+		}
+	}
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+	if err := s.commitCardChange(project, cardID, "runner", "runner_status: "+status); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	var eventType events.EventType
+	switch status {
+	case "queued":
+		eventType = events.RunnerTriggered
+	case "running":
+		eventType = events.RunnerStarted
+	case "failed":
+		eventType = events.RunnerFailed
+	case "killed":
+		eventType = events.RunnerKilled
+	default:
+		eventType = events.CardUpdated
+	}
+	s.bus.Publish(events.Event{
+		Type:      eventType,
+		Project:   project,
+		CardID:    cardID,
+		Timestamp: time.Now(),
+		Data:      map[string]any{"runner_status": status},
 	})
 
 	return card, nil

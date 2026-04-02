@@ -29,6 +29,11 @@ const (
 	SyncCompleted EventType = "sync.completed"
 	SyncConflict  EventType = "sync.conflict"
 	SyncError     EventType = "sync.error"
+
+	RunnerTriggered EventType = "runner.triggered"
+	RunnerStarted   EventType = "runner.started"
+	RunnerFailed    EventType = "runner.failed"
+	RunnerKilled    EventType = "runner.killed"
 )
 
 // Event represents a board event that can be published to subscribers.

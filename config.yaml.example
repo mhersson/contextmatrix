@@ -76,3 +76,36 @@ token_costs:
   claude-haiku-4-5:   { prompt: 0.0000008, completion: 0.000004  }
   claude-sonnet-4-6:  { prompt: 0.000003,  completion: 0.000015  }
   claude-opus-4-6:    { prompt: 0.000005,  completion: 0.000025  }
+
+# Optional API key for MCP endpoint authentication.
+# When set, all MCP requests must include this key in the Authorization header
+# as "Bearer <key>". Leave empty to disable MCP authentication (current behavior).
+# Env: CONTEXTMATRIX_MCP_API_KEY
+mcp_api_key: ""
+
+# Remote execution runner configuration.
+# The runner is a separate binary (contextmatrix-runner) that executes
+# autonomous tasks in disposable Docker containers. See docs/remote-execution.md.
+runner:
+  # Enable remote execution integration.
+  # Default: false
+  # Env: CONTEXTMATRIX_RUNNER_ENABLED
+  enabled: false
+
+  # Base URL of the runner. Fixed paths are appended: /trigger, /kill, /stop-all.
+  # Example: http://localhost:9090
+  # Env: CONTEXTMATRIX_RUNNER_URL
+  url: ""
+
+  # Shared secret for webhook HMAC-SHA256 signing (runner <-> CM authentication).
+  # Must match the runner's configured api_key. Never transmitted over the wire.
+  # Must be at least 32 characters when runner is enabled.
+  # Env: CONTEXTMATRIX_RUNNER_API_KEY
+  api_key: ""
+
+  # Public URL of this ContextMatrix instance, as reachable from runner containers.
+  # The runner passes this to spawned containers so they can connect to the MCP endpoint.
+  # Example: http://contextmatrix:8080 (Docker network), https://cm.example.com (remote)
+  # Required when runner is enabled.
+  # Env: CONTEXTMATRIX_RUNNER_PUBLIC_URL
+  public_url: ""

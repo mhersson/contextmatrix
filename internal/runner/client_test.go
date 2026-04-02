@@ -1,0 +1,170 @@
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestClient_Trigger_Success(t *testing.T) {
+	var received TriggerPayload
+	var receivedSig string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/trigger", r.URL.Path)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		receivedSig = r.Header.Get(signatureHeader)
+
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &received)
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "test-key")
+	err := c.Trigger(context.Background(), TriggerPayload{
+		CardID:  "TEST-001",
+		Project: "test-project",
+		RepoURL: "git@github.com:org/repo.git",
+		MCPURL:  "http://localhost:8080/mcp",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "TEST-001", received.CardID)
+	assert.Equal(t, "test-project", received.Project)
+	assert.True(t, strings.HasPrefix(receivedSig, "sha256="))
+}
+
+func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
+	const apiKey = "shared-secret"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sigHeader := r.Header.Get(signatureHeader)
+		require.True(t, strings.HasPrefix(sigHeader, "sha256="))
+		sig := strings.TrimPrefix(sigHeader, "sha256=")
+
+		tsHeader := r.Header.Get(timestampHeader)
+		require.NotEmpty(t, tsHeader, "timestamp header should be present")
+
+		body, _ := io.ReadAll(r.Body)
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, sig, tsHeader, body, DefaultMaxClockSkew),
+			"HMAC signature with timestamp should be valid")
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, apiKey)
+	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.NoError(t, err)
+}
+
+func TestClient_Kill_Success(t *testing.T) {
+	var received KillPayload
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/kill", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &received)
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"})
+	require.NoError(t, err)
+	assert.Equal(t, "TEST-001", received.CardID)
+}
+
+func TestClient_StopAll_Success(t *testing.T) {
+	var received StopAllPayload
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/stop-all", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &received)
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.StopAll(context.Background(), StopAllPayload{Project: "test-project"})
+	require.NoError(t, err)
+	assert.Equal(t, "test-project", received.Project)
+}
+
+func TestClient_RetryOn500(t *testing.T) {
+	var attempts atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := attempts.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"temporary"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	// Use a long timeout to allow retries with backoff.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), attempts.Load())
+}
+
+func TestClient_NoRetryOn400(t *testing.T) {
+	var attempts atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`bad request`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.Error(t, err)
+	assert.Equal(t, int32(1), attempts.Load(), "should not retry on 4xx")
+	assert.Contains(t, err.Error(), "400")
+}
+
+func TestClient_ContextCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`error`))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	c := NewClient(srv.URL, "key")
+	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.Error(t, err)
+}
+
+func TestClient_RunnerReturnsNotOK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: false, Error: "container limit reached"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "container limit reached")
+}

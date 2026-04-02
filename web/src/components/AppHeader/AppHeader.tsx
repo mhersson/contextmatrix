@@ -8,6 +8,8 @@ interface AppHeaderProps {
   connected: boolean;
   syncStatus?: SyncStatus | null;
   onSyncClick?: () => void;
+  hasActiveRunners?: boolean;
+  onStopAll?: () => void;
 }
 
 const VIEWS = [
@@ -16,7 +18,7 @@ const VIEWS = [
   { label: 'Settings', to: '/settings' },
 ] as const;
 
-export function AppHeader({ project, connected, syncStatus, onSyncClick }: AppHeaderProps) {
+export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActiveRunners, onStopAll }: AppHeaderProps) {
   const base = `/projects/${project}`;
   return (
     <header
@@ -47,6 +49,17 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick }: AppHe
       </div>
 
       <div className="flex items-center gap-3">
+        {hasActiveRunners && onStopAll && (
+          <button
+            type="button"
+            onClick={() => { if (window.confirm('Stop all running tasks? Containers will be destroyed.')) onStopAll(); }}
+            className="px-2 py-1 rounded text-xs font-medium hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}
+            title="Stop all running tasks"
+          >
+            Stop All
+          </button>
+        )}
         <ThemeToggle />
         <SyncIndicator status={syncStatus} onClick={onSyncClick} />
         <div className="flex items-center gap-2">

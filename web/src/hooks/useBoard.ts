@@ -79,6 +79,10 @@ export function useBoard(
         case 'card.released':
         case 'card.stalled':
         case 'card.log_added':
+        case 'runner.triggered':
+        case 'runner.started':
+        case 'runner.failed':
+        case 'runner.killed':
           api.getCard(project, event.card_id).then((card) => {
             setCards((prev) => {
               const index = prev.findIndex((c) => c.id === card.id);

@@ -34,6 +34,7 @@ type Card struct {
 	BranchName     string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
 	PRUrl          string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
 	ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
+	RunnerStatus   string          `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`
 	TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
 	Created        time.Time       `yaml:"created"                   json:"created"`
 	Updated        time.Time       `yaml:"updated"                   json:"updated"`
