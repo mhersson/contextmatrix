@@ -691,3 +691,33 @@ func TestLoad_SkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
 }
+
+func TestLoad_ExampleFile(t *testing.T) {
+	// config.yaml.example lives in the repo root, two directories above this
+	// package (internal/config → repo root).
+	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	cfg, err := Load(examplePath)
+	require.NoError(t, err, "config.yaml.example must parse and validate without error")
+
+	// Verify key field values match the documented defaults in the example file.
+	assert.Equal(t, 8080, cfg.Port)
+	assert.False(t, cfg.GitDeferredCommit)
+	assert.True(t, cfg.GitAutoCommit)
+	assert.False(t, cfg.GitAutoPush)
+	assert.False(t, cfg.GitAutoPull)
+	assert.Equal(t, "60s", cfg.GitPullInterval)
+	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
+	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+
+	// boards_dir must be non-empty (tilde-expanded from ~/contextmatrix-boards).
+	assert.NotEmpty(t, cfg.BoardsDir)
+
+	// heartbeat_timeout must be a valid duration.
+	d, err := cfg.HeartbeatDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Minute, d)
+
+	// token_costs section should have at least one entry.
+	assert.NotEmpty(t, cfg.TokenCosts)
+}

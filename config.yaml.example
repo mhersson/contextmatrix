@@ -1,0 +1,78 @@
+# ContextMatrix configuration example.
+# Copy this file to one of the following locations:
+#   $XDG_CONFIG_HOME/contextmatrix/config.yaml   (if XDG_CONFIG_HOME is set)
+#   ~/.config/contextmatrix/config.yaml           (XDG default)
+#   ./config.yaml                                 (current working directory fallback)
+#
+# Environment variable overrides are available for every field — see the
+# CONTEXTMATRIX_* variables documented below.
+
+# TCP port the HTTP server listens on.
+# Default: 8080
+# Env: CONTEXTMATRIX_PORT
+port: 8080
+
+# Path to the directory that holds your boards (a separate git repository).
+# This field is required — the server will not start without it.
+# Tilde expansion is supported (e.g. ~/contextmatrix-boards).
+# Env: CONTEXTMATRIX_BOARDS_DIR
+boards_dir: ~/contextmatrix-boards
+
+# Path to the directory containing agent skill files (markdown).
+# When left empty, defaults to a "skills" directory next to this config file.
+# Tilde expansion is supported.
+# Env: CONTEXTMATRIX_SKILLS_DIR
+skills_dir: skills
+
+# Automatically create a git commit in the boards repository after every card
+# mutation. Disable only if you manage commits yourself.
+# Default: true
+# Env: CONTEXTMATRIX_GIT_AUTO_COMMIT (true/false/1/0)
+git_auto_commit: true
+
+# Defer git commits: instead of committing after every write, accumulate changes
+# and commit them together when a task transitions to a terminal state (done,
+# not_planned). Reduces commit noise for tasks with many intermediate updates.
+# Has no effect unless git_auto_commit is also true.
+# Default: false
+# Env: CONTEXTMATRIX_GIT_DEFERRED_COMMIT (true/false/1/0)
+git_deferred_commit: false
+
+# Push commits to the remote after each commit. Requires the boards repository
+# to have a configured remote and credentials (e.g. SSH key).
+# Default: false
+# Env: CONTEXTMATRIX_GIT_AUTO_PUSH (true/false/1/0)
+git_auto_push: false
+
+# Pull from the remote on startup and at the interval defined by
+# git_pull_interval. Useful for sharing a board across multiple machines.
+# Default: false
+# Env: CONTEXTMATRIX_GIT_AUTO_PULL (true/false/1/0)
+git_auto_pull: false
+
+# How often to pull from the remote when git_auto_pull is enabled.
+# Accepts Go duration strings: e.g. "30s", "5m", "1h".
+# Default: 60s
+# Env: CONTEXTMATRIX_GIT_PULL_INTERVAL
+git_pull_interval: "60s"
+
+# How long an agent can go without sending a heartbeat before the card is
+# automatically moved to the "stalled" state and the agent claim is released.
+# Accepts Go duration strings: e.g. "15m", "30m", "1h".
+# Default: 30m
+# Env: CONTEXTMATRIX_HEARTBEAT_TIMEOUT
+heartbeat_timeout: "30m"
+
+# Allowed origin for CORS requests. Set to the URL of your web UI in
+# production. In development with Vite the default matches the dev server.
+# Default: http://localhost:5173
+# Env: CONTEXTMATRIX_CORS_ORIGIN
+cors_origin: "http://localhost:5173"
+
+# Per-model token cost rates used for usage reporting (optional).
+# Keys are model identifiers; prompt/completion values are USD per token.
+# Example rates below are illustrative — check Anthropic pricing for current values.
+token_costs:
+  claude-haiku-4-5:   { prompt: 0.0000008, completion: 0.000004  }
+  claude-sonnet-4-6:  { prompt: 0.000003,  completion: 0.000015  }
+  claude-opus-4-6:    { prompt: 0.000005,  completion: 0.000025  }

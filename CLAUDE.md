@@ -131,6 +131,9 @@ make test         # runs all Go tests
 # Frontend dev (hot reload, proxies API to :8080)
 cd web && npm run dev
 
+# Install config and skills into your user config directory (see below)
+make install-config
+
 # Initialize the boards repo (separate from source code)
 mkdir -p ~/boards/contextmatrix
 cd ~/boards/contextmatrix && git init
@@ -153,6 +156,40 @@ mkdir -p project-alpha/tasks project-alpha/templates
 # For container deployments, point at the container:
 # "url": "http://contextmatrix:8080/mcp"
 ```
+
+## Install script and config template
+
+`config.yaml.example` in the repo root is a fully-commented configuration
+template. It documents every field, its default value, and the corresponding
+`CONTEXTMATRIX_*` environment variable override.
+
+`scripts/install.sh` copies the template and agent skill files into the user
+config directory. The config directory is resolved via the XDG spec:
+
+- `$XDG_CONFIG_HOME/contextmatrix` — if `XDG_CONFIG_HOME` is set
+- `~/.config/contextmatrix` — otherwise
+
+### Usage
+
+```bash
+# Fresh install: create config dir, copy config.yaml.example → config.yaml,
+# copy skills/ directory. Skips config.yaml if it already exists.
+make install-config
+# or equivalently:
+scripts/install.sh
+
+# Only update the skills/ directory; config.yaml is not touched.
+scripts/install.sh --update-skills
+
+# Overwrite config.yaml even if it already exists (re-install).
+scripts/install.sh --force
+```
+
+On a fresh install the script creates `~/.config/contextmatrix/config.yaml`
+from the template. Edit `boards_dir` (and any other fields) before starting the
+server. Skills are always refreshed from the repo's `skills/` directory even
+without `--update-skills` — that flag simply skips the config.yaml step
+entirely.
 
 ## Agent permissions in target projects
 
