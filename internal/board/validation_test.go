@@ -600,3 +600,31 @@ func TestValidationError_Message(t *testing.T) {
 
 	assert.Equal(t, "invalid type \"epic\"; valid types: [task bug]", ve.Error())
 }
+
+func TestValidateRunnerCallbackStatus(t *testing.T) {
+	v := NewValidator()
+
+	t.Run("accepts running", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerCallbackStatus("running"))
+	})
+
+	t.Run("accepts failed", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerCallbackStatus("failed"))
+	})
+
+	t.Run("accepts completed", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerCallbackStatus("completed"))
+	})
+
+	t.Run("rejects queued", func(t *testing.T) {
+		assert.Error(t, v.ValidateRunnerCallbackStatus("queued"))
+	})
+
+	t.Run("rejects killed", func(t *testing.T) {
+		assert.Error(t, v.ValidateRunnerCallbackStatus("killed"))
+	})
+
+	t.Run("rejects unknown", func(t *testing.T) {
+		assert.Error(t, v.ValidateRunnerCallbackStatus("unknown"))
+	})
+}

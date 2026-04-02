@@ -76,6 +76,20 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-enable feature_branch and create_pr for runner-executed cards.
+	// Changes inside a disposable container are lost without a remote branch.
+	if !card.FeatureBranch {
+		fb := true
+		pr := true
+		if _, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
+			FeatureBranch: &fb,
+			CreatePR:      &pr,
+		}); patchErr != nil {
+			handleServiceError(w, patchErr)
+			return
+		}
+	}
+
 	// Get project config to retrieve repo URL and runner image.
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {

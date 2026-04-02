@@ -60,7 +60,9 @@ Based on the card's current state and body content:
     - Spawn subtasks in **parallel** where possible.
 13. Call `heartbeat(card_id='<card_id>', agent_id=<your_id>)` on the parent
     every 5 minutes while waiting.
-14. Call `report_usage` on the parent card periodically.
+14. Call `report_usage` on the parent card after **every** `heartbeat` call —
+    this is mandatory, not optional. Include your estimated token consumption
+    since the last report.
 15. Wait for all sub-agents to complete.
 16. The parent card auto-transitions to `review` when all subtasks reach `done`.
 
@@ -91,9 +93,14 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-23. Transition the card to `done`:
+23. Call `report_usage` one final time with your remaining token consumption.
+24. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-24. Print structured output:
+25. Release the card claim:
+    `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
+    **This is mandatory.** Skipping this leaves the card orphaned with an active
+    claim that blocks future work until the heartbeat timeout fires (30 minutes).
+26. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>

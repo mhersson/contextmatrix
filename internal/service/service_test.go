@@ -3813,3 +3813,63 @@ func TestRecordPush_Atomic(t *testing.T) {
 	}
 	assert.True(t, hasEntry, "expected a 'pushed' activity log entry")
 }
+
+func TestUpdateRunnerStatus_Completed(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card and claim it to simulate an active runner session.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "runner test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	// Transition to in_progress (claim does this), then set runner_status to running.
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+
+	t.Run("completed clears claim and runner_status", func(t *testing.T) {
+		updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
+		require.NoError(t, err)
+
+		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on completed")
+		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on completed")
+		assert.Empty(t, updated.RunnerStatus, "runner_status should be cleared on completed")
+	})
+}
+
+func TestUpdateRunnerStatus_Failed(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "runner fail test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+
+	t.Run("failed clears claim but keeps runner_status", func(t *testing.T) {
+		updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
+		require.NoError(t, err)
+
+		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on failed")
+		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on failed")
+		assert.Equal(t, "failed", updated.RunnerStatus, "runner_status should remain failed")
+	})
+}

@@ -186,11 +186,11 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 }
 
 // validRunnerStatuses is the set of valid runner_status values.
-var validRunnerStatuses = []string{"", "queued", "running", "failed", "killed"}
+var validRunnerStatuses = []string{"", "queued", "running", "failed", "killed", "completed"}
 
 // validRunnerCallbackStatuses is the subset of statuses a runner callback can set.
-// "queued" and "killed" are server-only; the runner can only report "running" or "failed".
-var validRunnerCallbackStatuses = []string{"running", "failed"}
+// "queued" and "killed" are server-only; the runner can report "running", "failed", or "completed".
+var validRunnerCallbackStatuses = []string{"running", "failed", "completed"}
 
 // ValidateRunnerStatus checks if the given status is a valid runner_status value.
 func (v *Validator) ValidateRunnerStatus(status string) error {

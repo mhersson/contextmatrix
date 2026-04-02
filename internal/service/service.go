@@ -2121,9 +2121,13 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	card.Updated = time.Now()
 
 	// Clear agent claim on terminal runner statuses.
-	if status == "failed" || status == "killed" {
+	if status == "failed" || status == "killed" || status == "completed" {
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
+	}
+	// On completed, also clear runner_status since the run is over.
+	if status == "completed" {
+		card.RunnerStatus = ""
 	}
 
 	if message != "" {
