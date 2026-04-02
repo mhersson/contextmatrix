@@ -44,16 +44,18 @@ Open `http://localhost:8080` for the web UI.
 
 ## Web UI
 
-- **Board view** — drag-and-drop kanban columns per project, with card detail panel.
-  Columns can be collapsed to a narrow vertical strip by clicking the left-arrow
-  button in the column header. Individual cards can be collapsed to a single header
-  row (ID, type badge, and truncated title) using the chevron button on each card. Both collapsed column
-  and collapsed card sets are persisted per-project in `localStorage`.
-- **Dashboard** — per-project state counts, active agents, and token cost breakdown
-- **Swimlane view** — all projects in a single horizontal view (`/all`)
-- **Theme toggle** — sun/moon icon in the header switches between Everforest dark and
-  light palettes. The preference is persisted in `localStorage` and defaults to your
-  system's `prefers-color-scheme` setting if no preference is stored.
+- **Board view** — drag-and-drop kanban columns per project, with card detail
+  panel. Columns can be collapsed to a narrow vertical strip by clicking the
+  left-arrow button in the column header. Individual cards can be collapsed to a
+  single header row (ID, type badge, and truncated title) using the chevron
+  button on each card. Both collapsed column and collapsed card sets are
+  persisted per-project in `localStorage`.
+- **Dashboard** — per-project or all state counts, active agents, and token cost
+  breakdown
+- **Theme toggle** — sun/moon icon in the header switches between Everforest
+  dark and light palettes. The preference is persisted in `localStorage` and
+  defaults to your system's `prefers-color-scheme` setting if no preference is
+  stored.
 
 ## Creating a Board
 
@@ -112,12 +114,15 @@ scripts/install.sh --force
 
 **What gets installed:**
 
-- `config.yaml` — copied from `config.yaml.example` (skipped if it already exists, unless `--force`)
-- `skills/` — the agent skill files from the repo's `skills/` directory (always refreshed)
+- `config.yaml` — copied from `config.yaml.example` (skipped if it already
+  exists, unless `--force`)
+- `skills/` — the agent skill files from the repo's `skills/` directory (always
+  refreshed)
 
-After a fresh install, edit `boards_dir` in `~/.config/contextmatrix/config.yaml` before
-starting the server. The `skills_dir` defaults to the `skills/` directory next to the
-config file, so no manual path update is needed.
+After a fresh install, edit `boards_dir` in
+`~/.config/contextmatrix/config.yaml` before starting the server. The
+`skills_dir` defaults to the `skills/` directory next to the config file, so no
+manual path update is needed.
 
 ## MCP Integration
 
@@ -138,46 +143,46 @@ or project `.claude/claude.json`):
 
 ### MCP Tools
 
-| Tool                        | Description                                                                  |
-| --------------------------- | ---------------------------------------------------------------------------- |
-| `add_log`                   | Append an activity log entry                                                 |
-| `check_agent_health`        | Check health of subtask agents for a parent card                             |
-| `claim_card`                | Claim exclusive ownership of a card                                          |
-| `complete_task`             | Atomically log + transition to done + release                                |
-| `create_card`               | Create a card (returns generated ID)                                         |
-| `create_project`            | Create a new project board                                                   |
-| `delete_project`            | Delete a project (must have zero cards)                                      |
-| `get_card`                  | Get a single card                                                            |
-| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                           |
-| `get_skill`                 | Get a skill prompt with injected card/project context                        |
-| `get_subtask_summary`       | Get subtask counts by state for a parent card                                |
-| `get_task_context`          | Get card + parent + siblings + project config in one call                    |
-| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                               |
-| `increment_review_attempts` | Increment the review attempt counter on a card                               |
-| `list_cards`                | List cards with filters (state, type, label, agent, parent)                  |
-| `list_projects`             | List all projects with configs                                               |
-| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                     |
-| `release_card`              | Release a claim                                                              |
-| `report_push`               | Report a git push for a card                                                 |
-| `report_usage`              | Report token usage and estimated cost                                        |
-| `transition_card`           | Change card state (validated against state machine)                          |
-| `update_card`               | Update card fields                                                           |
-| `update_project`            | Update project configuration                                                 |
+| Tool                        | Description                                                 |
+| --------------------------- | ----------------------------------------------------------- |
+| `add_log`                   | Append an activity log entry                                |
+| `check_agent_health`        | Check health of subtask agents for a parent card            |
+| `claim_card`                | Claim exclusive ownership of a card                         |
+| `complete_task`             | Atomically log + transition to done + release               |
+| `create_card`               | Create a card (returns generated ID)                        |
+| `create_project`            | Create a new project board                                  |
+| `delete_project`            | Delete a project (must have zero cards)                     |
+| `get_card`                  | Get a single card                                           |
+| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met          |
+| `get_skill`                 | Get a skill prompt with injected card/project context       |
+| `get_subtask_summary`       | Get subtask counts by state for a parent card               |
+| `get_task_context`          | Get card + parent + siblings + project config in one call   |
+| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)              |
+| `increment_review_attempts` | Increment the review attempt counter on a card              |
+| `list_cards`                | List cards with filters (state, type, label, agent, parent) |
+| `list_projects`             | List all projects with configs                              |
+| `recalculate_costs`         | Recalculate token costs for cards with missing cost data    |
+| `release_card`              | Release a claim                                             |
+| `report_push`               | Report a git push for a card                                |
+| `report_usage`              | Report token usage and estimated cost                       |
+| `transition_card`           | Change card state (validated against state machine)         |
+| `update_card`               | Update card fields                                          |
+| `update_project`            | Update project configuration                                |
 
 ### Slash Commands
 
 Skill files in `skills/` are served as MCP prompts, available as Claude Code
 slash commands:
 
-| Command                          | Argument      | Description                               |
-| -------------------------------- | ------------- | ----------------------------------------- |
-| `/contextmatrix:create-task`     | `description` | Guided task creation with human interview |
-| `/contextmatrix:create-plan`     | `card_id`     | Break a task into executable subtasks     |
-| `/contextmatrix:execute-task`    | `card_id`     | Claim and execute a task (for sub-agents) |
-| `/contextmatrix:review-task`     | `card_id`     | Devils-advocate review of completed work  |
-| `/contextmatrix:document-task`   | `card_id`     | Write external documentation for a task   |
-| `/contextmatrix:init-project`    | `name`        | Initialize a new project board            |
-| `/contextmatrix:run-autonomous`  | `card_id`     | Run full autonomous lifecycle for a card  |
+| Command                         | Argument      | Description                               |
+| ------------------------------- | ------------- | ----------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview |
+| `/contextmatrix:create-plan`    | `card_id`     | Break a task into executable subtasks     |
+| `/contextmatrix:execute-task`   | `card_id`     | Claim and execute a task (for sub-agents) |
+| `/contextmatrix:review-task`    | `card_id`     | Devils-advocate review of completed work  |
+| `/contextmatrix:document-task`  | `card_id`     | Write external documentation for a task   |
+| `/contextmatrix:init-project`   | `name`        | Initialize a new project board            |
+| `/contextmatrix:run-autonomous` | `card_id`     | Run full autonomous lifecycle for a card  |
 
 ## Agent Workflow
 
@@ -212,21 +217,20 @@ team's workflow.
 However, the built-in skill files installed by `make install-config` /
 `scripts/install.sh` are written against the **default** states and transitions:
 
-| Default state  | Role                                              |
-| -------------- | ------------------------------------------------- |
-| `todo`         | Ready to be claimed                               |
-| `in_progress`  | Actively being worked                             |
-| `blocked`      | Waiting on an external dependency                 |
-| `review`       | Work complete, awaiting review                    |
-| `done`         | Accepted and finished                             |
-| `stalled`      | Heartbeat timed out; claim released automatically |
-| `not_planned`  | Deprioritized; excluded from active counts        |
+| Default state | Role                                              |
+| ------------- | ------------------------------------------------- |
+| `todo`        | Ready to be claimed                               |
+| `in_progress` | Actively being worked                             |
+| `blocked`     | Waiting on an external dependency                 |
+| `review`      | Work complete, awaiting review                    |
+| `done`        | Accepted and finished                             |
+| `stalled`     | Heartbeat timed out; claim released automatically |
+| `not_planned` | Deprioritized; excluded from active counts        |
 
 Skill dependencies on specific states:
 
-- **`execute-task`** — expects `in_progress`, `blocked`, and `review` states.
-  It transitions the card to `in_progress` on claim and to `review` on
-  completion.
+- **`execute-task`** — expects `in_progress`, `blocked`, and `review` states. It
+  transitions the card to `in_progress` on claim and to `review` on completion.
 - **`review-task`** — requires a `review` state to transition into and out of.
   Without it the skill cannot function.
 - **`create-plan`** and **`document-task`** — rely on `done` as the terminal
@@ -261,13 +265,52 @@ the `Agent` tool for execution, review, and documentation.
   `main` or `master`. The `report_push` MCP tool enforces this and returns a
   hard error if the branch name is `main` or `master`.
 - **Maximum review cycles** — after 2 review cycles without passing review, the
-  workflow halts and requires human intervention. The `increment_review_attempts`
-  tool tracks the counter; the orchestrator checks it before spawning another
-  review sub-agent.
+  workflow halts and requires human intervention. The
+  `increment_review_attempts` tool tracks the counter; the orchestrator checks
+  it before spawning another review sub-agent.
 - **Heartbeat-based stall detection** — if a sub-agent's heartbeat times out,
   the service layer marks the card `stalled` and releases the claim. The
   orchestrator uses `check_agent_health` to detect stalled sub-agents and
   respawn them automatically.
+
+## Remote Execution
+
+Remote execution lets you trigger autonomous tasks from the web UI. A **"Run
+Now"** button appears on autonomous cards in `todo` state. Clicking it sends a
+signed webhook to the **contextmatrix-runner** (a separate binary), which spawns
+a disposable Docker container running Claude Code in headless mode. The
+container connects back to ContextMatrix via MCP tools.
+
+```
+Web UI  →  ContextMatrix  →  contextmatrix-runner  →  Docker container
+(Run Now)   (webhook)         (spawn container)        (Claude Code + MCP)
+```
+
+### Setup
+
+```yaml
+# config.yaml
+runner:
+  enabled: true
+  url: "http://localhost:9090" # runner base URL
+  api_key: "your-secret-key-min-32ch" # shared HMAC secret
+  public_url: "http://contextmatrix:8080" # URL reachable from containers
+mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
+```
+
+Per-project, you can override the enabled flag and set a custom runner image in
+`.board.yaml`:
+
+```yaml
+remote_execution:
+  enabled: true
+  runner_image: "ghcr.io/org/custom-runner:latest"
+```
+
+Cards track execution state via `runner_status`: `queued` → `running` →
+`failed`/`killed`. The web UI shows status badges and pulsing indicators for
+active tasks. See [`docs/remote-execution.md`](docs/remote-execution.md) for the
+full architecture, webhook protocol, and security model.
 
 ## API
 
@@ -394,7 +437,29 @@ curl -N "http://localhost:8080/api/events?project=my-project"
 
 Events: `card.created`, `card.updated`, `card.deleted`, `card.state_changed`,
 `card.claimed`, `card.released`, `card.stalled`, `card.log_added`,
-`card.usage_reported`, `project.created`, `project.updated`, `project.deleted`.
+`card.usage_reported`, `project.created`, `project.updated`, `project.deleted`,
+`runner.triggered`, `runner.started`, `runner.failed`, `runner.killed`.
+
+### Remote Execution
+
+These endpoints are human-only (agents with `X-Agent-ID` headers are rejected).
+Requires `runner.enabled: true` in config.
+
+```bash
+# Trigger remote execution for an autonomous card in todo state
+curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/run
+
+# Stop a running/queued task
+curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/stop
+
+# Stop all running tasks in a project
+curl -X POST http://localhost:8080/api/projects/my-project/stop-all
+```
+
+The runner status callback (`POST /api/runner/status`) is HMAC-signed and used
+by the contextmatrix-runner to report container state changes. See
+[`docs/remote-execution.md`](docs/remote-execution.md) for the full webhook
+protocol.
 
 ### Health Check
 
@@ -406,27 +471,32 @@ curl http://localhost:8080/healthz
 
 ### config.yaml
 
-| Field                  | Default                 | Description                                                            |
-| ---------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `port`                 | `8080`                  | HTTP server port                                                       |
-| `boards_dir`           | ---                     | Path to boards git repo (required)                                     |
-| `git_auto_commit`      | `true`                  | Auto-commit card mutations to git                                      |
-| `git_deferred_commit`  | `false`                 | Batch commits until a terminal state (done/not_planned) is reached     |
-| `git_auto_push`        | `false`                 | Auto-push after each commit                                            |
-| `git_auto_pull`        | `false`                 | Pull from remote on startup and at `git_pull_interval`                 |
-| `git_pull_interval`    | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string) |
-| `heartbeat_timeout`    | `"30m"`                 | Duration before a claimed card becomes stalled                         |
-| `cors_origin`          | `http://localhost:5173` | Allowed CORS origin for the web UI                                     |
-| `skills_dir`           | `./skills`              | Path to skill file markdown directory                                  |
-| `token_costs`          | ---                     | Per-model token cost rates (see example below)                         |
+| Field                 | Default                 | Description                                                            |
+| --------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| `port`                | `8080`                  | HTTP server port                                                       |
+| `boards_dir`          | ---                     | Path to boards git repo (required)                                     |
+| `git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                      |
+| `git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached     |
+| `git_auto_push`       | `false`                 | Auto-push after each commit                                            |
+| `git_auto_pull`       | `false`                 | Pull from remote on startup and at `git_pull_interval`                 |
+| `git_pull_interval`   | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string) |
+| `heartbeat_timeout`   | `"30m"`                 | Duration before a claimed card becomes stalled                         |
+| `cors_origin`         | `http://localhost:5173` | Allowed CORS origin for the web UI                                     |
+| `skills_dir`          | `./skills`              | Path to skill file markdown directory                                  |
+| `token_costs`         | ---                     | Per-model token cost rates (see example below)                         |
+| `mcp_api_key`         | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)         |
+| `runner.enabled`      | `false`                 | Enable remote execution integration                                    |
+| `runner.url`          | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)    |
+| `runner.api_key`      | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)           |
+| `runner.public_url`   | `""`                    | Public URL of this instance, reachable from runner containers          |
 
 Token cost configuration:
 
 ```yaml
 token_costs:
-  claude-haiku-4-5:  { prompt: 0.0000008, completion: 0.000004  }
-  claude-sonnet-4-6: { prompt: 0.000003,  completion: 0.000015  }
-  claude-opus-4-6:   { prompt: 0.000005,  completion: 0.000025  }
+  claude-haiku-4-5: { prompt: 0.0000008, completion: 0.000004 }
+  claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 }
+  claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 }
 ```
 
 ### Environment Variables
@@ -443,6 +513,11 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
 - `CONTEXTMATRIX_SKILLS_DIR`
+- `CONTEXTMATRIX_MCP_API_KEY`
+- `CONTEXTMATRIX_RUNNER_ENABLED`
+- `CONTEXTMATRIX_RUNNER_URL`
+- `CONTEXTMATRIX_RUNNER_API_KEY`
+- `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 
 ## Development
 
