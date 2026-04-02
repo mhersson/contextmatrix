@@ -39,13 +39,13 @@ The MCP server reads skill files from disk and serves them as named prompts. No
 duplication — single source of truth.
 
 When a slash command is invoked, the prompt handler returns a **delegation
-wrapper** for most skills — not the raw skill content. The wrapper instructs
-the receiving agent to call `get_skill(...)` to fetch the full instructions and
-the required model, then spawn a sub-agent via the `Agent` tool with the
-returned `model` and `content`. Skill files include an `## Agent Configuration`
-section that specifies the model; this section is stripped from all content
-delivered to agents (via `get_skill` and `complete_task`) since the model is
-communicated as a separate `model` field.
+wrapper** for most skills — not the raw skill content. The wrapper instructs the
+receiving agent to call `get_skill(...)` to fetch the full instructions and the
+required model, then spawn a sub-agent via the `Agent` tool with the returned
+`model` and `content`. Skill files include an `## Agent Configuration` section
+that specifies the model; this section is stripped from all content delivered to
+agents (via `get_skill` and `complete_task`) since the model is communicated as
+a separate `model` field.
 
 Skills that use a two-phase sub-agent flow (currently only `create-plan`) can
 specify a separate model for each phase in `## Agent Configuration`:
@@ -53,8 +53,10 @@ specify a separate model for each phase in `## Agent Configuration`:
 ```markdown
 ## Agent Configuration
 
-- **Model:** claude-opus-4-6 — Planning shapes everything downstream; worth the cost.
-- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation is mechanical; haiku is sufficient.
+- **Model:** claude-opus-4-6 — Planning shapes everything downstream; worth the
+  cost.
+- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation is mechanical; haiku is
+  sufficient.
 ```
 
 `get_skill` returns both models as separate fields: `model` (Phase 1) and
@@ -69,17 +71,17 @@ requirements, skipped sub-agent spawning, ignored the ContextMatrix workflow
 orphaned cards across the board. The delegation wrapper pattern was introduced
 specifically to force agents through the `get_skill` → `Agent` tool → sub-agent
 pipeline, where lifecycle enforcement is structurally guaranteed rather than
-relying on voluntary compliance. Any optimization to this flow must preserve
-the forced indirection. The server-side inline execution mechanism (see below)
-is the approved alternative: it still enforces lifecycle steps by wrapping the
+relying on voluntary compliance. Any optimization to this flow must preserve the
+forced indirection. The server-side inline execution mechanism (see below) is
+the approved alternative: it still enforces lifecycle steps by wrapping the
 content in a lifecycle-enforcing preamble before returning it.
 
 **Exception — interview skills run inline:** `create-task` and `init-project`
 require multi-turn conversations with the user, so their prompt handlers return
-the **raw skill content** (with `## Agent Configuration` stripped) rather than
-a delegation wrapper. These skills run directly in the main agent's context,
-never as sub-agents. Delegating an interview skill to a sub-agent would break
-the multi-turn flow because sub-agents cannot relay back-and-forth user messages
+the **raw skill content** (with `## Agent Configuration` stripped) rather than a
+delegation wrapper. These skills run directly in the main agent's context, never
+as sub-agents. Delegating an interview skill to a sub-agent would break the
+multi-turn flow because sub-agents cannot relay back-and-forth user messages
 through the `Agent` tool.
 
 **Server-side inline execution for model-matched skills:** `review-task` and
@@ -91,31 +93,33 @@ wrapped in a lifecycle-enforcing inline preamble and sets `inline: true` in the
 response. The delegation wrapper instructs the orchestrator to execute inline
 when `inline` is true, or delegate as usual when false. This saves the overhead
 of spawning a sub-agent on the same model the orchestrator is already running.
-When `caller_model` is absent (backward compatibility), `inline` is always
-false and behavior is identical to the standard delegation flow.
+When `caller_model` is absent (backward compatibility), `inline` is always false
+and behavior is identical to the standard delegation flow.
 
 ```
 skills/
-  create-task.md    # /contextmatrix:create-task
-  create-plan.md    # /contextmatrix:create-plan
-  execute-task.md   # /contextmatrix:execute-task
-  review-task.md    # /contextmatrix:review-task
-  document-task.md  # /contextmatrix:document-task
-  init-project.md   # /contextmatrix:init-project
+  create-task.md      # /contextmatrix:create-task
+  create-plan.md      # /contextmatrix:create-plan
+  execute-task.md     # /contextmatrix:execute-task
+  review-task.md      # /contextmatrix:review-task
+  document-task.md    # /contextmatrix:document-task
+  init-project.md     # /contextmatrix:init-project
+  run-autonomous.md   # /contextmatrix:run-autonomous
 ```
 
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:
 
-| Command                        | Argument      | Type               | Description                       |
-| ------------------------------ | ------------- | ------------------ | --------------------------------- |
-| `/contextmatrix:create-task`   | `description` | optional free text | Start task creation interview     |
-| `/contextmatrix:create-plan`   | `card_id`     | required           | Create plan + subtasks for a card |
-| `/contextmatrix:execute-task`  | `card_id`     | required           | Claim and execute a task          |
-| `/contextmatrix:review-task`   | `card_id`     | required           | Devils-advocate review of a task  |
-| `/contextmatrix:document-task` | `card_id`     | required           | Write external docs for a task    |
-| `/contextmatrix:init-project`  | `name`        | optional           | Initialize a new project board    |
+| Command                         | Argument      | Type               | Description                              |
+| ------------------------------- | ------------- | ------------------ | ---------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview            |
+| `/contextmatrix:create-plan`    | `card_id`     | required           | Create plan + subtasks for a card        |
+| `/contextmatrix:execute-task`   | `card_id`     | required           | Claim and execute a task                 |
+| `/contextmatrix:review-task`    | `card_id`     | required           | Devils-advocate review of a task         |
+| `/contextmatrix:document-task`  | `card_id`     | required           | Write external docs for a task           |
+| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board           |
+| `/contextmatrix:run-autonomous` | `card_id`     | required           | Run full autonomous lifecycle for a card |
 
 Usage examples:
 
@@ -145,9 +149,9 @@ no sub-agent is involved.
 
 The prompt handler returns raw skill content (not a delegation wrapper). Main
 agent (CC) runs the interview inline — gathering details from the human,
-creating the card on the board, and offering next steps — all without spawning
-a sub-agent. This is required because the interview needs multi-turn back-and-forth
-with the user, which only works in the main agent's context.
+creating the card on the board, and offering next steps — all without spawning a
+sub-agent. This is required because the interview needs multi-turn
+back-and-forth with the user, which only works in the main agent's context.
 
 **2. Planning** (`/contextmatrix:create-plan <card_id>`)
 
@@ -160,8 +164,8 @@ workflow stranded.
 The flow is:
 
 1. **Phase 1 — Plan drafting** (model: `claude-opus-4-6`): CC spawns a
-   short-lived plan sub-agent that drafts the plan, writes it to the parent
-   card body via `update_card`, and returns a `PLAN_DRAFTED` structured output
+   short-lived plan sub-agent that drafts the plan, writes it to the parent card
+   body via `update_card`, and returns a `PLAN_DRAFTED` structured output
    immediately — without asking the user or waiting for approval. Opus is used
    here because planning quality affects all downstream work.
 2. **User approval (CC handles directly)**: CC reads the card body, presents the
@@ -193,9 +197,9 @@ Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
 card state is managed automatically by the service layer:** when the first
 subtask is claimed, the parent transitions `todo → in_progress`; when all
 subtasks reach `done`, the parent transitions to `review`. Execute-task
-sub-agents ignore any `next_step` field returned by `complete_task` — they
-print `TASK_COMPLETE` and stop. The orchestrator is responsible for detecting
-that the parent entered `review` and spawning the review sub-agent.
+sub-agents ignore any `next_step` field returned by `complete_task` — they print
+`TASK_COMPLETE` and stop. The orchestrator is responsible for detecting that the
+parent entered `review` and spawning the review sub-agent.
 
 During the monitoring loop the orchestrator (CC) calls `heartbeat` on the parent
 card every 5 minutes and immediately follows each heartbeat with `report_usage`
@@ -204,8 +208,8 @@ to record the orchestrator's own token consumption against the parent card. The
 context — "You are powered by the model named X") — it must not be hardcoded.
 This is separate from sub-agents' own `report_usage` calls; both are required.
 After documentation completes, the orchestrator makes one final `report_usage`
-call to capture tokens consumed during review presentation, user interaction, and
-documentation spawning before transitioning the parent to `done`.
+call to capture tokens consumed during review presentation, user interaction,
+and documentation spawning before transitioning the parent to `done`.
 
 **4. Review** (`/contextmatrix:review-task <card_id>`)
 
@@ -221,10 +225,12 @@ Uses a two-phase flow to avoid sub-agent death during user-approval waits:
 - Based on the user's response, CC (the orchestrator) prints one of:
   - `REVIEW_APPROVED` — main agent proceeds to documentation (step 5).
   - `REVIEW_REJECTED` — main agent handles the rejection loop:
-    1. Calls `transition_card` to move parent from `review` back to `in_progress`.
+    1. Calls `transition_card` to move parent from `review` back to
+       `in_progress`.
     2. Leaves existing `done` subtasks untouched — their work is preserved.
     3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
-       injected into the prompt, so it creates fix subtasks scoped to the issues.
+       injected into the prompt, so it creates fix subtasks scoped to the
+       issues.
     4. Resumes the execute → review cycle. This loop repeats until the human
        approves.
 
@@ -240,6 +246,43 @@ no human approval gate before writing, since docs are generated from
 already-reviewed, completed code. The sub-agent returns `DOCS_WRITTEN`
 immediately with a list of files written. CC presents the summary to the user
 and transitions the parent card to `done`.
+
+## Autonomous mode
+
+Cards with `autonomous: true` bypass human approval gates. The
+`/contextmatrix:run-autonomous` slash command drives the entire lifecycle for a
+single card using the `run-autonomous.md` skill, running on `claude-opus-4-6`.
+
+**Lifecycle phases:**
+
+```
+Phase 1: Plan Drafting   → calls create-plan (Phase 1 only)
+Phase 2: Subtask Creation → calls create-plan (Phase 2 only)
+Phase 3: Execution        → spawns execute-task sub-agents in parallel
+Phase 4: Review           → calls review-task inline or as sub-agent
+Phase 5: Documentation    → calls document-task sub-agent
+Phase 6: Finalization     → transitions parent to done
+```
+
+The orchestrator determines the starting phase from the card's current state and
+body content (e.g., if the card is already `review`, it starts at Phase 4).
+
+**Guardrails:**
+
+- **Branch protection** — agents must never push to `main` or `master`. The
+  `report_push` tool returns a hard error if the branch name is `main` or
+  `master`.
+- **Maximum review cycles** — the orchestrator checks the card's
+  `review_attempts` field before each review cycle. After 2 failed reviews it
+  prints `AUTONOMOUS_HALTED` and requires human intervention.
+- **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
+  the parent card every 5 minutes and uses `check_agent_health` to detect and
+  respawn stalled sub-agents.
+
+Unlike the interactive workflow, the autonomous orchestrator skips user approval
+between plan drafting and subtask creation, and between review approval and
+documentation. It only halts when review cycles are exhausted or a sub-agent
+reports `needs_human: true`.
 
 ## Board update ownership
 
@@ -363,9 +406,9 @@ configured in `config.yaml` under `token_costs` as cost-per-token values:
 
 ```yaml
 token_costs:
-  claude-haiku-4-5:  { prompt: 0.0000008,  completion: 0.000004  }  # $0.80 / $4.00 per MTok
-  claude-sonnet-4-6: { prompt: 0.000003,   completion: 0.000015  }  # $3.00 / $15.00 per MTok
-  claude-opus-4-6:   { prompt: 0.000005,   completion: 0.000025  }  # $5.00 / $25.00 per MTok
+  claude-haiku-4-5: { prompt: 0.0000008, completion: 0.000004 } # $0.80 / $4.00 per MTok
+  claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 } # $3.00 / $15.00 per MTok
+  claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
 ```
 
 The `report_usage` call must pass `model` matching one of these keys. Costs for
@@ -379,14 +422,16 @@ Agents working on code repositories need the following Claude Code permissions
 configured in the target project (e.g., `.claude/settings.local.json`):
 
 **Claude Code tools:**
+
 - `Edit` — modify existing files
 - `Write` — create new files
 
-**MCP tools (auto-available via MCP config):**
-All `mcp__contextmatrix__*` tools are available once the MCP server is
-configured. No per-tool allowlisting is needed for MCP tools.
+**MCP tools (auto-available via MCP config):** All `mcp__contextmatrix__*` tools
+are available once the MCP server is configured. No per-tool allowlisting is
+needed for MCP tools.
 
 **Bash tools (project-specific):**
+
 - `Bash(go test:*)`, `Bash(make test:*)`, `Bash(make build:*)` etc. — vary by
   project language and build system
 
