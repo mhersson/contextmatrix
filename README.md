@@ -138,40 +138,46 @@ or project `.claude/claude.json`):
 
 ### MCP Tools
 
-| Tool                  | Description                                                 |
-| --------------------- | ----------------------------------------------------------- |
-| `list_projects`       | List all projects with configs                              |
-| `create_project`      | Create a new project board                                  |
-| `update_project`      | Update project configuration                                |
-| `delete_project`      | Delete a project (must have zero cards)                     |
-| `list_cards`          | List cards with filters (state, type, label, agent, parent) |
-| `get_card`            | Get a single card                                           |
-| `create_card`         | Create a card (returns generated ID)                        |
-| `update_card`         | Update card fields                                          |
-| `transition_card`     | Change card state (validated against state machine)         |
-| `claim_card`          | Claim exclusive ownership of a card                         |
-| `release_card`        | Release a claim                                             |
-| `heartbeat`           | Update heartbeat timestamp (prevents stalling)              |
-| `add_log`             | Append an activity log entry                                |
-| `complete_task`       | Atomically log + transition to done + release               |
-| `get_task_context`    | Get card + parent + siblings + project config in one call   |
-| `get_ready_tasks`     | Get unclaimed todo cards with all dependencies met          |
-| `get_subtask_summary` | Get subtask counts by state for a parent card               |
-| `report_usage`        | Report token usage and estimated cost                       |
+| Tool                        | Description                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `add_log`                   | Append an activity log entry                                                 |
+| `check_agent_health`        | Check health of subtask agents for a parent card                             |
+| `claim_card`                | Claim exclusive ownership of a card                                          |
+| `complete_task`             | Atomically log + transition to done + release                                |
+| `create_card`               | Create a card (returns generated ID)                                         |
+| `create_project`            | Create a new project board                                                   |
+| `delete_project`            | Delete a project (must have zero cards)                                      |
+| `get_card`                  | Get a single card                                                            |
+| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                           |
+| `get_skill`                 | Get a skill prompt with injected card/project context                        |
+| `get_subtask_summary`       | Get subtask counts by state for a parent card                                |
+| `get_task_context`          | Get card + parent + siblings + project config in one call                    |
+| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                               |
+| `increment_review_attempts` | Increment the review attempt counter on a card                               |
+| `list_cards`                | List cards with filters (state, type, label, agent, parent)                  |
+| `list_projects`             | List all projects with configs                                               |
+| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                     |
+| `release_card`              | Release a claim                                                              |
+| `report_push`               | Report a git push for a card                                                 |
+| `report_usage`              | Report token usage and estimated cost                                        |
+| `transition_card`           | Change card state (validated against state machine)                          |
+| `update_card`               | Update card fields                                                           |
+| `update_project`            | Update project configuration                                                 |
 
 ### Slash Commands
 
 Skill files in `skills/` are served as MCP prompts, available as Claude Code
 slash commands:
 
-| Command                        | Argument      | Description                               |
-| ------------------------------ | ------------- | ----------------------------------------- |
-| `/contextmatrix:create-task`   | `description` | Guided task creation with human interview |
-| `/contextmatrix:create-plan`   | `card_id`     | Break a task into executable subtasks     |
-| `/contextmatrix:execute-task`  | `card_id`     | Claim and execute a task (for sub-agents) |
-| `/contextmatrix:review-task`   | `card_id`     | Devils-advocate review of completed work  |
-| `/contextmatrix:document-task` | `card_id`     | Write external documentation for a task   |
-| `/contextmatrix:init-project`  | `name`        | Initialize a new project board            |
+| Command                          | Argument      | Description                               |
+| -------------------------------- | ------------- | ----------------------------------------- |
+| `/contextmatrix:create-task`     | `description` | Guided task creation with human interview |
+| `/contextmatrix:create-plan`     | `card_id`     | Break a task into executable subtasks     |
+| `/contextmatrix:execute-task`    | `card_id`     | Claim and execute a task (for sub-agents) |
+| `/contextmatrix:review-task`     | `card_id`     | Devils-advocate review of completed work  |
+| `/contextmatrix:document-task`   | `card_id`     | Write external documentation for a task   |
+| `/contextmatrix:init-project`    | `name`        | Initialize a new project board            |
+| `/contextmatrix:run-autonomous`  | `card_id`     | Run full autonomous lifecycle for a card  |
 
 ## Agent Workflow
 
@@ -196,6 +202,72 @@ tool. The typical workflow:
 Cards with `depends_on` relationships are enforced — a card cannot transition to
 `in_progress` until all its dependencies are `done`. The `get_ready_tasks` tool
 returns only cards eligible for execution.
+
+## States, Transitions, and Skills
+
+The state machine is fully customizable per project via `.board.yaml`. You can
+define any states, any allowed transitions, and any card types to match your
+team's workflow.
+
+However, the built-in skill files installed by `make install-config` /
+`scripts/install.sh` are written against the **default** states and transitions:
+
+| Default state  | Role                                              |
+| -------------- | ------------------------------------------------- |
+| `todo`         | Ready to be claimed                               |
+| `in_progress`  | Actively being worked                             |
+| `blocked`      | Waiting on an external dependency                 |
+| `review`       | Work complete, awaiting review                    |
+| `done`         | Accepted and finished                             |
+| `stalled`      | Heartbeat timed out; claim released automatically |
+| `not_planned`  | Deprioritized; excluded from active counts        |
+
+Skill dependencies on specific states:
+
+- **`execute-task`** — expects `in_progress`, `blocked`, and `review` states.
+  It transitions the card to `in_progress` on claim and to `review` on
+  completion.
+- **`review-task`** — requires a `review` state to transition into and out of.
+  Without it the skill cannot function.
+- **`create-plan`** and **`document-task`** — rely on `done` as the terminal
+  state.
+
+If you remove or rename states (e.g. drop `review`), the default skills will
+break. In that case:
+
+1. Copy the `skills/` directory to a custom location.
+2. Edit the relevant skill files to match your state names.
+3. Set `skills_dir` in `config.yaml` to point to your custom directory.
+
+The default skills are always refreshed from the repo by `scripts/install.sh`;
+your custom directory is never touched by the install script.
+
+## Autonomous Mode
+
+Cards with `autonomous: true` run through the full lifecycle without human
+approval gates. The `/contextmatrix:run-autonomous` slash command drives the
+entire workflow for a single card:
+
+```
+plan → subtask creation → execute (parallel) → review → document → done
+```
+
+The orchestrator agent handles each phase in sequence, spawning sub-agents via
+the `Task` tool for execution, review, and documentation.
+
+### Guardrails
+
+- **Branch protection** — agents operating in autonomous mode must never push to
+  `main` or `master`. The `report_push` MCP tool enforces this and returns a
+  hard error if the branch name is `main` or `master`.
+- **Maximum review cycles** — after 2 review cycles without passing review, the
+  workflow halts and requires human intervention. The `increment_review_attempts`
+  tool tracks the counter; the orchestrator checks it before spawning another
+  review sub-agent.
+- **Heartbeat-based stall detection** — if a sub-agent's heartbeat times out,
+  the service layer marks the card `stalled` and releases the claim. The
+  orchestrator uses `check_agent_health` to detect stalled sub-agents and
+  respawn them automatically.
 
 ## API
 
