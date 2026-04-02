@@ -14,7 +14,7 @@ func testProjectConfigForValidation() *ProjectConfig {
 		Name:       "test",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "review", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high", "critical"},
 		Transitions: map[string][]string{
@@ -23,6 +23,7 @@ func testProjectConfigForValidation() *ProjectConfig {
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -215,6 +216,44 @@ func TestValidateTransition_StalledRules(t *testing.T) {
 	}
 }
 
+func TestValidateTransition_NotPlannedRules(t *testing.T) {
+	v := NewValidator()
+	cfg := testProjectConfigForValidation()
+
+	tests := []struct {
+		name    string
+		from    string
+		to      string
+		wantErr bool
+	}{
+		// not_planned follows normal transition rules (only explicit transitions)
+		// In test config, only todo does NOT list not_planned, so todo->not_planned fails
+		{"todo to not_planned", "todo", "not_planned", true},           // not in Transitions["todo"]
+		{"in_progress to not_planned", "in_progress", "not_planned", true}, // not in Transitions["in_progress"]
+		{"done to not_planned", "done", "not_planned", true},           // not in Transitions["done"]
+
+		// FROM not_planned follows Transitions["not_planned"]
+		{"not_planned to todo", "not_planned", "todo", false},
+		{"not_planned to in_progress", "not_planned", "in_progress", true}, // not in Transitions["not_planned"]
+		{"not_planned to done", "not_planned", "done", true},               // not in Transitions["not_planned"]
+
+		// not_planned to not_planned is same-state (valid)
+		{"not_planned to not_planned", "not_planned", "not_planned", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := v.ValidateTransition(cfg, tt.from, tt.to)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrInvalidTransition)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateTransition_SameState(t *testing.T) {
 	v := NewValidator()
 	cfg := testProjectConfigForValidation()
@@ -307,6 +346,8 @@ func TestCanTransition(t *testing.T) {
 
 	assert.True(t, v.CanTransition(cfg, "todo", "in_progress"))
 	assert.True(t, v.CanTransition(cfg, "todo", "stalled"))
+	assert.False(t, v.CanTransition(cfg, "todo", "not_planned")) // not in Transitions["todo"]
+	assert.False(t, v.CanTransition(cfg, "done", "not_planned")) // not in Transitions["done"]
 	assert.False(t, v.CanTransition(cfg, "todo", "done"))
 	assert.False(t, v.CanTransition(cfg, "invalid", "todo"))
 }
@@ -334,6 +375,11 @@ func TestAllowedTransitions(t *testing.T) {
 			name:     "from stalled does NOT add stalled",
 			from:     "stalled",
 			expected: []string{"todo", "in_progress"},
+		},
+		{
+			name:     "from not_planned includes stalled (auto-injected)",
+			from:     "not_planned",
+			expected: []string{"todo", "stalled"},
 		},
 		{
 			name:     "invalid state returns nil",
@@ -388,17 +434,18 @@ func TestFindShortestPath(t *testing.T) {
 
 func TestFindShortestPath_NoPath(t *testing.T) {
 	v := NewValidator()
-	// stalled has no outgoing transitions, so b -> stalled is a dead end
+	// stalled and not_planned have no outgoing transitions, so b -> stalled is a dead end
 	cfg := &ProjectConfig{
 		Name:       "test",
 		Prefix:     "TEST",
-		States:     []string{"a", "b", "stalled"},
+		States:     []string{"a", "b", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"low"},
 		Transitions: map[string][]string{
-			"a":       {"b"},
-			"b":       {},
-			"stalled": {},
+			"a":           {"b"},
+			"b":           {},
+			"stalled":     {},
+			"not_planned": {},
 		},
 	}
 
@@ -415,7 +462,7 @@ func TestValidateType_SubtaskIsBuiltIn(t *testing.T) {
 	cfg := &ProjectConfig{
 		Name:       "test",
 		Prefix:     "TEST",
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -423,6 +470,7 @@ func TestValidateType_SubtaskIsBuiltIn(t *testing.T) {
 			"in_progress": {"done"},
 			"done":        {"todo"},
 			"stalled":     {"todo"},
+			"not_planned": {"todo"},
 		},
 	}
 

@@ -27,7 +27,7 @@ func testProjectConfig() *board.ProjectConfig {
 		Name:       "test-project",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "blocked", "review", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high", "critical"},
 		Transitions: map[string][]string{
@@ -37,6 +37,7 @@ func testProjectConfig() *board.ProjectConfig {
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -1688,7 +1689,7 @@ func TestCreateProject_MCP(t *testing.T) {
 		"name":       "new-project",
 		"prefix":     "NEW",
 		"repo":       "git@github.com:org/new-project.git",
-		"states":     []string{"todo", "in_progress", "done", "stalled"},
+		"states":     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		"types":      []string{"task", "bug"},
 		"priorities": []string{"low", "high"},
 		"transitions": map[string][]string{
@@ -1696,6 +1697,7 @@ func TestCreateProject_MCP(t *testing.T) {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	})
 	require.False(t, result.IsError, "create_project should not error")
@@ -1720,7 +1722,7 @@ func TestUpdateProject_MCP(t *testing.T) {
 	result := callTool(t, env, "update_project", map[string]any{
 		"project":    "test-project",
 		"repo":       "git@github.com:org/test.git",
-		"states":     []string{"todo", "in_progress", "review", "done", "stalled"},
+		"states":     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		"types":      []string{"task", "bug", "feature"},
 		"priorities": []string{"low", "medium", "high", "critical"},
 		"transitions": map[string][]string{
@@ -1729,6 +1731,7 @@ func TestUpdateProject_MCP(t *testing.T) {
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	})
 	require.False(t, result.IsError, "update_project should not error")
@@ -1746,13 +1749,14 @@ func TestDeleteProject_MCP(t *testing.T) {
 	createResult := callTool(t, env, "create_project", map[string]any{
 		"name":       "temp-project",
 		"prefix":     "TMP",
-		"states":     []string{"todo", "done", "stalled"},
+		"states":     []string{"todo", "done", "stalled", "not_planned"},
 		"types":      []string{"task"},
 		"priorities": []string{"low"},
 		"transitions": map[string][]string{
-			"todo":    {"done"},
-			"done":    {"todo"},
-			"stalled": {"todo"},
+			"todo":        {"done"},
+			"done":        {"todo"},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
 		},
 	})
 	require.False(t, createResult.IsError)

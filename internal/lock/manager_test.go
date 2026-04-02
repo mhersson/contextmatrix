@@ -22,7 +22,7 @@ func setupTestStore(t *testing.T) (*storage.FilesystemStore, string) {
 		Name:       "test-project",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -30,6 +30,7 @@ func setupTestStore(t *testing.T) (*storage.FilesystemStore, string) {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 	require.NoError(t, board.SaveProjectConfig(projectDir, cfg))
@@ -363,7 +364,7 @@ func TestFindStalled_MultipleProjects(t *testing.T) {
 			Name:       name,
 			Prefix:     name[:5],
 			NextID:     1,
-			States:     []string{"todo", "in_progress", "done", "stalled"},
+			States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 			Types:      []string{"task"},
 			Priorities: []string{"low", "medium", "high"},
 			Transitions: map[string][]string{
@@ -371,6 +372,7 @@ func TestFindStalled_MultipleProjects(t *testing.T) {
 				"in_progress": {"done"},
 				"done":        {"todo"},
 				"stalled":     {"todo"},
+				"not_planned": {"todo"},
 			},
 		}
 		require.NoError(t, board.SaveProjectConfig(boardsDir+"/"+name, cfg))

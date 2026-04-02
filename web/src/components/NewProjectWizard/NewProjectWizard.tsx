@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { ProjectConfig, CreateProjectInput } from '../../types';
 
-const DEFAULT_STATES = ['todo', 'in_progress', 'blocked', 'review', 'done', 'stalled'];
+const DEFAULT_STATES = ['todo', 'in_progress', 'blocked', 'review', 'done', 'stalled', 'not_planned'];
 const DEFAULT_TYPES = ['task', 'bug', 'feature'];
 const DEFAULT_PRIORITIES = ['low', 'medium', 'high', 'critical'];
 const DEFAULT_TRANSITIONS: Record<string, string[]> = {
@@ -12,6 +12,7 @@ const DEFAULT_TRANSITIONS: Record<string, string[]> = {
   review: ['done', 'in_progress'],
   done: ['todo'],
   stalled: ['todo', 'in_progress'],
+  not_planned: ['todo'],
 };
 
 interface NewProjectWizardProps {

@@ -111,6 +111,8 @@ func (v *Validator) ValidatePriority(cfg *ProjectConfig, cardPriority string) er
 // ValidateTransition checks if transitioning from fromState to toState is allowed.
 // Special rule: any state can transition TO "stalled" (system-managed),
 // but FROM "stalled" only follows Transitions["stalled"].
+// The "not_planned" state follows normal transition rules — only states that
+// explicitly list "not_planned" in their transitions can reach it.
 // Returns nil if valid, *ValidationError if invalid.
 func (v *Validator) ValidateTransition(cfg *ProjectConfig, fromState, toState string) error {
 	// Validate both states exist
@@ -183,6 +185,8 @@ func (v *Validator) CanTransition(cfg *ProjectConfig, fromState, toState string)
 // AllowedTransitions returns the list of valid target states from the given state.
 // For the "stalled" state, returns Transitions["stalled"].
 // For any other state, includes the explicit Transitions[state] plus "stalled".
+// The "not_planned" state is not auto-injected — it only appears if explicitly
+// listed in the source state's transitions in .board.yaml.
 // Returns nil if fromState is not a valid state.
 func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []string {
 	if !slices.Contains(cfg.States, fromState) {

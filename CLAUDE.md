@@ -107,12 +107,17 @@ Full details with examples: `docs/data-model.md`.
 5. **Every mutation auto-commits** via `GitManager.CommitFile()`.
 6. **Activity log:** append-only, capped at 50 entries per card.
 7. **Heartbeat timeout:** default 30min, service layer sets card to `stalled` +
-   clears agent.
-8. **External source tracking:** `source` field for Jira/GitHub imports,
+   clears agent. `stalled` is system-managed; `not_planned` is manual-only.
+8. **`not_planned` state:** built-in like `stalled`, but follows normal
+   transition rules — only states that explicitly list `not_planned` in their
+   `.board.yaml` transitions can reach it (no server-side auto-injection).
+   From `not_planned`, only `todo` is allowed. Releases agent claim, flushes
+   deferred commits, excluded from active agent and open task counts.
+9. **External source tracking:** `source` field for Jira/GitHub imports,
    immutable after creation.
-9. **Parent auto-transitions:** parent goes `in_progress` when first subtask
-   claimed, `review` when all subtasks done.
-10. **Subtask type:** automatic when `parent` is set, immutable, built-in (not
+10. **Parent auto-transitions:** parent goes `in_progress` when first subtask
+    claimed, `review` when all subtasks done.
+11. **Subtask type:** automatic when `parent` is set, immutable, built-in (not
     in `.board.yaml` types).
 
 ## Running the project

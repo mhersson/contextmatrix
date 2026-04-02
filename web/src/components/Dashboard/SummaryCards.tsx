@@ -18,7 +18,7 @@ function StatTile({ label, value, color }: { label: string; value: string; color
 
 export function SummaryCards({ stateCounts, totalCost, completedToday }: SummaryCardsProps) {
   const openTasks = Object.entries(stateCounts)
-    .filter(([state]) => state !== 'done' && state !== 'stalled')
+    .filter(([state]) => state !== 'done' && state !== 'stalled' && state !== 'not_planned')
     .reduce((sum, [, count]) => sum + count, 0);
 
   return (

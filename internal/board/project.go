@@ -35,15 +35,20 @@ var (
 	ErrMissingStalledState = errors.New("missing required 'stalled' state")
 	// ErrMissingStalledTransitions is returned when transitions lack 'stalled' key.
 	ErrMissingStalledTransitions = errors.New("missing required 'stalled' transitions")
+	// ErrMissingNotPlannedState is returned when config lacks required 'not_planned' state.
+	ErrMissingNotPlannedState = errors.New("missing required 'not_planned' state")
+	// ErrMissingNotPlannedTransitions is returned when transitions lack 'not_planned' key.
+	ErrMissingNotPlannedTransitions = errors.New("missing required 'not_planned' transitions")
 	// ErrInvalidProjectConfig is returned for other validation failures.
 	ErrInvalidProjectConfig = errors.New("invalid project config")
 )
 
 const (
-	boardConfigFile    = ".board.yaml"
-	templatesDir       = "templates"
-	templateExtension  = ".md"
-	stalledState       = "stalled"
+	boardConfigFile   = ".board.yaml"
+	templatesDir      = "templates"
+	templateExtension = ".md"
+	stalledState      = "stalled"
+	notPlannedState   = "not_planned"
 )
 
 // LoadProjectConfig reads a project's .board.yaml configuration.
@@ -116,6 +121,16 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 	// Check stalled transition exists
 	if _, ok := cfg.Transitions[stalledState]; !ok {
 		return ErrMissingStalledTransitions
+	}
+
+	// Check not_planned state exists
+	if !slices.Contains(cfg.States, notPlannedState) {
+		return ErrMissingNotPlannedState
+	}
+
+	// Check not_planned transition exists
+	if _, ok := cfg.Transitions[notPlannedState]; !ok {
+		return ErrMissingNotPlannedTransitions
 	}
 
 	// Check all states have transition entries

@@ -48,7 +48,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 		Name:       "test-project",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -56,6 +56,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 	require.NoError(t, board.SaveProjectConfig(filepath.Join(clone, "test-project"), cfg))

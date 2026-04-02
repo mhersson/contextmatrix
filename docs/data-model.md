@@ -9,10 +9,20 @@
 
 2. **State transitions are enforced.** Transitions defined in `.board.yaml`
    under `transitions`. API returns 409 Conflict with descriptive error on
-   invalid transition. `stalled` is a system-managed state — the lock manager
-   can transition any state → `stalled` (on heartbeat timeout), but
-   agents/humans can only transition `stalled` → states listed in
-   `transitions.stalled`.
+   invalid transition. One state has a special built-in rule:
+
+   - **`stalled`** is system-managed — the lock manager can transition any
+     state → `stalled` (on heartbeat timeout), but agents/humans can only
+     transition `stalled` → states listed in `transitions.stalled`. Stalled
+     cards release the active agent claim.
+
+   Both `stalled` and `not_planned` are required built-in states (the server
+   validates their presence in every project config). Unlike `stalled`,
+   `not_planned` follows normal transition rules — only states that explicitly
+   list `not_planned` in their transitions can reach it. It is a terminal
+   state: transitioning to `not_planned` releases the agent claim, flushes
+   deferred commits, and excludes the card from active agent and open task
+   counts. No automatic mechanism ever transitions a card to `not_planned`.
 
 3. **One agent per card.** `POST /claim` fails with 409 if card is already
    claimed. Only the assigned agent can mutate a claimed card — API checks
@@ -225,17 +235,22 @@ name: project-alpha
 prefix: ALPHA
 next_id: 1
 repo: git@github.com:org/project-alpha.git
-states: [todo, in_progress, blocked, review, done, stalled]
+states: [todo, in_progress, blocked, review, done, stalled, not_planned]
 types: [task, bug, feature] # "subtask" is built-in — do not add it here
 priorities: [low, medium, high, critical]
 transitions:
-  todo: [in_progress]
+  todo: [in_progress, not_planned]
   in_progress: [blocked, review, todo]
   blocked: [in_progress, todo]
   review: [done, in_progress]
   done: [todo]
   stalled: [todo, in_progress]
+  not_planned: [todo]
 ```
 
-The `stalled` state must always be present in `states` and `transitions`. The
-server enforces this.
+Both `stalled` and `not_planned` must always be present in `states` and
+`transitions`. The server enforces this. Any state can transition to `stalled`
+without being listed in the source state's transitions — the server injects
+this automatically (needed for heartbeat timeout). `not_planned` follows
+normal transition rules: only states that explicitly list `not_planned` in
+their transitions can reach it (e.g., `todo: [in_progress, not_planned]`).

@@ -13,6 +13,7 @@ const STATE_COLORS: Record<string, string> = {
   review: 'var(--purple)',
   done: 'var(--green)',
   stalled: 'var(--orange)',
+  not_planned: 'var(--grey0)',
 };
 
 export function ProjectCard({ name, summary, isActive }: ProjectCardProps) {

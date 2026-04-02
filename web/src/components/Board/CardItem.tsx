@@ -53,12 +53,15 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
 
   const isAgentActive = card.assigned_agent && card.state !== 'stalled';
   const isStalled = card.state === 'stalled';
+  const isNotPlanned = card.state === 'not_planned';
 
   const borderClass = isStalled
     ? 'border-l-[3px] border-l-[var(--red)] bg-[var(--bg-red)]'
-    : isAgentActive
-      ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
-      : 'border-l-[3px] border-l-transparent';
+    : isNotPlanned
+      ? 'border-l-[3px] border-l-[var(--bg4)]'
+      : isAgentActive
+        ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
+        : 'border-l-[3px] border-l-transparent';
 
   const collapseButton = onToggleCollapse ? (
     <button
@@ -154,7 +157,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       </div>
 
       {/* Title */}
-      <h3 className="text-sm text-[var(--fg)] font-medium mb-2 line-clamp-2">
+      <h3 className={`text-sm font-medium mb-2 line-clamp-2 ${isNotPlanned ? 'text-[var(--grey1)]' : 'text-[var(--fg)]'}`}>
         {card.title}
       </h3>
 

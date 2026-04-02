@@ -678,6 +678,14 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	card.Body = input.Body
 	card.Updated = time.Now()
 
+	// Release agent claim when card moves to a terminal state that implies
+	// the work is no longer active (not_planned is purely manual — the agent
+	// claim must be cleared so the lock manager won't treat it as stalled).
+	if stateChanged && card.State == "not_planned" {
+		card.AssignedAgent = ""
+		card.LastHeartbeat = nil
+	}
+
 	// Validate updated card
 	validator := s.getValidator(project)
 	if err := validator.ValidateCard(cfg, card); err != nil {
@@ -705,7 +713,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	}
 
 	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == "done" || card.State == "stalled") {
+	if stateChanged && (card.State == "done" || card.State == "stalled" || card.State == "not_planned") {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -793,6 +801,13 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 	card.Updated = time.Now()
 
+	// Release agent claim when card moves to not_planned so the lock manager
+	// won't flag the card as stalled.
+	if stateChanged && card.State == "not_planned" {
+		card.AssignedAgent = ""
+		card.LastHeartbeat = nil
+	}
+
 	// Validate updated card
 	validator := s.getValidator(project)
 	if err := validator.ValidateCard(cfg, card); err != nil {
@@ -820,7 +835,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 
 	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == "done" || card.State == "stalled") {
+	if stateChanged && (card.State == "done" || card.State == "stalled" || card.State == "not_planned") {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -1130,7 +1145,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		data.StateCounts[card.State]++
 
 		// Active agents: cards with an assigned agent not in terminal states.
-		if card.AssignedAgent != "" && card.State != "done" && card.State != "stalled" {
+		if card.AssignedAgent != "" && card.State != "done" && card.State != "stalled" && card.State != "not_planned" {
 			aa := ActiveAgent{
 				AgentID:   card.AssignedAgent,
 				CardID:    card.ID,

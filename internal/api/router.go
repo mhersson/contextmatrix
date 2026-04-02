@@ -241,7 +241,9 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, ErrCodeProjectExists, "project already exists", "")
 	case errors.Is(err, board.ErrInvalidProjectConfig),
 		errors.Is(err, board.ErrMissingStalledState),
-		errors.Is(err, board.ErrMissingStalledTransitions):
+		errors.Is(err, board.ErrMissingStalledTransitions),
+		errors.Is(err, board.ErrMissingNotPlannedState),
+		errors.Is(err, board.ErrMissingNotPlannedTransitions):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", err.Error())
 	case errors.Is(err, storage.ErrProjectHasCards):
 		writeError(w, http.StatusConflict, ErrCodeProjectHasCards, "project has cards", err.Error())

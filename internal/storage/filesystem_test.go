@@ -18,7 +18,7 @@ func validProjectConfig(name, prefix string) *board.ProjectConfig {
 		Name:       name,
 		Prefix:     prefix,
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high", "critical"},
 		Transitions: map[string][]string{
@@ -26,6 +26,7 @@ func validProjectConfig(name, prefix string) *board.ProjectConfig {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }

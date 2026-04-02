@@ -38,17 +38,18 @@ Project name:  my-app
 Prefix:        MYAPP
 Repository:    git@github.com:org/my-app.git
 
-States:        [todo, in_progress, blocked, review, done, stalled]
+States:        [todo, in_progress, blocked, review, done, stalled, not_planned]
 Types:         [task, bug, feature]
 Priorities:    [low, medium, high, critical]
 
 Transitions:
-  todo        -> [in_progress]
+  todo        -> [in_progress, not_planned]
   in_progress -> [blocked, review, todo]
   blocked     -> [in_progress, todo]
   review      -> [done, in_progress]
   done        -> [todo]
   stalled     -> [todo, in_progress]
+  not_planned -> [todo]
 ```
 
 These are sensible defaults for most projects. The human may want to:
@@ -56,10 +57,10 @@ These are sensible defaults for most projects. The human may want to:
 - Change the name or prefix
 - Add or remove states (e.g., add `qa` or remove `blocked`)
 - Add types (e.g., `chore`, `spike`)
-- Modify transitions
+- Modify transitions (e.g., allow `not_planned` from additional states)
 - Clear the repo URL if they don't want it tracked
 
-The `stalled` state is mandatory and cannot be removed.
+The `stalled` and `not_planned` states are mandatory and cannot be removed.
 
 ## Step 4: Create the project
 

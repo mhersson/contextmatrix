@@ -51,7 +51,7 @@ func testSetup(t *testing.T) (*service.CardService, *events.Bus, func()) {
 	boardConfig := `name: test-project
 prefix: TEST
 next_id: 1
-states: [todo, in_progress, done, stalled]
+states: [todo, in_progress, done, stalled, not_planned]
 types: [task, bug, feature]
 priorities: [low, medium, high]
 transitions:
@@ -59,6 +59,7 @@ transitions:
   in_progress: [done, todo]
   done: [todo]
   stalled: [todo, in_progress]
+  not_planned: [todo]
 `
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
@@ -1671,7 +1672,7 @@ func validProjectBody() createProjectRequest {
 		Name:       "new-project",
 		Prefix:     "NEW",
 		Repo:       "git@github.com:org/new-project.git",
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -1679,6 +1680,7 @@ func validProjectBody() createProjectRequest {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -1745,7 +1747,7 @@ func TestUpdateProject_API(t *testing.T) {
 
 	req := updateProjectRequest{
 		Repo:       "git@github.com:org/test.git",
-		States:     []string{"todo", "in_progress", "review", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -1754,6 +1756,7 @@ func TestUpdateProject_API(t *testing.T) {
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 	body, _ := json.Marshal(req)
@@ -1779,13 +1782,14 @@ func TestUpdateProject_API_NotFound(t *testing.T) {
 	defer server.Close()
 
 	body, _ := json.Marshal(updateProjectRequest{
-		States:     []string{"todo", "done", "stalled"},
+		States:     []string{"todo", "done", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"low"},
 		Transitions: map[string][]string{
-			"todo":    {"done"},
-			"done":    {"todo"},
-			"stalled": {"todo"},
+			"todo":        {"done"},
+			"done":        {"todo"},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
 		},
 	})
 

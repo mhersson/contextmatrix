@@ -27,14 +27,15 @@ func testProject() *board.ProjectConfig {
 		Name:       "test-project",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
-			"todo":        {"in_progress"},
+			"todo":        {"in_progress", "not_planned"},
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -1006,16 +1007,17 @@ func testProjectWithReview() *board.ProjectConfig {
 		Name:       "test-project",
 		Prefix:     "TEST",
 		NextID:     1,
-		States:     []string{"todo", "in_progress", "blocked", "review", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
-			"todo":        {"in_progress"},
+			"todo":        {"in_progress", "not_planned"},
 			"in_progress": {"blocked", "review", "todo", "done"},
 			"blocked":     {"in_progress", "todo"},
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -1838,7 +1840,7 @@ func validCreateProjectInput() CreateProjectInput {
 	return CreateProjectInput{
 		Name:       "my-project",
 		Prefix:     "MYPRJ",
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -1846,6 +1848,7 @@ func validCreateProjectInput() CreateProjectInput {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -1945,7 +1948,7 @@ func TestUpdateProject(t *testing.T) {
 
 	input := UpdateProjectInput{
 		Repo:       "git@github.com:org/test.git",
-		States:     []string{"todo", "in_progress", "review", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature", "chore"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -1954,6 +1957,7 @@ func TestUpdateProject(t *testing.T) {
 			"review":      {"done", "in_progress"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 
@@ -1987,13 +1991,14 @@ func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
 
 	// Try to remove "todo" from states
 	input := UpdateProjectInput{
-		States:     []string{"in_progress", "done", "stalled"},
+		States:     []string{"in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
 			"in_progress": {"done"},
 			"done":        {"in_progress"},
 			"stalled":     {"in_progress"},
+			"not_planned": {"in_progress"},
 		},
 	}
 
@@ -2013,7 +2018,7 @@ func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
 	require.NoError(t, err)
 
 	input := UpdateProjectInput{
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"bug", "feature"}, // removed "task"
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
@@ -2021,6 +2026,7 @@ func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 
@@ -2368,13 +2374,14 @@ func TestDeferredCommitProjectOpsUnaffected(t *testing.T) {
 	proj, err := svc.CreateProject(ctx, CreateProjectInput{
 		Name:       "another-project",
 		Prefix:     "ANOTH",
-		States:     []string{"todo", "done", "stalled"},
+		States:     []string{"todo", "done", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"medium"},
 		Transitions: map[string][]string{
-			"todo":    {"done"},
-			"done":    {"todo"},
-			"stalled": {"todo"},
+			"todo":        {"done"},
+			"done":        {"todo"},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
 		},
 	})
 	require.NoError(t, err)
@@ -3269,4 +3276,138 @@ func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
 	assert.NotEqual(t, creationMsg, msgAfter, "UpdateCard with ImmediateCommit=true should produce a new commit")
 	assert.Contains(t, msgAfter, card.ID, "commit message should reference the card ID")
 	assert.Contains(t, msgAfter, "updated", "commit message should say updated")
+}
+
+// TestDeferredCommitFlushOnNotPlanned verifies that transitioning a card to
+// "not_planned" flushes any accumulated deferred commits, mirroring the
+// behaviour for "done" and "stalled".
+func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create card — immediate commit even in deferred mode.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Will Be Not-Planned", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	// Accumulate a deferred mutation (body update, no commit yet).
+	body := "## Notes\nDecided not to pursue this."
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
+	require.NoError(t, err)
+
+	// No new commit should have been produced yet (deferred mode).
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, creationMsg, msg, "no new commit expected before not_planned transition")
+
+	// Transition todo → not_planned (direct transition is allowed for all states).
+	notPlanned := "not_planned"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
+	require.NoError(t, err)
+
+	// A deferred flush commit should now exist.
+	msg, err = gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEmpty(t, msg, "expected a commit after transitioning to not_planned")
+	assert.Contains(t, msg, card.ID)
+	assert.Contains(t, msg, "completed (deferred commit)")
+
+	// deferredPaths should be cleared.
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths should be cleared after not_planned flush")
+}
+
+// TestNotPlannedReleasesAgent verifies that transitioning a claimed card to
+// "not_planned" clears the assigned agent and last_heartbeat so the lock
+// manager won't flag the card as stalled.
+func TestNotPlannedReleasesAgent(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create and claim a card.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Agent Will Be Dropped", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	claimed, err := svc.ClaimCard(ctx, "test-project", card.ID, "agent-xyz")
+	require.NoError(t, err)
+	assert.Equal(t, "agent-xyz", claimed.AssignedAgent)
+	assert.NotNil(t, claimed.LastHeartbeat)
+
+	// Transition to not_planned via PatchCard (simulates human dragging the card).
+	notPlanned := "not_planned"
+	updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
+	require.NoError(t, err)
+	assert.Equal(t, "not_planned", updated.State)
+	assert.Empty(t, updated.AssignedAgent, "AssignedAgent must be cleared on not_planned transition")
+	assert.Nil(t, updated.LastHeartbeat, "LastHeartbeat must be cleared on not_planned transition")
+
+	// Reload from store to confirm persistence.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "not_planned", reloaded.State)
+	assert.Empty(t, reloaded.AssignedAgent)
+	assert.Nil(t, reloaded.LastHeartbeat)
+}
+
+// TestNotPlannedDoesNotAppearInStalledDetection verifies that a card in the
+// "not_planned" state is not picked up by processStalled even if it has an
+// old heartbeat — agent clearing on transition prevents this.
+func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	// Very short timeout so any claimed card would normally be stalled.
+	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+	ctx := context.Background()
+
+	// Create, claim, then immediately move to not_planned.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Not-Planned Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "some-agent")
+	require.NoError(t, err)
+
+	notPlanned := "not_planned"
+	updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
+	require.NoError(t, err)
+	require.Equal(t, "not_planned", updated.State)
+	require.Empty(t, updated.AssignedAgent, "agent must be cleared before stall check")
+
+	// Wait well past the stall timeout.
+	time.Sleep(20 * time.Millisecond)
+
+	// Run processStalled — the not_planned card should NOT be returned.
+	err = svc.processStalled(ctx)
+	require.NoError(t, err)
+
+	// Card must still be not_planned (not auto-transitioned to stalled).
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "not_planned", reloaded.State, "not_planned card must not be stalled by timeout checker")
+	assert.Empty(t, reloaded.AssignedAgent, "agent must remain cleared")
 }

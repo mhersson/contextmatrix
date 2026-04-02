@@ -15,7 +15,7 @@ func validProjectConfig() *ProjectConfig {
 		Prefix:     "TEST",
 		NextID:     1,
 		Repo:       "git@github.com:org/test-project.git",
-		States:     []string{"todo", "in_progress", "done", "stalled"},
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high", "critical"},
 		Transitions: map[string][]string{
@@ -23,6 +23,7 @@ func validProjectConfig() *ProjectConfig {
 			"in_progress": {"done", "todo"},
 			"done":        {"todo"},
 			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -32,12 +33,13 @@ func minimalProjectConfig() *ProjectConfig {
 		Name:       "minimal",
 		Prefix:     "MIN",
 		NextID:     1,
-		States:     []string{"todo", "stalled"},
+		States:     []string{"todo", "stalled", "not_planned"},
 		Types:      []string{"task"},
 		Priorities: []string{"medium"},
 		Transitions: map[string][]string{
-			"todo":    {},
-			"stalled": {"todo"},
+			"todo":        {},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
 		},
 	}
 }
@@ -141,6 +143,50 @@ transitions:
 	assert.ErrorIs(t, err, ErrMissingStalledTransitions)
 }
 
+func TestLoadProjectConfig_MissingNotPlannedState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".board.yaml")
+
+	yaml := `name: test
+prefix: TEST
+next_id: 1
+states: [todo, done, stalled]
+types: [task]
+priorities: [medium]
+transitions:
+  todo: [done]
+  done: [todo]
+  stalled: [todo]
+`
+	err := os.WriteFile(path, []byte(yaml), 0644)
+	require.NoError(t, err)
+
+	_, err = LoadProjectConfig(dir)
+	assert.ErrorIs(t, err, ErrMissingNotPlannedState)
+}
+
+func TestLoadProjectConfig_MissingNotPlannedTransitions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".board.yaml")
+
+	yaml := `name: test
+prefix: TEST
+next_id: 1
+states: [todo, done, stalled, not_planned]
+types: [task]
+priorities: [medium]
+transitions:
+  todo: [done]
+  done: [todo]
+  stalled: [todo]
+`
+	err := os.WriteFile(path, []byte(yaml), 0644)
+	require.NoError(t, err)
+
+	_, err = LoadProjectConfig(dir)
+	assert.ErrorIs(t, err, ErrMissingNotPlannedTransitions)
+}
+
 func TestSaveProjectConfig_ValidatesBeforeWrite(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &ProjectConfig{
@@ -205,6 +251,21 @@ func TestValidateProjectConfig(t *testing.T) {
 				delete(cfg.Transitions, "stalled")
 			},
 			expectedErr: ErrMissingStalledTransitions,
+		},
+		{
+			name: "missing not_planned state",
+			modify: func(cfg *ProjectConfig) {
+				cfg.States = []string{"todo", "in_progress", "done", "stalled"}
+				delete(cfg.Transitions, "not_planned")
+			},
+			expectedErr: ErrMissingNotPlannedState,
+		},
+		{
+			name: "missing not_planned transitions",
+			modify: func(cfg *ProjectConfig) {
+				delete(cfg.Transitions, "not_planned")
+			},
+			expectedErr: ErrMissingNotPlannedTransitions,
 		},
 	}
 
@@ -385,12 +446,13 @@ func TestDiscoverProjects_MultipleProjects(t *testing.T) {
 			Name:       name,
 			Prefix:     name[:1],
 			NextID:     1,
-			States:     []string{"todo", "stalled"},
+			States:     []string{"todo", "stalled", "not_planned"},
 			Types:      []string{"task"},
 			Priorities: []string{"medium"},
 			Transitions: map[string][]string{
-				"todo":    {},
-				"stalled": {"todo"},
+				"todo":        {},
+				"stalled":     {"todo"},
+				"not_planned": {"todo"},
 			},
 		}
 		err := SaveProjectConfig(projectDir, cfg)

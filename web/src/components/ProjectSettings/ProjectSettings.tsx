@@ -202,7 +202,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setNewValue={setNewState}
         onAdd={() => addItem(states, setStates, newState, setNewState)}
         onRemove={(v) => removeItem(states, setStates, v)}
-        protectedItems={['stalled']}
+        protectedItems={['stalled', 'not_planned']}
         inputStyle={inputStyle}
       />
 
