@@ -79,12 +79,17 @@ export function Sidebar({ onNewProject }: SidebarProps) {
 
         <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
 
-        {sortedProjects.map((p) => (
-          <NavLink key={p.name} to={`/projects/${p.name}`} end={false} className="block">
-            {({ isActive }) => (
-              <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
+        {sortedProjects.map((p, i) => (
+          <div key={p.name}>
+            {i > 0 && (
+              <div className="mx-3 my-0.5 border-t" style={{ borderColor: 'var(--bg3)' }} />
             )}
-          </NavLink>
+            <NavLink to={`/projects/${p.name}`} end={false} className="block">
+              {({ isActive }) => (
+                <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
+              )}
+            </NavLink>
+          </div>
         ))}
 
         {sortedProjects.length === 0 && (
