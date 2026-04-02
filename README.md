@@ -24,12 +24,16 @@ cat > config.yaml <<EOF
 port: 8080
 boards_dir: ~/boards/contextmatrix
 git_auto_commit: true
+git_deferred_commit: false
 git_auto_push: false
+git_auto_pull: false
+git_pull_interval: "60s"
 heartbeat_timeout: "30m"
 skills_dir: ./skills
 token_costs:
-  claude-sonnet-4: { prompt: 0.000003, completion: 0.000015 }
-  claude-opus-4: { prompt: 0.000015, completion: 0.000075 }
+  claude-haiku-4-5:  { prompt: 0.0000008, completion: 0.000004  }
+  claude-sonnet-4-6: { prompt: 0.000003,  completion: 0.000015  }
+  claude-opus-4-6:   { prompt: 0.000005,  completion: 0.000025  }
 EOF
 
 # Run
@@ -67,20 +71,53 @@ name: my-project
 prefix: MYPROJ
 next_id: 1
 repo: git@github.com:org/my-project.git
-states: [todo, in_progress, blocked, review, done, stalled]
+states: [todo, in_progress, blocked, review, done, stalled, not_planned]
 types: [task, bug, feature]
 priorities: [low, medium, high, critical]
 transitions:
-  todo: [in_progress]
+  todo: [in_progress, not_planned]
   in_progress: [blocked, review, todo]
   blocked: [in_progress, todo]
   review: [done, in_progress]
   done: [todo]
   stalled: [todo, in_progress]
+  not_planned: [todo]
 ```
 
 Optionally add templates in `templates/task.md`, `templates/bug.md`, etc. These
 populate the card body when creating cards of that type.
+
+## Installation
+
+The install script copies the configuration template and agent skill files into
+your user config directory.
+
+```bash
+# Fresh install: create config dir, copy config.yaml from template, copy skills/
+make install-config
+# or equivalently:
+scripts/install.sh
+
+# Only update the skills/ directory — config.yaml is not touched
+scripts/install.sh --update-skills
+
+# Overwrite config.yaml even if it already exists (re-install)
+scripts/install.sh --force
+```
+
+**Config directory** is resolved via the XDG Base Directory spec:
+
+- `$XDG_CONFIG_HOME/contextmatrix` — if `XDG_CONFIG_HOME` is set
+- `~/.config/contextmatrix` — otherwise
+
+**What gets installed:**
+
+- `config.yaml` — copied from `config.yaml.example` (skipped if it already exists, unless `--force`)
+- `skills/` — the agent skill files from the repo's `skills/` directory (always refreshed)
+
+After a fresh install, edit `boards_dir` in `~/.config/contextmatrix/config.yaml` before
+starting the server. The `skills_dir` defaults to the `skills/` directory next to the
+config file, so no manual path update is needed.
 
 ## MCP Integration
 
@@ -98,9 +135,6 @@ or project `.claude/claude.json`):
   }
 }
 ```
-
-When `mcp.auth_token` is set in `config.yaml`, the endpoint requires
-`Authorization: Bearer <token>`.
 
 ### MCP Tools
 
@@ -272,7 +306,7 @@ curl http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/context
 # Report token usage
 curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/usage \
   -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1", "model": "claude-sonnet-4", "prompt_tokens": 5000, "completion_tokens": 1200}'
+  -d '{"agent_id": "claude-1", "model": "claude-sonnet-4-6", "prompt_tokens": 5000, "completion_tokens": 1200}'
 ```
 
 ### Server-Sent Events
@@ -299,23 +333,27 @@ curl http://localhost:8080/healthz
 
 ### config.yaml
 
-| Field               | Default                 | Description                                    |
-| ------------------- | ----------------------- | ---------------------------------------------- |
-| `port`              | `8080`                  | HTTP server port                               |
-| `boards_dir`        | ---                     | Path to boards git repo (required)             |
-| `git_auto_commit`   | `true`                  | Auto-commit card mutations to git              |
-| `git_auto_push`     | `false`                 | Auto-push after each commit                    |
-| `heartbeat_timeout` | `"30m"`                 | Duration before a claimed card becomes stalled |
-| `cors_origin`       | `http://localhost:5173` | Allowed CORS origin for the web UI             |
-| `skills_dir`        | `./skills`              | Path to skill file markdown directory          |
-| `token_costs`       | ---                     | Per-model token cost rates (see example below) |
+| Field                  | Default                 | Description                                                            |
+| ---------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| `port`                 | `8080`                  | HTTP server port                                                       |
+| `boards_dir`           | ---                     | Path to boards git repo (required)                                     |
+| `git_auto_commit`      | `true`                  | Auto-commit card mutations to git                                      |
+| `git_deferred_commit`  | `false`                 | Batch commits until a terminal state (done/not_planned) is reached     |
+| `git_auto_push`        | `false`                 | Auto-push after each commit                                            |
+| `git_auto_pull`        | `false`                 | Pull from remote on startup and at `git_pull_interval`                 |
+| `git_pull_interval`    | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string) |
+| `heartbeat_timeout`    | `"30m"`                 | Duration before a claimed card becomes stalled                         |
+| `cors_origin`          | `http://localhost:5173` | Allowed CORS origin for the web UI                                     |
+| `skills_dir`           | `./skills`              | Path to skill file markdown directory                                  |
+| `token_costs`          | ---                     | Per-model token cost rates (see example below)                         |
 
 Token cost configuration:
 
 ```yaml
 token_costs:
-  claude-sonnet-4: { prompt: 0.000003, completion: 0.000015 }
-  claude-opus-4: { prompt: 0.000015, completion: 0.000075 }
+  claude-haiku-4-5:  { prompt: 0.0000008, completion: 0.000004  }
+  claude-sonnet-4-6: { prompt: 0.000003,  completion: 0.000015  }
+  claude-opus-4-6:   { prompt: 0.000005,  completion: 0.000025  }
 ```
 
 ### Environment Variables
@@ -325,7 +363,10 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_PORT`
 - `CONTEXTMATRIX_BOARDS_DIR`
 - `CONTEXTMATRIX_GIT_AUTO_COMMIT`
+- `CONTEXTMATRIX_GIT_DEFERRED_COMMIT`
 - `CONTEXTMATRIX_GIT_AUTO_PUSH`
+- `CONTEXTMATRIX_GIT_AUTO_PULL`
+- `CONTEXTMATRIX_GIT_PULL_INTERVAL`
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
 - `CONTEXTMATRIX_SKILLS_DIR`
