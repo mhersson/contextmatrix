@@ -2149,6 +2149,13 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
+	// Flush any deferred commits so the runner_status log entry is not left uncommitted.
+	// UpdateRunnerStatus is called by the runner after the agent has already released the
+	// card, so there is no subsequent flush point — we must flush here.
+	if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
+		slog.Warn("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+	}
+
 	var eventType events.EventType
 	switch status {
 	case "queued":

@@ -3873,3 +3873,65 @@ func TestUpdateRunnerStatus_Failed(t *testing.T) {
 		assert.Equal(t, "failed", updated.RunnerStatus, "runner_status should remain failed")
 	})
 }
+
+// TestDeferredCommitFlushOnUpdateRunnerStatus verifies that when a card has
+// deferred commits enabled, calling UpdateRunnerStatus after ReleaseCard
+// results in the runner_status log entry being committed to git.
+//
+// This reproduces the bug where the "container exited normally" activity log
+// entry was written to disk but never committed because UpdateRunnerStatus
+// called commitCardChange (which defers the path) without ever flushing.
+func TestDeferredCommitFlushOnUpdateRunnerStatus(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	// Create and claim a card — simulates an autonomous runner session.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Runner deferred flush test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:agent-1")
+	require.NoError(t, err)
+
+	// Accumulate a deferred mutation (body update, no commit yet).
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
+		Body: "## Progress\n\n- [x] Step 1: done\n",
+	})
+	require.NoError(t, err)
+
+	// Record commit message before release — should still be the creation commit.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
+
+	// ReleaseCard flushes all deferred commits accumulated so far.
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "runner:agent-1")
+	require.NoError(t, err)
+
+	releaseMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
+	assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
+
+	// Now simulate the runner calling UpdateRunnerStatus after the agent released.
+	// This is the scenario from the bug: the runner sends "container exited normally"
+	// after complete_task has already released the card.
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
+	require.NoError(t, err)
+
+	// The runner_status update must be committed — not left as an uncommitted deferred path.
+	afterRunnerMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEqual(t, releaseMsg, afterRunnerMsg,
+		"UpdateRunnerStatus must produce a new commit for the runner_status log entry")
+	assert.Contains(t, afterRunnerMsg, card.ID,
+		"runner_status commit must reference the card ID")
+
+	// deferredPaths must be cleared after the flush.
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateRunnerStatus flush")
+}
