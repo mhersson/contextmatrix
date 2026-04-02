@@ -7,7 +7,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ProjectShell } from './components/ProjectShell';
 import { RedirectToLastProject } from './components/RedirectToLastProject';
-import { SwimlaneView } from './components/Swimlane';
 import { AllProjectsDashboard } from './components/AllProjectsDashboard';
 import { NewProjectWizard } from './components/NewProjectWizard/NewProjectWizard';
 import { ToastContainer } from './components/Toast';
@@ -39,8 +38,7 @@ function App() {
               <Routes>
                 <Route index element={<RedirectToLastProject />} />
                 <Route path="projects/:project/*" element={<ProjectShell />} />
-                <Route path="all" element={<SwimlaneView />} />
-                <Route path="all/dashboard" element={<AllProjectsDashboard />} />
+                <Route path="all" element={<AllProjectsDashboard />} />
               </Routes>
             </ErrorBoundary>
           </div>
