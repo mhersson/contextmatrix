@@ -1860,3 +1860,335 @@ func TestDeleteProject_API_NotFound(t *testing.T) {
 	defer closeBody(t, resp.Body)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+// --- Autonomous mode security tests ---
+
+func TestHumanOnlyFields_PatchCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card first
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	patchBody := `{"autonomous": true}`
+
+	t.Run("agent rejected", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human agent allowed", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("no agent header allowed", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestHumanOnlyFields_CreateCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := `{"title":"Test","type":"task","priority":"medium","autonomous":true,"feature_branch":true}`
+
+	t.Run("agent rejected on create", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "claude-7a3f")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("no agent header allowed on create", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+		var respCard board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
+		assert.True(t, respCard.Autonomous)
+		assert.True(t, respCard.FeatureBranch)
+		assert.NotEmpty(t, respCard.BranchName)
+	})
+}
+
+func TestReportPush_BranchProtection(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create and claim a card
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Push test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		branch     string
+		wantStatus int
+	}{
+		{"empty branch rejected", "", http.StatusBadRequest},
+		{"main rejected", "main", http.StatusForbidden},
+		{"master rejected", "master", http.StatusForbidden},
+		{"refs/heads/main rejected", "refs/heads/main", http.StatusForbidden},
+		{"MAIN rejected (case insensitive)", "MAIN", http.StatusForbidden},
+		{"feature branch allowed", card.ID + "/fix-login", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"agent_id":"agent-1","branch":"%s"}`, tt.branch)
+			req, _ := http.NewRequest("POST",
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
+				strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Agent-ID", "agent-1")
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
+		})
+	}
+}
+
+func TestReportPush_InvalidPRUrl_Returns422(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create and claim a card
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "URL test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	body := `{"agent_id":"agent-1","branch":"feat/fix","pr_url":"javascript:alert(1)"}`
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}
+
+func TestHumanOnlyFields_PutClear(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card with autonomous mode enabled (via service, simulating human)
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Auto card", Type: "task", Priority: "medium",
+		Autonomous: true, FeatureBranch: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, card.Autonomous)
+
+	// Agent tries to PUT with autonomous=false (clearing it) — must be rejected
+	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":false}`, card.Title)
+	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+		strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+	// Verify the card was NOT modified
+	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reloaded.Autonomous, "autonomous should still be true")
+}
+
+func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card with autonomous mode enabled
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Auto card", Type: "task", Priority: "medium",
+		Autonomous: true, FeatureBranch: true,
+	})
+	require.NoError(t, err)
+
+	// Agent sends PUT with same autonomous values — should pass through
+	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true}`
+	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+		strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestHumanOnlyFields_PutSet(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card with autonomous=false (default)
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Plain card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.False(t, card.Autonomous)
+
+	// Agent tries to SET autonomous to true via PUT — must be rejected
+	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":true}`, card.Title)
+	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+		strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+	// Verify the card was NOT modified
+	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.False(t, reloaded.Autonomous, "autonomous should still be false")
+}
+
+func TestReportPush_AgentMismatch(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(svc, bus, "", nil)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create and claim a card as agent-owner
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Push mismatch test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-owner")
+	require.NoError(t, err)
+
+	t.Run("wrong agent rejected", func(t *testing.T) {
+		body := `{"agent_id":"agent-intruder","branch":"feat/fix"}`
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-intruder")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
+	})
+
+	t.Run("correct agent allowed", func(t *testing.T) {
+		body := `{"agent_id":"agent-owner","branch":"feat/fix"}`
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-owner")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}

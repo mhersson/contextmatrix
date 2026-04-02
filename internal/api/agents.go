@@ -235,6 +235,51 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, card)
 }
 
+// reportPushRequest is the JSON body for reporting a git push.
+type reportPushRequest struct {
+	AgentID string `json:"agent_id"`
+	Branch  string `json:"branch"`
+	PRUrl   string `json:"pr_url,omitempty"`
+}
+
+// reportPush handles POST /api/projects/{project}/cards/{id}/report-push
+// Validates the branch is not main/master and records the push on the card.
+func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	cardID := r.PathValue("id")
+
+	if projectName == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+		return
+	}
+
+	var req reportPushRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		return
+	}
+
+	agentID := extractAgentID(r, req.AgentID)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		return
+	}
+
+	branch := strings.TrimSpace(req.Branch)
+	if branch == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "branch required", "")
+		return
+	}
+
+	card, err := h.svc.RecordPush(r.Context(), projectName, cardID, agentID, branch, req.PRUrl)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, card)
+}
+
 // extractAgentID gets the agent ID from X-Agent-ID header with fallback to body value.
 // The result is trimmed of whitespace.
 func extractAgentID(r *http.Request, bodyAgentID string) string {

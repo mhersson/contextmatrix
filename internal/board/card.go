@@ -27,12 +27,18 @@ type Card struct {
 	Context       []string        `yaml:"context,omitempty"        json:"context,omitempty"`
 	Labels        []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
 	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
-	Custom        map[string]any  `yaml:"custom,omitempty"         json:"custom,omitempty"`
-	TokenUsage    *TokenUsage     `yaml:"token_usage,omitempty"    json:"token_usage,omitempty"`
-	Created       time.Time       `yaml:"created"         json:"created"`
-	Updated       time.Time       `yaml:"updated"         json:"updated"`
-	ActivityLog   []ActivityEntry `yaml:"activity_log,omitempty"   json:"activity_log,omitempty"`
-	Body          string          `yaml:"-"               json:"body"`
+	Custom         map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
+	Autonomous     bool            `yaml:"autonomous,omitempty"      json:"autonomous,omitempty"`
+	FeatureBranch  bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
+	CreatePR       bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
+	BranchName     string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
+	PRUrl          string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
+	ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
+	TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
+	Created        time.Time       `yaml:"created"                   json:"created"`
+	Updated        time.Time       `yaml:"updated"                   json:"updated"`
+	ActivityLog    []ActivityEntry `yaml:"activity_log,omitempty"    json:"activity_log,omitempty"`
+	Body           string          `yaml:"-"                         json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.

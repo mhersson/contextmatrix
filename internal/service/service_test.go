@@ -3411,3 +3411,405 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	assert.Equal(t, "not_planned", reloaded.State, "not_planned card must not be stalled by timeout checker")
 	assert.Empty(t, reloaded.AssignedAgent, "agent must remain cleared")
 }
+
+func TestGenerateBranchName(t *testing.T) {
+	tests := []struct {
+		name     string
+		cardID   string
+		title    string
+		expected string
+	}{
+		{"simple", "TEST-001", "Fix login bug", "test-001/fix-login-bug"},
+		{"special chars", "ALPHA-042", "Add user auth & validation!", "alpha-042/add-user-auth-validation"},
+		{"long title", "X-001", strings.Repeat("word ", 20), "x-001/word-word-word-word-word-word-word-word-word-word"},
+		{"empty title", "TEST-001", "", "test-001"},
+		{"unicode", "TEST-001", "Fix über bug", "test-001/fix-ber-bug"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateBranchName(tt.cardID, tt.title)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCreateCard_AutonomousFields(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	t.Run("creates card with autonomous fields", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:         "Auto task",
+			Type:          "task",
+			Priority:      "high",
+			Autonomous:    true,
+			FeatureBranch: true,
+			CreatePR:      true,
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Autonomous)
+		assert.True(t, card.FeatureBranch)
+		assert.True(t, card.CreatePR)
+		assert.NotEmpty(t, card.BranchName)
+		assert.Contains(t, card.BranchName, strings.ToLower(card.ID))
+		assert.Contains(t, card.BranchName, "auto-task")
+	})
+
+	t.Run("no branch name when feature_branch is false", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:      "Manual task",
+			Type:       "task",
+			Priority:   "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Autonomous)
+		assert.False(t, card.FeatureBranch)
+		assert.Empty(t, card.BranchName)
+	})
+
+	t.Run("create_pr without feature_branch rejected", func(t *testing.T) {
+		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Bad config",
+			Type:     "task",
+			Priority: "medium",
+			CreatePR: true,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "create_pr requires feature_branch")
+	})
+}
+
+func TestPatchCard_AutonomousFields(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a plain card
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Plain task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.False(t, card.Autonomous)
+
+	t.Run("enable autonomous via patch", func(t *testing.T) {
+		autonomous := true
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Autonomous: &autonomous,
+		})
+		require.NoError(t, err)
+		assert.True(t, patched.Autonomous)
+	})
+
+	t.Run("enable feature_branch generates branch name", func(t *testing.T) {
+		fb := true
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			FeatureBranch: &fb,
+		})
+		require.NoError(t, err)
+		assert.True(t, patched.FeatureBranch)
+		assert.NotEmpty(t, patched.BranchName)
+		assert.Contains(t, patched.BranchName, "plain-task")
+
+		// Branch name is immutable — toggling off and on keeps the same name
+		savedName := patched.BranchName
+		off := false
+		patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			FeatureBranch: &off,
+		})
+		require.NoError(t, err)
+		assert.False(t, patched.FeatureBranch)
+		assert.Equal(t, savedName, patched.BranchName) // still there
+
+		on := true
+		patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			FeatureBranch: &on,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, savedName, patched.BranchName) // unchanged
+	})
+}
+
+func TestPatchCard_DisableFeatureBranch_ClearsCreatePR(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with all autonomous fields enabled.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:         "Auto task",
+		Type:          "task",
+		Priority:      "medium",
+		Autonomous:    true,
+		FeatureBranch: true,
+		CreatePR:      true,
+	})
+	require.NoError(t, err)
+	assert.True(t, card.CreatePR)
+
+	// Disable feature_branch via patch — create_pr should be auto-cleared.
+	off := false
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		FeatureBranch: &off,
+	})
+	require.NoError(t, err)
+	assert.False(t, patched.FeatureBranch)
+	assert.False(t, patched.CreatePR, "create_pr should be auto-cleared when feature_branch is disabled")
+}
+
+func TestRecordPush_BranchProtection(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Push test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	t.Run("main rejected at service layer", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "main", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrProtectedBranch)
+	})
+
+	t.Run("master rejected at service layer", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "master", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrProtectedBranch)
+	})
+
+	t.Run("refs/heads/main rejected", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "refs/heads/main", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrProtectedBranch)
+	})
+
+	t.Run("feature branch allowed", func(t *testing.T) {
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", card.ID+"/fix-login", "")
+		require.NoError(t, err)
+		assert.NotNil(t, pushed)
+	})
+}
+
+func TestIncrementReviewAttempts(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Review card", Type: "task", Priority: "medium",
+		Autonomous: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, card.ReviewAttempts)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	updated, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, updated.ReviewAttempts)
+
+	updated, err = svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, updated.ReviewAttempts)
+}
+
+func TestPatchCard_CreatePRWithoutFeatureBranch_Rejected(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with feature_branch + create_pr enabled.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:         "Auto task",
+		Type:          "task",
+		Priority:      "medium",
+		FeatureBranch: true,
+		CreatePR:      true,
+	})
+	require.NoError(t, err)
+	assert.True(t, card.CreatePR)
+
+	// Patch: disable feature_branch but try to keep create_pr — must be rejected.
+	off := false
+	on := true
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		FeatureBranch: &off,
+		CreatePR:      &on,
+	})
+	require.NoError(t, err, "create_pr should be silently ignored when feature_branch is disabled")
+
+	// Verify persisted state is consistent.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.False(t, reloaded.FeatureBranch)
+	assert.False(t, reloaded.CreatePR, "create_pr must not be true when feature_branch is false")
+}
+
+func TestRecordPush_InvalidPRUrl(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "URL test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	t.Run("javascript URL rejected", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "javascript:alert(1)")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidPRUrl)
+	})
+
+	t.Run("data URL rejected", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "data:text/html,<h1>hi</h1>")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidPRUrl)
+	})
+
+	t.Run("https URL accepted", func(t *testing.T) {
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "https://github.com/org/repo/pull/1")
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/org/repo/pull/1", pushed.PRUrl)
+	})
+
+	t.Run("http URL accepted", func(t *testing.T) {
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "http://gitlab.local/pr/2")
+		require.NoError(t, err)
+		assert.Equal(t, "http://gitlab.local/pr/2", pushed.PRUrl)
+	})
+
+	t.Run("empty PR URL accepted (no validation needed)", func(t *testing.T) {
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "")
+		require.NoError(t, err)
+		assert.NotNil(t, pushed)
+	})
+}
+
+func TestRecordPush_AgentOwnership(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Ownership test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-owner")
+	require.NoError(t, err)
+
+	t.Run("wrong agent rejected", func(t *testing.T) {
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-intruder", "feat/fix", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, lock.ErrAgentMismatch)
+	})
+
+	t.Run("correct agent allowed", func(t *testing.T) {
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-owner", "feat/fix", "")
+		require.NoError(t, err)
+		assert.NotNil(t, pushed)
+	})
+}
+
+func TestIncrementReviewAttempts_AgentOwnership(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Review ownership", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-owner")
+	require.NoError(t, err)
+
+	t.Run("wrong agent rejected", func(t *testing.T) {
+		_, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-intruder")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, lock.ErrAgentMismatch)
+	})
+
+	t.Run("correct agent allowed", func(t *testing.T) {
+		updated, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-owner")
+		require.NoError(t, err)
+		assert.Equal(t, 1, updated.ReviewAttempts)
+	})
+}
+
+func TestIncrementReviewAttempts_Capped(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Cap test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Increment to the cap (5)
+	for i := 0; i < 5; i++ {
+		_, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err, "increment %d should succeed", i+1)
+	}
+
+	// Next increment should be rejected
+	_, err = svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrReviewAttemptsCapped)
+
+	// Verify counter stayed at 5
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 5, reloaded.ReviewAttempts)
+}
+
+func TestRecordPush_Atomic(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Atomic push", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Record a push with PR URL — both PR URL and log entry should be set atomically
+	pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/login", "https://github.com/org/repo/pull/42")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/org/repo/pull/42", pushed.PRUrl)
+
+	// Verify the activity log was also written
+	hasEntry := false
+	for _, entry := range pushed.ActivityLog {
+		if entry.Action == "pushed" {
+			hasEntry = true
+			assert.Contains(t, entry.Message, "feat/login")
+			assert.Contains(t, entry.Message, "https://github.com/org/repo/pull/42")
+		}
+	}
+	assert.True(t, hasEntry, "expected a 'pushed' activity log entry")
+}

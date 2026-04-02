@@ -209,6 +209,26 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           </span>
         )}
 
+        {/* Autonomous badge */}
+        {card.autonomous && (
+          <span
+            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
+            title="Autonomous mode"
+          >
+            auto
+          </span>
+        )}
+
+        {/* Branch badge */}
+        {card.branch_name && (
+          <span
+            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-green)] text-[var(--green)] font-mono truncate max-w-[120px]"
+            title={`Branch: ${card.branch_name}`}
+          >
+            {card.branch_name.split('/').pop()}
+          </span>
+        )}
+
         {/* Labels */}
         {card.labels?.map((label) => (
           <span

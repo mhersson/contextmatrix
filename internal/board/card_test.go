@@ -297,6 +297,12 @@ func TestSerializeCard_OmitsEmptyFields(t *testing.T) {
 	assert.NotContains(t, str, "subtasks")
 	assert.NotContains(t, str, "source")
 	assert.NotContains(t, str, "custom")
+	assert.NotContains(t, str, "autonomous")
+	assert.NotContains(t, str, "feature_branch")
+	assert.NotContains(t, str, "create_pr")
+	assert.NotContains(t, str, "branch_name")
+	assert.NotContains(t, str, "pr_url")
+	assert.NotContains(t, str, "review_attempts")
 	assert.NotContains(t, str, "token_usage")
 	assert.NotContains(t, str, "activity_log")
 }
@@ -419,6 +425,12 @@ func TestRoundTrip_MinimalCard(t *testing.T) {
 	assert.Empty(t, parsed.AssignedAgent)
 	assert.Nil(t, parsed.LastHeartbeat)
 	assert.Nil(t, parsed.Source)
+	assert.False(t, parsed.Autonomous)
+	assert.False(t, parsed.FeatureBranch)
+	assert.False(t, parsed.CreatePR)
+	assert.Empty(t, parsed.BranchName)
+	assert.Empty(t, parsed.PRUrl)
+	assert.Zero(t, parsed.ReviewAttempts)
 }
 
 func TestRoundTrip_SourceFieldOptional(t *testing.T) {
@@ -469,6 +481,78 @@ func TestRoundTrip_SourceFieldOptional(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, parsed.Source)
 	assert.Equal(t, "github", parsed.Source.System)
+}
+
+func TestParseCard_AutonomousFields(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Auto card
+project: test
+type: task
+state: todo
+priority: medium
+autonomous: true
+feature_branch: true
+create_pr: true
+branch_name: test-001/auto-card
+pr_url: https://github.com/org/repo/pull/42
+review_attempts: 1
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+
+	assert.True(t, card.Autonomous)
+	assert.True(t, card.FeatureBranch)
+	assert.True(t, card.CreatePR)
+	assert.Equal(t, "test-001/auto-card", card.BranchName)
+	assert.Equal(t, "https://github.com/org/repo/pull/42", card.PRUrl)
+	assert.Equal(t, 1, card.ReviewAttempts)
+}
+
+func TestRoundTrip_AutonomousFields(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	original := &Card{
+		ID:             "TEST-001",
+		Title:          "Autonomous card",
+		Project:        "test-project",
+		Type:           "task",
+		State:          "todo",
+		Priority:       "medium",
+		Created:        created,
+		Updated:        created,
+		Autonomous:     true,
+		FeatureBranch:  true,
+		CreatePR:       true,
+		BranchName:     "test-001/autonomous-card",
+		PRUrl:          "https://github.com/org/repo/pull/1",
+		ReviewAttempts: 2,
+	}
+
+	data, err := SerializeCard(original)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "autonomous: true")
+	assert.Contains(t, str, "feature_branch: true")
+	assert.Contains(t, str, "create_pr: true")
+	assert.Contains(t, str, "branch_name: test-001/autonomous-card")
+	assert.Contains(t, str, "pr_url: https://github.com/org/repo/pull/1")
+	assert.Contains(t, str, "review_attempts: 2")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.Autonomous, parsed.Autonomous)
+	assert.Equal(t, original.FeatureBranch, parsed.FeatureBranch)
+	assert.Equal(t, original.CreatePR, parsed.CreatePR)
+	assert.Equal(t, original.BranchName, parsed.BranchName)
+	assert.Equal(t, original.PRUrl, parsed.PRUrl)
+	assert.Equal(t, original.ReviewAttempts, parsed.ReviewAttempts)
 }
 
 func TestRoundTrip_CustomFields(t *testing.T) {

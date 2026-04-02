@@ -36,6 +36,8 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
 	registerGetSkill(server, svc, skillsDir)
+	registerReportPush(server, svc)
+	registerIncrementReviewAttempts(server, svc)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
@@ -865,5 +867,70 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 			Content:     content,
 			Inline:      canInline,
 		}, nil
+	})
+}
+
+// --- report_push tool ---
+
+type reportPushInput struct {
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID  string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
+	Branch  string `json:"branch" jsonschema:"required,git branch that was pushed to"`
+	PRUrl   string `json:"pr_url,omitempty" jsonschema:"pull request URL if created"`
+}
+
+type reportPushOutput struct {
+	Card *board.Card `json:"card"`
+}
+
+func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardService) {
+	type input struct {
+		Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+		CardID  string `json:"card_id" jsonschema:"required,card ID"`
+		AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
+	}
+	type output struct {
+		Card *board.Card `json:"card"`
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "increment_review_attempts",
+		Description: "Increment the review_attempts counter on a card. Used during autonomous review cycles " +
+			"to track how many times a card has been reviewed. The counter determines when to halt " +
+			"autonomous processing and escalate to a human (typically at 2 attempts).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in input) (*mcp.CallToolResult, output, error) {
+		project, err := resolveProject(ctx, svc, in.Project, in.CardID)
+		if err != nil {
+			return nil, output{}, err
+		}
+
+		card, err := svc.IncrementReviewAttempts(ctx, project, in.CardID, in.AgentID)
+		if err != nil {
+			return nil, output{}, fmt.Errorf("increment review attempts: %w", err)
+		}
+
+		return nil, output{Card: card}, nil
+	})
+}
+
+func registerReportPush(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "report_push",
+		Description: "Report a completed git push. Call this AFTER pushing to record the branch and " +
+			"optional PR URL on the card. Returns a hard error if the branch is main or master.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportPushInput) (*mcp.CallToolResult, reportPushOutput, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, reportPushOutput{}, err
+		}
+
+		branch := strings.TrimSpace(input.Branch)
+		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, branch, input.PRUrl)
+		if err != nil {
+			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)
+		}
+
+		return nil, reportPushOutput{Card: card}, nil
 	})
 }

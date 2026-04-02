@@ -29,6 +29,9 @@ var (
 
 	// ErrNoPath indicates no sequence of valid transitions connects two states.
 	ErrNoPath = errors.New("no transition path exists")
+
+	// ErrInvalidAutonomousConfig indicates an invalid combination of autonomous fields.
+	ErrInvalidAutonomousConfig = errors.New("invalid autonomous configuration")
 )
 
 // ValidationError provides detailed validation failure information.
@@ -172,6 +175,23 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 	}
 	if err := v.ValidatePriority(cfg, card.Priority); err != nil {
 		return err
+	}
+	if err := v.ValidateAutonomousFields(card); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateAutonomousFields checks that autonomous-related field combinations are valid.
+// create_pr requires feature_branch to be enabled.
+func (v *Validator) ValidateAutonomousFields(card *Card) error {
+	if card.CreatePR && !card.FeatureBranch {
+		return &ValidationError{
+			Err:     ErrInvalidAutonomousConfig,
+			Field:   "create_pr",
+			Value:   "true",
+			Message: "create_pr requires feature_branch to be enabled",
+		}
 	}
 	return nil
 }

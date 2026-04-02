@@ -43,7 +43,10 @@ export function CardPanel({
     editedCard.state !== card.state ||
     editedCard.priority !== card.priority ||
     editedCard.body !== card.body ||
-    JSON.stringify(editedCard.labels) !== JSON.stringify(card.labels);
+    JSON.stringify(editedCard.labels) !== JSON.stringify(card.labels) ||
+    (editedCard.autonomous ?? false) !== (card.autonomous ?? false) ||
+    (editedCard.feature_branch ?? false) !== (card.feature_branch ?? false) ||
+    (editedCard.create_pr ?? false) !== (card.create_pr ?? false);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -70,6 +73,15 @@ export function CardPanel({
       if (editedCard.body !== card.body) updates.body = editedCard.body;
       if (JSON.stringify(editedCard.labels) !== JSON.stringify(card.labels)) {
         updates.labels = editedCard.labels;
+      }
+      if ((editedCard.autonomous ?? false) !== (card.autonomous ?? false)) {
+        updates.autonomous = editedCard.autonomous ?? false;
+      }
+      if ((editedCard.feature_branch ?? false) !== (card.feature_branch ?? false)) {
+        updates.feature_branch = editedCard.feature_branch ?? false;
+      }
+      if ((editedCard.create_pr ?? false) !== (card.create_pr ?? false)) {
+        updates.create_pr = editedCard.create_pr ?? false;
       }
       await onSave(updates);
     } finally {
@@ -137,6 +149,16 @@ export function CardPanel({
             editedLabels={editedCard.labels}
             onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
             onSubtaskClick={onSubtaskClick}
+            editedAutonomous={editedCard.autonomous ?? false}
+            editedFeatureBranch={editedCard.feature_branch ?? false}
+            editedCreatePR={editedCard.create_pr ?? false}
+            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v }))}
+            onFeatureBranchChange={(v) => setEditedCard((prev) => ({
+              ...prev,
+              feature_branch: v,
+              create_pr: v ? prev.create_pr : false,
+            }))}
+            onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
           />
 
           <CardPanelActivity activityLog={card.activity_log} />

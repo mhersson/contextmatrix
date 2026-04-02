@@ -233,6 +233,49 @@ Follow these standards in all work you produce:
   self-evident. External documentation is handled by a dedicated documentation
   agent after review — focus on code-level clarity only.
 
+## Git Workflow
+
+After completing your work, follow the git workflow based on the card context:
+
+### Feature Branch Mode
+
+If the parent card has a `branch_name` set (visible in `get_task_context`
+response under `parent.branch_name`):
+
+1. Create or switch to the feature branch: `git checkout -b <branch_name>` (or
+   `git checkout <branch_name>` if it already exists).
+2. Use conventional commit messages: `type(scope): summary` + blank line +
+   bullet-point body of changes. **No card IDs in commit messages** — they are
+   internal to ContextMatrix and meaningless to external repo users.
+3. **NEVER push to main or master.** If you find yourself on main, switch to
+   the feature branch before committing.
+
+### Autonomous Mode
+
+If the parent card shows `autonomous: true`:
+
+- Commit and push to the feature branch automatically.
+- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>,
+  pr_url=<url>)` after pushing.
+- If `create_pr` is enabled on the parent card, create a PR with a body that
+  references the card title and summarizes the work done.
+- **NEVER push to main or master.** This is non-negotiable.
+
+### HITL Mode (No Autonomous)
+
+At the end of your work, if the parent card does not have `autonomous: true`:
+
+- Ask: "Want me to commit these changes?"
+- If on a feature branch, follow up with: "Want me to push and create a PR?"
+- Never push without explicit human approval in HITL mode.
+
+### No Feature Branch
+
+If no `branch_name` is set on the parent card:
+
+- Commit your changes on the current branch.
+- Do NOT push.
+
 ## Rules
 
 - **You own your card only.** Do not modify other cards. Do not transition the

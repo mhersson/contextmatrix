@@ -193,6 +193,8 @@ func TestListTools(t *testing.T) {
 		"update_project",
 		"delete_project",
 		"get_skill",
+		"report_push",
+		"increment_review_attempts",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -1135,6 +1137,7 @@ func TestListPrompts(t *testing.T) {
 		"review-task",
 		"document-task",
 		"init-project",
+		"run-autonomous",
 	}
 
 	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))

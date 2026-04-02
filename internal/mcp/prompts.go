@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -324,6 +325,124 @@ func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) strin
 	return b.String()
 }
 
+// buildAutonomousCreatePlanDelegationPrompt returns a full-chain delegation prompt
+// for autonomous mode. Unlike the HITL version, this skips user approval and chains
+// all phases: plan → auto-approve → subtasks → execute → review → docs → done.
+func buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs string) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "## AUTONOMOUS MODE — Full Lifecycle Chain")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Card **%s** has **autonomous mode** enabled. You will chain ALL phases\n", cardID)
+	fmt.Fprintln(&b, "without human approval gates. Guardrails still apply (see below).")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 1: Plan Drafting")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the skill prompt.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. Check `inline` flag — execute inline if true, spawn sub-agent if false.")
+	fmt.Fprintln(&b, "3. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
+	fmt.Fprintf(&b, "4. Use model `%s` for the sub-agent.\n", model)
+	fmt.Fprintln(&b, "5. Wait for `PLAN_DRAFTED` structured output.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### AUTO-APPROVE (No user approval)")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "6. **Skip user approval.** Proceed directly to Phase 2.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 2: Subtask Creation")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "7. Call `get_skill(%s)` again for a fresh copy.\n", getSkillArgs)
+	fmt.Fprintln(&b, "8. Append `\\n\\nYou are executing **Phase 2: Subtask Creation** only.` to the content.")
+	fmt.Fprintf(&b, "9. Spawn a sub-agent with model `%s`.\n", phase2Model)
+	fmt.Fprintln(&b, "10. Wait for `SUBTASKS_CREATED` structured output.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 3: Execution")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "11. Call `get_ready_tasks(project, parent_id='%s')` to get ready subtasks.\n", cardID)
+	fmt.Fprintln(&b, "12. For each ready subtask, spawn a sub-agent using the execute-task skill:")
+	fmt.Fprintln(&b, "    - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')`")
+	fmt.Fprintln(&b, "    - Spawn with the returned model and content")
+	fmt.Fprintln(&b, "    - Spawn subtasks in **parallel** where possible")
+	fmt.Fprintf(&b, "13. Call `heartbeat(card_id='%s', agent_id=<your_id>)` on the parent every 5 minutes.\n", cardID)
+	fmt.Fprintln(&b, "14. Wait for all sub-agents to complete.")
+	fmt.Fprintln(&b, "15. The parent card will auto-transition to `review` when all subtasks are `done`.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 4: Review")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "16. Call `get_skill(skill_name='review-task', card_id='%s', caller_model='<your_model>')`.\n", cardID)
+	fmt.Fprintln(&b, "17. Execute inline (if `inline: true`) or spawn a review sub-agent.")
+	fmt.Fprintln(&b, "18. Wait for `REVIEW_FINDINGS` structured output.")
+	fmt.Fprintln(&b, "19. Parse the `recommendation` field:")
+	fmt.Fprintln(&b, "    - **approve / approve_with_notes:** Proceed to Phase 5 (Documentation).")
+	fmt.Fprintln(&b, "    - **revise:** Check `review_attempts` on the card:")
+	fmt.Fprintf(&b, "      - If **< 2**: Call `update_card(card_id='%s', ...)` to increment `review_attempts`.\n", cardID)
+	fmt.Fprintln(&b, "        Create new \"fix\" subtasks based on the review findings.")
+	fmt.Fprintln(&b, "        Go back to Phase 3 (Execution) for the fix subtasks only.")
+	fmt.Fprintln(&b, "        Then return to Phase 4 (Review) again.")
+	fmt.Fprintln(&b, "      - If **>= 2**: **STOP.** Print:")
+	fmt.Fprintln(&b, "        ```")
+	fmt.Fprintln(&b, "        AUTONOMOUS_HALTED")
+	fmt.Fprintf(&b, "        card_id: %s\n", cardID)
+	fmt.Fprintln(&b, "        reason: 2 review cycles completed without approval")
+	fmt.Fprintln(&b, "        action_required: human review")
+	fmt.Fprintln(&b, "        ```")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 5: Documentation")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "20. Call `get_skill(skill_name='document-task', card_id='%s')`.\n", cardID)
+	fmt.Fprintln(&b, "21. Spawn a documentation sub-agent. Wait for `DOCS_WRITTEN`.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Phase 6: Git & Finalization")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "22. Transition card to `done`: `transition_card(card_id='%s', new_state='done')`.\n", cardID)
+	fmt.Fprintln(&b, "23. Print:")
+	fmt.Fprintln(&b, "    ```")
+	fmt.Fprintln(&b, "    AUTONOMOUS_COMPLETE")
+	fmt.Fprintf(&b, "    card_id: %s\n", cardID)
+	fmt.Fprintln(&b, "    status: done")
+	fmt.Fprintln(&b, "    ```")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "---")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Branch Protection (MANDATORY)")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "- **NEVER push to main or master.** This is non-negotiable.")
+	fmt.Fprintln(&b, "- If the card has a `branch_name`, all work goes on that feature branch.")
+	fmt.Fprintln(&b, "- Call `report_push(card_id, branch, pr_url)` after any push.")
+	fmt.Fprintln(&b, "- Use conventional commit messages: `type(scope): summary` + body. No card IDs in commits.")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.\n")
+	return b.String()
+}
+
+// buildAutonomousReviewDelegationPrompt returns a review delegation prompt for
+// autonomous mode. Instead of asking the user for approval, it auto-processes
+// the review recommendation.
+func buildAutonomousReviewDelegationPrompt(model, cardID, getSkillArgs string) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "## AUTONOMOUS Review Workflow")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Card **%s** is in autonomous mode. The review proceeds without human approval.\n", cardID)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Step 1: Run Review")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')`.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. If `inline: true`, execute directly. Otherwise spawn a sub-agent.")
+	fmt.Fprintf(&b, "3. Use model `%s` for the sub-agent.\n", model)
+	fmt.Fprintln(&b, "4. Wait for `REVIEW_FINDINGS` structured output.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "### Step 2: Auto-Process Recommendation")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "5. Parse the `recommendation`:")
+	fmt.Fprintln(&b, "   - **approve / approve_with_notes:** Proceed to documentation.")
+	fmt.Fprintln(&b, "   - **revise:** Check card's `review_attempts`.")
+	fmt.Fprintln(&b, "     If < 2: increment review_attempts, create fix subtasks, re-execute, re-review.")
+	fmt.Fprintln(&b, "     If >= 2: STOP and wait for human.")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
+	return b.String()
+}
+
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	server.AddPrompt(&mcp.Prompt{
@@ -373,6 +492,14 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 			{Name: "name", Description: "Optional project name (auto-detected from repo if omitted)"},
 		},
 	}, initProjectPromptHandler(svc, skillsDir))
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "run-autonomous",
+		Description: "Run a card through its full lifecycle autonomously. Picks up from current state and chains all remaining phases.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "card_id", Description: "Card ID to run autonomously (e.g. ALPHA-001)", Required: true},
+		},
+	}, runAutonomousPromptHandler(svc, skillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
@@ -414,7 +541,21 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if phase2Model == "" {
 			phase2Model = "haiku"
 		}
-		text := buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+
+		// Check if card is autonomous — use the full-chain delegation prompt.
+		card, _, findErr := findCard(ctx, svc, cardID)
+		if findErr != nil {
+			slog.Warn("create-plan: could not look up card for autonomous check, falling back to HITL",
+				"card_id", cardID, "error", findErr)
+		}
+		isAutonomous := card != nil && card.Autonomous
+
+		var text string
+		if isAutonomous {
+			text = buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+		} else {
+			text = buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+		}
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -539,7 +680,21 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if model == "" {
 			model = "opus"
 		}
-		text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
+
+		// Check if card is autonomous.
+		card, _, findErr := findCard(ctx, svc, cardID)
+		if findErr != nil {
+			slog.Warn("review-task: could not look up card for autonomous check, falling back to HITL",
+				"card_id", cardID, "error", findErr)
+		}
+		isAutonomous := card != nil && card.Autonomous
+
+		var text string
+		if isAutonomous {
+			text = buildAutonomousReviewDelegationPrompt(model, cardID, getSkillArgs)
+		} else {
+			text = buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
+		}
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -588,6 +743,25 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 	}
 }
 
+// runAutonomousPromptHandler returns the handler for run-autonomous prompt.
+// It reads the card state and returns the appropriate full-chain delegation prompt.
+func runAutonomousPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
+		result, err := buildSkillContent(ctx, svc, skillsDir, "run-autonomous", skillArgs{
+			CardID: cardID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		text := stripAgentConfig(result.Content)
+		return &mcp.GetPromptResult{
+			Description: "Run a card through its full lifecycle autonomously",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
+		}, nil
+	}
+}
+
 // --- Shared skill content builder ---
 
 // skillArgs holds optional arguments for building a skill's content.
@@ -601,6 +775,7 @@ type skillArgs struct {
 var validSkillNames = []string{
 	"create-task", "create-plan", "execute-task",
 	"review-task", "document-task", "init-project",
+	"run-autonomous",
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -623,6 +798,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 		content, err = buildSubtaskSkill(ctx, svc, skillsDir, "document-task.md", args.CardID)
 	case "init-project":
 		content, err = buildInitProject(ctx, svc, skillsDir, args.Name)
+	case "run-autonomous":
+		content, err = buildRunAutonomous(ctx, svc, skillsDir, args.CardID)
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
@@ -717,6 +894,38 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, skillsDir,
 	return strings.Join(parts, "\n") + "\n\n" + skill, nil
 }
 
+func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir, cardID string) (string, error) {
+	if cardID == "" {
+		return "", fmt.Errorf("card_id argument is required")
+	}
+	skill, err := readSkillFile(skillsDir, "run-autonomous.md")
+	if err != nil {
+		return "", err
+	}
+	card, project, err := findCard(ctx, svc, cardID)
+	if err != nil {
+		return "", err
+	}
+
+	if !card.Autonomous {
+		return "", fmt.Errorf("card %s does not have autonomous mode enabled", cardID)
+	}
+
+	var parts []string
+	parts = append(parts, formatCardContext(card, project))
+
+	// Include subtasks if any
+	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
+	if serr == nil && len(subtasks) > 0 {
+		parts = append(parts, "\n## Subtasks")
+		for _, sub := range subtasks {
+			parts = append(parts, formatCardBrief(sub))
+		}
+	}
+
+	return strings.Join(parts, "\n") + "\n\n" + skill, nil
+}
+
 func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, name string) (string, error) {
 	skill, err := readSkillFile(skillsDir, "init-project.md")
 	if err != nil {
@@ -784,6 +993,24 @@ func formatCardContext(c *board.Card, project string) string {
 	}
 	if len(c.Labels) > 0 {
 		fmt.Fprintf(&b, "- **Labels:** %s\n", strings.Join(c.Labels, ", "))
+	}
+	if c.Autonomous {
+		fmt.Fprintf(&b, "- **Autonomous:** true\n")
+	}
+	if c.FeatureBranch {
+		fmt.Fprintf(&b, "- **Feature Branch:** enabled\n")
+	}
+	if c.BranchName != "" {
+		fmt.Fprintf(&b, "- **Branch:** %s\n", c.BranchName)
+	}
+	if c.CreatePR {
+		fmt.Fprintf(&b, "- **Create PR:** enabled\n")
+	}
+	if c.PRUrl != "" {
+		fmt.Fprintf(&b, "- **PR URL:** %s\n", c.PRUrl)
+	}
+	if c.ReviewAttempts > 0 {
+		fmt.Fprintf(&b, "- **Review Attempts:** %d\n", c.ReviewAttempts)
 	}
 	if c.Body != "" {
 		fmt.Fprintf(&b, "\n### Body\n\n%s\n", c.Body)

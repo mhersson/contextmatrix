@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import { ParentSearch } from './ParentSearch';
+import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import type { Card, ProjectConfig } from '../../types';
 
 interface CreateCardFormProps {
@@ -21,12 +22,20 @@ interface CreateCardFormProps {
   cards: Card[];
   bodyDirty: boolean;
   setBodyDirty: (v: boolean) => void;
+  autonomous: boolean;
+  setAutonomous: (v: boolean) => void;
+  featureBranch: boolean;
+  setFeatureBranch: (v: boolean) => void;
+  createPR: boolean;
+  setCreatePR: (v: boolean) => void;
 }
 
 export function CreateCardForm({
   title, setTitle, type, setType, priority, setPriority,
   labels, setLabels, parent, setParent, body, setBody,
   config, cards, bodyDirty, setBodyDirty,
+  autonomous, setAutonomous, featureBranch, setFeatureBranch,
+  createPR, setCreatePR,
 }: CreateCardFormProps) {
   const { theme } = useTheme();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -181,6 +190,21 @@ export function CreateCardForm({
 
       {/* Parent */}
       <ParentSearch parent={parent} setParent={setParent} cards={cards} />
+
+      {/* Automation — only when no parent */}
+      {!parent && (
+        <AutomationCheckboxes
+          autonomous={autonomous}
+          featureBranch={featureBranch}
+          createPR={createPR}
+          onAutonomousChange={setAutonomous}
+          onFeatureBranchChange={(v) => {
+            setFeatureBranch(v);
+            if (!v) setCreatePR(false);
+          }}
+          onCreatePRChange={setCreatePR}
+        />
+      )}
 
       {/* Body */}
       <div data-color-mode={theme}>

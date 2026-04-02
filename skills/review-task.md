@@ -40,6 +40,17 @@ Assess the work against these criteria:
 - Are there edge cases or scenarios not covered?
 - Are there acceptance criteria that weren't met?
 
+### Mandatory Test Gate
+
+Before recommending `approve` or `approve_with_notes`, you MUST verify:
+
+1. All tests pass (run the project's test suite — e.g. `go test ./...`,
+   `npm test`, etc.)
+2. Linting passes (if a linter is configured for the project)
+
+If tests or lint fail, recommend `revise` regardless of code quality assessment.
+Include the failing test output in your review findings.
+
 ### Quality
 
 > **Note:** Code from the task under review is NOT expected to be committed at

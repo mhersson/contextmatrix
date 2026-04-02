@@ -28,6 +28,12 @@ export interface Card {
   labels?: string[];
   source?: Source;
   custom?: Record<string, unknown>;
+  autonomous?: boolean;
+  feature_branch?: boolean;
+  create_pr?: boolean;
+  branch_name?: string;
+  pr_url?: string;
+  review_attempts?: number;
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -111,6 +117,9 @@ export interface CreateCardInput {
   parent?: string;
   body?: string;
   source?: Source;
+  autonomous?: boolean;
+  feature_branch?: boolean;
+  create_pr?: boolean;
 }
 
 export interface UpdateCardInput {
@@ -133,6 +142,9 @@ export interface PatchCardInput {
   priority?: string;
   labels?: string[];
   body?: string;
+  autonomous?: boolean;
+  feature_branch?: boolean;
+  create_pr?: boolean;
 }
 
 export interface CardContext {

@@ -25,22 +25,30 @@ const (
 	// maxActivityLogEntries is the maximum number of entries kept in a card's activity log.
 	// Older entries are dropped but preserved in git history.
 	maxActivityLogEntries = 50
+
+	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
+	// The autonomous prompt halts at 2, but a misbehaving agent could keep incrementing.
+	maxReviewAttempts = 5
 )
 
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title    string
-	Type     string
-	Priority string
-	Labels   []string
-	Parent   string
-	Body     string
-	Source   *board.Source // Optional, immutable after creation
+	Title         string
+	Type          string
+	Priority      string
+	Labels        []string
+	Parent        string
+	Body          string
+	Source        *board.Source // Optional, immutable after creation
+	Autonomous    bool
+	FeatureBranch bool
+	CreatePR      bool
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
 // Immutable fields (id, project, created, source) are not included.
+// Value types match PUT's full-replacement semantics (omitted = zero value).
 type UpdateCardInput struct {
 	Title           string
 	Type            string
@@ -54,6 +62,9 @@ type UpdateCardInput struct {
 	Custom          map[string]any
 	Body            string
 	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      bool
+	FeatureBranch   bool
+	CreatePR        bool
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -65,6 +76,9 @@ type PatchCardInput struct {
 	Labels          []string // nil = don't change, empty slice = clear
 	Body            *string
 	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      *bool
+	FeatureBranch   *bool
+	CreatePR        *bool
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -538,18 +552,26 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Build card
 	now := time.Now()
 	card := &board.Card{
-		ID:       cardID,
-		Title:    input.Title,
-		Project:  project,
-		Type:     cardType,
-		State:    cfg.States[0], // Default to first state
-		Priority: input.Priority,
-		Labels:   input.Labels,
-		Parent:   parentID,
-		Source:   input.Source,
-		Created:  now,
-		Updated:  now,
-		Body:     input.Body,
+		ID:            cardID,
+		Title:         input.Title,
+		Project:       project,
+		Type:          cardType,
+		State:         cfg.States[0], // Default to first state
+		Priority:      input.Priority,
+		Labels:        input.Labels,
+		Parent:        parentID,
+		Source:        input.Source,
+		Autonomous:    input.Autonomous,
+		FeatureBranch: input.FeatureBranch,
+		CreatePR:      input.CreatePR,
+		Created:       now,
+		Updated:       now,
+		Body:          input.Body,
+	}
+
+	// Auto-generate branch name when feature_branch is enabled.
+	if card.FeatureBranch {
+		card.BranchName = generateBranchName(card.ID, card.Title)
 	}
 
 	// Validate card fields
@@ -679,6 +701,19 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	card.Context = input.Context
 	card.Custom = input.Custom
 	card.Body = input.Body
+	card.Autonomous = input.Autonomous
+	card.FeatureBranch = input.FeatureBranch
+	// BranchName is immutable after first generation — only set when empty.
+	// Not exposed on any input struct by design; this guard is defense-in-depth.
+	if card.FeatureBranch && card.BranchName == "" {
+		card.BranchName = generateBranchName(card.ID, card.Title)
+	}
+	// Auto-clear create_pr when feature_branch is disabled.
+	if !card.FeatureBranch {
+		card.CreatePR = false
+	} else {
+		card.CreatePR = input.CreatePR
+	}
 	card.Updated = time.Now()
 
 	// Release agent claim when card moves to a terminal state that implies
@@ -817,6 +852,23 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 	if input.Body != nil {
 		card.Body = *input.Body
+	}
+	if input.Autonomous != nil {
+		card.Autonomous = *input.Autonomous
+	}
+	if input.FeatureBranch != nil {
+		card.FeatureBranch = *input.FeatureBranch
+		// BranchName is immutable after first generation — only set when empty.
+		if card.FeatureBranch && card.BranchName == "" {
+			card.BranchName = generateBranchName(card.ID, card.Title)
+		}
+		// Auto-clear create_pr when feature_branch is disabled.
+		if !card.FeatureBranch {
+			card.CreatePR = false
+		}
+	}
+	if input.CreatePR != nil && card.FeatureBranch {
+		card.CreatePR = *input.CreatePR
 	}
 	card.Updated = time.Now()
 
@@ -1876,4 +1928,164 @@ func commitMessage(agentID, cardID, action string) string {
 		return fmt.Sprintf("[agent:%s] %s: %s", agentID, cardID, action)
 	}
 	return fmt.Sprintf("[contextmatrix] %s: %s", cardID, action)
+}
+
+// branchNameSlugPattern matches anything that's not lowercase alphanumeric.
+var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+// generateBranchName creates a git branch name from a card ID and title.
+// Format: alpha-042/fix-login-validation (lowercase, alphanumeric + hyphens).
+// Non-ASCII characters are stripped (e.g. "über" becomes "ber").
+func generateBranchName(cardID, title string) string {
+	slug := strings.ToLower(title)
+	slug = branchNameSlugPattern.ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+	if len(slug) > 50 {
+		slug = slug[:50]
+		slug = strings.TrimRight(slug, "-")
+	}
+	prefix := strings.ToLower(cardID)
+	if slug == "" {
+		return prefix
+	}
+	return prefix + "/" + slug
+}
+
+// ErrProtectedBranch is returned when an operation targets a protected branch (main/master).
+var ErrProtectedBranch = fmt.Errorf("pushing to main/master is never allowed")
+
+// isProtectedBranch returns true if the branch name resolves to main or master.
+func isProtectedBranch(branch string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(branch))
+	normalized = strings.TrimPrefix(normalized, "refs/heads/")
+	return normalized == "main" || normalized == "master"
+}
+
+// ErrInvalidPRUrl is returned when a PR URL does not use http:// or https://.
+var ErrInvalidPRUrl = fmt.Errorf("pr_url must use http or https scheme")
+
+// RecordPush records a git push event on a card, updating PRUrl if provided and
+// adding an activity log entry. All mutations are atomic under a single lock.
+// Returns ErrProtectedBranch if the branch is main/master.
+func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, branch, prURL string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+
+	// Service-layer branch protection — defense in depth.
+	if isProtectedBranch(branch) {
+		return nil, ErrProtectedBranch
+	}
+
+	// Validate PR URL scheme before acquiring the lock.
+	if prURL != "" && !strings.HasPrefix(prURL, "https://") && !strings.HasPrefix(prURL, "http://") {
+		return nil, ErrInvalidPRUrl
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Verify agent ownership.
+	if card.AssignedAgent != agentID {
+		return nil, lock.ErrAgentMismatch
+	}
+
+	// Update PR URL if provided.
+	if prURL != "" {
+		card.PRUrl = prURL
+	}
+
+	// Append activity log entry.
+	msg := "Pushed to branch " + branch
+	if prURL != "" {
+		msg += "; PR: " + prURL
+	}
+	entry := board.ActivityEntry{
+		Agent:     agentID,
+		Action:    "pushed",
+		Message:   msg,
+		Timestamp: time.Now(),
+	}
+	card.ActivityLog = append(card.ActivityLog, entry)
+	if len(card.ActivityLog) > maxActivityLogEntries {
+		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	card.Updated = time.Now()
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+	if err := s.commitCardChange(project, id, agentID, "pushed to "+branch); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	// Publish events after releasing the lock is not possible with defer,
+	// so publish here (still under lock — acceptable for in-process bus).
+	s.bus.Publish(events.Event{
+		Type:      events.CardUpdated,
+		Project:   project,
+		CardID:    id,
+		Agent:     agentID,
+		Timestamp: time.Now(),
+		Data: map[string]any{
+			"action": "pushed",
+			"branch": branch,
+			"pr_url": prURL,
+		},
+	})
+
+	return card, nil
+}
+
+// ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
+var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
+
+// IncrementReviewAttempts atomically increments the review_attempts counter on a card.
+// Returns lock.ErrAgentMismatch if the caller is not the assigned agent, and
+// ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
+func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Verify agent ownership.
+	if card.AssignedAgent != agentID {
+		return nil, lock.ErrAgentMismatch
+	}
+
+	if card.ReviewAttempts >= maxReviewAttempts {
+		return nil, fmt.Errorf("review attempts capped at %d: %w", maxReviewAttempts, ErrReviewAttemptsCapped)
+	}
+
+	card.ReviewAttempts++
+	card.Updated = time.Now()
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+	if err := s.commitCardChange(project, id, agentID, "review_attempts incremented"); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardUpdated,
+		Project:   project,
+		CardID:    id,
+		Agent:     agentID,
+		Timestamp: time.Now(),
+		Data: map[string]any{
+			"action":          "review_attempts_incremented",
+			"review_attempts": card.ReviewAttempts,
+		},
+	})
+
+	return card, nil
 }

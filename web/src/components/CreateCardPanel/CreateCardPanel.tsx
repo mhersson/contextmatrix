@@ -18,6 +18,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [body, setBody] = useState('');
   const [bodyDirty, setBodyDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [autonomous, setAutonomous] = useState(false);
+  const [featureBranch, setFeatureBranch] = useState(false);
+  const [createPR, setCreatePR] = useState(false);
 
   // Load initial template for default type
   useEffect(() => {
@@ -45,13 +48,16 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
         labels: labels.length > 0 ? labels : undefined,
         parent: parent || undefined,
         body: body || undefined,
+        autonomous: autonomous || undefined,
+        feature_branch: featureBranch || undefined,
+        create_pr: createPR || undefined,
       });
     } catch {
       // Parent shows error toast; keep form open
     } finally {
       setIsSubmitting(false);
     }
-  }, [title, type, priority, labels, parent, body, isSubmitting, onCreate]);
+  }, [title, type, priority, labels, parent, body, autonomous, featureBranch, createPR, isSubmitting, onCreate]);
 
   return (
     <>
@@ -99,6 +105,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             config={config}
             cards={cards}
             bodyDirty={bodyDirty} setBodyDirty={setBodyDirty}
+            autonomous={autonomous} setAutonomous={setAutonomous}
+            featureBranch={featureBranch} setFeatureBranch={setFeatureBranch}
+            createPR={createPR} setCreatePR={setCreatePR}
           />
         </div>
       </div>

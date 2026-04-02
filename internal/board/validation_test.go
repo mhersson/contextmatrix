@@ -504,6 +504,91 @@ func TestValidationError_Unwrap(t *testing.T) {
 	assert.Equal(t, "type", unwrapped.Field)
 }
 
+func TestValidateAutonomousFields(t *testing.T) {
+	v := NewValidator()
+
+	tests := []struct {
+		name    string
+		card    Card
+		wantErr bool
+	}{
+		{
+			name:    "all false is valid",
+			card:    Card{},
+			wantErr: false,
+		},
+		{
+			name:    "autonomous alone is valid",
+			card:    Card{Autonomous: true},
+			wantErr: false,
+		},
+		{
+			name:    "feature_branch alone is valid",
+			card:    Card{FeatureBranch: true},
+			wantErr: false,
+		},
+		{
+			name:    "create_pr with feature_branch is valid",
+			card:    Card{FeatureBranch: true, CreatePR: true},
+			wantErr: false,
+		},
+		{
+			name:    "create_pr without feature_branch is invalid",
+			card:    Card{CreatePR: true},
+			wantErr: true,
+		},
+		{
+			name:    "all enabled is valid",
+			card:    Card{Autonomous: true, FeatureBranch: true, CreatePR: true, BranchName: "test-001/card"},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := v.ValidateAutonomousFields(&tt.card)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrInvalidAutonomousConfig)
+				var ve *ValidationError
+				require.ErrorAs(t, err, &ve)
+				assert.Equal(t, "create_pr", ve.Field)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateCard_AutonomousFields(t *testing.T) {
+	v := NewValidator()
+	cfg := testProjectConfigForValidation()
+	now := time.Now()
+
+	t.Run("create_pr without feature_branch rejected by ValidateCard", func(t *testing.T) {
+		card := &Card{
+			ID: "TEST-001", Title: "Test", Project: "test",
+			Type: "task", State: "todo", Priority: "medium",
+			Created: now, Updated: now,
+			CreatePR: true,
+		}
+		err := v.ValidateCard(cfg, card)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidAutonomousConfig)
+	})
+
+	t.Run("valid autonomous card passes ValidateCard", func(t *testing.T) {
+		card := &Card{
+			ID: "TEST-001", Title: "Test", Project: "test",
+			Type: "task", State: "todo", Priority: "medium",
+			Created: now, Updated: now,
+			Autonomous: true, FeatureBranch: true, CreatePR: true,
+		}
+		err := v.ValidateCard(cfg, card)
+		assert.NoError(t, err)
+	})
+}
+
 func TestValidationError_Message(t *testing.T) {
 	ve := &ValidationError{
 		Err:     ErrInvalidType,

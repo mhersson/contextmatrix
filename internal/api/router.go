@@ -35,6 +35,8 @@ const (
 	ErrCodeProjectHasCards    = "PROJECT_HAS_CARDS"
 	ErrCodeInternalError      = "INTERNAL_ERROR"
 	ErrCodeBadRequest         = "BAD_REQUEST"
+	ErrCodeHumanOnlyField     = "HUMAN_ONLY_FIELD"
+	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
 )
 
 // APIError is the standard error response format.
@@ -85,6 +87,7 @@ func NewRouter(svc *service.CardService, bus *events.Bus, corsOrigin string, syn
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/log", ah.addLogEntry)
 	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/usage", ah.reportUsage)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/report-push", ah.reportPush)
 
 	// Project usage and dashboard
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
@@ -263,13 +266,20 @@ func handleServiceError(w http.ResponseWriter, err error) {
 			details = ve.Error()
 		}
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", details)
-	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority):
+	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority),
+		errors.Is(err, board.ErrInvalidAutonomousConfig):
 		var ve *board.ValidationError
 		details := ""
 		if errors.As(err, &ve) {
 			details = ve.Error()
 		}
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
+	case errors.Is(err, service.ErrInvalidPRUrl):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", err.Error())
+	case errors.Is(err, service.ErrReviewAttemptsCapped):
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "review attempts limit reached", err.Error())
+	case errors.Is(err, service.ErrProtectedBranch):
+		writeError(w, http.StatusForbidden, ErrCodeProtectedBranch, "pushing to main/master is never allowed", "")
 	case errors.Is(err, lock.ErrAlreadyClaimed):
 		writeError(w, http.StatusConflict, ErrCodeAlreadyClaimed, "card already claimed", err.Error())
 	case errors.Is(err, lock.ErrNotClaimed):

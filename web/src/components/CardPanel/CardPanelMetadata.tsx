@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Card } from '../../types';
 import { api } from '../../api/client';
+import { AutomationCheckboxes } from './AutomationCheckboxes';
 
 interface CardPanelMetadataProps {
   card: Card;
   editedLabels: string[] | undefined;
   onLabelsChange: (labels: string[]) => void;
   onSubtaskClick: (cardId: string) => void;
+  editedAutonomous: boolean;
+  editedFeatureBranch: boolean;
+  editedCreatePR: boolean;
+  onAutonomousChange: (value: boolean) => void;
+  onFeatureBranchChange: (value: boolean) => void;
+  onCreatePRChange: (value: boolean) => void;
 }
 
 export function CardPanelMetadata({
@@ -14,6 +21,12 @@ export function CardPanelMetadata({
   editedLabels,
   onLabelsChange,
   onSubtaskClick,
+  editedAutonomous,
+  editedFeatureBranch,
+  editedCreatePR,
+  onAutonomousChange,
+  onFeatureBranchChange,
+  onCreatePRChange,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
@@ -155,6 +168,21 @@ export function CardPanelMetadata({
             })}
           </div>
         </div>
+      )}
+
+      {/* Automation — only for parent/standalone cards */}
+      {!card.parent && (
+        <AutomationCheckboxes
+          autonomous={editedAutonomous}
+          featureBranch={editedFeatureBranch}
+          createPR={editedCreatePR}
+          onAutonomousChange={onAutonomousChange}
+          onFeatureBranchChange={onFeatureBranchChange}
+          onCreatePRChange={onCreatePRChange}
+          branchName={card.branch_name}
+          prUrl={card.pr_url}
+          reviewAttempts={card.review_attempts}
+        />
       )}
 
       {/* Metadata footer */}

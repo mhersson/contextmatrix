@@ -29,6 +29,15 @@ const subtaskCard: Card = {
   parent: 'TEST-001',
 };
 
+const automationProps = {
+  editedAutonomous: false,
+  editedFeatureBranch: false,
+  editedCreatePR: false,
+  onAutonomousChange: vi.fn(),
+  onFeatureBranchChange: vi.fn(),
+  onCreatePRChange: vi.fn(),
+};
+
 describe('CardPanelMetadata — parent section', () => {
   it('renders Parent section when card.parent is defined', () => {
     render(
@@ -37,6 +46,7 @@ describe('CardPanelMetadata — parent section', () => {
         editedLabels={[]}
         onLabelsChange={vi.fn()}
         onSubtaskClick={vi.fn()}
+        {...automationProps}
       />,
     );
     expect(screen.getByText('Parent')).toBeInTheDocument();
@@ -50,6 +60,7 @@ describe('CardPanelMetadata — parent section', () => {
         editedLabels={[]}
         onLabelsChange={vi.fn()}
         onSubtaskClick={vi.fn()}
+        {...automationProps}
       />,
     );
     expect(screen.queryByText('Parent')).not.toBeInTheDocument();
@@ -63,6 +74,7 @@ describe('CardPanelMetadata — parent section', () => {
         editedLabels={[]}
         onLabelsChange={vi.fn()}
         onSubtaskClick={onSubtaskClick}
+        {...automationProps}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'TEST-001' }));
@@ -81,6 +93,7 @@ describe('CardPanelMetadata — parent section', () => {
         editedLabels={[]}
         onLabelsChange={vi.fn()}
         onSubtaskClick={vi.fn()}
+        {...automationProps}
       />,
     );
 
