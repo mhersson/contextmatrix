@@ -81,6 +81,7 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
   }, [connect]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     connect();
 
     return () => {

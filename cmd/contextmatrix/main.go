@@ -158,6 +158,11 @@ func main() {
 	// Stop background tasks
 	cancel()
 
+	// Wait for git sync goroutines to finish
+	if syncer != nil {
+		syncer.Wait()
+	}
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer shutdownCancel()
 

@@ -285,10 +285,11 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue
+			continue // File may have been deleted between index scan and read
 		}
 		card, err := board.ParseCard(data)
 		if err != nil {
+			slog.Warn("skipping corrupt card file", "path", path, "error", err)
 			continue
 		}
 		cards = append(cards, card)

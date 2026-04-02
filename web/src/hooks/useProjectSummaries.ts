@@ -36,11 +36,12 @@ export function useProjectSummaries(projectNames: string[]) {
     setLoading(false);
   }, []);
 
+  const projectKey = projectNames.join(',');
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, REFRESH_INTERVAL);
     return () => clearInterval(interval);
-  }, [fetchAll, projectNames.length]);
+  }, [fetchAll, projectKey]);
 
   const handleEvent = useCallback(
     (event: BoardEvent) => {

@@ -89,6 +89,8 @@ export function useBoard(
               }
               return [...prev, card];
             });
+          }).catch((err) => {
+            console.error('Failed to refresh card after SSE event:', event.card_id, err);
           });
           break;
 

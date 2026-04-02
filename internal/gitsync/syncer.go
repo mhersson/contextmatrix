@@ -44,6 +44,7 @@ type Syncer struct {
 	syncing       bool
 
 	pushCh chan struct{} // buffered(1), coalesces rapid commits
+	wg     sync.WaitGroup
 }
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
@@ -91,14 +92,28 @@ func (s *Syncer) PullOnStartup(ctx context.Context) error {
 // Both goroutines respect context cancellation for clean shutdown.
 func (s *Syncer) Start(ctx context.Context) {
 	if s.autoPull {
-		go s.periodicPull(ctx)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.periodicPull(ctx)
+		}()
 		slog.Info("git sync: periodic pull started", "interval", s.interval)
 	}
 
 	if s.autoPush {
-		go s.pushListener(ctx)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.pushListener(ctx)
+		}()
 		slog.Info("git sync: push listener started")
 	}
+}
+
+// Wait blocks until all background goroutines have stopped.
+// Call after cancelling the context passed to Start.
+func (s *Syncer) Wait() {
+	s.wg.Wait()
 }
 
 // NotifyCommit signals that a new commit was made and should be pushed.
@@ -257,6 +272,12 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 
 // periodicPull runs fetch+rebase at the configured interval.
 func (s *Syncer) periodicPull(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("git sync: periodic pull panicked", "error", r)
+		}
+	}()
+
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -275,6 +296,12 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 
 // pushListener waits for commit notifications and pushes.
 func (s *Syncer) pushListener(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("git sync: push listener panicked", "error", r)
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():

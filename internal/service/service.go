@@ -190,11 +190,12 @@ type CardService struct {
 	// Used by the sync layer to trigger push-after-commit.
 	onCommit func()
 
+	validator *board.Validator
+
 	// Per-project caches
-	mu         sync.RWMutex
-	validators map[string]*board.Validator
-	configs    map[string]*board.ProjectConfig
-	templates  map[string]map[string]string // project -> type -> template
+	mu        sync.RWMutex
+	configs   map[string]*board.ProjectConfig
+	templates map[string]map[string]string // project -> type -> template
 }
 
 // NewCardService creates a new CardService with the given dependencies.
@@ -218,7 +219,7 @@ func NewCardService(
 		gitAutoCommit:     gitAutoCommit,
 		gitDeferredCommit: gitDeferredCommit,
 		deferredPaths:     make(map[string][]string),
-		validators:        make(map[string]*board.Validator),
+		validator:         board.NewValidator(),
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
@@ -241,7 +242,6 @@ func (s *CardService) notifyCommit() {
 func (s *CardService) ClearCaches() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.validators = make(map[string]*board.Validator)
 	s.configs = make(map[string]*board.ProjectConfig)
 	s.templates = make(map[string]map[string]string)
 }
@@ -406,7 +406,6 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	// Invalidate caches so they rebuild with new config
 	s.mu.Lock()
 	s.configs[name] = cfg
-	delete(s.validators, name)
 	s.mu.Unlock()
 
 	// Publish event
@@ -456,7 +455,6 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	// Purge all caches
 	s.mu.Lock()
 	delete(s.configs, name)
-	delete(s.validators, name)
 	delete(s.templates, name)
 	s.mu.Unlock()
 
@@ -531,8 +529,9 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	s.mu.Unlock()
 
 	// Cards with a parent are always subtasks regardless of what the caller passes.
+	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
 	cardType := input.Type
-	if input.Parent != "" {
+	if parentID != "" {
 		cardType = board.SubtaskType
 	}
 
@@ -546,7 +545,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		State:    cfg.States[0], // Default to first state
 		Priority: input.Priority,
 		Labels:   input.Labels,
-		Parent:   strings.ToUpper(input.Parent),
+		Parent:   parentID,
 		Source:   input.Source,
 		Created:  now,
 		Updated:  now,
@@ -554,9 +553,13 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	}
 
 	// Validate card fields
-	validator := s.getValidator(project)
-	if err := validator.ValidateCard(cfg, card); err != nil {
+	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
+	}
+
+	// Validate parent references an existing card
+	if err := s.validateCardReferences(ctx, project, card.Parent, nil); err != nil {
+		return nil, err
 	}
 
 	// Persist card
@@ -594,7 +597,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 // Immutable fields (id, project, created, source) are preserved.
 func (s *CardService) UpdateCard(ctx context.Context, project, id string, input UpdateCardInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
-	input.Parent = strings.ToUpper(input.Parent)
+	input.Parent = strings.ToUpper(strings.TrimSpace(input.Parent))
 	input.Subtasks = normalizeIDs(input.Subtasks)
 	input.DependsOn = normalizeIDs(input.DependsOn)
 	s.writeMu.Lock()
@@ -618,12 +621,12 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 
 	// Validate state transition if changed
 	if stateChanged {
-		validator := s.getValidator(project)
+		validator := s.validator
 		if err := validator.ValidateTransition(cfg, oldState, input.State); err != nil {
 			return nil, fmt.Errorf("validate transition: %w", err)
 		}
 		// Block transition to in_progress if dependencies not met
-		if input.State == "in_progress" {
+		if input.State == board.StateInProgress {
 			met, blockers := s.checkDependencies(ctx, project, input.DependsOn)
 			if !met {
 				return nil, dependencyError(input.State, blockers)
@@ -681,15 +684,31 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	// Release agent claim when card moves to a terminal state that implies
 	// the work is no longer active (not_planned is purely manual — the agent
 	// claim must be cleared so the lock manager won't treat it as stalled).
-	if stateChanged && card.State == "not_planned" {
+	if stateChanged && card.State == board.StateNotPlanned {
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
 	}
 
 	// Validate updated card
-	validator := s.getValidator(project)
-	if err := validator.ValidateCard(cfg, card); err != nil {
+	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
+	}
+
+	// Validate parent and depends_on reference existing cards
+	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+		return nil, err
+	}
+
+	// Detect circular dependencies
+	if len(card.DependsOn) > 0 {
+		if cycleID := s.detectDependencyCycle(ctx, project, id, card.DependsOn); cycleID != "" {
+			return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrDependenciesNotMet,
+				Field:   "depends_on",
+				Value:   cycleID,
+				Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", id, cycleID),
+			})
+		}
 	}
 
 	// Persist card
@@ -713,7 +732,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	}
 
 	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == "done" || card.State == "stalled" || card.State == "not_planned") {
+	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -775,12 +794,12 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		newState := *input.State
 		if newState != oldState {
 			// Validate state transition
-			validator := s.getValidator(project)
+			validator := s.validator
 			if err := validator.ValidateTransition(cfg, oldState, newState); err != nil {
 				return nil, fmt.Errorf("validate transition: %w", err)
 			}
 			// Block transition to in_progress if dependencies not met
-			if newState == "in_progress" {
+			if newState == board.StateInProgress {
 				met, blockers := s.checkDependencies(ctx, project, card.DependsOn)
 				if !met {
 					return nil, dependencyError(newState, blockers)
@@ -803,13 +822,13 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 
 	// Release agent claim when card moves to not_planned so the lock manager
 	// won't flag the card as stalled.
-	if stateChanged && card.State == "not_planned" {
+	if stateChanged && card.State == board.StateNotPlanned {
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
 	}
 
 	// Validate updated card
-	validator := s.getValidator(project)
+	validator := s.validator
 	if err := validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
 	}
@@ -835,7 +854,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 
 	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == "done" || card.State == "stalled" || card.State == "not_planned") {
+	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -876,6 +895,24 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	_, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return fmt.Errorf("get card: %w", err)
+	}
+
+	// Reject deletion if card has children (subtasks)
+	children, err := s.store.ListCards(ctx, project, storage.CardFilter{Parent: id})
+	if err != nil {
+		return fmt.Errorf("check children: %w", err)
+	}
+	if len(children) > 0 {
+		childIDs := make([]string, len(children))
+		for i, c := range children {
+			childIDs[i] = c.ID
+		}
+		return fmt.Errorf("delete card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "id",
+			Value:   id,
+			Message: fmt.Sprintf("cannot delete card with %d subtask(s): %s", len(children), strings.Join(childIDs, ", ")),
+		})
 	}
 
 	// Delete from store
@@ -1145,7 +1182,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		data.StateCounts[card.State]++
 
 		// Active agents: cards with an assigned agent not in terminal states.
-		if card.AssignedAgent != "" && card.State != "done" && card.State != "stalled" && card.State != "not_planned" {
+		if card.AssignedAgent != "" && card.State != board.StateDone && card.State != board.StateStalled && card.State != board.StateNotPlanned {
 			aa := ActiveAgent{
 				AgentID:   card.AssignedAgent,
 				CardID:    card.ID,
@@ -1160,7 +1197,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		}
 
 		// Cards completed today.
-		if card.State == "done" && !card.Updated.Before(todayStart) {
+		if card.State == board.StateDone && !card.Updated.Before(todayStart) {
 			data.CardsCompletedToday++
 		}
 
@@ -1337,6 +1374,12 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 // The goroutine stops when the context is cancelled.
 func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Duration) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("timeout checker panicked", "error", r)
+			}
+		}()
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -1386,7 +1429,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	previousAgent := card.AssignedAgent
 
 	// Update card state
-	card.State = "stalled"
+	card.State = board.StateStalled
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
 	card.Updated = time.Now()
@@ -1431,9 +1474,14 @@ func normalizeIDs(ids []string) []string {
 	if ids == nil {
 		return nil
 	}
-	out := make([]string, len(ids))
-	for i, id := range ids {
-		out[i] = strings.ToUpper(id)
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		upper := strings.ToUpper(id)
+		if !seen[upper] {
+			seen[upper] = true
+			out = append(out, upper)
+		}
 	}
 	return out
 }
@@ -1480,26 +1528,6 @@ func (s *CardService) getConfigLocked(ctx context.Context, project string) (*boa
 	return cfg, nil
 }
 
-// getValidator returns the cached validator for a project, creating it if necessary.
-func (s *CardService) getValidator(project string) *board.Validator {
-	s.mu.RLock()
-	v, ok := s.validators[project]
-	s.mu.RUnlock()
-
-	if ok {
-		return v
-	}
-
-	// Create new validator (Validator is stateless, so we can share one per project)
-	v = board.NewValidator()
-
-	s.mu.Lock()
-	s.validators[project] = v
-	s.mu.Unlock()
-
-	return v
-}
-
 // getTemplates returns the cached templates for a project, loading them if necessary.
 func (s *CardService) getTemplates(project string) (map[string]string, error) {
 	s.mu.RLock()
@@ -1543,7 +1571,7 @@ func (s *CardService) checkDependencies(ctx context.Context, project string, dep
 			blockers = append(blockers, depStatus{ID: depID, State: "unknown"})
 			continue
 		}
-		if dep.State != "done" {
+		if dep.State != board.StateDone {
 			blockers = append(blockers, depStatus{ID: depID, State: dep.State})
 		}
 	}
@@ -1562,6 +1590,58 @@ func dependencyError(targetState string, blockers []depStatus) error {
 		Value:   targetState,
 		Message: fmt.Sprintf("cannot transition to %q: blocked by dependencies: %s", targetState, strings.Join(parts, ", ")),
 	})
+}
+
+// validateCardReferences checks that parent and depends_on IDs reference
+// existing cards in the project. It also detects self-dependencies and
+// circular dependency chains.
+func (s *CardService) validateCardReferences(ctx context.Context, project, parent string, dependsOn []string) error {
+	if parent != "" {
+		if _, err := s.store.GetCard(ctx, project, parent); err != nil {
+			return fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrInvalidType,
+				Field:   "parent",
+				Value:   parent,
+				Message: fmt.Sprintf("parent card %q does not exist", parent),
+			})
+		}
+	}
+	for _, depID := range dependsOn {
+		if _, err := s.store.GetCard(ctx, project, depID); err != nil {
+			return fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrDependenciesNotMet,
+				Field:   "depends_on",
+				Value:   depID,
+				Message: fmt.Sprintf("dependency card %q does not exist", depID),
+			})
+		}
+	}
+	return nil
+}
+
+// detectDependencyCycle walks the dependency graph starting from cardID's
+// dependsOn list. Returns the ID that completes a cycle, or "" if none.
+func (s *CardService) detectDependencyCycle(ctx context.Context, project, cardID string, dependsOn []string) string {
+	visited := map[string]bool{cardID: true}
+	queue := make([]string, len(dependsOn))
+	copy(queue, dependsOn)
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		if visited[cur] {
+			return cur
+		}
+		visited[cur] = true
+
+		dep, err := s.store.GetCard(ctx, project, cur)
+		if err != nil {
+			continue
+		}
+		queue = append(queue, dep.DependsOn...)
+	}
+	return ""
 }
 
 // enrichDependenciesMet computes and sets the DependenciesMet field on a card.
@@ -1592,7 +1672,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
-	validator := s.getValidator(project)
+	validator := s.validator
 	path, err := validator.FindShortestPath(cfg, card.State, targetState)
 	if err != nil {
 		return nil, fmt.Errorf("find transition path: %w", err)
@@ -1682,9 +1762,9 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 	}
 
 	switch child.State {
-	case "in_progress":
-		if parent.State == "todo" {
-			if err := s.transitionParentDirect(ctx, parent, "in_progress"); err != nil {
+	case board.StateInProgress:
+		if parent.State == board.StateTodo {
+			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
 				slog.Warn("parent auto-transition: todo→in_progress",
 					"parent_id", parent.ID,
 					"error", err,
@@ -1692,7 +1772,7 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 			}
 		}
 
-	case "done":
+	case board.StateDone:
 		// Discover all children via store query (not parent.Subtasks, which may be empty
 		// when children are created with parent field but parent's subtasks list is not updated).
 		children, err := s.store.ListCards(ctx, child.Project, storage.CardFilter{Parent: child.Parent})
@@ -1715,13 +1795,13 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 			if sibling.ID == child.ID {
 				continue // This child is already done (the one we just transitioned)
 			}
-			if sibling.State != "done" {
+			if sibling.State != board.StateDone {
 				allDone = false
 				break
 			}
 		}
-		if allDone && parent.State != "review" && parent.State != "done" {
-			if err := s.transitionParentDirect(ctx, parent, "review"); err != nil {
+		if allDone && parent.State != board.StateReview && parent.State != board.StateDone {
+			if err := s.transitionParentDirect(ctx, parent, board.StateReview); err != nil {
 				slog.Warn("parent auto-transition: in_progress→review",
 					"parent_id", parent.ID,
 					"error", err,
@@ -1744,7 +1824,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 		return fmt.Errorf("get project config: %w", err)
 	}
 
-	validator := s.getValidator(parent.Project)
+	validator := s.validator
 	path, err := validator.FindShortestPath(cfg, parent.State, targetState)
 	if err != nil {
 		return fmt.Errorf("find transition path from %s to %s: %w", parent.State, targetState, err)

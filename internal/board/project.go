@@ -43,12 +43,21 @@ var (
 	ErrInvalidProjectConfig = errors.New("invalid project config")
 )
 
+// Well-known state names used for system logic (auto-transitions,
+// deferred-commit flush, timeout checker, etc.).
+const (
+	StateTodo       = "todo"
+	StateInProgress = "in_progress"
+	StateReview     = "review"
+	StateDone       = "done"
+	StateStalled    = "stalled"
+	StateNotPlanned = "not_planned"
+)
+
 const (
 	boardConfigFile   = ".board.yaml"
 	templatesDir      = "templates"
 	templateExtension = ".md"
-	stalledState      = "stalled"
-	notPlannedState   = "not_planned"
 )
 
 // LoadProjectConfig reads a project's .board.yaml configuration.
@@ -114,22 +123,22 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 	}
 
 	// Check stalled state exists
-	if !slices.Contains(cfg.States, stalledState) {
+	if !slices.Contains(cfg.States, StateStalled) {
 		return ErrMissingStalledState
 	}
 
 	// Check stalled transition exists
-	if _, ok := cfg.Transitions[stalledState]; !ok {
+	if _, ok := cfg.Transitions[StateStalled]; !ok {
 		return ErrMissingStalledTransitions
 	}
 
 	// Check not_planned state exists
-	if !slices.Contains(cfg.States, notPlannedState) {
+	if !slices.Contains(cfg.States, StateNotPlanned) {
 		return ErrMissingNotPlannedState
 	}
 
 	// Check not_planned transition exists
-	if _, ok := cfg.Transitions[notPlannedState]; !ok {
+	if _, ok := cfg.Transitions[StateNotPlanned]; !ok {
 		return ErrMissingNotPlannedTransitions
 	}
 

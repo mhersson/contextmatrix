@@ -23,6 +23,7 @@ export function CardPanelMetadata({
       setDepStates({});
       return;
     }
+    let cancelled = false;
     const fetchDeps = async () => {
       const states: Record<string, string> = {};
       await Promise.all(
@@ -35,9 +36,12 @@ export function CardPanelMetadata({
           }
         }),
       );
-      setDepStates(states);
+      if (!cancelled) {
+        setDepStates(states);
+      }
     };
     fetchDeps();
+    return () => { cancelled = true; };
   }, [card.depends_on, card.project]);
 
   const addLabel = useCallback(() => {

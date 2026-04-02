@@ -336,8 +336,8 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		}
 		// Auto-transition to in_progress only from todo — claiming a card
 		// in review/done/blocked should not change its state.
-		if card.State == "todo" {
-			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, "in_progress"); err == nil {
+		if card.State == board.StateTodo {
+			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress); err == nil {
 				card = transitioned
 			}
 		}
@@ -479,9 +479,9 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
 		}
 		parentID := card.Parent
-		targetState := "review"
+		targetState := board.StateReview
 		if parentID != "" {
-			targetState = "done"
+			targetState = board.StateDone
 		}
 
 		// Walk through intermediate transitions to reach target state
@@ -501,11 +501,11 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 		// For main tasks: the card itself just transitioned to review.
 		// For subtasks: the parent may have auto-transitioned to review.
 		reviewCardID := ""
-		if targetState == "review" {
+		if targetState == board.StateReview {
 			reviewCardID = input.CardID
 		} else if parentID != "" {
 			parent, perr := svc.GetCard(ctx, project, parentID)
-			if perr == nil && parent.State == "review" {
+			if perr == nil && parent.State == board.StateReview {
 				reviewCardID = parentID
 			}
 		}
@@ -596,10 +596,10 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 			}
 
 			switch {
-			case card.State == "done" || card.State == "review":
+			case card.State == board.StateDone || card.State == board.StateReview:
 				status.Status = "completed"
 				completedCount++
-			case card.State == "stalled":
+			case card.State == board.StateStalled:
 				status.Status = "stalled"
 				stalledCount++
 			case card.AssignedAgent == "":
@@ -648,7 +648,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 		Name:        "get_ready_tasks",
 		Description: "Get unclaimed 'todo' cards that are ready to start — all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getReadyTasksInput) (*mcp.CallToolResult, getReadyTasksOutput, error) {
-		filter := storage.CardFilter{State: "todo"}
+		filter := storage.CardFilter{State: board.StateTodo}
 		if input.ParentID != "" {
 			filter.Parent = input.ParentID
 		}

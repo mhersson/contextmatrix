@@ -141,7 +141,7 @@ func (v *Validator) ValidateTransition(cfg *ProjectConfig, fromState, toState st
 	}
 
 	// Special rule: any state can transition TO stalled
-	if toState == stalledState {
+	if toState == StateStalled {
 		return nil
 	}
 
@@ -196,18 +196,18 @@ func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []s
 	explicit := cfg.Transitions[fromState]
 
 	// From stalled, only return explicit transitions
-	if fromState == stalledState {
+	if fromState == StateStalled {
 		return explicit
 	}
 
 	// From any other state, add stalled to the list (if not already present)
-	if slices.Contains(explicit, stalledState) {
+	if slices.Contains(explicit, StateStalled) {
 		return explicit
 	}
 
 	result := make([]string, len(explicit)+1)
 	copy(result, explicit)
-	result[len(explicit)] = stalledState
+	result[len(explicit)] = StateStalled
 	return result
 }
 
