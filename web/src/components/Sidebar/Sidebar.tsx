@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummaries } from '../../hooks/useProjectSummaries';
@@ -11,7 +11,11 @@ interface SidebarProps {
 export function Sidebar({ onNewProject }: SidebarProps) {
   const { projects, connected } = useProjects();
   const [collapsed, setCollapsed] = useState(false);
-  const projectNames = projects.map((p) => p.name);
+  const sortedProjects = useMemo(
+    () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [projects]
+  );
+  const projectNames = sortedProjects.map((p) => p.name);
   const { summaries } = useProjectSummaries(projectNames);
 
   if (collapsed) {
@@ -75,7 +79,7 @@ export function Sidebar({ onNewProject }: SidebarProps) {
 
         <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
 
-        {projects.map((p) => (
+        {sortedProjects.map((p) => (
           <NavLink key={p.name} to={`/projects/${p.name}`} end={false} className="block">
             {({ isActive }) => (
               <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
@@ -83,7 +87,7 @@ export function Sidebar({ onNewProject }: SidebarProps) {
           </NavLink>
         ))}
 
-        {projects.length === 0 && (
+        {sortedProjects.length === 0 && (
           <div className="px-3 py-4 text-sm text-center" style={{ color: 'var(--grey0)' }}>
             No projects
           </div>
