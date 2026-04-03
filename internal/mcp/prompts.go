@@ -101,8 +101,8 @@ func stripAgentConfig(content string) string {
 // inlineEligibleSkills lists skills that the server may return with inline
 // execution enabled when the caller's model matches the skill's model.
 var inlineEligibleSkills = map[string]bool{
-	"review-task":  true,
-	"create-plan":  true,
+	"review-task": true,
+	"create-plan": true,
 }
 
 // isInlineEligible reports whether a skill supports inline execution.
@@ -375,15 +375,15 @@ func buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSk
 	fmt.Fprintln(&b, "19. Parse the `recommendation` field:")
 	fmt.Fprintln(&b, "    - **approve / approve_with_notes:** Proceed to Phase 5 (Documentation).")
 	fmt.Fprintln(&b, "    - **revise:** Check `review_attempts` on the card:")
-	fmt.Fprintf(&b, "      - If **< 2**: Call `update_card(card_id='%s', ...)` to increment `review_attempts`.\n", cardID)
+	fmt.Fprintf(&b, "      - If **< 3**: Call `update_card(card_id='%s', ...)` to increment `review_attempts`.\n", cardID)
 	fmt.Fprintln(&b, "        Create new \"fix\" subtasks based on the review findings.")
 	fmt.Fprintln(&b, "        Go back to Phase 3 (Execution) for the fix subtasks only.")
 	fmt.Fprintln(&b, "        Then return to Phase 4 (Review) again.")
-	fmt.Fprintln(&b, "      - If **>= 2**: **STOP.** Print:")
+	fmt.Fprintln(&b, "      - If **>= 3**: **STOP.** Print:")
 	fmt.Fprintln(&b, "        ```")
 	fmt.Fprintln(&b, "        AUTONOMOUS_HALTED")
 	fmt.Fprintf(&b, "        card_id: %s\n", cardID)
-	fmt.Fprintln(&b, "        reason: 2 review cycles completed without approval")
+	fmt.Fprintln(&b, "        reason: 3 review cycles completed without approval")
 	fmt.Fprintln(&b, "        action_required: human review")
 	fmt.Fprintln(&b, "        ```")
 	fmt.Fprintln(&b)
@@ -436,8 +436,8 @@ func buildAutonomousReviewDelegationPrompt(model, cardID, getSkillArgs string) s
 	fmt.Fprintln(&b, "5. Parse the `recommendation`:")
 	fmt.Fprintln(&b, "   - **approve / approve_with_notes:** Proceed to documentation.")
 	fmt.Fprintln(&b, "   - **revise:** Check card's `review_attempts`.")
-	fmt.Fprintln(&b, "     If < 2: increment review_attempts, create fix subtasks, re-execute, re-review.")
-	fmt.Fprintln(&b, "     If >= 2: STOP and wait for human.")
+	fmt.Fprintln(&b, "     If < 3: increment review_attempts, create fix subtasks, re-execute, re-review.")
+	fmt.Fprintln(&b, "     If >= 3: STOP and wait for human.")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
 	return b.String()
