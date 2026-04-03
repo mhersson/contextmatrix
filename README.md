@@ -277,9 +277,10 @@ the `Agent` tool for execution, review, and documentation.
 
 Remote execution lets you trigger autonomous tasks from the web UI. A **"Run
 Now"** button appears on autonomous cards in `todo` state. Clicking it sends a
-signed webhook to the **contextmatrix-runner** (a separate binary), which spawns
-a disposable Docker container running Claude Code in headless mode. The
-container connects back to ContextMatrix via MCP tools.
+signed webhook to
+**[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** (a
+separate binary), which spawns a disposable Docker container running Claude Code
+in headless mode. The container connects back to ContextMatrix via MCP tools.
 
 ```
 Web UI  →  ContextMatrix  →  contextmatrix-runner  →  Docker container
@@ -306,6 +307,10 @@ remote_execution:
   enabled: true
   runner_image: "ghcr.io/org/custom-runner:latest"
 ```
+
+Triggering remote execution automatically enables `feature_branch` and
+`create_pr` on the card, so the container works on a dedicated branch and opens
+a pull request.
 
 Cards track execution state via `runner_status`: `queued` → `running` →
 `failed`/`killed`. The web UI shows status badges and pulsing indicators for
@@ -471,24 +476,24 @@ curl http://localhost:8080/healthz
 
 ### config.yaml
 
-| Field                 | Default                 | Description                                                            |
-| --------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `port`                | `8080`                  | HTTP server port                                                       |
-| `boards_dir`          | ---                     | Path to boards git repo (required)                                     |
-| `git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                      |
-| `git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached     |
-| `git_auto_push`       | `false`                 | Auto-push after each commit                                            |
-| `git_auto_pull`       | `false`                 | Pull from remote on startup and at `git_pull_interval`                 |
-| `git_pull_interval`   | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string) |
-| `heartbeat_timeout`   | `"30m"`                 | Duration before a claimed card becomes stalled                         |
-| `cors_origin`         | `http://localhost:5173` | Allowed CORS origin for the web UI                                     |
-| `skills_dir`          | `./skills`              | Path to skill file markdown directory                                  |
-| `token_costs`         | ---                     | Per-model token cost rates (see example below)                         |
-| `mcp_api_key`         | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)         |
-| `runner.enabled`      | `false`                 | Enable remote execution integration                                    |
-| `runner.url`          | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)    |
-| `runner.api_key`      | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)           |
-| `runner.public_url`   | `""`                    | Public URL of this instance, reachable from runner containers          |
+| Field                 | Default                 | Description                                                                                   |
+| --------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `port`                | `8080`                  | HTTP server port                                                                              |
+| `boards_dir`          | ---                     | Path to boards git repo (required)                                                            |
+| `git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                                             |
+| `git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
+| `git_auto_push`       | `false`                 | Auto-push after each commit                                                                   |
+| `git_auto_pull`       | `false`                 | Pull from remote on startup and at `git_pull_interval`                                        |
+| `git_pull_interval`   | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string)                        |
+| `heartbeat_timeout`   | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
+| `cors_origin`         | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
+| `skills_dir`          | `./skills`              | Path to skill file markdown directory                                                         |
+| `token_costs`         | ---                     | Per-model token cost rates (see example below)                                                |
+| `mcp_api_key`         | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
+| `runner.enabled`      | `false`                 | Enable remote execution integration                                                           |
+| `runner.url`          | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
+| `runner.api_key`      | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
+| `runner.public_url`   | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
 
 Token cost configuration:
 
@@ -522,7 +527,7 @@ All config fields can be overridden with environment variables:
 ## Development
 
 ```bash
-# Prerequisites: Go 1.26+, Node.js 18+, npm
+# Prerequisites: Go 1.26+, Node.js 18+, npm, golangci-lint
 
 # Run Go tests
 make test
@@ -536,6 +541,46 @@ cd web && npm install && npm run dev
 # Build binary with embedded frontend
 make build
 ```
+
+## Troubleshooting
+
+### Config file not found
+
+ContextMatrix looks for `config.yaml` in the current directory, then in the XDG
+config directory (`~/.config/contextmatrix/config.yaml`). Run
+`make install-config` to create the default config.
+
+### Boards directory errors
+
+The `boards_dir` path must point to an initialized git repository:
+
+```bash
+mkdir -p ~/boards/contextmatrix
+cd ~/boards/contextmatrix && git init
+```
+
+### MCP connection refused
+
+Verify the server is running and the URL in your MCP config matches the server
+port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "contextmatrix": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer your-mcp-api-key" }
+    }
+  }
+}
+```
+
+### Remote execution: containers can't reach ContextMatrix
+
+`runner.public_url` must be reachable from inside Docker containers —
+`localhost` won't work. Use `host.docker.internal` on Docker Desktop or the
+host's LAN IP on Linux.
 
 ## License
 
