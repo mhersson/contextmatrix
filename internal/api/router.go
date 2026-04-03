@@ -72,7 +72,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	ch := &cardHandlers{svc: cfg.Service}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
-	sh := &syncHandlers{syncer: cfg.Syncer}
+	sh := &syncHandlers{syncer: cfg.Syncer, apiKey: cfg.MCPAPIKey}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -305,6 +305,8 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, ErrCodeValidationError, "review attempts limit reached", err.Error())
 	case errors.Is(err, service.ErrProtectedBranch):
 		writeError(w, http.StatusForbidden, ErrCodeProtectedBranch, "pushing to main/master is never allowed", "")
+	case errors.Is(err, storage.ErrInvalidPath):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", err.Error())
 	case errors.Is(err, lock.ErrAlreadyClaimed):
 		writeError(w, http.StatusConflict, ErrCodeAlreadyClaimed, "card already claimed", err.Error())
 	case errors.Is(err, lock.ErrNotClaimed):

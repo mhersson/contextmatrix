@@ -156,6 +156,16 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 		}
 	}
 
+	// Validate transition targets exist in the state list (including built-in states).
+	allStates := append(slices.Clone(cfg.States), StateStalled, StateNotPlanned)
+	for fromState, targets := range cfg.Transitions {
+		for _, target := range targets {
+			if !slices.Contains(allStates, target) {
+				return fmt.Errorf("%w: transition from %q targets non-existent state %q", ErrInvalidProjectConfig, fromState, target)
+			}
+		}
+	}
+
 	return nil
 }
 

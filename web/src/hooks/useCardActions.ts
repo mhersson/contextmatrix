@@ -7,6 +7,8 @@ interface UseCardActionsParams {
   selectedCard: Card | null;
   cards: Card[];
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
+  suppressSSE: (cardId: string) => void;
+  unsuppressSSE: (cardId: string) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -15,6 +17,8 @@ export function useCardActions({
   selectedCard,
   cards,
   updateCardLocally,
+  suppressSSE,
+  unsuppressSSE,
   showToast,
 }: UseCardActionsParams) {
   const handleCardMove = useCallback(
@@ -22,6 +26,7 @@ export function useCardActions({
       const card = cards.find((c) => c.id === cardId);
       if (!card) return;
       const oldState = card.state;
+      suppressSSE(cardId);
       updateCardLocally(cardId, { state: newState });
       try {
         await api.patchCard(selectedProject, cardId, { state: newState });
@@ -29,9 +34,11 @@ export function useCardActions({
       } catch (err) {
         updateCardLocally(cardId, { state: oldState });
         showToast(isAPIError(err) ? err.error : 'Failed to move card', 'error');
+      } finally {
+        unsuppressSSE(cardId);
       }
     },
-    [cards, selectedProject, updateCardLocally, showToast]
+    [cards, selectedProject, updateCardLocally, suppressSSE, unsuppressSSE, showToast]
   );
 
   const handleCardSave = useCallback(
@@ -76,9 +83,14 @@ export function useCardActions({
 
   const handleCreateCard = useCallback(
     async (input: CreateCardInput) => {
-      const card = await api.createCard(selectedProject, input);
-      showToast(`Created ${card.id}`, 'success');
-      return card;
+      try {
+        const card = await api.createCard(selectedProject, input);
+        showToast(`Created ${card.id}`, 'success');
+        return card;
+      } catch (err) {
+        showToast(`Failed to create card: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+        throw err;
+      }
     },
     [selectedProject, showToast]
   );

@@ -43,7 +43,7 @@ export function ProjectShell() {
   }, [project]);
 
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
-  const { config, cards, loading, error, connected, updateCardLocally } = useBoard(project || '', undefined, handleSyncEvent);
+  const { config, cards, loading, error, connected, updateCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
@@ -53,6 +53,8 @@ export function ProjectShell() {
       selectedCard,
       cards,
       updateCardLocally,
+      suppressSSE,
+      unsuppressSSE,
       showToast,
     });
 

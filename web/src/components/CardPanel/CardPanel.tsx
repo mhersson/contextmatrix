@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import type { Card, ProjectConfig, PatchCardInput } from '../../types';
@@ -6,6 +6,7 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CardPanelProps {
   card: Card;
@@ -17,8 +18,8 @@ interface CardPanelProps {
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
   onPromptAgentId: () => string | null;
-  onRunCard: () => void;
-  onStopCard: () => void;
+  onRunCard: () => Promise<void>;
+  onStopCard: () => Promise<void>;
 }
 
 export function CardPanel({
@@ -35,8 +36,11 @@ export function CardPanel({
   onStopCard,
 }: CardPanelProps) {
   const { theme } = useTheme();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+
+  useFocusTrap(panelRef, true);
 
   useEffect(() => {
     setEditedCard(card);
@@ -114,7 +118,7 @@ export function CardPanel({
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
 
-      <div className="card-panel animate-panel-slide-in">
+      <div ref={panelRef} className="card-panel animate-panel-slide-in" role="dialog" aria-modal="true" aria-label="Card details">
         <CardPanelHeader
           card={card}
           editedCard={editedCard}

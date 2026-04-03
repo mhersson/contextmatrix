@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -312,6 +313,18 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Verify agent authorization: if the card is claimed, only the owning agent may transition it.
+		if input.AgentID != "" {
+			card, err := svc.GetCard(ctx, project, input.CardID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
+			}
+			if card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+				return nil, nil, fmt.Errorf("card %s is owned by agent %q, not %q", input.CardID, card.AssignedAgent, input.AgentID)
+			}
+		}
+
 		patchInput := service.PatchCardInput{
 			State: &input.NewState,
 		}
@@ -338,10 +351,22 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		}
 		// Auto-transition to in_progress only from todo — claiming a card
 		// in review/done/blocked should not change its state.
+		var transitionErr error
 		if card.State == board.StateTodo {
-			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress); err == nil {
+			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress); err != nil {
+				slog.Warn("claim_card: auto-transition to in_progress failed", "card_id", input.CardID, "error", err)
+				transitionErr = err
+				// Continue — claim succeeded, transition did not
+			} else {
 				card = transitioned
 			}
+		}
+		if transitionErr != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Card claimed successfully (note: auto-transition to in_progress failed: %v)", transitionErr)},
+				},
+			}, card, nil
 		}
 		return nil, card, nil
 	})
@@ -376,7 +401,11 @@ func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 		if err := svc.HeartbeatCard(ctx, project, input.CardID, input.AgentID); err != nil {
 			return nil, nil, fmt.Errorf("heartbeat card %s: %w", input.CardID, err)
 		}
-		return nil, nil, nil
+		card, err := svc.GetCard(ctx, project, input.CardID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get card after heartbeat: %w", err)
+		}
+		return nil, card, nil
 	})
 }
 
@@ -488,16 +517,27 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService, skillsDi
 
 		// Walk through intermediate transitions to reach target state
 		if _, err := svc.TransitionTo(ctx, project, input.CardID, targetState); err != nil {
-			return nil, completeTaskOutput{}, fmt.Errorf("transition to %s: %w", targetState, err)
+			return nil, completeTaskOutput{}, fmt.Errorf("transition to %s failed (log entry already written): %w", targetState, err)
 		}
 
-		// Release the claim
+		// Release the claim — if this fails, the transition already committed,
+		// so log the error and include a warning rather than failing the whole operation.
+		var releaseWarning string
 		card, err = svc.ReleaseCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
-			return nil, completeTaskOutput{}, fmt.Errorf("release card: %w", err)
+			slog.Warn("complete_task: release failed after transition", "card_id", input.CardID, "error", err)
+			releaseWarning = fmt.Sprintf("warning: release failed after transition: %v", err)
+			// Re-read card to return current state
+			card, err = svc.GetCard(ctx, project, input.CardID)
+			if err != nil {
+				return nil, completeTaskOutput{}, fmt.Errorf("get card after release failure: %w", err)
+			}
 		}
 
 		out := completeTaskOutput{Card: card}
+		if releaseWarning != "" {
+			out.NextStep = releaseWarning
+		}
 
 		// Determine which card (if any) has now reached review and needs the skill.
 		// For main tasks: the card itself just transitioned to review.

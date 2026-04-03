@@ -161,17 +161,22 @@ func main() {
 		Handler: handler,
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("starting server", "port", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
-			os.Exit(1)
+			errCh <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	select {
+	case <-quit:
+	case err := <-errCh:
+		slog.Error("server failed, initiating shutdown", "error", err)
+	}
 
 	slog.Info("shutting down server")
 

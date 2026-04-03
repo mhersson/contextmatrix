@@ -25,7 +25,7 @@ function AppInner() {
       toastState.showToast(`Project "${config.name}" created`, 'success');
       navigate(`/projects/${config.name}`);
     },
-    [navigate, toastState]
+    [navigate, toastState.showToast]
   );
 
   return (

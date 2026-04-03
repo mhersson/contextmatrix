@@ -11,6 +11,8 @@ interface UseBoardResult {
   connected: boolean;
   refresh: () => Promise<void>;
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
+  suppressSSE: (cardId: string) => void;
+  unsuppressSSE: (cardId: string) => void;
 }
 
 export function useBoard(
@@ -22,6 +24,7 @@ export function useBoard(
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     if (!project) {
@@ -70,6 +73,7 @@ export function useBoard(
       }
 
       if (event.project !== project) return;
+      if (inFlightRef.current.has(event.card_id)) return;
 
       switch (event.type) {
         case 'card.created':
@@ -119,6 +123,14 @@ export function useBoard(
     );
   }, []);
 
+  const suppressSSE = useCallback((cardId: string) => {
+    inFlightRef.current.add(cardId);
+  }, []);
+
+  const unsuppressSSE = useCallback((cardId: string) => {
+    inFlightRef.current.delete(cardId);
+  }, []);
+
   return {
     config,
     cards,
@@ -127,5 +139,7 @@ export function useBoard(
     connected,
     refresh: fetchData,
     updateCardLocally,
+    suppressSSE,
+    unsuppressSSE,
   };
 }

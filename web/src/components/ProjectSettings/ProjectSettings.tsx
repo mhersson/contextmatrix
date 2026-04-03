@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { ProjectConfig, UpdateProjectInput } from '../../types';
 
@@ -47,7 +47,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       .finally(() => setLoading(false));
   }, [project]);
 
-  const isDirty = useCallback(() => {
+  const isDirty = useMemo(() => {
     if (!config) return false;
     return (
       repo !== (config.repo || '') ||
@@ -59,7 +59,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   }, [config, repo, states, types, priorities, transitions]);
 
   const handleSave = useCallback(async () => {
-    if (!isDirty() || isSaving) return;
+    if (!isDirty || isSaving) return;
     setIsSaving(true);
     try {
       const input: UpdateProjectInput = {
@@ -154,9 +154,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         </h2>
         <button
           onClick={handleSave}
-          disabled={!isDirty() || isSaving}
+          disabled={!isDirty || isSaving}
           className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-            isDirty()
+            isDirty
               ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
               : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
           }`}

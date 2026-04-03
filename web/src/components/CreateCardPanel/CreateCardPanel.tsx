@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Card, ProjectConfig, CreateCardInput } from '../../types';
 import { CreateCardForm } from './CreateCardForm';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CreateCardPanelProps {
   config: ProjectConfig;
@@ -10,6 +11,7 @@ interface CreateCardPanelProps {
 }
 
 export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCardPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const [title, setTitle] = useState('');
   const [type, setType] = useState(config.types[0] || '');
   const [priority, setPriority] = useState(config.priorities[1] || config.priorities[0] || '');
@@ -18,6 +20,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [body, setBody] = useState('');
   const [bodyDirty, setBodyDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useFocusTrap(panelRef, true);
+
   const [autonomous, setAutonomous] = useState(false);
   const [featureBranch, setFeatureBranch] = useState(false);
   const [createPR, setCreatePR] = useState(false);
@@ -26,7 +31,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   useEffect(() => {
     const template = config.templates?.[config.types[0]];
     if (template) setBody(template);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config.templates, config.types]);
 
   // Escape key handler
   useEffect(() => {
@@ -65,7 +70,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
       {/* Panel */}
-      <div className="card-panel animate-panel-slide-in">
+      <div ref={panelRef} className="card-panel animate-panel-slide-in" role="dialog" aria-modal="true" aria-label="Create card">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--bg3)]">
           <div className="flex items-center gap-3">

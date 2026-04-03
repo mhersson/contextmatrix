@@ -11,8 +11,8 @@ interface CardPanelAgentProps {
   onRelease: () => void;
   canRun: boolean;
   canStop: boolean;
-  onRun: () => void;
-  onStop: () => void;
+  onRun: () => Promise<void>;
+  onStop: () => Promise<void>;
 }
 
 export function CardPanelAgent({

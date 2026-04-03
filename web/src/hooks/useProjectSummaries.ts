@@ -10,6 +10,7 @@ export function useProjectSummaries(projectNames: string[]) {
   const [loading, setLoading] = useState(true);
   const projectNamesRef = useRef(projectNames);
   projectNamesRef.current = projectNames;
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const fetchAll = useCallback(async () => {
     const names = projectNamesRef.current;
@@ -40,13 +41,17 @@ export function useProjectSummaries(projectNames: string[]) {
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [fetchAll, projectKey]);
 
   const handleEvent = useCallback(
     (event: BoardEvent) => {
       if (event.type.startsWith('card.')) {
-        fetchAll();
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => fetchAll(), 500);
       }
     },
     [fetchAll]

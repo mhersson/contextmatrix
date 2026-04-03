@@ -22,8 +22,7 @@ own repos, and report progress back through the board.
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
 - **MCP-first interface** — 24 MCP tools and 7 slash commands give Claude Code
-  agents structured access to the board. Agents never call the REST API
-  directly.
+  agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-review-document lifecycle without human gates. The `simple` label
   triggers a fast path that skips planning and review entirely.

@@ -323,10 +323,9 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
 		if err := s.git.CommitAll(msg); err != nil {
-			slog.Warn("git commit after project create", "error", err)
-		} else {
-			s.notifyCommit()
+			return nil, fmt.Errorf("git commit: %w", err)
 		}
+		s.notifyCommit()
 	}
 
 	// Update cache
@@ -598,6 +597,10 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", cardID, "created")
 		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
+			// Rollback: remove the orphaned card file
+			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
+				slog.Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
+			}
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 		s.notifyCommit()
@@ -995,12 +998,10 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	if s.gitAutoCommit {
 		path := s.cardPath(project, id)
 		msg := commitMessage("", id, "deleted")
-		if err := s.git.CommitAll(msg); err != nil {
-			// File already deleted by store, just commit the change
-			slog.Warn("git commit after delete", "error", err, "path", path)
-		} else {
-			s.notifyCommit()
+		if err := s.git.CommitFile(path, msg); err != nil {
+			return fmt.Errorf("git commit delete: %w", err)
 		}
+		s.notifyCommit()
 	}
 
 	// Publish event
@@ -1025,6 +1026,11 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return fmt.Errorf("get card: %w", err)
+	}
+
+	// Verify agent ownership.
+	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+		return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
 	// Set timestamp if not provided
@@ -1077,6 +1083,11 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Verify agent ownership.
+	if card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
 	if card.TokenUsage == nil {
@@ -1502,7 +1513,21 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	card := sc.Card
+	// Re-read card from store to avoid stale data (TOCTOU).
+	card, err := s.store.GetCard(ctx, sc.Project, sc.Card.ID)
+	if err != nil {
+		// Card was deleted between FindStalled and now — skip silently.
+		return nil
+	}
+
+	// Re-check if still stalled: agent may have sent a heartbeat in the meantime.
+	if card.AssignedAgent == "" {
+		return nil
+	}
+	if card.LastHeartbeat != nil && time.Since(*card.LastHeartbeat) < s.lock.Timeout() {
+		return nil
+	}
+
 	previousAgent := card.AssignedAgent
 
 	// Update card state
@@ -2138,6 +2163,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 
 // UpdateRunnerStatus sets the runner_status field on a card.
 func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
+	cardID = strings.ToUpper(cardID)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 

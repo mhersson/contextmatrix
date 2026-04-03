@@ -336,22 +336,22 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 }
 
 // GetCard returns a specific card.
+// RLock is held for the entire operation (index lookup + file read) to prevent
+// TOCTOU races where files are deleted between the index lookup and the read.
 func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board.Card, error) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	idx, ok := s.projects[project]
 	if !ok {
-		s.mu.RUnlock()
 		return nil, ErrProjectNotFound
 	}
 	cardIdx, ok := idx.cards[id]
 	if !ok {
-		s.mu.RUnlock()
 		return nil, ErrCardNotFound
 	}
-	filePath := cardIdx.FilePath
-	s.mu.RUnlock()
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(cardIdx.FilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrCardNotFound
