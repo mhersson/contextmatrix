@@ -824,11 +824,10 @@ type getSkillInput struct {
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 type getSkillOutput struct {
-	SkillName   string `json:"skill_name"`
-	Model       string `json:"model,omitempty"`
-	Phase2Model string `json:"phase2_model,omitempty"`
-	Content     string `json:"content"`
-	Inline      bool   `json:"inline,omitempty"`
+	SkillName string `json:"skill_name"`
+	Model     string `json:"model,omitempty"`
+	Content   string `json:"content"`
+	Inline    bool   `json:"inline,omitempty"`
 }
 
 func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
@@ -865,11 +864,10 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 		}
 
 		return nil, getSkillOutput{
-			SkillName:   input.SkillName,
-			Model:       result.Model,
-			Phase2Model: result.Phase2Model,
-			Content:     content,
-			Inline:      canInline,
+			SkillName: input.SkillName,
+			Model:     result.Model,
+			Content:   content,
+			Inline:    canInline,
 		}, nil
 	})
 }

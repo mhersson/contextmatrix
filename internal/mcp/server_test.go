@@ -83,20 +83,14 @@ func setupMCP(t *testing.T) *testEnv {
 	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
 	skillModels := map[string]string{
 		"create-task.md":   "claude-sonnet-4-6",
-		"create-plan.md":   "claude-opus-4-6",
+		"create-plan.md":   "claude-sonnet-4-6",
 		"execute-task.md":  "claude-sonnet-4-6",
 		"review-task.md":   "claude-opus-4-6",
 		"document-task.md": "claude-sonnet-4-6",
 		"init-project.md":  "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
-		var content string
-		if name == "create-plan.md" {
-			// create-plan has a Phase 2 Model in its Agent Configuration.
-			content = fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation.\n\n---\n\nSkill instructions here.", name, model)
-		} else {
-			content = fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
-		}
+		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
 		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte(content), 0o644))
 	}
 
@@ -1291,68 +1285,54 @@ func TestPrompt_CreatePlan(t *testing.T) {
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
 
-	// Must use the two-phase delegation prompt, not the generic one.
-	assert.Contains(t, content.Text, "Two-Phase Planning Workflow")
-	assert.Contains(t, content.Text, "Phase 1")
-	assert.Contains(t, content.Text, "Phase 2")
+	// Must use the planning delegation prompt with inline subtask creation.
+	assert.Contains(t, content.Text, "Planning Workflow")
+	assert.Contains(t, content.Text, "Plan Drafting")
 	assert.Contains(t, content.Text, "PLAN_DRAFTED")
-	assert.Contains(t, content.Text, "SUBTASKS_CREATED")
 	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "`Agent` tool")
 	assert.Contains(t, content.Text, "skill_name='create-plan'")
 	assert.Contains(t, content.Text, "TEST-001")
 	assert.NotContains(t, content.Text, "## Agent Configuration")
 	// User approval must be handled by the orchestrator, not a sub-agent.
 	assert.Contains(t, content.Text, "User Approval")
 	assert.Contains(t, content.Text, "YOU handle this directly")
-	// Inline routing instructions for Phase 1.
-	assert.Contains(t, content.Text, "Model-Aware Routing")
-	assert.Contains(t, content.Text, "caller_model")
+	// Subtask creation is inline — orchestrator creates cards directly.
+	assert.Contains(t, content.Text, "Subtask Creation")
+	assert.Contains(t, content.Text, "create_card")
+	// No Phase 2 sub-agent delegation.
+	assert.NotContains(t, content.Text, "phase-2")
+	assert.NotContains(t, content.Text, "haiku")
 }
 
-// TestBuildCreatePlanDelegationPrompt tests the structured output expected
-// by the two-phase create-plan delegation prompt.
+// TestBuildCreatePlanDelegationPrompt tests the delegation prompt for the
+// plan-then-approve workflow with inline subtask creation.
 func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 	cardID := "ALPHA-001"
-	model := "opus"
-	phase2Model := "haiku"
 	getSkillArgs := "skill_name='create-plan', card_id='ALPHA-001'"
 
-	text := buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+	text := buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
 
-	// Phase 1: plan drafting with inline routing option.
-	assert.Contains(t, text, "Phase 1: Plan Drafting")
-	assert.Contains(t, text, "create-plan phase-1 ALPHA-001")
+	// Plan drafting — always inline.
+	assert.Contains(t, text, "Plan Drafting")
 	assert.Contains(t, text, "PLAN_DRAFTED")
-	assert.Contains(t, text, "plan_summary")
-	assert.Contains(t, text, "subtask_count")
-	assert.Contains(t, text, `"`+model+`"`)
-
-	// Phase 1 inline routing instructions.
-	assert.Contains(t, text, "Model-Aware Routing")
-	assert.Contains(t, text, "caller_model")
-	assert.Contains(t, text, "`inline: true`")
+	assert.Contains(t, text, "inline")
 
 	// User approval must NOT be delegated to a sub-agent.
 	assert.Contains(t, text, "User Approval")
 	assert.Contains(t, text, "YOU handle this directly")
 	assert.Contains(t, text, "no sub-agent")
 
-	// Phase 1 revision loop: orchestrator must re-run Phase 1 on user changes.
+	// Revision loop: orchestrator must re-run planning on user changes.
 	assert.Contains(t, text, "user requests changes")
 
-	// Inline plan presentation shortcut.
-	assert.Contains(t, text, "drafted the plan inline, present it directly")
+	// Subtask creation — inline (orchestrator creates cards directly).
+	assert.Contains(t, text, "Subtask Creation")
+	assert.Contains(t, text, "inline")
+	assert.Contains(t, text, "create_card")
 
-	// Phase 2: subtask creation — always delegated.
-	assert.Contains(t, text, "Phase 2: Subtask Creation (always delegated)")
-	assert.Contains(t, text, "create-plan phase-2 ALPHA-001")
-	assert.Contains(t, text, "SUBTASKS_CREATED")
-	assert.Contains(t, text, "subtasks:")
-	assert.Contains(t, text, `"`+phase2Model+`"`)
-
-	// Phase 1 and Phase 2 models must be distinct.
-	assert.NotEqual(t, model, phase2Model)
+	// No Phase 2 sub-agent spawning.
+	assert.NotContains(t, text, "phase-2")
+	assert.NotContains(t, text, "haiku")
 
 	// get_skill args must appear.
 	assert.Contains(t, text, getSkillArgs)
@@ -1900,7 +1880,7 @@ func TestGetSkill_CreatePlan(t *testing.T) {
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "create-plan", out.SkillName)
-	assert.Equal(t, "opus", out.Model)
+	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, card.ID)
 	assert.Contains(t, out.Content, "Auth middleware")
 	assert.Contains(t, out.Content, "Skill instructions here.")
@@ -2058,44 +2038,6 @@ func TestParseSkillModel(t *testing.T) {
 	}
 }
 
-func TestParsePhase2Model(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{
-			name:    "haiku phase2 model",
-			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation.\n\n---\n\nInstructions.",
-			want:    "haiku",
-		},
-		{
-			name:    "sonnet phase2 model",
-			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n- **Phase 2 Model:** claude-sonnet-4-6 — Fast.\n\n---\n\nInstructions.",
-			want:    "sonnet",
-		},
-		{
-			name:    "no phase2 model line",
-			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n\n---\n\nInstructions.",
-			want:    "",
-		},
-		{
-			name:    "no config section",
-			content: "# Skill\n\nJust instructions.",
-			want:    "",
-		},
-		{
-			name:    "empty content",
-			content: "",
-			want:    "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, parsePhase2Model(tt.content))
-		})
-	}
-}
 
 func TestStripAgentConfig(t *testing.T) {
 	input := "# Skill\n\n## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Test.\n\n---\n\nInstructions here."
@@ -2363,7 +2305,7 @@ func TestGetSkill_InlineNotEligibleSkill(t *testing.T) {
 }
 
 // TestGetSkill_CreatePlanInline verifies that create-plan returns inline=true
-// when caller_model matches opus.
+// when caller_model matches sonnet (the skill's model).
 func TestGetSkill_CreatePlanInline(t *testing.T) {
 	env := setupMCP(t)
 	card := createTestCard(t, env, "Plan inline test", "feature", "high")
@@ -2371,15 +2313,14 @@ func TestGetSkill_CreatePlanInline(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "create-plan",
 		"card_id":      card.ID,
-		"caller_model": "opus", // create-plan requires opus — match
+		"caller_model": "sonnet", // create-plan uses sonnet — match
 	})
 	require.False(t, result.IsError)
 
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
-	assert.True(t, out.Inline, "inline should be true for create-plan with opus caller")
-	assert.Equal(t, "opus", out.Model)
-	assert.Equal(t, "haiku", out.Phase2Model)
+	assert.True(t, out.Inline, "inline should be true for create-plan with sonnet caller")
+	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, "INLINE EXECUTION")
 }
 

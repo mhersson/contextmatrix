@@ -5,17 +5,27 @@ through ContextMatrix in Phase 2.
 
 ## Orchestration model
 
-**Claude Code (CC) is the main agent.** There is no separate Go daemon
-orchestrator for the primary workflow. The `Agent` tool built into CC handles
-sub-agent spawning with clean contexts. P2.9 (Go orchestrator) is deferred — it
-becomes a future headless/cron mode, not a Phase 2 core requirement.
+**Claude Code (CC) is the main agent.** The `Agent` tool built into CC handles
+sub-agent spawning with clean contexts. Two orchestration modes exist:
 
-```
-Human ↔ CC (main agent)
-           ├── Agent → sub-agent (execute-task)
-           ├── Agent → sub-agent (execute-task)
-           ├── Agent → sub-agent (execute-task)
-           └── Agent → review agent (review-task)
+1. **Interactive (HITL / local autonomous):** CC runs directly, user triggers
+   workflows via slash commands or the `run-autonomous` skill.
+2. **Remote runner:** `contextmatrix-runner` (a separate Go binary) receives
+   HMAC-signed webhooks from ContextMatrix and spawns disposable Docker
+   containers running CC with the `run-autonomous` skill. See
+   `docs/remote-execution.md` for the runner architecture.
+
+```text
+Human ↔ CC (main agent, Opus)
+           ├── Agent → sub-agent (execute-task, Sonnet)
+           ├── Agent → sub-agent (execute-task, Sonnet)
+           ├── Agent → sub-agent (execute-task, Sonnet)
+           └── Agent → review agent (review-task, Opus inline)
+
+Runner container → CC (orchestrator, Sonnet)
+           ├── Agent → sub-agent (execute-task, Sonnet)
+           ├── Agent → sub-agent (execute-task, Sonnet)
+           └── Agent → sub-agent (review-task, Opus)
 ```
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
@@ -47,22 +57,10 @@ that specifies the model; this section is stripped from all content delivered to
 agents (via `get_skill` and `complete_task`) since the model is communicated as
 a separate `model` field.
 
-Skills that use a two-phase sub-agent flow (currently only `create-plan`) can
-specify a separate model for each phase in `## Agent Configuration`:
-
-```markdown
-## Agent Configuration
-
-- **Model:** claude-opus-4-6 — Planning shapes everything downstream; worth the
-  cost.
-- **Phase 2 Model:** claude-haiku-4-5 — Subtask creation is mechanical; haiku is
-  sufficient.
-```
-
-`get_skill` returns both models as separate fields: `model` (Phase 1) and
-`phase2_model` (Phase 2, omitted when not present). Orchestrators must use
-`phase2_model` when spawning the Phase 2 sub-agent so the correct (cheaper)
-model is used for mechanical work like subtask creation.
+Each skill specifies its model in `## Agent Configuration`. The `get_skill` tool
+returns the model alongside the skill content. The orchestrator decides whether
+to run inline or spawn a sub-agent based on the phase (see the **Model
+Allocation** section below for the full decision model).
 
 **Why delegation wrappers exist:** An earlier design returned the full skill
 content directly to the orchestrator agent. In practice, agents ignored model
@@ -135,11 +133,9 @@ Usage examples:
 For delegation-wrapper skills (`create-plan`, `execute-task`, `review-task`,
 `document-task`), the server builds a delegation prompt instructing the
 receiving agent to call `get_skill(...)` — which returns the full skill
-instructions with injected card context, a `model` field, and optionally a
-`phase2_model` field — then spawn a sub-agent via the `Agent` tool with the
-returned `model`, `description` (short summary), and `prompt` (set to the
-returned content). When `phase2_model` is present, use it for the Phase 2
-sub-agent (e.g., subtask creation in `create-plan`). For inline skills
+instructions with injected card context and a `model` field — then spawn a
+sub-agent via the `Agent` tool with the returned `model`, `description` (short
+summary), and `prompt` (set to the returned content). For inline skills
 (`create-task`, `init-project`), the server returns raw skill content directly;
 no sub-agent is involved.
 
@@ -155,31 +151,21 @@ back-and-forth with the user, which only works in the main agent's context.
 
 **2. Planning** (`/contextmatrix:create-plan <card_id>`)
 
-The slash command returns a **two-phase delegation prompt** instead of the
-generic delegation wrapper used by other skills. This two-phase design prevents
-sub-agent death during the user-approval wait — a sub-agent that waits for human
-input can be killed by Claude Code before the user responds, leaving the
-workflow stranded.
+The slash command returns a delegation prompt that instructs the orchestrator to
+run planning inline and create subtasks directly.
 
 The flow is:
 
-1. **Phase 1 — Plan drafting** (model: `claude-opus-4-6`): CC spawns a
-   short-lived plan sub-agent that drafts the plan, writes it to the parent card
-   body via `update_card`, and returns a `PLAN_DRAFTED` structured output
-   immediately — without asking the user or waiting for approval. Opus is used
-   here because planning quality affects all downstream work.
-2. **User approval (CC handles directly)**: CC reads the card body, presents the
-   `## Plan` section to the user, and asks for approval. CC is always alive for
-   this — no sub-agent needed.
-3. **Phase 2 — Subtask creation** (model: `claude-haiku-4-5`): Once the user
-   approves, CC spawns a second short-lived sub-agent that reads the approved
-   plan from the card body and creates all subtasks linked via the `parent`
-   field. Haiku is used here because subtask creation is mechanical — reading a
-   plan and calling `create_card` in a loop requires no reasoning depth.
-
-Each phase uses a fresh sub-agent with a clean context and a short expected
-lifetime. Neither phase waits for the user, so neither is vulnerable to
-sub-agent timeout during an idle approval wait.
+1. **Plan drafting (inline)**: The orchestrator runs the create-plan skill
+   inline — no sub-agent. It drafts the plan, writes it to the parent card body
+   via `update_card`, and produces `PLAN_DRAFTED` structured output. Running
+   inline retains the plan context for subtask creation.
+2. **User approval (orchestrator handles directly)**: The orchestrator presents
+   the `## Plan` section to the user and asks for approval. No sub-agent needed.
+3. **Subtask creation (inline)**: Once the user approves, the orchestrator
+   creates all subtasks directly by calling `create_card` for each subtask in
+   the plan. No sub-agent is spawned — this is trivial work that doesn't justify
+   the overhead of a separate agent.
 
 **3. Execution** (`/contextmatrix:execute-task <card_id>`)
 
@@ -251,17 +237,19 @@ and transitions the parent card to `done`.
 
 Cards with `autonomous: true` bypass human approval gates. The
 `/contextmatrix:run-autonomous` slash command drives the entire lifecycle for a
-single card using the `run-autonomous.md` skill, running on `claude-opus-4-6`.
+single card using the `run-autonomous.md` skill. The orchestrator model is set
+by the invoker — Opus for local autonomous (user's session), Sonnet for the
+remote runner (via container config).
 
 **Lifecycle phases:**
 
 ```
-Phase 1: Plan Drafting   → calls create-plan (Phase 1 only)
-Phase 2: Subtask Creation → calls create-plan (Phase 2 only)
-Phase 3: Execution        → spawns execute-task sub-agents in parallel
-Phase 4: Review           → calls review-task inline or as sub-agent
-Phase 5: Documentation    → calls document-task sub-agent
-Phase 6: Finalization     → transitions parent to done
+Phase 1: Plan Drafting      → inline, calls create-plan skill
+Phase 2: Subtask Creation   → inline, orchestrator calls create_card directly
+Phase 3: Execution          → spawns execute-task sub-agents in parallel
+Phase 4: Review             → follows inline field (inline on Opus, sub-agent on Sonnet)
+Phase 5: Documentation      → spawns document-task sub-agent
+Phase 6: Finalization       → transitions parent to done
 ```
 
 The orchestrator determines the starting phase from the card's current state and
@@ -391,12 +379,12 @@ that has sub-agent-facing idle waits (`execute-task.md`). The main agent (CC)
 never holds a card claim during user-facing waits — it handles those directly
 between turns, making stalls in the main context impossible.
 
-The two-phase design (used by `create-plan` and `review-task`) eliminates the
-most common idle-wait failure mode entirely: sub-agents write their output to
-the card body and return immediately; the always-alive orchestrator handles all
-user interactions. The `document-task` skill uses the same principle — the doc
-sub-agent writes to disk and returns `DOCS_WRITTEN` without waiting for
-approval. No sub-agent in the current workflow idles for user input.
+The fire-and-report design (used by `review-task` and `document-task`)
+eliminates the most common idle-wait failure mode: sub-agents write their
+output to the card body and return immediately; the always-alive orchestrator
+handles all user interactions. `create-plan` avoids the problem entirely by
+running inline on the orchestrator — no sub-agent is spawned. No sub-agent in
+the current workflow idles for user input.
 
 ## Token cost configuration
 
@@ -411,10 +399,64 @@ token_costs:
   claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
 ```
 
-The `report_usage` call must pass `model` matching one of these keys. Costs for
-the two planning phases differ deliberately: Phase 1 (plan drafting) runs on
-`claude-opus-4-6` and Phase 2 (subtask creation) runs on `claude-haiku-4-5`,
-reducing the cost of the mechanical subtask-creation pass significantly.
+The `report_usage` call must pass `model` matching one of these keys. The model
+used depends on the orchestrator and phase — see the **Model Allocation**
+section below for the full breakdown.
+
+## Model Allocation
+
+The system uses two models: **Opus** (strongest reasoning) and **Sonnet**
+(cost-effective workhorse). Haiku is not used in any workflow. The orchestrator
+decides whether each phase runs inline or as a sub-agent — the `inline` field
+from `get_skill` uses exact model match, but the orchestrator overrides it for
+phases where the decision is driven by context management rather than model
+compatibility.
+
+### HITL + Local Autonomous (Opus orchestrator)
+
+| Phase            | Model  | Method                                               | Why                                                                                                             |
+| ---------------- | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Orchestrator     | Opus   | User's session (HITL) or run-autonomous (local auto) | Strongest reasoning for planning, review, and coordination                                                      |
+| Planning         | Opus   | Inline on orchestrator                               | Orchestrator already is Opus — no spawn needed, retains plan context for subtask creation                       |
+| Subtask creation | Opus   | Inline — calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
+| Execution        | Sonnet | Sub-agent per subtask                                | Context isolation (fresh ~50K vs accumulated 150K+) and parallel execution; Sonnet is 1.67x cheaper at scale    |
+| Review           | Opus   | Inline (get_skill inline=true, Opus==Opus)           | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
+| Documentation    | Sonnet | Sub-agent                                            | Context isolation — orchestrator has 150K+ accumulated context by this phase; fresh sub-agent starts at ~25K    |
+
+### Remote Runner (Sonnet orchestrator)
+
+| Phase            | Model  | Method                                                         | Why                                                                                |
+| ---------------- | ------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Orchestrator     | Sonnet | Runner container sets model via `--model` / env var            | Cost control — Opus premium not justified for well-defined protocol                |
+| Planning         | Sonnet | Inline on orchestrator                                         | Sonnet 4.6 plans well; inline avoids spawn overhead and retains plan context       |
+| Subtask creation | Sonnet | Inline — calls `create_card()` directly                        | Same as HITL — trivial work, no sub-agent needed                                   |
+| Execution        | Sonnet | Sub-agent per subtask                                          | Context isolation + parallel execution; same rationale as HITL                     |
+| Review           | Opus   | Sub-agent (get_skill inline=false, Sonnet!=Opus → spawns Opus) | Only phase where Opus premium pays off — catches issues before costly rework loops |
+| Documentation    | Sonnet | Sub-agent                                                      | Context isolation — runner has no human to intervene if context grows too large    |
+
+### Inline/sub-agent decision model
+
+The `inline` field from `get_skill` uses **exact model match** — it returns
+`true` when the caller's model family matches the skill's model family:
+
+- **Planning, subtask creation:** Always inline — orchestrator instructions
+  override the inline field. The orchestrator retains context for downstream
+  phases.
+- **Execution, documentation:** Always sub-agent — orchestrator instructions
+  specify this for context isolation and parallel execution. The inline field is
+  not consulted.
+- **Review:** Follow the `get_skill` inline field — this is the one phase where
+  model compatibility matters. Opus caller gets `inline: true` (Opus==Opus) and
+  runs review directly. Sonnet caller gets `inline: false` (Sonnet!=Opus) and
+  spawns an Opus sub-agent.
+
+### Why `run-autonomous.md` has no model
+
+The orchestrator model is an operational concern, not a skill concern. Local
+autonomous uses whatever model the user runs (typically Opus). The remote runner
+sets Sonnet via container configuration (`--model` flag or environment
+variable). This separation allows the same skill file to work for both workflows
+without code duplication or model override logic.
 
 ## Required permissions for target projects
 

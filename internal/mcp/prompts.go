@@ -54,16 +54,13 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
 
 // skillResult holds the assembled skill content and parsed metadata.
 type skillResult struct {
-	Content     string
-	Model       string
-	Phase2Model string
+	Content string
+	Model   string
 }
 
 // modelPattern matches "**Model:** claude-<family>-<version>" in skill files.
 var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+claude-(\w+)-`)
 
-// phase2ModelPattern matches "**Phase 2 Model:** claude-<family>-<version>" in skill files.
-var phase2ModelPattern = regexp.MustCompile(`\*\*Phase 2 Model:\*\*\s+claude-(\w+)-`)
 
 // agentConfigPattern matches the full "## Agent Configuration" section
 // (from the heading through the "---" separator) so it can be stripped
@@ -80,16 +77,6 @@ func parseSkillModel(content string) string {
 	return m[1]
 }
 
-// parsePhase2Model extracts the short model name for Phase 2 from a skill
-// file's "## Agent Configuration" section (e.g. from "**Phase 2 Model:** claude-haiku-4-5").
-// Returns an empty string if no Phase 2 Model line is present.
-func parsePhase2Model(content string) string {
-	m := phase2ModelPattern.FindStringSubmatch(content)
-	if len(m) < 2 {
-		return ""
-	}
-	return m[1]
-}
 
 // stripAgentConfig removes the "## Agent Configuration" section from a skill
 // file. This section is metadata for the orchestrator, not instructions for
@@ -195,95 +182,59 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 //
 // This eliminates the idle-wait that kills sub-agents when they wait for user
 // input between drafting and subtask creation.
-func buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs string) string {
+func buildCreatePlanDelegationPrompt(cardID, getSkillArgs string) string {
 	var b strings.Builder
-	fmt.Fprintln(&b, "## Two-Phase Planning Workflow")
+	fmt.Fprintln(&b, "## Planning Workflow")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Planning for card **%s** uses a two-phase flow to avoid agent timeouts.\n", cardID)
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 1 Model-Aware Routing")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "When calling `get_skill` for Phase 1 below, include your model family as `caller_model`.\n")
-	fmt.Fprintln(&b, "Check your system context for \"You are powered by the model named...\" and")
-	fmt.Fprintln(&b, "extract the family: **opus**, **sonnet**, or **haiku**.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "If the `get_skill` response has `inline: true`:")
-	fmt.Fprintln(&b, "  → Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
-	fmt.Fprintln(&b, "  → Execute directly (the content includes lifecycle instructions).")
-	fmt.Fprintln(&b, "  → When you reach `PLAN_DRAFTED` output, proceed to **User Approval** below.")
-	fmt.Fprintln(&b, "    Since you drafted the plan inline, present it directly — no need to call `get_card`.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "If `inline` is false or absent:")
-	fmt.Fprintln(&b, "  → Spawn a Phase 1 sub-agent as described in the delegation steps below.")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Phase 2 always delegates because it requires the **%s** model.\n", phase2Model)
+	fmt.Fprintf(&b, "Planning for card **%s** uses a plan-then-approve flow.\n", cardID)
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 1: Plan Drafting")
+	fmt.Fprintln(&b, "### Plan Drafting — Always Inline")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the full skill prompt and the required model.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. If `inline` is true, append the Phase 1 instruction, execute the content directly, and skip to **User Approval**.")
-	fmt.Fprintln(&b, "3. Otherwise, append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the skill content.")
-	fmt.Fprintln(&b, "4. Spawn a sub-agent using the **`Agent`** tool with:")
-	fmt.Fprintf(&b, "   - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", model)
-	fmt.Fprintf(&b, "   - `description`: `\"create-plan phase-1 %s\"`\n", cardID)
-	fmt.Fprintln(&b, "   - `prompt`: the skill content with the Phase 1 instruction appended")
-	fmt.Fprintln(&b, "5. Wait for the Phase 1 sub-agent to complete.")
-	fmt.Fprintln(&b, "6. Parse its structured output. It will be in this format:")
-	fmt.Fprintln(&b, "   ```")
-	fmt.Fprintln(&b, "   PLAN_DRAFTED")
-	fmt.Fprintf(&b, "   card_id: %s\n", cardID)
-	fmt.Fprintln(&b, "   status: drafted")
-	fmt.Fprintln(&b, "   plan_summary: <summary of the plan>")
-	fmt.Fprintln(&b, "   subtask_count: <number>")
-	fmt.Fprintln(&b, "   ```")
+	fmt.Fprintf(&b, "Run plan drafting **inline** — do not spawn a sub-agent for planning.\n")
+	fmt.Fprintln(&b, "The orchestrator retains the plan context for subtask creation.")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the skill prompt.\n", getSkillArgs)
+	fmt.Fprintln(&b, "2. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
+	fmt.Fprintln(&b, "3. Execute the skill content directly (inline). Follow its instructions to draft the plan.")
+	fmt.Fprintln(&b, "4. When you produce the `PLAN_DRAFTED` output, proceed to **User Approval** below.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "### User Approval (YOU handle this directly — no sub-agent)")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "7. If you drafted the plan inline, present it directly from what you just wrote.")
-	fmt.Fprintln(&b, "   If you delegated Phase 1, call `get_card` to read the `## Plan` section from the card body.")
-	fmt.Fprintln(&b, "8. Present the plan to the user directly:")
+	fmt.Fprintln(&b, "5. Present the plan directly from what you just drafted:")
 	fmt.Fprintln(&b, "   > Here is the proposed plan for [card title]:")
 	fmt.Fprintln(&b, "   > [paste the ## Plan section from the card body]")
 	fmt.Fprintln(&b, "   > Does this look good, or would you like adjustments?")
-	fmt.Fprintln(&b, "9. If the user requests changes: call `get_skill` again (with `caller_model`), append the feedback and")
+	fmt.Fprintln(&b, "6. If the user requests changes: call `get_skill` again, append the feedback and")
 	fmt.Fprintln(&b, "   `\\n\\nYou are executing **Phase 1: Plan Drafting** only. The user requested these changes: <feedback>` to the prompt,")
-	fmt.Fprintln(&b, "   and either execute inline (if `inline: true`) or spawn a new Phase 1 sub-agent. Repeat until the user approves.")
-	fmt.Fprintln(&b, "10. Once the user approves, proceed to Phase 2.")
+	fmt.Fprintln(&b, "   and execute inline again. Repeat until the user approves.")
+	fmt.Fprintln(&b, "7. Once the user approves, proceed to Subtask Creation.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 2: Subtask Creation (always delegated)")
+	fmt.Fprintln(&b, "### Subtask Creation (inline — you do this directly)")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "11. Call `get_skill(%s)` again to get a fresh copy of the skill prompt.\n", getSkillArgs)
-	fmt.Fprintln(&b, "12. Append `\\n\\nYou are executing **Phase 2: Subtask Creation** only. The plan is already written in the card body — read it with get_task_context and create the subtasks exactly as described.` to the skill content.")
-	fmt.Fprintln(&b, "13. Spawn a sub-agent using the **`Agent`** tool with:")
-	fmt.Fprintf(&b, "    - `model`: `\"%s\"` — **CRITICAL**, do not omit\n", phase2Model)
-	fmt.Fprintf(&b, "    - `description`: `\"create-plan phase-2 %s\"`\n", cardID)
-	fmt.Fprintln(&b, "    - `prompt`: the skill content with the Phase 2 instruction appended")
-	fmt.Fprintln(&b, "14. Wait for the Phase 2 sub-agent to complete.")
-	fmt.Fprintln(&b, "15. Parse its structured output:")
-	fmt.Fprintln(&b, "    ```")
-	fmt.Fprintln(&b, "    SUBTASKS_CREATED")
-	fmt.Fprintf(&b, "    card_id: %s\n", cardID)
-	fmt.Fprintln(&b, "    status: created")
-	fmt.Fprintln(&b, "    subtasks: <comma-separated card IDs>")
-	fmt.Fprintln(&b, "    ```")
+	fmt.Fprintln(&b, "8. Read the `## Plan` section from the card body (you already have it from drafting).")
+	fmt.Fprintln(&b, "9. For each subtask in the plan, call `create_card` with:")
+	fmt.Fprintln(&b, "   - `parent`: the parent card ID")
+	fmt.Fprintln(&b, "   - `title`, `body`, `priority`, `depends_on` as specified in the plan")
+	fmt.Fprintln(&b, "10. After all subtasks are created, release the parent card claim: `release_card(card_id)`.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "### After Subtasks Are Created")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "16. Ask the user whether to start executing the subtasks now.")
-	fmt.Fprintln(&b, "    - If **yes**: use `get_ready_tasks` and spawn execute-task agents per the skill instructions.")
+	fmt.Fprintln(&b, "11. Ask the user whether to start executing the subtasks now.")
+	fmt.Fprintln(&b, "    - If **yes**: use `get_ready_tasks` and spawn execute-task sub-agents.")
+	fmt.Fprintln(&b, "      Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')` for each.")
+	fmt.Fprintln(&b, "      Spawn with the returned `model` and `content`. Always spawn as sub-agents")
+	fmt.Fprintln(&b, "      for context isolation and parallel execution.")
 	fmt.Fprintln(&b, "    - If **no**: let the user know they can run `/contextmatrix:execute-task <card_id>` later.")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s` (Phase 1) or `%s` (Phase 2).\n", model, phase2Model)
+	fmt.Fprintln(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.")
 	return b.String()
 }
 
@@ -341,8 +292,8 @@ func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) strin
 
 // buildAutonomousCreatePlanDelegationPrompt returns a full-chain delegation prompt
 // for autonomous mode. Unlike the HITL version, this skips user approval and chains
-// all phases: plan → auto-approve → subtasks → execute → review → docs → done.
-func buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs string) string {
+// all phases: plan → subtasks (inline) → execute → review → docs → done.
+func buildAutonomousCreatePlanDelegationPrompt(cardID, getSkillArgs string) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "## AUTONOMOUS MODE — Full Lifecycle Chain")
 	fmt.Fprintln(&b)
@@ -351,42 +302,41 @@ func buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSk
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 1: Plan Drafting")
+	fmt.Fprintln(&b, "### Phase 1: Plan Drafting (inline)")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the skill prompt.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. Check `inline` flag — execute inline if true, spawn sub-agent if false.")
-	fmt.Fprintln(&b, "3. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
-	fmt.Fprintf(&b, "4. Use model `%s` for the sub-agent.\n", model)
-	fmt.Fprintln(&b, "5. Wait for `PLAN_DRAFTED` structured output.")
+	fmt.Fprintln(&b, "2. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
+	fmt.Fprintln(&b, "3. Execute the skill content **inline** — do not spawn a sub-agent for planning.")
+	fmt.Fprintln(&b, "4. Follow the skill instructions to draft the plan and produce `PLAN_DRAFTED` output.")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### AUTO-APPROVE (No user approval)")
+	fmt.Fprintln(&b, "### Phase 2: Subtask Creation (inline)")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "6. **Skip user approval.** Proceed directly to Phase 2.")
+	fmt.Fprintln(&b, "5. **Skip user approval.** Create subtasks directly from the plan you just drafted.")
+	fmt.Fprintln(&b, "6. For each subtask in the plan, call `create_card` with:")
+	fmt.Fprintln(&b, "   - `parent`: the parent card ID")
+	fmt.Fprintln(&b, "   - `title`, `body`, `priority`, `depends_on` as specified in the plan")
+	fmt.Fprintln(&b, "7. Release the parent card claim: `release_card(card_id)`.")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 2: Subtask Creation")
+	fmt.Fprintln(&b, "### Phase 3: Execution (sub-agents for context isolation)")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "7. Call `get_skill(%s)` again for a fresh copy.\n", getSkillArgs)
-	fmt.Fprintln(&b, "8. Append `\\n\\nYou are executing **Phase 2: Subtask Creation** only.` to the content.")
-	fmt.Fprintf(&b, "9. Spawn a sub-agent with model `%s`.\n", phase2Model)
-	fmt.Fprintln(&b, "10. Wait for `SUBTASKS_CREATED` structured output.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 3: Execution")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "11. Call `get_ready_tasks(project, parent_id='%s')` to get ready subtasks.\n", cardID)
-	fmt.Fprintln(&b, "12. For each ready subtask, spawn a sub-agent using the execute-task skill:")
+	fmt.Fprintf(&b, "8. Call `get_ready_tasks(project, parent_id='%s')` to get ready subtasks.\n", cardID)
+	fmt.Fprintln(&b, "9. For each ready subtask, spawn a sub-agent using the execute-task skill:")
 	fmt.Fprintln(&b, "    - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')`")
+	fmt.Fprintln(&b, "    - **Always spawn as sub-agent** (for context isolation + parallel execution)")
 	fmt.Fprintln(&b, "    - Spawn with the returned model and content")
 	fmt.Fprintln(&b, "    - Spawn subtasks in **parallel** where possible")
-	fmt.Fprintf(&b, "13. Call `heartbeat(card_id='%s', agent_id=<your_id>)` on the parent every 5 minutes.\n", cardID)
-	fmt.Fprintln(&b, "14. Wait for all sub-agents to complete.")
-	fmt.Fprintln(&b, "15. The parent card will auto-transition to `review` when all subtasks are `done`.")
+	fmt.Fprintf(&b, "10. Call `heartbeat(card_id='%s', agent_id=<your_id>)` on the parent every 5 minutes.\n", cardID)
+	fmt.Fprintln(&b, "11. Wait for all sub-agents to complete.")
+	fmt.Fprintln(&b, "12. The parent card will auto-transition to `review` when all subtasks are `done`.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "### Phase 4: Review")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "16. Call `get_skill(skill_name='review-task', card_id='%s', caller_model='<your_model>')`.\n", cardID)
-	fmt.Fprintln(&b, "17. Execute inline (if `inline: true`) or spawn a review sub-agent.")
-	fmt.Fprintln(&b, "18. Wait for `REVIEW_FINDINGS` structured output.")
-	fmt.Fprintln(&b, "19. Parse the `recommendation` field:")
+	fmt.Fprintf(&b, "13. Call `get_skill(skill_name='review-task', card_id='%s', caller_model='<your_model>')`.\n", cardID)
+	fmt.Fprintln(&b, "14. Check the `inline` field:")
+	fmt.Fprintln(&b, "    - If `inline: true`: execute the review directly (your model matches the review model).")
+	fmt.Fprintln(&b, "    - If `inline: false`: spawn a review sub-agent with the returned `model`.")
+	fmt.Fprintln(&b, "15. Wait for `REVIEW_FINDINGS` structured output.")
+	fmt.Fprintln(&b, "16. Parse the `recommendation` field:")
 	fmt.Fprintln(&b, "    - **approve / approve_with_notes:** Proceed to Phase 5 (Documentation).")
 	fmt.Fprintln(&b, "    - **revise:** Check `review_attempts` on the card:")
 	fmt.Fprintf(&b, "      - If **< 3**: Call `update_card(card_id='%s', ...)` to increment `review_attempts`.\n", cardID)
@@ -401,15 +351,15 @@ func buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSk
 	fmt.Fprintln(&b, "        action_required: human review")
 	fmt.Fprintln(&b, "        ```")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 5: Documentation")
+	fmt.Fprintln(&b, "### Phase 5: Documentation (sub-agent for context isolation)")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "20. Call `get_skill(skill_name='document-task', card_id='%s')`.\n", cardID)
-	fmt.Fprintln(&b, "21. Spawn a documentation sub-agent. Wait for `DOCS_WRITTEN`.")
+	fmt.Fprintf(&b, "17. Call `get_skill(skill_name='document-task', card_id='%s')`.\n", cardID)
+	fmt.Fprintln(&b, "18. **Spawn a documentation sub-agent** (for context isolation). Wait for `DOCS_WRITTEN`.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "### Phase 6: Git & Finalization")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "22. Transition card to `done`: `transition_card(card_id='%s', new_state='done')`.\n", cardID)
-	fmt.Fprintln(&b, "23. Print:")
+	fmt.Fprintf(&b, "19. Transition card to `done`: `transition_card(card_id='%s', new_state='done')`.\n", cardID)
+	fmt.Fprintln(&b, "20. Print:")
 	fmt.Fprintln(&b, "    ```")
 	fmt.Fprintln(&b, "    AUTONOMOUS_COMPLETE")
 	fmt.Fprintf(&b, "    card_id: %s\n", cardID)
@@ -534,27 +484,19 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 }
 
 // createPlanPromptHandler returns the handler for create-plan prompt.
-// It uses a two-phase delegation prompt to avoid sub-agent timeouts during
-// user approval: Phase 1 drafts and writes the plan then returns immediately,
-// the orchestrator handles user approval, and Phase 2 creates the subtasks.
+// Phase 1 drafts the plan, the orchestrator handles user approval (HITL) or
+// auto-approves (autonomous), then the orchestrator creates subtasks inline.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
-		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
+		// Validate that the skill and card exist; content is not used directly —
+		// the delegation prompt instructs the agent to call get_skill at runtime.
+		if _, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
 			CardID: cardID,
-		}, true)
-		if err != nil {
+		}, true); err != nil {
 			return nil, err
 		}
 		getSkillArgs := fmt.Sprintf("skill_name='create-plan', card_id='%s'", cardID)
-		model := result.Model
-		if model == "" {
-			model = "opus"
-		}
-		phase2Model := result.Phase2Model
-		if phase2Model == "" {
-			phase2Model = "haiku"
-		}
 
 		// Check if card is autonomous — use the full-chain delegation prompt.
 		card, _, findErr := findCard(ctx, svc, cardID)
@@ -566,9 +508,9 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 
 		var text string
 		if isAutonomous {
-			text = buildAutonomousCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+			text = buildAutonomousCreatePlanDelegationPrompt(cardID, getSkillArgs)
 		} else {
-			text = buildCreatePlanDelegationPrompt(model, phase2Model, cardID, getSkillArgs)
+			text = buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
 		}
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
@@ -829,9 +771,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 		prefix = workflowPreamble
 	}
 	return skillResult{
-		Content:     prefix + content,
-		Model:       parseSkillModel(content),
-		Phase2Model: parsePhase2Model(content),
+		Content: prefix + content,
+		Model:   parseSkillModel(content),
 	}, nil
 }
 
