@@ -5,8 +5,8 @@ files with YAML frontmatter, stored in a git repository. Every mutation is
 auto-committed, giving you a full audit trail.
 
 ContextMatrix is a coordination layer — it tracks tasks but never touches your
-project code repositories. AI agents (Claude Code, Gemini, etc.) claim tasks,
-execute them in their own repos, and report progress back through the board.
+project code repositories. Claude Code agents claim tasks, execute them in their
+own repos, and report progress back through the board.
 
 ## Quick Start
 
