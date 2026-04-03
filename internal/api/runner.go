@@ -119,14 +119,15 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send trigger webhook.
 	if err := h.runner.Trigger(r.Context(), payload); err != nil {
+		slog.Error("runner webhook failed", "card_id", id, "project", project, "error", err)
 		// Webhook failed — revert status to failed.
 		if _, revertErr := h.svc.UpdateRunnerStatus(r.Context(), project, id, "failed",
-			fmt.Sprintf("webhook failed: %v", err)); revertErr != nil {
+			"webhook trigger failed"); revertErr != nil {
 			slog.Error("failed to revert runner status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
 		}
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
-			"failed to trigger runner", err.Error())
+			"failed to trigger runner", "")
 		return
 	}
 
@@ -163,8 +164,9 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send kill webhook.
 	if err := h.runner.Kill(r.Context(), runner.KillPayload{CardID: id, Project: project}); err != nil {
+		slog.Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
-			"failed to stop runner task", err.Error())
+			"failed to stop runner task", "")
 		return
 	}
 
@@ -198,8 +200,9 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 
 	// Send stop-all webhook.
 	if err := h.runner.StopAll(r.Context(), runner.StopAllPayload{Project: project}); err != nil {
+		slog.Error("runner stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
-			"failed to stop all runner tasks", err.Error())
+			"failed to stop all runner tasks", "")
 		return
 	}
 
@@ -254,6 +257,10 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if !strings.HasPrefix(sigHeader, "sha256=") {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
+		return
+	}
 	sig := strings.TrimPrefix(sigHeader, "sha256=")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))

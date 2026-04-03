@@ -300,11 +300,14 @@ func (s *FilesystemStore) ProjectCardCount(_ context.Context, name string) (int,
 }
 
 // ListCards returns all cards in a project matching the filter.
+// RLock is held for the entire operation (index scan + file reads) to prevent
+// TOCTOU races where files are deleted between the index scan and the read.
 func (s *FilesystemStore) ListCards(_ context.Context, project string, filter CardFilter) ([]*board.Card, error) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	idx, ok := s.projects[project]
 	if !ok {
-		s.mu.RUnlock()
 		return nil, ErrProjectNotFound
 	}
 
@@ -314,13 +317,12 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 			paths = append(paths, cardIdx.FilePath)
 		}
 	}
-	s.mu.RUnlock()
 
 	cards := make([]*board.Card, 0, len(paths))
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue // File may have been deleted between index scan and read
+			continue
 		}
 		card, err := board.ParseCard(data)
 		if err != nil {

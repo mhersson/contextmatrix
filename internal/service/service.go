@@ -1659,12 +1659,21 @@ func dependencyError(targetState string, blockers []depStatus) error {
 // circular dependency chains.
 func (s *CardService) validateCardReferences(ctx context.Context, project, parent string, dependsOn []string) error {
 	if parent != "" {
-		if _, err := s.store.GetCard(ctx, project, parent); err != nil {
+		parentCard, err := s.store.GetCard(ctx, project, parent)
+		if err != nil {
 			return fmt.Errorf("validate card: %w", &board.ValidationError{
 				Err:     board.ErrInvalidType,
 				Field:   "parent",
 				Value:   parent,
 				Message: fmt.Sprintf("parent card %q does not exist", parent),
+			})
+		}
+		if parentCard.Type == board.SubtaskType {
+			return fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrInvalidType,
+				Field:   "parent",
+				Value:   parent,
+				Message: fmt.Sprintf("parent card %q is a subtask and cannot have children", parent),
 			})
 		}
 	}

@@ -3137,6 +3137,42 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 	})
 }
 
+// TestCreateCard_RejectsSubtaskAsParent verifies that a subtask cannot be used
+// as a parent for another card (no subtask-of-subtask chains).
+func TestCreateCard_RejectsSubtaskAsParent(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a task and a subtask under it.
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent Task",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Subtask",
+		Type:     "task",
+		Priority: "medium",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "subtask", subtask.Type)
+
+	// Attempting to create a child of the subtask should fail.
+	_, err = svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Nested Subtask",
+		Type:     "task",
+		Priority: "medium",
+		Parent:   subtask.ID,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot have children")
+}
+
 // TestPatchCard_DoesNotChangeType verifies that PatchCard never modifies the type field.
 func TestPatchCard_DoesNotChangeType(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
