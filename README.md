@@ -60,7 +60,8 @@ Open `http://localhost:8080` for the web UI.
 ## Creating a Board
 
 Each project lives in a subdirectory of the boards repo with a `.board.yaml`.
-You can create projects via the API (`POST /api/projects`) or manually:
+You can create projects via the `/contextmatrix:init-project` slash command in
+Claude Code, the API (`POST /api/projects`), or manually:
 
 ```bash
 mkdir -p ~/boards/contextmatrix/my-project/tasks
@@ -86,8 +87,24 @@ transitions:
   not_planned: [todo]
 ```
 
-Optionally add templates in `templates/task.md`, `templates/bug.md`, etc. These
-populate the card body when creating cards of that type.
+Optionally add templates in `templates/task.md`, `templates/bug.md`, etc.
+Templates are plain markdown (no YAML frontmatter) — they provide body structure
+for new cards of that type and are returned to agents via `get_task_context`.
+
+```markdown
+<!-- templates/task.md -->
+## Objective
+
+<!-- What this task should accomplish -->
+
+## Acceptance Criteria
+
+- [ ] ...
+
+## Notes
+
+<!-- Implementation hints, links, constraints -->
+```
 
 ## Installation
 
