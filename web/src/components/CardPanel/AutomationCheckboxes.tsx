@@ -60,7 +60,7 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
           {branchName}
         </div>
       )}
-      {prUrl && (
+      {prUrl && /^https?:\/\//.test(prUrl) && (
         <div className="mt-1">
           <a
             href={prUrl}

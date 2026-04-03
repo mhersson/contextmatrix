@@ -23,6 +23,9 @@ var (
 
 	// ErrCardExists is returned when attempting to create a card that already exists.
 	ErrCardExists = errors.New("card already exists")
+
+	// ErrInvalidPath is returned when a path component could cause directory traversal.
+	ErrInvalidPath = errors.New("invalid path component")
 )
 
 // CardFilter specifies filtering criteria for listing cards.

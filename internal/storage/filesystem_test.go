@@ -627,3 +627,106 @@ Created externally.
 	assert.Equal(t, "External Card", got.Title)
 	assert.Equal(t, "high", got.Priority)
 }
+
+func TestValidatePathComponent(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantError bool
+	}{
+		{"valid simple name", "test-project", false},
+		{"valid card ID", "TEST-001", false},
+		{"valid with underscores", "my_project", false},
+		{"valid with dots", "v1.2.3", false},
+		{"empty string", "", true},
+		{"dot", ".", true},
+		{"double dot", "..", true},
+		{"forward slash", "foo/bar", true},
+		{"backslash", "foo\\bar", true},
+		{"path traversal", "../etc", true},
+		{"nested traversal", "a/../b", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePathComponent(tt.input)
+			if tt.wantError {
+				assert.ErrorIs(t, err, ErrInvalidPath)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestFilesystemStore_CreateCard_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	card := testCard("../../../evil", "todo")
+	err = store.CreateCard(context.Background(), "test-project", card)
+	assert.ErrorIs(t, err, ErrInvalidPath)
+}
+
+func TestFilesystemStore_SaveProject_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	cfg := validProjectConfig("../../escape", "ESC")
+	err = store.SaveProject(context.Background(), cfg)
+	assert.ErrorIs(t, err, ErrInvalidPath)
+}
+
+func TestFilesystemStore_DeleteProject_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	// Project doesn't exist in index, so we get ErrProjectNotFound before
+	// path validation. This confirms the index lookup guards against
+	// arbitrary names reaching the filesystem.
+	err = store.DeleteProject(context.Background(), "../../escape")
+	assert.ErrorIs(t, err, ErrProjectNotFound)
+}
+
+func TestFilesystemStore_LoadIndex_SkipsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	// Create a real card file
+	tasksDir := filepath.Join(dir, "test-project", "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+
+	realContent := `---
+id: TEST-001
+title: Real Card
+project: test-project
+type: task
+state: todo
+priority: medium
+created: 2026-04-01T00:00:00Z
+updated: 2026-04-01T00:00:00Z
+---
+`
+	realPath := filepath.Join(tasksDir, "TEST-001.md")
+	require.NoError(t, os.WriteFile(realPath, []byte(realContent), 0o644))
+
+	// Create a symlink card file pointing to something outside
+	symlinkTarget := filepath.Join(dir, "secret.md")
+	require.NoError(t, os.WriteFile(symlinkTarget, []byte(realContent), 0o644))
+	require.NoError(t, os.Symlink(symlinkTarget, filepath.Join(tasksDir, "TEST-002.md")))
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	// Only the real card should be loaded, symlink skipped
+	cards, err := store.ListCards(context.Background(), "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 1)
+	assert.Equal(t, "TEST-001", cards[0].ID)
+}

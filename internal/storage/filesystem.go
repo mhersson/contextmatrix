@@ -13,6 +13,17 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
+// validatePathComponent rejects path components that could cause directory
+// traversal (e.g. "..", "/", or names containing path separators).
+func validatePathComponent(component string) error {
+	if component == "" || component == "." || component == ".." ||
+		strings.ContainsAny(component, "/\\") ||
+		filepath.Clean(component) != component {
+		return fmt.Errorf("%w: %q", ErrInvalidPath, component)
+	}
+	return nil
+}
+
 // cardIndex stores metadata for a single card for fast filtering.
 type cardIndex struct {
 	ID            string
@@ -87,6 +98,13 @@ func (s *FilesystemStore) loadIndex() error {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 				continue
 			}
+			// Reject symlinks to prevent reads/writes outside the boards directory.
+			if entry.Type()&os.ModeSymlink != 0 {
+				slog.Warn("skipping symlink card file",
+					"path", filepath.Join(tasksDir, entry.Name()),
+				)
+				continue
+			}
 
 			filePath := filepath.Join(tasksDir, entry.Name())
 			data, err := os.ReadFile(filePath)
@@ -147,14 +165,25 @@ func (s *FilesystemStore) buildCardIndex(card *board.Card, filePath string) *car
 	return idx
 }
 
-// cardPath returns the filesystem path for a card.
-func (s *FilesystemStore) cardPath(project, id string) string {
-	return filepath.Join(s.boardsDir, project, "tasks", id+".md")
+// cardPath returns the filesystem path for a card after validating that the
+// project and card ID cannot escape the boards directory.
+func (s *FilesystemStore) cardPath(project, id string) (string, error) {
+	if err := validatePathComponent(project); err != nil {
+		return "", fmt.Errorf("project name: %w", err)
+	}
+	if err := validatePathComponent(id); err != nil {
+		return "", fmt.Errorf("card ID: %w", err)
+	}
+	return filepath.Join(s.boardsDir, project, "tasks", id+".md"), nil
 }
 
-// projectPath returns the filesystem path for a project directory.
-func (s *FilesystemStore) projectPath(name string) string {
-	return filepath.Join(s.boardsDir, name)
+// projectPath returns the filesystem path for a project directory after
+// validating that the name cannot escape the boards directory.
+func (s *FilesystemStore) projectPath(name string) (string, error) {
+	if err := validatePathComponent(name); err != nil {
+		return "", fmt.Errorf("project name: %w", err)
+	}
+	return filepath.Join(s.boardsDir, name), nil
 }
 
 // matchesFilter checks if a card index matches the filter criteria.
@@ -214,7 +243,10 @@ func (s *FilesystemStore) SaveProject(_ context.Context, cfg *board.ProjectConfi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	projectDir := s.projectPath(cfg.Name)
+	projectDir, err := s.projectPath(cfg.Name)
+	if err != nil {
+		return err
+	}
 
 	if err := board.SaveProjectConfig(projectDir, cfg); err != nil {
 		return fmt.Errorf("save project config: %w", err)
@@ -241,7 +273,10 @@ func (s *FilesystemStore) DeleteProject(_ context.Context, name string) error {
 		return ErrProjectNotFound
 	}
 
-	projectDir := s.projectPath(name)
+	projectDir, err := s.projectPath(name)
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(projectDir); err != nil {
 		return fmt.Errorf("remove project directory: %w", err)
 	}
@@ -348,7 +383,10 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 		return fmt.Errorf("serialize card: %w", err)
 	}
 
-	filePath := s.cardPath(project, card.ID)
+	filePath, err := s.cardPath(project, card.ID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		return fmt.Errorf("create tasks directory: %w", err)
 	}
