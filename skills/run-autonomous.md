@@ -33,7 +33,7 @@ If `Complexity: simple`:
 4. Run tests (`make test` or the project's test command). If tests fail, fix
    and retry once. If still failing, report blocked and stop.
 5. Commit with a conventional commit message. Push to the feature branch.
-6. Create a PR if `create_pr` is enabled.
+6. Create a PR if `create_pr` is enabled (use `gh pr create`).
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
 8. Call `report_usage` with your token consumption.
 9. Transition to `done`: `transition_card(card_id, new_state='done')`.
