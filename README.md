@@ -88,8 +88,18 @@ transitions:
 ```
 
 Optionally add templates in `templates/task.md`, `templates/bug.md`, etc.
-Templates are plain markdown (no YAML frontmatter) — they provide body structure
-for new cards of that type and are returned to agents via `get_task_context`.
+Templates are plain markdown (no YAML frontmatter). The filename (without
+`.md`) must match the card type exactly. Each template is scoped to its type:
+
+- When creating a card, the body editor is pre-filled with the template for the
+  selected type (if one exists).
+- Changing the type in the "Create Card" form loads the new type's template
+  automatically, as long as the user has not yet edited the body.
+- If the new type has no template and the body is unedited, the editor clears.
+- If the user has already typed in the body, changing types never overwrites
+  their content. Switching to a type that has a template prompts for
+  confirmation before replacing the body.
+- Templates are returned to agents via `get_task_context`.
 
 ```markdown
 <!-- templates/task.md -->

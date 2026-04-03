@@ -227,6 +227,30 @@ type ProjectConfig struct {
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`.
 
+## Card body templates
+
+Templates live in `<project>/templates/<type>.md` in the boards repo. The
+filename without `.md` must exactly match the card type (e.g. `task.md` for
+type `task`). Templates are plain markdown with no YAML frontmatter.
+
+The server loads all files in the `templates/` directory at startup (and on
+project reload) and stores them in `ProjectConfig.Templates` keyed by type
+name. They are returned to agents via `get_task_context` and surfaced in API
+responses as part of the project config.
+
+**Type-scoped loading in the web UI (`CreateCardForm`):**
+
+| Condition | Behaviour |
+|---|---|
+| Type has a template, body not dirty | Template content is loaded into the body editor automatically |
+| Type has a template, body IS dirty | User is prompted to confirm before the template replaces the body |
+| Type has no template, body not dirty | Body editor is cleared |
+| Type has no template, body IS dirty | Body is left unchanged — user content is never silently discarded |
+
+The `bodyDirty` flag is set as soon as the user edits the body editor. It is
+cleared when a template is accepted (either automatically or after confirmation).
+This ensures template auto-loading is only applied to unedited content.
+
 ## Project board config format
 
 ```yaml
