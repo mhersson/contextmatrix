@@ -12,7 +12,7 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 25;
 
 /** Filter cards by card ID (case-insensitive substring match). */
 export function filterCardCosts(cards: CardCost[], search: string): CardCost[] {
