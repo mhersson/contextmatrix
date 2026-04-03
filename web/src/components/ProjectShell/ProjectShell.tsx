@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
@@ -27,6 +27,11 @@ export function ProjectShell() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => clearTimeout(flashTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (project) setLastProject(project);
@@ -66,7 +71,7 @@ export function ProjectShell() {
       const card = await handleCreateCard(input);
       setCreatePanelOpen(false);
       setFlashCardId(card.id);
-      setTimeout(() => setFlashCardId(null), 2500);
+      flashTimerRef.current = setTimeout(() => setFlashCardId(null), 2500);
     },
     [handleCreateCard]
   );

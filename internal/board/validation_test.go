@@ -628,3 +628,39 @@ func TestValidateRunnerCallbackStatus(t *testing.T) {
 		assert.Error(t, v.ValidateRunnerCallbackStatus("unknown"))
 	})
 }
+
+func TestValidateRunnerStatus(t *testing.T) {
+	v := NewValidator()
+
+	t.Run("accepts empty string", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus(""))
+	})
+
+	t.Run("accepts queued", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus("queued"))
+	})
+
+	t.Run("accepts running", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus("running"))
+	})
+
+	t.Run("accepts failed", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus("failed"))
+	})
+
+	t.Run("accepts completed", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus("completed"))
+	})
+
+	t.Run("accepts killed", func(t *testing.T) {
+		assert.NoError(t, v.ValidateRunnerStatus("killed"))
+	})
+
+	t.Run("rejects invalid status", func(t *testing.T) {
+		err := v.ValidateRunnerStatus("invalid")
+		assert.Error(t, err)
+		var ve *ValidationError
+		assert.ErrorAs(t, err, &ve)
+		assert.Equal(t, "runner_status", ve.Field)
+	})
+}
