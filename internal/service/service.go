@@ -771,8 +771,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
-	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
+	// Flush deferred commit when card reaches not_planned — no agent will
+	// release this card so this is the only flush point.
+	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
+	// handles the flush.
+	if stateChanged && card.State == board.StateNotPlanned {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -915,8 +918,11 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		}
 	}
 
-	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
+	// Flush deferred commit when card reaches not_planned — no agent will
+	// release this card so this is the only flush point.
+	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
+	// handles the flush.
+	if stateChanged && card.State == board.StateNotPlanned {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -1108,6 +1114,15 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// Git commit (or defer)
 	if err := s.commitCardChange(project, id, input.AgentID, "usage reported"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	// If the card has no active agent, flush immediately — there is no
+	// subsequent ReleaseCard call to flush deferred paths (e.g. report_usage
+	// called after complete_task).
+	if card.AssignedAgent == "" {
+		if err := s.flushDeferredCommit(id, input.AgentID); err != nil {
+			slog.Warn("flush deferred commit on post-release usage report", "card_id", id, "error", err)
+		}
 	}
 
 	s.bus.Publish(events.Event{
@@ -2167,11 +2182,14 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
-	// Flush any deferred commits so the runner_status log entry is not left uncommitted.
-	// UpdateRunnerStatus is called by the runner after the agent has already released the
-	// card, so there is no subsequent flush point — we must flush here.
-	if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
-		slog.Warn("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+	// Flush deferred commits only on terminal runner statuses (completed,
+	// failed, killed). These occur after the agent has released the card, so
+	// there is no subsequent flush point. Non-terminal statuses (queued,
+	// running) happen during active work and should continue to defer.
+	if status == "failed" || status == "killed" || status == "completed" {
+		if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
+			slog.Warn("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+		}
 	}
 
 	var eventType events.EventType

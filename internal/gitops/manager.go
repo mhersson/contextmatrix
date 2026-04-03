@@ -366,6 +366,31 @@ func (m *Manager) GetLastCommitMessage() (string, error) {
 	return commit.Message, nil
 }
 
+// CommitCount returns the total number of commits in the repository.
+// Returns 0 if no commits exist.
+func (m *Manager) CommitCount() (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	head, err := m.repo.Head()
+	if err != nil {
+		return 0, nil // no commits
+	}
+
+	iter, err := m.repo.Log(&git.LogOptions{From: head.Hash()})
+	if err != nil {
+		return 0, fmt.Errorf("git log: %w", err)
+	}
+
+	count := 0
+	_ = iter.ForEach(func(_ *object.Commit) error {
+		count++
+		return nil
+	})
+
+	return count, nil
+}
+
 // DeleteFile removes a file from the working tree and stages the deletion.
 func (m *Manager) DeleteFile(path string) error {
 	m.mu.Lock()
