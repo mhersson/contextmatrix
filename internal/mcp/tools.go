@@ -852,10 +852,12 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 		content := stripAgentConfig(result.Content)
 
 		// Server-side inline decision: caller model must match skill model
-		// (case-insensitive — agents may pass "Opus" from system context)
 		// AND the skill must be on the inline-eligible whitelist.
-		canInline := input.CallerModel != "" &&
-			strings.EqualFold(input.CallerModel, result.Model) &&
+		// normalizeModelFamily handles both short names ("opus") and full
+		// model IDs ("claude-opus-4-6") that agents may pass.
+		callerFamily := normalizeModelFamily(input.CallerModel)
+		canInline := callerFamily != "" &&
+			strings.EqualFold(callerFamily, result.Model) &&
 			isInlineEligible(input.SkillName)
 
 		if canInline {

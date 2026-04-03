@@ -2272,6 +2272,31 @@ func TestGetSkill_InlineCaseInsensitive(t *testing.T) {
 	assert.True(t, out.Inline, "inline should be true even with different casing")
 }
 
+// TestGetSkill_InlineFullModelID verifies that get_skill returns inline=true
+// when caller_model is a full model ID like "claude-opus-4-6" rather than
+// the short family name "opus". Agents commonly pass the full ID from their
+// system context.
+func TestGetSkill_InlineFullModelID(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Full model ID test", "feature", "high")
+	callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Sub for full ID", "type": "task",
+		"priority": "medium", "parent": card.ID,
+	})
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "review-task",
+		"card_id":      card.ID,
+		"caller_model": "claude-opus-4-6", // full model ID — should match "opus"
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "inline should be true when full model ID matches skill family")
+	assert.Contains(t, out.Content, "INLINE EXECUTION")
+}
+
 // TestGetSkill_DelegatesWhenModelMismatch verifies that get_skill returns
 // inline=false when caller_model does not match the skill model.
 func TestGetSkill_DelegatesWhenModelMismatch(t *testing.T) {

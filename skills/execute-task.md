@@ -256,10 +256,10 @@ response under `parent.branch_name`):
 If the parent card shows `autonomous: true`:
 
 - Commit and push to the feature branch automatically.
-- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>,
-  pr_url=<url>)` after pushing.
-- If `create_pr` is enabled on the parent card, create a PR with a body that
-  references the card title and summarizes the work done.
+- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>)` after
+  pushing.
+- Do **NOT** create a PR — the orchestrator creates the PR after review
+  approval in Phase 6.
 - **NEVER push to main or master.** This is non-negotiable.
 
 ### HITL Mode (No Autonomous)

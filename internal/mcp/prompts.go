@@ -98,6 +98,20 @@ func stripAgentConfig(content string) string {
 	return agentConfigPattern.ReplaceAllString(content, "")
 }
 
+// callerModelPattern matches "claude-<family>-<version>" in caller_model input.
+var callerModelPattern = regexp.MustCompile(`(?i)^claude-(\w+)-`)
+
+// normalizeModelFamily extracts the short model family (opus, sonnet, haiku)
+// from either a full model ID like "claude-opus-4-6" or returns the input
+// unchanged if it is already a short family name like "opus".
+func normalizeModelFamily(model string) string {
+	m := callerModelPattern.FindStringSubmatch(model)
+	if len(m) >= 2 {
+		return strings.ToLower(m[1])
+	}
+	return model
+}
+
 // inlineEligibleSkills lists skills that the server may return with inline
 // execution enabled when the caller's model matches the skill's model.
 var inlineEligibleSkills = map[string]bool{

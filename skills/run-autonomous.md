@@ -67,19 +67,23 @@ Based on the card's current state and body content:
    caller_model='<your_model>')`.
 2. If `inline: true`, execute the content directly with
    `\n\nYou are executing **Phase 1: Plan Drafting** only.` appended.
-3. Otherwise, spawn a sub-agent with the returned model and content.
-4. Wait for `PLAN_DRAFTED` structured output.
+3. Otherwise, release the parent card claim (`release_card`), then spawn a
+   sub-agent with the returned model and content.
+4. Wait for `PLAN_DRAFTED` structured output. If you delegated (step 3),
+   reclaim the parent card (`claim_card`).
 5. **Skip user approval** — proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation
 
-6. Call `get_skill(skill_name='create-plan', card_id='<card_id>')` for a fresh
+6. Release the parent card claim (`release_card`) so the sub-agent can claim it.
+7. Call `get_skill(skill_name='create-plan', card_id='<card_id>')` for a fresh
    copy.
-7. Append `\n\nYou are executing **Phase 2: Subtask Creation** only.` to the
+8. Append `\n\nYou are executing **Phase 2: Subtask Creation** only.` to the
    content.
-8. Spawn a sub-agent with the Phase 2 model (typically haiku).
-9. Wait for `SUBTASKS_CREATED` structured output.
-10. Proceed directly to Phase 3.
+9. Spawn a sub-agent with the Phase 2 model (typically haiku).
+10. Wait for `SUBTASKS_CREATED` structured output.
+11. Reclaim the parent card (`claim_card`).
+12. Proceed directly to Phase 3.
 
 ## Phase 3: Execution
 
@@ -106,8 +110,10 @@ Based on the card's current state and body content:
 
 17. Call `get_skill(skill_name='review-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-18. If `inline: true`, execute directly. Otherwise spawn a review sub-agent.
-19. Wait for `REVIEW_FINDINGS` structured output.
+18. If `inline: true`, execute directly. Otherwise, release the parent card
+    claim (`release_card`), then spawn a review sub-agent.
+19. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 18),
+    reclaim the parent card (`claim_card`).
 20. Parse the `recommendation`:
     - **approve** or **approve_with_notes**: Proceed to Phase 5.
     - **revise**: Check the card's `review_attempts` field:
@@ -126,19 +132,23 @@ Based on the card's current state and body content:
 
 21. Call `get_skill(skill_name='document-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-22. If `inline` is true, execute directly. Otherwise spawn a documentation
-    sub-agent with the returned `model`. Wait for `DOCS_WRITTEN`.
+22. If `inline` is true, execute directly. Otherwise, release the parent card
+    claim (`release_card`), spawn a documentation sub-agent with the returned
+    `model`, wait for `DOCS_WRITTEN`, then reclaim (`claim_card`).
 
 ## Phase 6: Finalization
 
 23. Call `report_usage` one final time with your remaining token consumption.
-24. Transition the card to `done`:
+24. If `create_pr` is enabled and the card has a `branch_name`, create a PR
+    using `gh pr create` with a body referencing the card title and summarizing
+    the work. Call `report_push(card_id, branch, pr_url)` with the PR URL.
+25. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-25. Release the card claim:
+26. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **This is mandatory.** Skipping this leaves the card orphaned with an active
     claim that blocks future work until the heartbeat timeout fires (30 minutes).
-26. Print structured output:
+27. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
@@ -160,7 +170,7 @@ Based on the card's current state and body content:
 ## Git Workflow
 
 - If `feature_branch` is enabled: sub-agents create/checkout the branch, commit,
-  push, and optionally create a PR (if `create_pr` is enabled).
+  and push. The orchestrator creates the PR after review approval in Phase 6.
 - If `feature_branch` is not enabled: sub-agents commit locally only. Never push.
 
 ## Rules
