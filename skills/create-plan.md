@@ -266,6 +266,10 @@ sub-agent with the returned `model` as described below.
    documentation sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"document-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
+7. After documentation, if the parent card has a feature branch, ask the user:
+   **"Want me to push these changes and create a PR?"** If they approve, push
+   to the feature branch and create a PR. Call
+   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
 
 ### Review rejection loop
 
@@ -328,7 +332,11 @@ to completion. Do NOT stop partway:
    `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
    If `inline` is true, execute directly; otherwise spawn a documentation
    sub-agent via the `Agent` tool with the returned `model` and `content`.
-6. **Done** — After documentation, call `report_usage` one final time to
+6. **Push** — If the parent card has a feature branch, ask the user: **"Want me
+   to push these changes and create a PR?"** If they approve, push to the
+   feature branch and create a PR. Call
+   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+7. **Done** — After documentation, call `report_usage` one final time to
    capture any remaining orchestrator token consumption (e.g., tokens used
    during review presentation, user interaction, and documentation spawning
    that occurred after the last monitoring-loop report):

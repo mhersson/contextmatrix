@@ -266,9 +266,14 @@ If the parent card shows `autonomous: true`:
 
 At the end of your work, if the parent card does not have `autonomous: true`:
 
-- Ask: "Want me to commit these changes?"
-- If on a feature branch, follow up with: "Want me to push and create a PR?"
-- Never push without explicit human approval in HITL mode.
+- **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
+  commit your changes to the feature branch but do NOT push or create a PR.
+  Do not ask the user — your output goes to the orchestrator, not the user.
+  The orchestrator handles push, PR creation, and user interaction after review.
+- **If invoked directly** (the user ran the skill themselves in their
+  conversation): ask "Want me to commit these changes?" before committing.
+  If on a feature branch, follow up with: "Want me to push and create a PR?"
+  Never push without explicit human approval.
 
 ### No Feature Branch
 
