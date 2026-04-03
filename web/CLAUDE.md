@@ -79,6 +79,39 @@ throughout all components. Do not hardcode hex values in components.
 - Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
   active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
 
+## Layout and viewport constraints
+
+The app is constrained to exactly the browser viewport height at every level of
+the flex tree. **Do not change height constraints to minimum-height constraints**
+— doing so allows the page to grow beyond the viewport and causes the entire
+page to scroll instead of only the board columns.
+
+### Height chain (top → bottom)
+
+| Layer | Element / File | Class / Rule |
+|---|---|---|
+| Root | `#root` in `web/src/index.css` | `height: 100vh` |
+| App | outer `div` in `App.tsx` | `h-screen flex flex-row` |
+| Content area | right-side `div` in `App.tsx` | `flex-1 flex flex-col min-w-0` |
+| ProjectShell | `<main>` in `ProjectShell.tsx` | `flex-1 overflow-hidden` |
+| Board | root `div` in `Board.tsx` | `flex flex-col h-full` |
+| Columns wrapper | inner `div` in `Board.tsx` | `flex-1 overflow-x-auto overflow-y-hidden` |
+| Column card list | scroll container in `Column.tsx` | `overflow-y-auto min-h-0` |
+
+The only element that scrolls vertically is the column card list. Everything
+above it in the tree has a fixed height. `min-h-0` on the card list is required
+because flex children default to `min-height: auto`, which would prevent them
+from shrinking below their content height and break the overflow.
+
+The Sidebar uses `flex flex-col h-full`, keeping the "New Project" button pinned
+in its footer (`border-t` section) at the bottom of the viewport at all times,
+regardless of how many projects are listed.
+
+### Horizontal scrolling
+
+Columns scroll horizontally inside the columns wrapper (`overflow-x-auto`), with
+`overflow-y-hidden` preventing any vertical escape at that level.
+
 ## Subtask parent navigation
 
 Subtask cards display their parent card ID as a clickable badge. Clicking it
