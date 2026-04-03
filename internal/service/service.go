@@ -771,6 +771,16 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
+	// Flush deferred commits when transitioning to not_planned. Unlike done
+	// and stalled (which flush via ReleaseCard and markCardStalled), not_planned
+	// clears the agent claim inline here without calling ReleaseCard, so this is
+	// the only flush point for accumulated deferred changes.
+	if stateChanged && card.State == board.StateNotPlanned {
+		if err := s.flushDeferredCommit(id, ""); err != nil {
+			slog.Warn("flush deferred commit on not_planned transition", "card_id", id, "error", err)
+		}
+	}
+
 	// Publish event
 	eventType := events.CardUpdated
 	if stateChanged {
@@ -905,6 +915,16 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
+		}
+	}
+
+	// Flush deferred commits when transitioning to not_planned. Unlike done
+	// and stalled (which flush via ReleaseCard and markCardStalled), not_planned
+	// clears the agent claim inline here without calling ReleaseCard, so this is
+	// the only flush point for accumulated deferred changes.
+	if stateChanged && card.State == board.StateNotPlanned {
+		if err := s.flushDeferredCommit(id, ""); err != nil {
+			slog.Warn("flush deferred commit on not_planned transition", "card_id", id, "error", err)
 		}
 	}
 

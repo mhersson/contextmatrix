@@ -3445,8 +3445,10 @@ func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
 }
 
 // TestDeferredCommitFlushOnNotPlanned verifies that transitioning a card to
-// "not_planned" does NOT flush deferred commits — the flush happens at release
-// (ReleaseCard is called internally when transitioning to not_planned).
+// "not_planned" flushes deferred commits immediately. Unlike "done" and "stalled"
+// (which flush via ReleaseCard and markCardStalled respectively), "not_planned"
+// clears the agent claim inline in PatchCard/UpdateCard without calling ReleaseCard,
+// so the flush must happen directly at transition time.
 func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
@@ -3475,21 +3477,22 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	assert.Equal(t, creationMsg, msg, "no new commit expected before not_planned transition")
 
 	// Transition todo → not_planned via PatchCard.
-	// PatchCard must NOT flush — the flush is deferred to the next explicit release.
+	// PatchCard flushes deferred commits directly because not_planned clears
+	// the agent inline without calling ReleaseCard.
 	notPlanned := "not_planned"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
 	require.NoError(t, err)
 
-	// No new commit should have been produced by PatchCard alone.
+	// A new commit should have been produced by the flush at transition time.
 	msg, err = gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.Equal(t, creationMsg, msg, "transitioning to not_planned must NOT flush deferred commits")
+	assert.NotEqual(t, creationMsg, msg, "transitioning to not_planned must flush deferred commits and produce a new commit")
 
-	// deferredPaths should still be populated (flush deferred to release).
+	// deferredPaths should be cleared after the flush.
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferredPaths should still be populated after not_planned transition")
+	assert.Equal(t, 0, pathCount, "deferredPaths should be empty after not_planned flush")
 }
 
 // TestNotPlannedReleasesAgent verifies that transitioning a claimed card to
