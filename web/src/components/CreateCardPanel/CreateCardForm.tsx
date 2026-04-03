@@ -72,6 +72,8 @@ export function CreateCardForm({
       } else {
         setBody(template);
       }
+    } else if (!bodyDirty) {
+      setBody('');
     }
     setType(newType);
   }, [config.templates, bodyDirty, setBody, setBodyDirty, setType]);
