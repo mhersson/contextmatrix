@@ -30,7 +30,7 @@ function App() {
     <ThemeProvider>
     <ToastContext.Provider value={toastState}>
       <ProjectsProvider>
-        <div className="min-h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
+        <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
           <Sidebar onNewProject={() => setNewProjectOpen(true)} />
 
           <div className="flex-1 flex flex-col min-w-0">
