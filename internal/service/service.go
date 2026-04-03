@@ -771,13 +771,6 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
-	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
-		if err := s.flushDeferredCommit(id, ""); err != nil {
-			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
-		}
-	}
-
 	// Publish event
 	eventType := events.CardUpdated
 	if stateChanged {
@@ -912,13 +905,6 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
-		}
-	}
-
-	// Flush deferred commit when card reaches a final state
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned) {
-		if err := s.flushDeferredCommit(id, ""); err != nil {
-			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
 

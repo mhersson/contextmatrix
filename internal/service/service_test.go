@@ -2208,7 +2208,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 }
 
 // TestDeferredCommitFlushOnDone verifies that transitioning to "done"
-// produces a single deferred commit.
+// does NOT flush deferred commits — the flush happens at release instead.
 func TestDeferredCommitFlushOnDone(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
@@ -2219,12 +2219,20 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Record the creation commit.
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	// Claim the card.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-done")
+	require.NoError(t, err)
+
 	// Update body (deferred).
 	body := "## Progress\n- [x] Step 1"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
 	require.NoError(t, err)
 
-	// Transition todo → in_progress → done (PatchCard flushes on done).
+	// Transition todo → in_progress → done.
 	inProgress := "in_progress"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
@@ -2233,18 +2241,16 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// Now there should be exactly one commit (the deferred flush).
+	// No new commit should have been produced — deferred mode holds until release.
 	msg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.NotEmpty(t, msg, "expected a commit after transitioning to done")
-	assert.Contains(t, msg, card.ID)
-	assert.Contains(t, msg, "completed (deferred commit)")
+	assert.Equal(t, creationMsg, msg, "transitioning to done must NOT flush deferred commits")
 
-	// deferredPaths should be cleared.
+	// deferredPaths should still be populated (flush deferred to release).
 	svc.writeMu.Lock()
-	_, hasPaths := svc.deferredPaths[card.ID]
+	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after flush")
+	assert.Greater(t, pathCount, 0, "deferredPaths should still be populated after done transition")
 }
 
 // TestDeferredCommitFlushOnStalled verifies that when a card is marked stalled
@@ -2793,6 +2799,122 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	assert.False(t, hasPaths, "deferredPaths should be cleared after release flush")
 }
 
+// TestDeferredCommitPatchCardDoneNoCommit verifies that PatchCard transitioning
+// to "done" does NOT produce a commit in deferred mode (flush is deferred to release).
+func TestDeferredCommitPatchCardDoneNoCommit(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	// Create card — immediate commit even in deferred mode.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "PatchCard Done No Commit", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	// Claim and move to in_progress.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-patch-done")
+	require.NoError(t, err)
+
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Add a log entry (deferred).
+	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+		Timestamp: time.Now(),
+		Agent:     "agent-patch-done",
+		Action:    "progress",
+		Message:   "Doing work",
+	})
+	require.NoError(t, err)
+
+	// Transition to done — must NOT flush deferred commits.
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// Last commit should still be the creation commit.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, creationMsg, msg, "PatchCard transitioning to done must NOT produce a commit in deferred mode")
+
+	// deferredPaths must still have accumulated entries waiting for release.
+	svc.writeMu.Lock()
+	pathCount := len(svc.deferredPaths[card.ID])
+	svc.writeMu.Unlock()
+	assert.Greater(t, pathCount, 0, "deferredPaths should be populated — flush is deferred to release")
+}
+
+// TestCompleteTaskWorkflowSingleCommit verifies that the full complete_task
+// workflow (add_log → transition to done → release) produces exactly ONE commit.
+func TestCompleteTaskWorkflowSingleCommit(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	// Create card — immediate commit.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Complete Task Single Commit", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	creationMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, creationMsg, card.ID, "creation commit must reference card ID")
+
+	// Claim the card.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-complete")
+	require.NoError(t, err)
+
+	// Transition to in_progress.
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Add log entry (simulates MCP add_log).
+	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+		Timestamp: time.Now(),
+		Agent:     "agent-complete",
+		Action:    "completed",
+		Message:   "All done",
+	})
+	require.NoError(t, err)
+
+	// Transition to done (simulates MCP transition_to done).
+	done := "done"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
+	require.NoError(t, err)
+
+	// No new commits should exist yet — everything is deferred.
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, creationMsg, msg, "no commits expected before release")
+
+	// Release (simulates MCP release_card / complete_task) — must flush exactly once.
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-complete")
+	require.NoError(t, err)
+
+	// Exactly one new commit produced by the release flush.
+	releaseMsg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.NotEqual(t, creationMsg, releaseMsg, "release must produce exactly one new commit")
+	assert.Contains(t, releaseMsg, card.ID, "release commit must reference card ID")
+
+	// deferredPaths must be cleared.
+	svc.writeMu.Lock()
+	_, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, hasPaths, "deferredPaths must be cleared after release")
+
+	// Verify there is no more than one commit beyond creation (i.e., only 1 new commit).
+	// We do this by counting commits in the repo since creation.
+	hasUncommitted, err := gitMgr.HasUncommittedChanges()
+	require.NoError(t, err)
+	assert.False(t, hasUncommitted, "no uncommitted changes after release")
+}
+
 // TestDeferredCommitParentAutoTransition verifies that when all subtasks reach
 // done and the parent auto-transitions to review, the parent's deferred commits
 // are flushed.
@@ -2842,18 +2964,21 @@ func TestDeferredCommitParentAutoTransition(t *testing.T) {
 }
 
 // TestDeferredCommitBoardYamlIncluded verifies that .board.yaml changes (next_id
-// increment) are included in deferred commits when cards are created.
+// increment) are included in the deferred commit that is flushed at release time.
 func TestDeferredCommitBoardYamlIncluded(t *testing.T) {
 	svc, gitMgr := setupDeferredTestWithReview(t)
 	ctx := context.Background()
 
-	// Create a card (increments next_id in .board.yaml)
+	// Create a card (increments next_id in .board.yaml — immediate commit)
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Board yaml test", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	// Transition to done to trigger flush
+	// Claim, transition to in_progress → done (deferred, no commits yet beyond creation).
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-yaml")
+	require.NoError(t, err)
+
 	inProgress := "in_progress"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
@@ -2862,14 +2987,19 @@ func TestDeferredCommitBoardYamlIncluded(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// After flush, .board.yaml should also be committed (no uncommitted changes)
+	// Release — flushes all deferred commits including the card file.
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-yaml")
+	require.NoError(t, err)
+
+	// After flush at release, the commit message should reference the card.
 	msg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID)
 
+	// No uncommitted changes should remain.
 	hasUncommitted, err := gitMgr.HasUncommittedChanges()
 	require.NoError(t, err)
-	assert.False(t, hasUncommitted, ".board.yaml should be committed along with the card")
+	assert.False(t, hasUncommitted, ".board.yaml should be committed along with the card at release")
 }
 
 // TestCreateCard_CommitsImmediatelyWithDeferredMode verifies that CreateCard
@@ -3315,8 +3445,8 @@ func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
 }
 
 // TestDeferredCommitFlushOnNotPlanned verifies that transitioning a card to
-// "not_planned" flushes any accumulated deferred commits, mirroring the
-// behaviour for "done" and "stalled".
+// "not_planned" does NOT flush deferred commits — the flush happens at release
+// (ReleaseCard is called internally when transitioning to not_planned).
 func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
@@ -3330,6 +3460,10 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	creationMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 
+	// Claim the card so we can accumulate deferred mutations.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-np")
+	require.NoError(t, err)
+
 	// Accumulate a deferred mutation (body update, no commit yet).
 	body := "## Notes\nDecided not to pursue this."
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
@@ -3340,23 +3474,22 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, creationMsg, msg, "no new commit expected before not_planned transition")
 
-	// Transition todo → not_planned (direct transition is allowed for all states).
+	// Transition todo → not_planned via PatchCard.
+	// PatchCard must NOT flush — the flush is deferred to the next explicit release.
 	notPlanned := "not_planned"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
 	require.NoError(t, err)
 
-	// A deferred flush commit should now exist.
+	// No new commit should have been produced by PatchCard alone.
 	msg, err = gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.NotEmpty(t, msg, "expected a commit after transitioning to not_planned")
-	assert.Contains(t, msg, card.ID)
-	assert.Contains(t, msg, "completed (deferred commit)")
+	assert.Equal(t, creationMsg, msg, "transitioning to not_planned must NOT flush deferred commits")
 
-	// deferredPaths should be cleared.
+	// deferredPaths should still be populated (flush deferred to release).
 	svc.writeMu.Lock()
-	_, hasPaths := svc.deferredPaths[card.ID]
+	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after not_planned flush")
+	assert.Greater(t, pathCount, 0, "deferredPaths should still be populated after not_planned transition")
 }
 
 // TestNotPlannedReleasesAgent verifies that transitioning a claimed card to
