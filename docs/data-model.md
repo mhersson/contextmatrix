@@ -10,19 +10,18 @@
 2. **State transitions are enforced.** Transitions defined in `.board.yaml`
    under `transitions`. API returns 409 Conflict with descriptive error on
    invalid transition. One state has a special built-in rule:
-
-   - **`stalled`** is system-managed — the lock manager can transition any
-     state → `stalled` (on heartbeat timeout), but agents/humans can only
-     transition `stalled` → states listed in `transitions.stalled`. Stalled
-     cards release the active agent claim.
+   - **`stalled`** is system-managed — the lock manager can transition any state
+     → `stalled` (on heartbeat timeout), but agents/humans can only transition
+     `stalled` → states listed in `transitions.stalled`. Stalled cards release
+     the active agent claim.
 
    Both `stalled` and `not_planned` are required built-in states (the server
    validates their presence in every project config). Unlike `stalled`,
    `not_planned` follows normal transition rules — only states that explicitly
-   list `not_planned` in their transitions can reach it. It is a terminal
-   state: transitioning to `not_planned` releases the agent claim, flushes
-   deferred commits, and excludes the card from active agent and open task
-   counts. No automatic mechanism ever transitions a card to `not_planned`.
+   list `not_planned` in their transitions can reach it. It is a terminal state:
+   transitioning to `not_planned` releases the agent claim, flushes deferred
+   commits, and excludes the card from active agent and open task counts. No
+   automatic mechanism ever transitions a card to `not_planned`.
 
 3. **One agent per card.** `POST /claim` fails with 409 if card is already
    claimed. Only the assigned agent can mutate a claimed card — API checks
@@ -40,7 +39,8 @@
    `[agent:AGENT-ID] CARD-ID: description`. When `git_deferred_commit: true` in
    `config.yaml`, agent mutations during a work session are batched and flushed
    as a single commit at claim release/completion. Card creation and human edits
-   to unclaimed cards are always committed immediately regardless of this setting.
+   to unclaimed cards are always committed immediately regardless of this
+   setting.
 
 6. **Activity log is append-only, capped at 50 entries.** Agents add entries via
    `POST /cards/{id}/log`. Older entries beyond 50 are dropped from the card
@@ -74,13 +74,13 @@
     subtask type invariants on both `CreateCard` and `UpdateCard` based on
     parent field transitions:
 
-    | Scenario | Behaviour |
-    |---|---|
-    | Card is created with a non-empty `parent` | `type` is auto-forced to `"subtask"` regardless of caller input |
-    | `UpdateCard` sets `parent` on a card that had none | `type` is auto-forced to `"subtask"` regardless of caller input |
+    | Scenario                                            | Behaviour                                                                                                        |
+    | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+    | Card is created with a non-empty `parent`           | `type` is auto-forced to `"subtask"` regardless of caller input                                                  |
+    | `UpdateCard` sets `parent` on a card that had none  | `type` is auto-forced to `"subtask"` regardless of caller input                                                  |
     | `UpdateCard` clears `parent` on a card that had one | if `type` is still `"subtask"`, it is auto-reset to the first type in the project's `types` list (e.g. `"task"`) |
-    | `UpdateCard` keeps an existing `parent` | `type` must remain `"subtask"`; any other value returns 422 |
-    | Card has no `parent` (before or after) | `type: "subtask"` is rejected with 422 |
+    | `UpdateCard` keeps an existing `parent`             | `type` must remain `"subtask"`; any other value returns 422                                                      |
+    | Card has no `parent` (before or after)              | `type: "subtask"` is rejected with 422                                                                           |
 
     The `subtask` type is built-in — it is always valid and does not need to
     appear in the project's `types` list in `.board.yaml`. A card's type is
@@ -227,29 +227,38 @@ type ProjectConfig struct {
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`.
 
+## Reserved labels
+
+Most labels are free-form, but the following have built-in meaning:
+
+| Label    | Effect                                                                                                                                                                                                                                                                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `simple` | Autonomous fast path. When a card has this label **and** no existing subtasks, `run-autonomous` skips planning, subtask creation, review, and documentation — executing the work directly and transitioning to `done`. Claims, heartbeats, tests, branch protection, and release are still enforced. Classified server-side in `classifyComplexity()` (`internal/mcp/prompts.go`). |
+
 ## Card body templates
 
 Templates live in `<project>/templates/<type>.md` in the boards repo. The
-filename without `.md` must exactly match the card type (e.g. `task.md` for
-type `task`). Templates are plain markdown with no YAML frontmatter.
+filename without `.md` must exactly match the card type (e.g. `task.md` for type
+`task`). Templates are plain markdown with no YAML frontmatter.
 
 The server loads all files in the `templates/` directory at startup (and on
-project reload) and stores them in `ProjectConfig.Templates` keyed by type
-name. They are returned to agents via `get_task_context` and surfaced in API
-responses as part of the project config.
+project reload) and stores them in `ProjectConfig.Templates` keyed by type name.
+They are returned to agents via `get_task_context` and surfaced in API responses
+as part of the project config.
 
 **Type-scoped loading in the web UI (`CreateCardForm`):**
 
-| Condition | Behaviour |
-|---|---|
-| Type has a template, body not dirty | Template content is loaded into the body editor automatically |
-| Type has a template, body IS dirty | User is prompted to confirm before the template replaces the body |
-| Type has no template, body not dirty | Body editor is cleared |
-| Type has no template, body IS dirty | Body is left unchanged — user content is never silently discarded |
+| Condition                            | Behaviour                                                         |
+| ------------------------------------ | ----------------------------------------------------------------- |
+| Type has a template, body not dirty  | Template content is loaded into the body editor automatically     |
+| Type has a template, body IS dirty   | User is prompted to confirm before the template replaces the body |
+| Type has no template, body not dirty | Body editor is cleared                                            |
+| Type has no template, body IS dirty  | Body is left unchanged — user content is never silently discarded |
 
 The `bodyDirty` flag is set as soon as the user edits the body editor. It is
-cleared when a template is accepted (either automatically or after confirmation).
-This ensures template auto-loading is only applied to unedited content.
+cleared when a template is accepted (either automatically or after
+confirmation). This ensures template auto-loading is only applied to unedited
+content.
 
 ## Project board config format
 
@@ -274,7 +283,7 @@ transitions:
 
 Both `stalled` and `not_planned` must always be present in `states` and
 `transitions`. The server enforces this. Any state can transition to `stalled`
-without being listed in the source state's transitions — the server injects
-this automatically (needed for heartbeat timeout). `not_planned` follows
-normal transition rules: only states that explicitly list `not_planned` in
-their transitions can reach it (e.g., `todo: [in_progress, not_planned]`).
+without being listed in the source state's transitions — the server injects this
+automatically (needed for heartbeat timeout). `not_planned` follows normal
+transition rules: only states that explicitly list `not_planned` in their
+transitions can reach it (e.g., `todo: [in_progress, not_planned]`).

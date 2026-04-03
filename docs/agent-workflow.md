@@ -9,7 +9,9 @@ through ContextMatrix in Phase 2.
 sub-agent spawning with clean contexts. Two orchestration modes exist:
 
 1. **Interactive (HITL / local autonomous):** CC runs directly, user triggers
-   workflows via slash commands or the `run-autonomous` skill.
+   workflows via slash commands or the `run-autonomous` skill. Tasks with the
+   `simple` label use a fast path that skips planning and review (see
+   `docs/data-model.md` § Reserved labels).
 2. **Remote runner:** `contextmatrix-runner` (a separate Go binary) receives
    HMAC-signed webhooks from ContextMatrix and spawns disposable Docker
    containers running CC with the `run-autonomous` skill. See
@@ -380,11 +382,11 @@ never holds a card claim during user-facing waits — it handles those directly
 between turns, making stalls in the main context impossible.
 
 The fire-and-report design (used by `review-task` and `document-task`)
-eliminates the most common idle-wait failure mode: sub-agents write their
-output to the card body and return immediately; the always-alive orchestrator
-handles all user interactions. `create-plan` avoids the problem entirely by
-running inline on the orchestrator — no sub-agent is spawned. No sub-agent in
-the current workflow idles for user input.
+eliminates the most common idle-wait failure mode: sub-agents write their output
+to the card body and return immediately; the always-alive orchestrator handles
+all user interactions. `create-plan` avoids the problem entirely by running
+inline on the orchestrator — no sub-agent is spawned. No sub-agent in the
+current workflow idles for user input.
 
 ## Token cost configuration
 

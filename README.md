@@ -8,6 +8,35 @@ ContextMatrix is a coordination layer — it tracks tasks but never touches your
 project code repositories. Claude Code agents claim tasks, execute them in their
 own repos, and report progress back through the board.
 
+![contextmatrix-kanban](assets/contextmatrix-kanban.png)
+
+## Features
+
+- **Kanban web UI** — drag-and-drop columns, real-time SSE updates, collapsible
+  columns and cards, filter bar, and an Everforest dark/light theme.
+- **Markdown-native cards** — plain files with YAML frontmatter, human-readable
+  and diffable. No database required.
+- **Git audit trail** — every card mutation is auto-committed. Optional deferred
+  batching groups an agent's entire work session into a single commit.
+- **AI agent coordination** — exclusive card claims, heartbeat monitoring,
+  automatic stall detection, and dependency enforcement keep parallel agents
+  from stepping on each other.
+- **MCP-first interface** — 24 MCP tools and 7 slash commands give Claude Code
+  agents structured access to the board. Agents never call the REST API
+  directly.
+- **Autonomous execution** — cards marked `autonomous: true` run the full
+  plan-execute-review-document lifecycle without human gates. The `simple` label
+  triggers a fast path that skips planning and review entirely.
+- **Remote execution** — click "Run Now" in the web UI to launch a task in a
+  sandboxed Docker container. If something goes wrong, it goes wrong inside the
+  container.
+- **Cost tracking** — per-model token usage reporting with USD cost estimates,
+  broken down by agent and card on the dashboard.
+- **Customizable workflow** — define your own states, types, priorities, and
+  transition rules per project via `.board.yaml`.
+- **Single binary** — the React frontend is embedded via Go's `embed.FS`. Build
+  once, deploy anywhere.
+
 ## Quick Start
 
 ```bash
@@ -15,28 +44,14 @@ own repos, and report progress back through the board.
 make install-frontend
 make build
 
-# Configure boards directory (a separate git repo for task data)
+# Install config and skills into ~/.config/contextmatrix/
+make install-config
+
+# Initialize a boards repo (a separate git repo for task data)
 mkdir -p ~/boards/contextmatrix
 cd ~/boards/contextmatrix && git init
 
-# Create config.yaml
-cat > config.yaml <<EOF
-port: 8080
-boards_dir: ~/boards/contextmatrix
-git_auto_commit: true
-git_deferred_commit: false
-git_auto_push: false
-git_auto_pull: false
-git_pull_interval: "60s"
-heartbeat_timeout: "30m"
-skills_dir: ./skills
-token_costs:
-  claude-haiku-4-5:  { prompt: 0.0000008, completion: 0.000004  }
-  claude-sonnet-4-6: { prompt: 0.000003,  completion: 0.000015  }
-  claude-opus-4-6:   { prompt: 0.000005,  completion: 0.000025  }
-EOF
-
-# Run
+# Edit boards_dir in ~/.config/contextmatrix/config.yaml, then run
 ./contextmatrix
 ```
 
@@ -88,8 +103,8 @@ transitions:
 ```
 
 Optionally add templates in `templates/task.md`, `templates/bug.md`, etc.
-Templates are plain markdown (no YAML frontmatter). The filename (without
-`.md`) must match the card type exactly. Each template is scoped to its type:
+Templates are plain markdown (no YAML frontmatter). The filename (without `.md`)
+must match the card type exactly. Each template is scoped to its type:
 
 - When creating a card, the body editor is pre-filled with the template for the
   selected type (if one exists).
@@ -103,6 +118,7 @@ Templates are plain markdown (no YAML frontmatter). The filename (without
 
 ```markdown
 <!-- templates/task.md -->
+
 ## Objective
 
 <!-- What this task should accomplish -->
@@ -154,8 +170,8 @@ manual path update is needed.
 ## MCP Integration
 
 ContextMatrix exposes an MCP server on `POST /mcp` (Streamable HTTP transport).
-Connect Claude Code by adding this to your MCP config (`~/.claude/claude.json`
-or project `.claude/claude.json`):
+Connect Claude Code by adding this to your MCP config (`~/claude.json` or
+project `.claude/claude.json`):
 
 ```json
 {
@@ -286,12 +302,23 @@ plan → subtask creation → execute (parallel) → review → document → don
 The orchestrator agent handles each phase in sequence, spawning sub-agents via
 the `Agent` tool for execution, review, and documentation.
 
+### Fast Path (`simple` label)
+
+Cards with the label `simple` — and no existing subtasks — skip planning,
+subtask creation, review, and documentation. The agent claims the card, executes
+the work directly, runs tests, and transitions straight to `done`.
+
+The fast path still enforces card claims, heartbeats, tests, branch protection,
+and release. It only removes the orchestration overhead for small,
+self-contained changes. See [`docs/data-model.md`](docs/data-model.md) §
+Reserved labels for details.
+
 ### Guardrails
 
 - **Branch protection** — agents operating in autonomous mode must never push to
   `main` or `master`. The `report_push` MCP tool enforces this and returns a
   hard error if the branch name is `main` or `master`.
-- **Maximum review cycles** — after 2 review cycles without passing review, the
+- **Maximum review cycles** — after 3 review cycles without passing review, the
   workflow halts and requires human intervention. The
   `increment_review_attempts` tool tracks the counter; the orchestrator checks
   it before spawning another review sub-agent.
@@ -309,9 +336,26 @@ signed webhook to
 separate binary), which spawns a disposable Docker container running Claude Code
 in headless mode. The container connects back to ContextMatrix via MCP tools.
 
-```
-Web UI  →  ContextMatrix  →  contextmatrix-runner  →  Docker container
-(Run Now)   (webhook)         (spawn container)        (Claude Code + MCP)
+Each container is sandboxed from the host machine — no access to your filesystem
+or other processes. When the task finishes (or fails), the container is
+destroyed. This makes remote execution safe to run unattended: a misbehaving
+agent cannot affect the host, and any damage is contained to a throwaway
+environment you can discard.
+
+```mermaid
+sequenceDiagram
+    participant UI as Web UI
+    participant CM as ContextMatrix
+    participant R as contextmatrix-runner
+    participant D as Docker Container
+
+    UI->>CM: Run Now
+    CM->>R: HMAC-signed webhook
+    R->>D: Spawn container
+    D->>CM: Connect via MCP
+    D->>CM: Claim card, heartbeat, report progress
+    D-->>R: Exit
+    R-->>CM: Status callback (done/failed)
 ```
 
 ### Setup

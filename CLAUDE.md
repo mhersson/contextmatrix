@@ -144,7 +144,7 @@ mkdir -p project-alpha/tasks project-alpha/templates
 # create project-alpha/.board.yaml (see format above)
 # update config.yaml: boards_dir: ~/boards/contextmatrix
 
-# Claude Code MCP config (~/.claude/claude.json or project .claude/claude.json)
+# Claude Code MCP config (~/claude.json or project .claude/claude.json)
 # {
 #   "mcpServers": {
 #     "contextmatrix": {
