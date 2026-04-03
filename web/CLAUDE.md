@@ -112,6 +112,55 @@ regardless of how many projects are listed.
 Columns scroll horizontally inside the columns wrapper (`overflow-x-auto`), with
 `overflow-y-hidden` preventing any vertical escape at that level.
 
+## Mobile sidebar
+
+On viewports narrower than `768px` (Tailwind `md` breakpoint) the desktop
+sidebar is hidden by the `.sidebar` CSS rule in `web/src/index.css`. A mobile
+drawer replaces it.
+
+### Architecture
+
+| File | Role |
+|---|---|
+| `web/src/context/MobileSidebarContext.tsx` | `MobileSidebarProvider` + `useMobileSidebar` hook. Owns the `isOpen` boolean. Exports `toggle` and `close` (both stable via `useCallback`). |
+| `web/src/App.tsx` | Wraps `AppInner` with `MobileSidebarProvider` (inside `ThemeProvider`). `AppInner` reads `isOpen`/`close` and passes them as `mobileOpen`/`onMobileClose` to `Sidebar`. |
+| `web/src/components/Sidebar/Sidebar.tsx` | Accepts `mobileOpen?: boolean` and `onMobileClose?: () => void`. When `mobileOpen` is true, renders a fixed overlay (backdrop + drawer panel) instead of the normal desktop sidebar. |
+| `web/src/components/AppHeader/AppHeader.tsx` | Consumes `useMobileSidebar` and renders a hamburger button (`md:hidden`) that calls `toggle()`. |
+
+### Rendering modes
+
+`Sidebar` has three mutually exclusive render paths:
+
+1. **Mobile overlay** — `mobileOpen === true`: renders `fixed inset-0 z-50`
+   dark backdrop + `fixed left-0 top-0 h-full z-50` drawer panel. Both share
+   the `panelContent` fragment with the desktop view.
+2. **Desktop collapsed** — `mobileOpen === false && collapsed === true`: 48 px
+   icon-only strip with an expand button.
+3. **Desktop expanded** — default: 240 px panel with `.sidebar` class (hidden
+   by CSS on mobile).
+
+### Closing the drawer
+
+The drawer closes on any of these events (all call `onMobileClose`):
+- Tap the dark backdrop (`onClick` on the backdrop `div`)
+- Tap the X button in the drawer header
+- Navigate to any project link or "All Projects"
+
+Note: the "New Project" button does **not** call `onMobileClose` — the wizard
+modal covers the screen anyway, but this can be improved in a future pass
+(`onClick={() => { onNewProject(); onMobileClose?.(); }}`).
+
+### Known limitations
+
+- The hamburger button is rendered inside `AppHeader`, which is only present
+  within `ProjectShell`. The `/all` route has no hamburger. Low impact because
+  the All Projects dashboard itself lists all projects.
+- The desktop collapsed sidebar (48 px strip, no `.sidebar` class) does not
+  hide on mobile — pre-existing issue unrelated to this feature.
+- `MobileSidebarContext.tsx` exports both a component and a hook from the same
+  file, which triggers the `react-refresh/only-export-components` lint warning.
+  This is consistent with the pre-existing `useProjects.tsx` pattern.
+
 ## Subtask parent navigation
 
 Subtask cards display their parent card ID as a clickable badge. Clicking it
