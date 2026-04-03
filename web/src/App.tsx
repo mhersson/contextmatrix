@@ -3,6 +3,7 @@ import { Routes, Route, useNavigate } from 'react-router-dom';
 import { ProjectsProvider } from './hooks/useProjects';
 import { ThemeProvider } from './hooks/useTheme';
 import { ToastContext, useToastState } from './hooks/useToast';
+import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ProjectShell } from './components/ProjectShell';
@@ -12,10 +13,11 @@ import { NewProjectWizard } from './components/NewProjectWizard/NewProjectWizard
 import { ToastContainer } from './components/Toast';
 import type { ProjectConfig } from './types';
 
-function App() {
+function AppInner() {
   const toastState = useToastState();
   const navigate = useNavigate();
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const { isOpen: mobileOpen, close: onMobileClose } = useMobileSidebar();
 
   const handleProjectCreated = useCallback(
     (config: ProjectConfig) => {
@@ -27,11 +29,14 @@ function App() {
   );
 
   return (
-    <ThemeProvider>
     <ToastContext.Provider value={toastState}>
       <ProjectsProvider>
         <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
-          <Sidebar onNewProject={() => setNewProjectOpen(true)} />
+          <Sidebar
+            onNewProject={() => setNewProjectOpen(true)}
+            mobileOpen={mobileOpen}
+            onMobileClose={onMobileClose}
+          />
 
           <div className="flex-1 flex flex-col min-w-0">
             <ErrorBoundary>
@@ -54,6 +59,15 @@ function App() {
         </div>
       </ProjectsProvider>
     </ToastContext.Provider>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <MobileSidebarProvider>
+        <AppInner />
+      </MobileSidebarProvider>
     </ThemeProvider>
   );
 }
