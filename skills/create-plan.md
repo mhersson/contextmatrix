@@ -339,7 +339,12 @@ to completion. Do NOT stop partway:
      model name)
    - `prompt_tokens` / `completion_tokens`: your estimated token consumption
      since the last report
-   Then transition the parent card to `done`.
+   Then transition the parent card to `done`:
+   `transition_card(card_id=<parent_id>, new_state='done')`.
+   Then release the card claim:
+   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   **This is mandatory.** Skipping this leaves the card orphaned with an active
+   claim that blocks future work until the heartbeat timeout fires (30 minutes).
 
 Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
 spawn execution agents and then stop. Do NOT complete review and then stop. Do
