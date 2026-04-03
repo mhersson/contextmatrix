@@ -1801,10 +1801,19 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 			unique = append(unique, p)
 		}
 	}
-	delete(s.deferredPaths, cardID)
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
-	if err := s.git.CommitFiles(unique, msg); err != nil {
+	// Use shell git instead of go-git to avoid stale in-memory state after
+	// shell-based push/rebase operations by the gitsync layer.
+	if err := s.git.CommitFilesShell(context.Background(), unique, msg); err != nil {
 		return err
+	}
+	// Delete paths only after a successful commit — prevents data loss if
+	// the commit fails.
+	delete(s.deferredPaths, cardID)
+	// Refresh go-git's in-memory repo state so subsequent read operations
+	// (e.g. GetLastCommitMessage) see the shell-git commit.
+	if err := s.git.ReloadRepo(); err != nil {
+		slog.Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
 	s.notifyCommit()
 	return nil

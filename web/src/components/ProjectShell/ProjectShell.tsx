@@ -27,7 +27,7 @@ export function ProjectShell() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
-  const flashTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     return () => clearTimeout(flashTimerRef.current);

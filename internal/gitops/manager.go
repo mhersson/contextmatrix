@@ -205,6 +205,49 @@ func (m *Manager) Push(ctx context.Context) error {
 	return nil
 }
 
+// CommitFilesShell stages specific files and commits them using shell git.
+// Unlike CommitFiles (which uses go-git), this method is immune to stale
+// in-memory state after shell-based push/rebase operations.
+// Returns nil without committing if no files have staged changes.
+func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Stage each file.
+	args := append([]string{"add", "--"}, paths...)
+	if err := m.runGit(ctx, args...); err != nil {
+		return fmt.Errorf("stage files: %w", err)
+	}
+
+	// Check if anything was actually staged. `git diff --cached --quiet`
+	// exits 0 when there are no staged changes.
+	if err := m.runGit(ctx, "diff", "--cached", "--quiet"); err == nil {
+		return nil // nothing to commit
+	}
+
+	// Commit with explicit author to match go-git commits.
+	author := fmt.Sprintf("%s <%s>", m.author.Name, m.author.Email)
+	if err := m.runGit(ctx, "commit", "--author", author, "-m", message); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	return nil
+}
+
+// ReloadRepo re-opens the go-git repository from disk, refreshing any
+// stale in-memory state caused by shell git operations (push, rebase).
+func (m *Manager) ReloadRepo() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	repo, err := git.PlainOpen(m.repoPath)
+	if err != nil {
+		return fmt.Errorf("reload repository: %w", err)
+	}
+	m.repo = repo
+	return nil
+}
+
 // runGit executes a git command in the repository directory.
 // Must be called without mu held (or from a context that already holds it,
 // as this method does not re-acquire the lock).

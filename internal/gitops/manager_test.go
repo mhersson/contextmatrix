@@ -529,3 +529,120 @@ func TestCurrentBranch_NoCommits(t *testing.T) {
 	_, err = mgr.CurrentBranch()
 	assert.Error(t, err)
 }
+
+func TestCommitFilesShell(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+	mgr.SetAuthor("Shell User", "shell@example.com")
+
+	// Create initial commit so HEAD exists.
+	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile("init.txt", "initial commit")
+	require.NoError(t, err)
+
+	// Create a new file and commit via shell.
+	testFile := "shell-test.txt"
+	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("shell content"), 0o644)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = mgr.CommitFilesShell(ctx, []string{testFile}, "shell commit")
+	require.NoError(t, err)
+
+	// Verify commit message. GetLastCommitMessage may include a trailing
+	// newline when reading go-git commits, so compare trimmed values.
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "shell commit", strings.TrimSpace(msg))
+
+	// Verify author via go-git.
+	repo, err := git.PlainOpen(tmpDir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	commit, err := repo.CommitObject(head.Hash())
+	require.NoError(t, err)
+	assert.Equal(t, "Shell User", commit.Author.Name)
+	assert.Equal(t, "shell@example.com", commit.Author.Email)
+}
+
+func TestCommitFilesShell_NoChanges(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	// Create and commit a file via go-git.
+	testFile := "test.txt"
+	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("content"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile(testFile, "initial commit")
+	require.NoError(t, err)
+
+	initialMsg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	// CommitFilesShell on the unchanged file should no-op.
+	ctx := context.Background()
+	err = mgr.CommitFilesShell(ctx, []string{testFile}, "should not appear")
+	require.NoError(t, err)
+
+	afterMsg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, initialMsg, afterMsg, "no new commit should be created for unchanged file")
+}
+
+func TestReloadRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	// Create initial commit via go-git.
+	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile("init.txt", "initial commit")
+	require.NoError(t, err)
+
+	// Make a commit via shell git (bypassing go-git).
+	err = os.WriteFile(filepath.Join(tmpDir, "shell.txt"), []byte("shell"), 0o644)
+	require.NoError(t, err)
+	cmd := exec.Command("git", "add", "shell.txt")
+	cmd.Dir = tmpDir
+	require.NoError(t, cmd.Run())
+	cmd = exec.Command("git", "commit", "-m", "shell commit")
+	cmd.Dir = tmpDir
+	require.NoError(t, cmd.Run())
+
+	// ReloadRepo should succeed and go-git should see the shell commit.
+	err = mgr.ReloadRepo()
+	require.NoError(t, err)
+
+	headAfter, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "shell commit", strings.TrimSpace(headAfter),
+		"go-git should see shell commit after reload")
+
+	// After reload, go-git operations (like CommitFile) should still work.
+	err = os.WriteFile(filepath.Join(tmpDir, "post-reload.txt"), []byte("post"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile("post-reload.txt", "post-reload commit")
+	require.NoError(t, err)
+
+	postMsg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "post-reload commit", strings.TrimSpace(postMsg))
+}

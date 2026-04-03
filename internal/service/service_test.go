@@ -3971,3 +3971,52 @@ func TestDeferredCommitFlushOnUpdateRunnerStatus(t *testing.T) {
 	svc.writeMu.Unlock()
 	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateRunnerStatus flush")
 }
+
+func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
+	// Verifies that deferredPaths are NOT deleted when the commit fails,
+	// so a subsequent flush can retry.
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	// gitAutoCommit=true, gitDeferredCommit=true
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Paths preserved test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Manually inject a deferred path pointing to a non-existent file.
+	// This will cause the shell git commit to fail (can't stage missing file).
+	svc.writeMu.Lock()
+	svc.deferredPaths[card.ID] = []string{"test-project/tasks/DOES-NOT-EXIST.md"}
+	svc.writeMu.Unlock()
+
+	// The flush should return an error.
+	svc.writeMu.Lock()
+	err = svc.flushDeferredCommit(card.ID, "test-agent")
+	svc.writeMu.Unlock()
+	assert.Error(t, err, "flush should fail when staging a non-existent file")
+
+	// The paths should still be in the map — not deleted.
+	svc.writeMu.Lock()
+	paths, hasPaths := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.True(t, hasPaths, "deferredPaths should be preserved after failed flush")
+	assert.Len(t, paths, 1, "the failed path should still be in the deferred list")
+}
