@@ -52,15 +52,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize storage
-	store, err := storage.NewFilesystemStore(cfg.BoardsDir)
-	if err != nil {
-		slog.Error("failed to create storage", "error", err)
-		os.Exit(1)
-	}
-	slog.Info("storage initialized", "boards_dir", cfg.BoardsDir)
-
-	// Initialize git manager (boards directory IS the git repo)
+	// Initialize git manager (boards directory IS the git repo).
+	// Must run before storage so clone-on-empty can populate the directory.
 	cloneURL := ""
 	if cfg.GitCloneOnEmpty {
 		cloneURL = cfg.GitRemoteURL
@@ -71,6 +64,14 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("git manager initialized", "repo_path", cfg.BoardsDir)
+
+	// Initialize storage
+	store, err := storage.NewFilesystemStore(cfg.BoardsDir)
+	if err != nil {
+		slog.Error("failed to create storage", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("storage initialized", "boards_dir", cfg.BoardsDir)
 
 	// Initialize event bus
 	bus := events.NewBus()
