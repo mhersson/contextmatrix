@@ -10,16 +10,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Set short SHA
+      run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
     - name: Build image
       run: |
         docker build \
-          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ github.sha }} \
+          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ env.SHORT_SHA }} \
           -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest \
           .
 
     - name: Push image
       run: |
-        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ github.sha }}
+        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ env.SHORT_SHA }}
         docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest
 
     - name: Clean up
