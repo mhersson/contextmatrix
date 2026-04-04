@@ -18,9 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /contextmatrix ./cmd/contextmatrix
 
 # Stage 3: Minimal runtime
 FROM alpine:3.23
-RUN apk add --no-cache git openssh-client ca-certificates \
-    && adduser -D -u 65534 -g "" nonroot
+RUN apk add --no-cache git openssh-client ca-certificates
 COPY --from=backend /contextmatrix /usr/local/bin/contextmatrix
 COPY skills/ /etc/contextmatrix/skills/
-USER 65534
+USER nobody
 ENTRYPOINT ["contextmatrix"]
