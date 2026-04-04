@@ -89,6 +89,11 @@
   execute-task agents because it caused nested agent chains with unpredictable
   lifetimes. The orchestrator (main CC) is solely responsible for detecting
   that the parent entered `review` and spawning the review sub-agent.
+- **`/healthz` requests are not logged:** the HTTP logging middleware skips
+  `slog.Info` for `GET /healthz` to prevent k8s liveness/readiness probe traffic
+  from spamming logs. The endpoint still responds normally — only the log line is
+  suppressed. If you expect to see probe traffic in logs for debugging, hit any
+  other path or check the endpoint directly with `curl`.
 - **Health-check polling interval:** the monitoring loop in `create-plan.md`
   polls every 1 minute (not 2-3 min). Shorter intervals mean stalled agents are
   detected and respawned faster, reducing idle time for the user.
