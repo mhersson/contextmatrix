@@ -16,14 +16,14 @@ jobs:
     - name: Build image
       run: |
         docker build \
-          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ env.SHORT_SHA }} \
-          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest \
+          -t ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }} \
+          -t ${{ vars.REGISTRY }}/contextmatrix:latest \
           .
 
     - name: Push image
       run: |
-        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ env.SHORT_SHA }}
-        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest
+        docker push ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }}
+        docker push ${{ vars.REGISTRY }}/contextmatrix:latest
 
     - name: Clean up
       if: always()

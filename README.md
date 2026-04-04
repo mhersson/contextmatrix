@@ -594,6 +594,29 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 
+## Security
+
+ContextMatrix is designed for **self-hosted deployment on a trusted network**
+(LAN, VPN, or behind an authenticating reverse proxy). The security model
+assumes network-level access control:
+
+- **REST API** — no built-in authentication. Designed to sit behind a reverse
+  proxy (Cloudflare Access, OAuth2 Proxy, Tailscale, etc.) or be restricted to a
+  trusted LAN. Do not expose the API directly to the internet without an
+  authenticating proxy in front.
+- **MCP endpoint** (`/mcp`) — optional Bearer token authentication via
+  `mcp_api_key`. When set, all MCP requests require a valid
+  `Authorization: Bearer <key>` header. Enable this in any deployment where
+  agents connect over a network.
+- **Runner webhooks** — HMAC-SHA256 signed in both directions (ContextMatrix ↔
+  runner). The shared secret is never transmitted — only signatures are sent on
+  the wire.
+- **Runner status callbacks** — HMAC-SHA256 verified with timestamp validation
+  (5-minute replay window).
+
+For a production deployment example with Kubernetes, Cloudflare Access, and
+Cilium Gateway, see [`docs/deployment-example.md`](docs/deployment-example.md).
+
 ## Development
 
 ```bash

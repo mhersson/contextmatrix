@@ -130,9 +130,9 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 // wrapMux wraps the mux with all middleware.
 func wrapMux(mux *http.ServeMux, corsOrigin string) *http.ServeMux {
 	wrapper := http.NewServeMux()
-	middlewares := []func(http.Handler) http.Handler{recovery, logging, requestID, bodyLimit}
+	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, logging, requestID, bodyLimit}
 	if corsOrigin != "" {
-		middlewares = []func(http.Handler) http.Handler{recovery, corsMiddleware(corsOrigin), logging, requestID, bodyLimit}
+		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(corsOrigin), logging, requestID, bodyLimit}
 	}
 	wrapper.Handle("/", chain(mux, middlewares...))
 	return wrapper
@@ -214,6 +214,16 @@ func recovery(next http.Handler) http.Handler {
 				writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders adds standard security headers to all responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
 }
