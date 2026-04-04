@@ -24,14 +24,14 @@ const maxRequestBodySize = 1 << 20 // 1 MB
 
 // Error codes for machine-parseable error responses.
 const (
-	ErrCodeProjectNotFound   = "PROJECT_NOT_FOUND"
-	ErrCodeCardNotFound      = "CARD_NOT_FOUND"
-	ErrCodeCardExists        = "CARD_EXISTS"
-	ErrCodeInvalidTransition = "INVALID_TRANSITION"
-	ErrCodeValidationError   = "VALIDATION_ERROR"
-	ErrCodeAlreadyClaimed    = "ALREADY_CLAIMED"
-	ErrCodeNotClaimed        = "NOT_CLAIMED"
-	ErrCodeAgentMismatch     = "AGENT_MISMATCH"
+	ErrCodeProjectNotFound    = "PROJECT_NOT_FOUND"
+	ErrCodeCardNotFound       = "CARD_NOT_FOUND"
+	ErrCodeCardExists         = "CARD_EXISTS"
+	ErrCodeInvalidTransition  = "INVALID_TRANSITION"
+	ErrCodeValidationError    = "VALIDATION_ERROR"
+	ErrCodeAlreadyClaimed     = "ALREADY_CLAIMED"
+	ErrCodeNotClaimed         = "NOT_CLAIMED"
+	ErrCodeAgentMismatch      = "AGENT_MISMATCH"
 	ErrCodeDependenciesNotMet = "DEPENDENCIES_NOT_MET"
 	ErrCodeProjectExists      = "PROJECT_EXISTS"
 	ErrCodeProjectHasCards    = "PROJECT_HAS_CARDS"
@@ -158,9 +158,15 @@ func requestID(next http.Handler) http.Handler {
 	})
 }
 
-// logging logs each request with timing.
+// logging logs each request with timing. Requests to /healthz are served but
+// not logged to avoid spamming logs with k8s health check noise.
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 

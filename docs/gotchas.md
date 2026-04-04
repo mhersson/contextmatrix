@@ -8,14 +8,14 @@
 - **`go-git` performance:** fine for ContextMatrix boards (small files, <10k
   cards). If it becomes an issue, shell out to `git` binary.
 - **Deferred git commits (`git_deferred_commit`):** When
-  `git_deferred_commit: true` in `config.yaml`, agent mutations (heartbeats,
-  log entries, intermediate updates) are batched and committed in a single flush
-  at release/complete time instead of per-operation. This reduces git churn
-  during long agent work sessions. However, two categories of mutation **always
-  commit immediately**, even when deferred mode is on: (1) card creation — both
-  the card file and `.board.yaml` are committed together so the new card
-  survives a `git pull` on another machine; (2) human edits to unclaimed cards
-  via the REST API — the PUT/PATCH handlers set `ImmediateCommit: true` when
+  `git_deferred_commit: true` in `config.yaml`, agent mutations (heartbeats, log
+  entries, intermediate updates) are batched and committed in a single flush at
+  release/complete time instead of per-operation. This reduces git churn during
+  long agent work sessions. However, two categories of mutation **always commit
+  immediately**, even when deferred mode is on: (1) card creation — both the
+  card file and `.board.yaml` are committed together so the new card survives a
+  `git pull` on another machine; (2) human edits to unclaimed cards via the REST
+  API — the PUT/PATCH handlers set `ImmediateCommit: true` when
   `card.AssignedAgent == ""`, triggering an immediate commit. MCP tool callers
   (agents) never set this flag, so their commits continue to defer normally.
 - **SSE headers:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
@@ -45,14 +45,14 @@
   `config.yaml`). When set, the `/mcp` endpoint requires
   `Authorization: Bearer <token>`. Essential for container deployments exposed
   beyond localhost.
-- **MCP prompts + card context:** most prompt handlers return delegation wrappers
-  (not raw skill content); interview skills (`create-task`, `init-project`)
-  return raw content for inline execution. The `get_skill` tool fetches card
-  context at execution time, calling the service layer in-process. The MCP
-  handler and HTTP API share the same `CardService` instance. The `## Agent
-  Configuration` section is stripped from all skill content delivered via
-  `get_skill` and prompt handlers — the required model is returned as a separate
-  `model` field.
+- **MCP prompts + card context:** most prompt handlers return delegation
+  wrappers (not raw skill content); interview skills (`create-task`,
+  `init-project`) return raw content for inline execution. The `get_skill` tool
+  fetches card context at execution time, calling the service layer in-process.
+  The MCP handler and HTTP API share the same `CardService` instance. The
+  `## Agent Configuration` section is stripped from all skill content delivered
+  via `get_skill` and prompt handlers — the required model is returned as a
+  separate `model` field.
 - **Sub-agent death during idle user-approval wait:** Claude Code can kill a
   sub-agent between turns if the conversation goes quiet (e.g., while waiting
   for the user to read and approve a plan). The fix is to never have a sub-agent
@@ -60,9 +60,9 @@
   card body and return immediately, and let the always-alive main agent (CC)
   handle the user interaction. All skills that previously had this problem have
   been fixed:
-  - `create-plan`: Phase 1 drafts and writes the plan then returns `PLAN_DRAFTED`;
-    CC presents the plan to the user and collects approval; Phase 2 creates
-    subtasks from the already-approved plan.
+  - `create-plan`: Phase 1 drafts and writes the plan then returns
+    `PLAN_DRAFTED`; CC presents the plan to the user and collects approval;
+    Phase 2 creates subtasks from the already-approved plan.
   - `review-task`: The review sub-agent writes `## Review Findings` to the card
     body and returns `REVIEW_FINDINGS` immediately; CC presents findings to the
     user and collects the approve/reject decision directly.
@@ -70,10 +70,11 @@
     `DOCS_WRITTEN` immediately — no user approval gate before writing, since
     docs are built from already-reviewed code; CC presents the summary after.
   - `create-task` and `init-project`: These interview skills now run inline in
-    CC (no sub-agent at all) — see the "Interview skills run inline" entry below.
-  Any new skill that must get user approval before continuing should follow the
-  same split-phase pattern: sub-agent writes output to card body and returns a
-  structured result immediately; CC handles the user interaction.
+    CC (no sub-agent at all) — see the "Interview skills run inline" entry
+    below. Any new skill that must get user approval before continuing should
+    follow the same split-phase pattern: sub-agent writes output to card body
+    and returns a structured result immediately; CC handles the user
+    interaction.
 - **Interview skills (create-task, init-project) run inline:** These skills
   require multi-turn back-and-forth conversations with the user (gathering
   requirements, confirming config). Delegating them to a sub-agent breaks this
@@ -87,8 +88,13 @@
   `complete_task` (e.g., when the parent card transitions to `review`). The
   lifecycle continuation (spawning review sub-agents) was removed from
   execute-task agents because it caused nested agent chains with unpredictable
-  lifetimes. The orchestrator (main CC) is solely responsible for detecting
-  that the parent entered `review` and spawning the review sub-agent.
+  lifetimes. The orchestrator (main CC) is solely responsible for detecting that
+  the parent entered `review` and spawning the review sub-agent.
+- **`/healthz` requests are not logged:** the HTTP logging middleware skips
+  `slog.Info` for `GET /healthz` to prevent k8s liveness/readiness probe traffic
+  from spamming logs. The endpoint still responds normally — only the log line
+  is suppressed. If you expect to see probe traffic in logs for debugging, hit
+  any other path or check the endpoint directly with `curl`.
 - **Health-check polling interval:** the monitoring loop in `create-plan.md`
   polls every 1 minute (not 2-3 min). Shorter intervals mean stalled agents are
   detected and respawned faster, reducing idle time for the user.
