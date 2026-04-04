@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -565,6 +566,28 @@ func TestHealthz(t *testing.T) {
 	var result map[string]string
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 	assert.Equal(t, "ok", result["status"])
+}
+
+func TestHealthzNotLogged(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Capture log output by replacing the default slog handler.
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	resp, err := http.Get(server.URL + "/healthz")
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.Empty(t, buf.String(), "expected no log output for GET /healthz")
 }
 
 // === Agent Endpoint Tests ===

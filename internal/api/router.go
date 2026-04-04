@@ -158,9 +158,15 @@ func requestID(next http.Handler) http.Handler {
 	})
 }
 
-// logging logs each request with timing.
+// logging logs each request with timing. Requests to /healthz are served but
+// not logged to avoid spamming logs with k8s health check noise.
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
