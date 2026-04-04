@@ -255,6 +255,24 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
+			name:     "CONTEXTMATRIX_GIT_CLONE_ON_EMPTY false",
+			envKey:   "CONTEXTMATRIX_GIT_CLONE_ON_EMPTY",
+			envValue: "false",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.False(t, cfg.GitCloneOnEmpty)
+			},
+		},
+		{
+			name:     "CONTEXTMATRIX_GIT_REMOTE_URL",
+			envKey:   "CONTEXTMATRIX_GIT_REMOTE_URL",
+			envValue: "git@github.com:user/boards.git",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.Equal(t, "git@github.com:user/boards.git", cfg.GitRemoteURL)
+			},
+		},
+		{
 			name:     "CONTEXTMATRIX_HEARTBEAT_TIMEOUT",
 			envKey:   "CONTEXTMATRIX_HEARTBEAT_TIMEOUT",
 			envValue: "1h",
@@ -582,6 +600,8 @@ func TestDefaults(t *testing.T) {
 	assert.False(t, cfg.GitAutoPull)
 	assert.Equal(t, "60s", cfg.GitPullInterval)
 	assert.False(t, cfg.GitDeferredCommit)
+	assert.False(t, cfg.GitCloneOnEmpty)
+	assert.Equal(t, "", cfg.GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Equal(t, "", cfg.SkillsDir)
@@ -812,6 +832,89 @@ func TestLoad_SkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	cfg, err := Load(filepath.Join(dir, "nonexistent.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
+}
+
+func TestLoad_CloneOnEmptyFields(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_clone_on_empty: true
+git_remote_url: "git@github.com:user/boards.git"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GitCloneOnEmpty)
+	assert.Equal(t, "git@github.com:user/boards.git", cfg.GitRemoteURL)
+}
+
+func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.GitCloneOnEmpty)
+	assert.Equal(t, "", cfg.GitRemoteURL)
+}
+
+func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_GIT_CLONE_ON_EMPTY", "true")
+	t.Setenv("CONTEXTMATRIX_GIT_REMOTE_URL", "git@github.com:user/boards.git")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GitCloneOnEmpty)
+	assert.Equal(t, "git@github.com:user/boards.git", cfg.GitRemoteURL)
+}
+
+func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitCloneOnEmpty:  true,
+		GitRemoteURL:     "",
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "git_remote_url is required when git_clone_on_empty is enabled")
+}
+
+func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitCloneOnEmpty:  true,
+		GitRemoteURL:     "git@github.com:user/boards.git",
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitCloneOnEmpty:  false,
+		GitRemoteURL:     "git@github.com:user/boards.git",
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
 }
 
 func TestLoad_ExampleFile(t *testing.T) {

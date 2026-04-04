@@ -65,7 +65,7 @@ transitions:
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
 	// Initialize git (boards directory is the git repo)
-	git, err := gitops.NewManager(boardsDir)
+	git, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	// Initialize store
@@ -1655,7 +1655,7 @@ func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
 	boardsDir := filepath.Join(tmpDir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	git, err := gitops.NewManager(boardsDir)
+	git, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -2208,7 +2208,7 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfigYAML), 0o644))
 
-	git, err := gitops.NewManager(boardsDir)
+	git, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)

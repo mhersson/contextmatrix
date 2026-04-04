@@ -38,6 +38,8 @@ type Config struct {
 	GitAutoPull         bool                 `yaml:"git_auto_pull"`
 	GitPullInterval     string               `yaml:"git_pull_interval"`
 	GitDeferredCommit   bool                 `yaml:"git_deferred_commit"`
+	GitCloneOnEmpty     bool                 `yaml:"git_clone_on_empty"`
+	GitRemoteURL        string               `yaml:"git_remote_url"`
 	HeartbeatTimeout    string               `yaml:"heartbeat_timeout"`
 	CORSOrigin          string               `yaml:"cors_origin"`
 	SkillsDir           string               `yaml:"skills_dir"`
@@ -73,6 +75,9 @@ func (c *Config) Validate() error {
 		if _, err := time.ParseDuration(c.GitPullInterval); err != nil {
 			return fmt.Errorf("invalid git_pull_interval %q: %w", c.GitPullInterval, err)
 		}
+	}
+	if c.GitCloneOnEmpty && c.GitRemoteURL == "" {
+		return fmt.Errorf("git_remote_url is required when git_clone_on_empty is enabled")
 	}
 	if c.Runner.Enabled {
 		if c.Runner.URL == "" {
@@ -201,6 +206,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_DEFERRED_COMMIT"); v != "" {
 		cfg.GitDeferredCommit = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GIT_CLONE_ON_EMPTY"); v != "" {
+		cfg.GitCloneOnEmpty = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GIT_REMOTE_URL"); v != "" {
+		cfg.GitRemoteURL = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v

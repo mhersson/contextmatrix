@@ -58,7 +58,7 @@ func setupTest(t *testing.T) (*CardService, string, func()) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -689,7 +689,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -1037,7 +1037,7 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -1502,7 +1502,7 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -1826,7 +1826,7 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -2108,7 +2108,7 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -2153,7 +2153,7 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -2281,7 +2281,7 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -2758,7 +2758,7 @@ func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -3435,7 +3435,7 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -4012,7 +4012,7 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir)
+	gitMgr, err := gitops.NewManager(boardsDir, "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()

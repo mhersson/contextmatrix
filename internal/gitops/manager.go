@@ -37,7 +37,9 @@ type Manager struct {
 
 // NewManager opens an existing git repository or initializes a new one.
 // The repoPath should be the boards directory (cfg.BoardsDir).
-func NewManager(repoPath string) (*Manager, error) {
+// If cloneURL is non-empty and no repository exists at repoPath, it will
+// be cloned from the given URL instead of initialized as empty.
+func NewManager(repoPath string, cloneURL string) (*Manager, error) {
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -52,19 +54,60 @@ func NewManager(repoPath string) (*Manager, error) {
 			return nil, fmt.Errorf("open repository: %w", err)
 		}
 
-		// Initialize new repository
-		slog.Info("initializing new git repository", "path", absPath)
-		repo, err = git.PlainInit(absPath, false)
+		if cloneURL != "" {
+			// Clone from remote
+			repo, err = cloneRepo(absPath, cloneURL)
+		} else {
+			// Initialize new empty repository
+			slog.Info("initializing new git repository", "path", absPath)
+			repo, err = git.PlainInit(absPath, false)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("init repository: %w", err)
+			return nil, err
 		}
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		repo:     repo,
 		repoPath: absPath,
 		author:   DefaultAuthor,
-	}, nil
+	}
+
+	// If a remote URL is provided but the repo was opened (not cloned),
+	// ensure the origin remote is configured for auto_push/auto_pull.
+	if cloneURL != "" && !mgr.hasRemote("origin") {
+		if addErr := mgr.AddRemote("origin", cloneURL); addErr != nil {
+			slog.Warn("failed to add origin remote", "error", addErr)
+		}
+	}
+
+	return mgr, nil
+}
+
+// cloneRepo clones a git repository from the given URL into the target directory
+// using shell git (consistent with push/pull operations).
+func cloneRepo(targetDir, url string) (*git.Repository, error) {
+	slog.Info("cloning boards repository", "url", url, "target", targetDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "clone", url, targetDir)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		output := strings.TrimSpace(stderr.String())
+		return nil, fmt.Errorf("clone repository: %s: %s", err, output)
+	}
+
+	repo, err := git.PlainOpen(targetDir)
+	if err != nil {
+		return nil, fmt.Errorf("open cloned repository: %w", err)
+	}
+
+	slog.Info("boards repository cloned successfully", "path", targetDir)
+	return repo, nil
 }
 
 // SetAuthor configures the commit author for all commits.

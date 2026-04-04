@@ -61,7 +61,11 @@ func main() {
 	slog.Info("storage initialized", "boards_dir", cfg.BoardsDir)
 
 	// Initialize git manager (boards directory IS the git repo)
-	git, err := gitops.NewManager(cfg.BoardsDir)
+	cloneURL := ""
+	if cfg.GitCloneOnEmpty {
+		cloneURL = cfg.GitRemoteURL
+	}
+	git, err := gitops.NewManager(cfg.BoardsDir, cloneURL)
 	if err != nil {
 		slog.Error("failed to create git manager", "error", err)
 		os.Exit(1)

@@ -18,7 +18,7 @@ import (
 func TestNewManager_InitNewRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 	assert.NotNil(t, mgr)
 	assert.Equal(t, tmpDir, mgr.RepoPath())
@@ -38,14 +38,14 @@ func TestNewManager_OpenExistingRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open with manager
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 	assert.NotNil(t, mgr)
 }
 
 func TestCommitFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create a test file
@@ -67,7 +67,7 @@ func TestCommitFile(t *testing.T) {
 
 func TestCommitFile_OnlyStagesSpecifiedFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create two files
@@ -88,7 +88,7 @@ func TestCommitFile_OnlyStagesSpecifiedFile(t *testing.T) {
 
 func TestCommitAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create multiple files
@@ -109,7 +109,7 @@ func TestCommitAll(t *testing.T) {
 
 func TestSetAuthor(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Set custom author
@@ -135,7 +135,7 @@ func TestSetAuthor(t *testing.T) {
 
 func TestPull_NoRemote(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Pull should succeed gracefully when no remote exists
@@ -145,7 +145,7 @@ func TestPull_NoRemote(t *testing.T) {
 
 func TestPush_NoRemote(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Push should succeed gracefully when no remote exists
@@ -171,7 +171,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 
 	// Create the working repo, make a commit, add the bare repo as origin.
 	workDir := t.TempDir()
-	mgr, err := NewManager(workDir)
+	mgr, err := NewManager(workDir, "")
 	require.NoError(t, err)
 	mgr.SetAuthor("Test User", "test@example.com")
 
@@ -195,7 +195,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a commit to the bare remote via the clone.
-	cloneMgr, err := NewManager(cloneDir)
+	cloneMgr, err := NewManager(cloneDir, "")
 	require.NoError(t, err)
 	cloneMgr.SetAuthor("Clone User", "clone@example.com")
 	err = os.WriteFile(filepath.Join(cloneDir, "world.txt"), []byte("world"), 0o644)
@@ -215,7 +215,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 
 func TestAddRemote(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	err = mgr.AddRemote("origin", "https://github.com/test/repo.git")
@@ -239,7 +239,7 @@ func TestAddRemote(t *testing.T) {
 
 func TestHasUncommittedChanges(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Initially no changes (empty repo)
@@ -268,7 +268,7 @@ func TestHasUncommittedChanges(t *testing.T) {
 
 func TestGetLastCommitMessage_NoCommits(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Empty repo has no commits
@@ -279,7 +279,7 @@ func TestGetLastCommitMessage_NoCommits(t *testing.T) {
 
 func TestGetLastCommitMessage_WithCommits(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create and commit files
@@ -301,7 +301,7 @@ func TestGetLastCommitMessage_WithCommits(t *testing.T) {
 
 func TestCommitFile_InSubdirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create subdirectory and file
@@ -326,7 +326,7 @@ func TestCommitFile_InSubdirectory(t *testing.T) {
 
 func TestDeleteFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create and commit a file
@@ -352,7 +352,7 @@ func TestDeleteFile(t *testing.T) {
 
 func TestDeleteFile_NonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Deleting non-existent file should not error (file already removed)
@@ -368,7 +368,7 @@ func TestDefaultAuthor(t *testing.T) {
 
 func TestCommitMessageFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -416,7 +416,7 @@ func TestCommitMessageFormat(t *testing.T) {
 
 func TestCommitTimestamp(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Add tolerance for timing variations
@@ -443,7 +443,7 @@ func TestCommitTimestamp(t *testing.T) {
 
 func TestConcurrentCommits(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create files
@@ -479,7 +479,7 @@ func TestConcurrentCommits(t *testing.T) {
 
 func TestRepoPath(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, tmpDir, mgr.RepoPath())
@@ -487,7 +487,7 @@ func TestRepoPath(t *testing.T) {
 
 func TestHasRemote_NoRemote(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	assert.False(t, mgr.HasRemote())
@@ -495,7 +495,7 @@ func TestHasRemote_NoRemote(t *testing.T) {
 
 func TestHasRemote_WithRemote(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	err = mgr.AddRemote("origin", "https://github.com/test/repo.git")
@@ -506,7 +506,7 @@ func TestHasRemote_WithRemote(t *testing.T) {
 
 func TestCurrentBranch(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create an initial commit so HEAD exists
@@ -522,7 +522,7 @@ func TestCurrentBranch(t *testing.T) {
 
 func TestCurrentBranch_NoCommits(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Empty repo has no HEAD
@@ -536,7 +536,7 @@ func TestCommitFilesShell(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 	mgr.SetAuthor("Shell User", "shell@example.com")
 
@@ -578,7 +578,7 @@ func TestCommitFilesShell_NoChanges(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 
 	// Create and commit a file via go-git.
@@ -607,7 +607,7 @@ func TestReloadRepo(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir)
+	mgr, err := NewManager(tmpDir, "")
 	require.NoError(t, err)
 	mgr.SetAuthor("Test User", "test@example.com")
 
@@ -645,4 +645,110 @@ func TestReloadRepo(t *testing.T) {
 	postMsg, err := mgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, "post-reload commit", strings.TrimSpace(postMsg))
+}
+
+// createBareRepo creates a bare git repo with one commit and returns its path.
+func createBareRepo(t *testing.T) string {
+	t.Helper()
+
+	bare := filepath.Join(t.TempDir(), "bare.git")
+	work := filepath.Join(t.TempDir(), "work")
+
+	cmd := exec.Command("git", "init", "--bare", bare)
+	require.NoError(t, cmd.Run())
+
+	cmd = exec.Command("git", "clone", bare, work)
+	require.NoError(t, cmd.Run())
+
+	require.NoError(t, os.WriteFile(filepath.Join(work, "README.md"), []byte("# boards\n"), 0o644))
+
+	cmd = exec.Command("git", "add", "README.md")
+	cmd.Dir = work
+	require.NoError(t, cmd.Run())
+
+	cmd = exec.Command("git", "commit", "-m", "initial commit")
+	cmd.Dir = work
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+	require.NoError(t, cmd.Run())
+
+	cmd = exec.Command("git", "push", "origin", "main")
+	cmd.Dir = work
+	require.NoError(t, cmd.Run())
+
+	return bare
+}
+
+func TestNewManager_CloneOnEmpty(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	bare := createBareRepo(t)
+	target := filepath.Join(t.TempDir(), "boards")
+
+	mgr, err := NewManager(target, bare)
+	require.NoError(t, err)
+	assert.NotNil(t, mgr)
+
+	// Verify the clone has the commit from the bare repo
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "initial commit", strings.TrimSpace(msg))
+
+	// Verify origin remote is set
+	assert.True(t, mgr.HasRemote())
+}
+
+func TestNewManager_EmptyCloneURL_InitsRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewManager(tmpDir, "")
+	require.NoError(t, err)
+	assert.NotNil(t, mgr)
+
+	// Should be an empty init'd repo, no commits
+	count, err := mgr.CommitCount()
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// No remote should be configured
+	assert.False(t, mgr.HasRemote())
+}
+
+func TestNewManager_ExistingRepo_IgnoresCloneURL(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	// Create a repo with a commit
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "")
+	require.NoError(t, err)
+	mgr.SetAuthor("Test", "test@test.com")
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("local"), 0o644))
+	require.NoError(t, mgr.CommitFile("file.txt", "local commit"))
+
+	// Re-open with a clone URL — should open existing, not clone
+	mgr2, err := NewManager(tmpDir, "git@example.com:user/repo.git")
+	require.NoError(t, err)
+
+	msg, err := mgr2.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "local commit", strings.TrimSpace(msg))
+}
+
+func TestNewManager_CloneURL_AddsRemoteToExistingRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Init a repo without a remote
+	mgr, err := NewManager(tmpDir, "")
+	require.NoError(t, err)
+	assert.False(t, mgr.HasRemote())
+
+	// Re-open with a clone URL — should add origin remote
+	mgr2, err := NewManager(tmpDir, "git@example.com:user/boards.git")
+	require.NoError(t, err)
+	assert.True(t, mgr2.HasRemote())
 }

@@ -67,7 +67,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	run(t, clone, "git", "push", "origin", "HEAD")
 
 	// Set up Go objects.
-	gitMgr, err := gitops.NewManager(clone)
+	gitMgr, err := gitops.NewManager(clone, "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(clone)
@@ -97,7 +97,7 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 
 func TestNewSyncer_NoRemote(t *testing.T) {
 	dir := t.TempDir()
-	gitMgr, err := gitops.NewManager(dir)
+	gitMgr, err := gitops.NewManager(dir, "")
 	require.NoError(t, err)
 
 	syncer := NewSyncer(gitMgr, nil, nil, nil, dir, true, true, time.Minute)

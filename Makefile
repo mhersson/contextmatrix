@@ -1,4 +1,4 @@
-.PHONY: build run test test-race fmt lint build-frontend install-frontend install install-config clean
+.PHONY: build run test test-race fmt lint build-frontend install-frontend install install-config docker-build clean
 
 build: build-frontend
 	go build -o contextmatrix ./cmd/contextmatrix
@@ -26,6 +26,9 @@ build-frontend:
 
 install: build-frontend
 	go install ./cmd/contextmatrix
+
+docker-build:
+	docker build -t contextmatrix .
 
 install-config:
 	scripts/install.sh

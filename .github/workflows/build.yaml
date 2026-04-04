@@ -1,0 +1,27 @@
+name: Build and Push
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build image
+      run: |
+        docker build \
+          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ github.sha }} \
+          -t harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest \
+          .
+
+    - name: Push image
+      run: |
+        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:${{ github.sha }}
+        docker push harbor.skynetlabs.icu/apps/contextmatrix/contextmatrix:latest
+
+    - name: Clean up
+      if: always()
+      run: docker image prune -f

@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+web/node_modules
+web/dist
+boards/
+config.yaml
+contextmatrix
+docs/
