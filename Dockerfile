@@ -21,5 +21,6 @@ FROM alpine:3.23
 RUN apk add --no-cache git openssh-client ca-certificates
 COPY --from=backend /contextmatrix /usr/local/bin/contextmatrix
 COPY skills/ /etc/contextmatrix/skills/
+ENV HOME=/home/nobody
 USER nobody
 ENTRYPOINT ["contextmatrix"]
