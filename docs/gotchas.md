@@ -35,6 +35,13 @@
 - **Frontend embed:** `//go:embed web/dist/*` in `main.go`. Must build frontend
   _before_ building Go binary. SPA routing requires a fallback to `index.html`
   for all non-API, non-file routes.
+- **404 handling is React Router's job:** `newSPAHandler` returns `index.html`
+  for every path that isn't an `/api/` prefix, `/healthz`, `/mcp`, or a real
+  static file. The Go layer never returns a 404 for UI paths. Unknown routes are
+  caught by `<Route path="*" element={<NotFound />} />` placed as the last route
+  in both `App.tsx` (top-level) and `ProjectShell.tsx` (nested project routes).
+  If you add a new `Routes` subtree, add its own catch-all or users will see a
+  blank screen instead of the 404 page.
 - **Tailwind purge:** `content` in `tailwind.config.js` must include
   `./src/**/*.tsx` or classes get stripped.
 - **Activity log bloat:** capped at 50 entries in frontmatter. Older entries are

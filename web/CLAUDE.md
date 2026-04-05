@@ -196,3 +196,42 @@ navigates to the parent card (same handler as subtask navigation).
 - The parent badge button in CardItem has no `aria-label`. Adding
   `aria-label={\`Navigate to parent \${card.parent}\`}` would improve screen
   reader accessibility.
+
+## 404 / Not Found handling
+
+ContextMatrix is a SPA served by a Go backend that returns `index.html` for all
+non-API, non-static paths (see `newSPAHandler` in `cmd/contextmatrix/main.go`).
+Unknown URL handling therefore lives entirely in React Router, not the backend.
+
+### Catch-all routes
+
+`<Route path="*" element={<NotFound />} />` is registered as the last route at
+**two levels**:
+
+| File | Scope |
+|---|---|
+| `web/src/App.tsx` | Top-level routes (`/`, `/all`, `/projects/:project/*`) |
+| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/dashboard`, `/settings`) |
+
+Both levels must have the catch-all so that:
+- `/unknown-top-level` is caught by `App.tsx`
+- `/projects/alpha/unknown-sub-page` is caught by `ProjectShell.tsx`
+
+### NotFound component
+
+`web/src/components/NotFound/NotFound.tsx` — a self-contained 404 page.
+
+- Uses CSS variables only (`--bg0`, `--fg`, `--red`, `--grey1`, `--aqua`,
+  `--bg2`, `--bg3`). No hardcoded colours.
+- The `404` indicator is `aria-hidden="true"` (decorative); the heading is an
+  `h1` for accessibility.
+- A `<Link to="/">Go home</Link>` returns the user to the root, which
+  `RedirectToLastProject` then forwards to the most-recently-visited project.
+- Exported via `web/src/components/NotFound/index.ts` barrel (standard pattern).
+
+### Adding routes in future
+
+When adding a new top-level route in `App.tsx` or a new nested route in
+`ProjectShell.tsx`, always keep the `path="*"` catch-all as the **last** entry.
+React Router evaluates routes in declaration order, so inserting a route after
+the catch-all has no effect.
