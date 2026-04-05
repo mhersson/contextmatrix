@@ -10,6 +10,7 @@ import { ProjectShell } from './components/ProjectShell';
 import { RedirectToLastProject } from './components/RedirectToLastProject';
 import { AllProjectsDashboard } from './components/AllProjectsDashboard';
 import { NewProjectWizard } from './components/NewProjectWizard/NewProjectWizard';
+import { NotFound } from './components/NotFound';
 import { ToastContainer } from './components/Toast';
 import type { ProjectConfig } from './types';
 
@@ -44,6 +45,7 @@ function AppInner() {
                 <Route index element={<RedirectToLastProject />} />
                 <Route path="projects/:project/*" element={<ProjectShell />} />
                 <Route path="all" element={<AllProjectsDashboard />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </ErrorBoundary>
           </div>
