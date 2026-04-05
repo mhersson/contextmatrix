@@ -339,7 +339,9 @@ Each container is sandboxed from the host machine — no access to your filesyst
 or other processes. When the task finishes (or fails), the container is
 destroyed. This makes remote execution safe to run unattended: a misbehaving
 agent cannot affect the host, and any damage is contained to a throwaway
-environment you can discard.
+environment you can discard. See the
+[contextmatrix-runner README](https://github.com/mhersson/contextmatrix-runner)
+for a demo video of the full autonomous workflow.
 
 ```mermaid
 sequenceDiagram
