@@ -4,8 +4,10 @@ package mcp
 
 import (
 	"crypto/subtle"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -36,10 +38,31 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 		func(_ *http.Request) *mcp.Server { return server },
 		nil,
 	)
+	// Wrap with write-deadline clearing for GET requests. The MCP Streamable HTTP
+	// transport uses a long-lived SSE stream on GET /mcp. Like the SSE endpoint,
+	// it must not be subject to the server's absolute WriteTimeout.
+	wrapped := clearWriteDeadlineForStreaming(handler)
 	if apiKey == "" {
-		return handler
+		return wrapped
 	}
-	return mcpAuthMiddleware(handler, apiKey)
+	return mcpAuthMiddleware(wrapped, apiKey)
+}
+
+// clearWriteDeadlineForStreaming wraps an http.Handler and disables the write
+// deadline for GET requests, which use long-lived SSE streaming. POST and DELETE
+// requests are short-lived and keep the normal write timeout.
+func clearWriteDeadlineForStreaming(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			rc := http.NewResponseController(w)
+			if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+				// Non-fatal: log and continue. The connection may still work but
+				// could be subject to the server's WriteTimeout.
+				slog.Debug("MCP could not clear write deadline", "error", err)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // mcpAuthMiddleware wraps an http.Handler with Bearer token authentication.

@@ -20,6 +20,18 @@
   (agents) never set this flag, so their commits continue to defer normally.
 - **SSE headers:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
   `Connection: keep-alive`. Must call `Flusher.Flush()` after each event.
+- **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
+  is an absolute deadline measured from when request headers are read — it is
+  NOT reset by intermediate writes (keepalive comments, partial event data, etc.).
+  Long-lived SSE connections will always hit it, causing the client to see an
+  abrupt disconnect every `WriteTimeout` seconds regardless of keepalive activity.
+  The fix is `http.NewResponseController(w).SetWriteDeadline(time.Time{})` called
+  before entering the streaming loop. This clears the deadline for that one
+  connection only; all other endpoints keep the server-wide timeout.
+  Applied in `internal/api/events.go` (SSE event stream) and as the
+  `clearWriteDeadlineForStreaming` middleware in `internal/mcp/server.go` (MCP
+  GET stream). The MCP middleware scopes the clear to `GET` requests only —
+  `POST` and `DELETE` (short RPC calls) retain the normal `WriteTimeout`.
 - **Frontend embed:** `//go:embed web/dist/*` in `main.go`. Must build frontend
   _before_ building Go binary. SPA routing requires a fallback to `index.html`
   for all non-API, non-file routes.

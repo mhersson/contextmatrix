@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -309,4 +311,55 @@ func TestStreamEvents_NoFlusher(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.code)
 	assert.Contains(t, string(w.body), "streaming not supported")
+}
+
+// TestStreamEvents_SurvivesWriteTimeout verifies that the SSE handler survives
+// past the server's WriteTimeout by clearing the per-connection write deadline
+// via http.ResponseController before entering the event loop.
+func TestStreamEvents_SurvivesWriteTimeout(t *testing.T) {
+	bus := events.NewBus()
+	eh := newEventHandlers(bus)
+	// Use a keepalive shorter than the write timeout so we can receive data
+	// after the original deadline would have expired.
+	eh.keepaliveInterval = 50 * time.Millisecond
+
+	// Build a real httptest.Server with a very short WriteTimeout.
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(eh.streamEvents))
+	srv.Config.WriteTimeout = 100 * time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	// Connect to the SSE endpoint over a real TCP connection.
+	conn, err := net.DialTimeout("tcp", srv.Listener.Addr().String(), 2*time.Second)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// Send a minimal HTTP/1.1 GET request.
+	_, err = conn.Write([]byte("GET /api/events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n"))
+	require.NoError(t, err)
+
+	// Read response lines until we collect at least 2 SSE comment lines
+	// (": connected" and at least one ": keepalive"), or until timeout.
+	// The second keepalive must arrive after the original 100ms WriteTimeout
+	// would have killed the connection, proving the deadline was cleared.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+
+	scanner := bufio.NewScanner(conn)
+	var sseComments []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, ": ") {
+			sseComments = append(sseComments, line)
+			// Once we have the initial ": connected" plus at least one ": keepalive"
+			// after 100ms+ has passed, the test is satisfied.
+			if len(sseComments) >= 2 {
+				break
+			}
+		}
+	}
+
+	require.GreaterOrEqual(t, len(sseComments), 2,
+		"expected at least 2 SSE comment lines (connected + keepalive); connection may have been killed by WriteTimeout")
+	assert.Equal(t, ": connected", sseComments[0])
+	assert.Equal(t, ": keepalive", sseComments[1])
 }

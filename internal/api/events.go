@@ -37,6 +37,16 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Disable write deadline for this connection. The server's WriteTimeout is an
+	// absolute deadline from when request headers are read — it is not reset by
+	// intermediate writes. SSE connections are long-lived and must survive past it.
+	// http.ResponseController.SetWriteDeadline(time.Time{}) clears the deadline for
+	// this connection only, leaving the timeout intact for all other endpoints.
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		slog.Debug("SSE could not clear write deadline", "error", err)
+	}
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
