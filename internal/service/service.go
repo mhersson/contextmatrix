@@ -29,6 +29,15 @@ const (
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
 	// The autonomous prompt halts at 2, but a misbehaving agent could keep incrementing.
 	maxReviewAttempts = 5
+
+	// Field length limits to prevent abuse.
+	maxTitleLen   = 500
+	maxBodyLen    = 512 * 1024 // 512 KB
+	maxLabelLen   = 100
+	maxLabels     = 50
+	maxAgentIDLen = 256
+	maxLogMessage = 2000
+	maxLogAction  = 200
 )
 
 // CreateCardInput contains the fields for creating a new card.
@@ -573,6 +582,11 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		card.BranchName = generateBranchName(card.ID, card.Title)
 	}
 
+	// Validate field length limits.
+	if err := validateFieldLimits(card.Title, card.Body, card.Labels); err != nil {
+		return nil, err
+	}
+
 	// Validate card fields
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
@@ -638,6 +652,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	cfg, err := s.getConfig(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("get project config: %w", err)
+	}
+
+	// Validate field length limits.
+	if err := validateFieldLimits(input.Title, input.Body, input.Labels); err != nil {
+		return nil, err
 	}
 
 	// Track if state changed for event type
@@ -826,6 +845,24 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	cfg, err := s.getConfig(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("get project config: %w", err)
+	}
+
+	// Validate field length limits for provided fields.
+	if input.Title != nil && len(*input.Title) > maxTitleLen {
+		return nil, fmt.Errorf("title length %d exceeds limit of %d: %w", len(*input.Title), maxTitleLen, ErrFieldTooLong)
+	}
+	if input.Body != nil && len(*input.Body) > maxBodyLen {
+		return nil, fmt.Errorf("body length %d exceeds limit of %d: %w", len(*input.Body), maxBodyLen, ErrFieldTooLong)
+	}
+	if input.Labels != nil {
+		if len(input.Labels) > maxLabels {
+			return nil, fmt.Errorf("label count %d exceeds limit of %d: %w", len(input.Labels), maxLabels, ErrFieldTooLong)
+		}
+		for _, l := range input.Labels {
+			if len(l) > maxLabelLen {
+				return nil, fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
+			}
+		}
 	}
 
 	// Track if state changed
@@ -1019,6 +1056,14 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
 	id = strings.ToUpper(id)
+
+	if len(entry.Message) > maxLogMessage {
+		return fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
+	}
+	if len(entry.Action) > maxLogAction {
+		return fmt.Errorf("action length %d exceeds limit of %d: %w", len(entry.Action), maxLogAction, ErrFieldTooLong)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1357,6 +1402,11 @@ func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*
 // Flow: lock claim → store update → git commit → publish event.
 func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
+	if err := validateAgentIDFormat(agentID); err != nil {
+		return nil, err
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -2110,6 +2160,35 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 }
 
 // ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
+var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
+
+// validateFieldLimits checks that user-supplied string fields do not exceed length limits.
+func validateFieldLimits(title, body string, labels []string) error {
+	if len(title) > maxTitleLen {
+		return fmt.Errorf("title length %d exceeds limit of %d: %w", len(title), maxTitleLen, ErrFieldTooLong)
+	}
+	if len(body) > maxBodyLen {
+		return fmt.Errorf("body length %d exceeds limit of %d: %w", len(body), maxBodyLen, ErrFieldTooLong)
+	}
+	if len(labels) > maxLabels {
+		return fmt.Errorf("label count %d exceeds limit of %d: %w", len(labels), maxLabels, ErrFieldTooLong)
+	}
+	for _, l := range labels {
+		if len(l) > maxLabelLen {
+			return fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
+		}
+	}
+	return nil
+}
+
+// validateAgentIDFormat checks that an agent ID is within length limits.
+func validateAgentIDFormat(agentID string) error {
+	if len(agentID) > maxAgentIDLen {
+		return fmt.Errorf("agent_id length %d exceeds limit of %d: %w", len(agentID), maxAgentIDLen, ErrFieldTooLong)
+	}
+	return nil
+}
+
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
 // ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.

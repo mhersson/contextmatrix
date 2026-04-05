@@ -224,6 +224,8 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -325,6 +327,8 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", err.Error())
 	case errors.Is(err, service.ErrReviewAttemptsCapped):
 		writeError(w, http.StatusConflict, ErrCodeValidationError, "review attempts limit reached", err.Error())
+	case errors.Is(err, service.ErrFieldTooLong):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "field exceeds maximum length", err.Error())
 	case errors.Is(err, service.ErrProtectedBranch):
 		writeError(w, http.StatusForbidden, ErrCodeProtectedBranch, "pushing to main/master is never allowed", "")
 	case errors.Is(err, storage.ErrInvalidPath):
