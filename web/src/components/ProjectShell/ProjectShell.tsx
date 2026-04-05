@@ -14,6 +14,7 @@ import { Dashboard } from '../Dashboard';
 import { ProjectSettings } from '../ProjectSettings/ProjectSettings';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
+import { NotFound } from '../NotFound';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 
 export function ProjectShell() {
@@ -164,6 +165,7 @@ export function ProjectShell() {
               />
             }
           />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
 
