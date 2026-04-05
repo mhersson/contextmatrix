@@ -32,6 +32,11 @@
   `clearWriteDeadlineForStreaming` middleware in `internal/mcp/server.go` (MCP
   GET stream). The MCP middleware scopes the clear to `GET` requests only —
   `POST` and `DELETE` (short RPC calls) retain the normal `WriteTimeout`.
+  **Critical:** `ResponseController` finds the underlying connection by calling
+  `Unwrap()` on the `ResponseWriter`. Any middleware that wraps the writer (e.g.,
+  the logging middleware's `responseWriter`) must implement
+  `Unwrap() http.ResponseWriter` or `SetWriteDeadline` silently fails — the
+  error is non-fatal, so the handler continues but the timeout stays active.
 - **Frontend embed:** `//go:embed web/dist/*` in `main.go`. Must build frontend
   _before_ building Go binary. SPA routing requires a fallback to `index.html`
   for all non-API, non-file routes.
