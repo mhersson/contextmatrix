@@ -20,7 +20,7 @@ Read these when working on the relevant area:
 | Document                                           | Contents                                                                                                                                                                   |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)     | Component responsibilities, data flow, git repo scope, file layout. Read when modifying service layer, store, git, or lock interactions.                                   |
-| [`docs/agent-workflow.md`](docs/agent-workflow.md) | Phase 2 orchestration model, skill files, slash commands, workflow steps, blocker recovery, implementation order. Read when working on MCP, skills, or agent coordination. |
+| [`docs/agent-workflow.md`](docs/agent-workflow.md) | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. |
 | [`docs/data-model.md`](docs/data-model.md)         | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation.                |
 | [`docs/api-reference.md`](docs/api-reference.md)   | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                                         |
 | [`docs/gotchas.md`](docs/gotchas.md)               | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                                           |
@@ -37,7 +37,7 @@ internal/gitops/             → GitManager (commit, pull, push via go-git)
 internal/lock/               → agent claim/release/heartbeat + timeout checker
 internal/service/            → CardService: orchestrates store, git, lock, events, state machine
 internal/api/                → REST API handlers (stdlib http.ServeMux) + SSE endpoint
-internal/mcp/                → MCP server: tools + prompts (Phase 2)
+internal/mcp/                → MCP server: tools + prompts
 internal/runner/             → webhook client for contextmatrix-runner
 internal/events/             → in-process pub/sub event bus
 internal/config/             → global config loading
@@ -59,7 +59,7 @@ details.
 - **go-yaml v3** — YAML frontmatter (`gopkg.in/yaml.v3`)
 - **goldmark** — markdown rendering for preview (`github.com/yuin/goldmark`)
 - **Go MCP SDK** — MCP server via Streamable HTTP
-  (`github.com/modelcontextprotocol/go-sdk`) (Phase 2)
+  (`github.com/modelcontextprotocol/go-sdk`)
 - **React 19 + TypeScript** — frontend
 - **Vite** — frontend build
 - **Tailwind CSS** — styling

@@ -1,7 +1,6 @@
-# Phase 2: Agent Orchestration Architecture
+# Agent Orchestration Architecture
 
-This section describes the agreed design for how AI agents coordinate work
-through ContextMatrix in Phase 2.
+This document describes how AI agents coordinate work through ContextMatrix.
 
 ## Orchestration model
 
@@ -85,16 +84,16 @@ multi-turn flow because sub-agents cannot relay back-and-forth user messages
 through the `Agent` tool.
 
 **Server-side inline execution for model-matched skills:** `review-task` and
-`create-plan` (Phase 1 only) support **inline execution** when the
-orchestrator's model matches the skill's required model. This is controlled by
-the `get_skill` tool: when the orchestrator passes its model family as
-`caller_model` and it matches the skill model, `get_skill` returns the content
-wrapped in a lifecycle-enforcing inline preamble and sets `inline: true` in the
-response. The delegation wrapper instructs the orchestrator to execute inline
-when `inline` is true, or delegate as usual when false. This saves the overhead
-of spawning a sub-agent on the same model the orchestrator is already running.
-When `caller_model` is absent (backward compatibility), `inline` is always false
-and behavior is identical to the standard delegation flow.
+`create-plan` support **inline execution** when the orchestrator's model matches
+the skill's required model. This is controlled by the `get_skill` tool: when the
+orchestrator passes its model family as `caller_model` and it matches the skill
+model, `get_skill` returns the content wrapped in a lifecycle-enforcing inline
+preamble and sets `inline: true` in the response. The delegation wrapper
+instructs the orchestrator to execute inline when `inline` is true, or delegate
+as usual when false. This saves the overhead of spawning a sub-agent on the same
+model the orchestrator is already running. When `caller_model` is absent,
+`inline` is always false and behavior is identical to the standard delegation
+flow.
 
 ```
 skills/
@@ -482,17 +481,3 @@ needed for MCP tools.
 If `Edit` or `Write` is not in the target project's allowlist, execution agents
 will report `TASK_BLOCKED` with an actionable error message explaining what
 permissions are needed. The user must update the project's permissions config.
-
-## Implementation order
-
-The Phase 2 dependency chain for the agent orchestration workflow is:
-
-```
-P2.1 (MCP tools — extended set)
-P2.2 (MCP transport + prompts) ◄── P2.1
-P2.4 (dependency enforcement) ◄── P2.1
-P2.10 (skill files) ◄── P2.2
-P2.8 (token tracking) ◄── P2.1
-P2.12 (dashboard) ◄── P2.8
-P2.9 (orchestrator — headless mode only, deferred)
-```
