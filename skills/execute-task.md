@@ -267,9 +267,9 @@ If the parent card shows `autonomous: true`:
 At the end of your work, if the parent card does not have `autonomous: true`:
 
 - **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
-  commit your changes to the feature branch but do NOT push or create a PR.
-  Do not ask the user — your output goes to the orchestrator, not the user.
-  The orchestrator handles push, PR creation, and user interaction after review.
+  do NOT commit. Leave your changes in the working tree. The orchestrator
+  handles committing after all work (including documentation) is complete,
+  so the user sees the full picture before any commits are made.
 - **If invoked directly** (the user ran the skill themselves in their
   conversation): ask "Want me to commit these changes?" before committing.
   If on a feature branch, follow up with: "Want me to push and create a PR?"
@@ -279,7 +279,8 @@ At the end of your work, if the parent card does not have `autonomous: true`:
 
 If no `branch_name` is set on the parent card:
 
-- Commit your changes on the current branch.
+- **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
+- **If invoked directly**: commit your changes on the current branch.
 - Do NOT push.
 
 ## Rules

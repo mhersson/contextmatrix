@@ -21,6 +21,11 @@ documented. This makes the documentation work visible in the UI (pulsating
 border + agent badge). The card stays in its current state — claiming does not
 change it.
 
+If the claim fails (409 — already claimed by another agent), log a warning but
+continue without claiming. The documentation work does not require a claim — it
+is a nice-to-have for UI visibility. Do NOT report as blocked; proceed with
+Step 2.
+
 Review the card details provided above thoroughly. Only call `get_task_context`
 if you need to verify the absolute latest state. Review:
 
@@ -93,15 +98,22 @@ If the card context shows **Autonomous: true**:
 
 If the card context does not show **Autonomous: true**:
 
-- Ask: "Want me to commit these documentation changes?"
-- If on a feature branch, follow up with: "Want me to push?"
-- Never push without explicit human approval in HITL mode.
+- **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
+  do NOT commit. Leave your documentation changes in the working tree. The
+  orchestrator handles committing after documentation is complete, so the user
+  sees all changes (code + docs) before any commits are made.
+- **If invoked directly** (the user ran the skill themselves in their
+  conversation): ask "Want me to commit these documentation changes?" before
+  committing. If on a feature branch, follow up with: "Want me to push?"
+  Never push without explicit human approval in HITL mode.
 
 ### No Feature Branch
 
 If no **Branch** is shown in the card context:
 
-- Commit your documentation changes on the current branch.
+- **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
+- **If invoked directly**: commit your documentation changes on the current
+  branch.
 - Do NOT push.
 
 ## Step 5: Release the card

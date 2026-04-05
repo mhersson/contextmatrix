@@ -213,15 +213,22 @@ sub-agent with the returned `model` as described below.
        documentation.
      - **User rejects** (says "reject", "send back", "needs work", etc.): handle
        the rejection loop (see below).
-6. After the user approves, call
+6. After the user approves, release your claim on the parent card so the
+   documentation agent can claim it:
+   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Then call
    `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
    If `inline` is true, execute the documentation directly. Otherwise, spawn a
    documentation sub-agent using the `Agent` tool with `model` from the response,
    `description` set to `"document-task for <parent_id>"`, and `prompt` set to
    the returned `content`.
-7. After documentation, if the parent card has a feature branch, ask the user:
-   **"Want me to push these changes and create a PR?"** If they approve, push
-   to the feature branch and create a PR. Call
+7. After documentation completes, ask the user: **"Want me to commit these
+   changes?"** Do NOT offer to commit earlier (e.g., between review and
+   documentation) — all changes (code + docs) are committed together so the
+   user sees the complete picture first. If the user approves the commit and
+   the parent card has a feature branch, follow up with: **"Want me to push
+   and create a PR?"** If they approve, push to the feature branch and create
+   a PR. Call
    `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
 
 ### Review rejection loop
@@ -281,18 +288,26 @@ to completion. Do NOT stop partway:
       `prompt` so the planner creates fix subtasks scoped only to the issues raised.
    d. After new subtasks are created, loop back to step 1 (Execute). Repeat
       steps 1–4 until the user approves.
-5. **Documentation** — After review approval, call
+5. **Documentation** — After review approval, release your claim on the parent
+   card so the documentation agent can claim it:
+   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Then call
    `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
    If `inline` is true, execute directly; otherwise spawn a documentation
    sub-agent via the `Agent` tool with the returned `model` and `content`.
-6. **Push** — If the parent card has a feature branch, ask the user: **"Want me
-   to push these changes and create a PR?"** If they approve, push to the
-   feature branch and create a PR. Call
-   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-7. **Done** — After documentation, call `report_usage` one final time to
-   capture any remaining orchestrator token consumption (e.g., tokens used
-   during review presentation, user interaction, and documentation spawning
-   that occurred after the last monitoring-loop report):
+6. **Commit** — After documentation completes, ask the user: **"Want me to
+   commit these changes?"** Do NOT offer to commit earlier (e.g., between
+   review and documentation) — all changes (code + docs) are committed together
+   so the user sees the complete picture first. If the user approves and the
+   parent card has a feature branch, follow up with: **"Want me to push and
+   create a PR?"** If they approve, push to the feature branch and create a PR.
+   Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+7. **Done** — After committing, re-claim the parent card for final lifecycle
+   steps: `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Call `report_usage` one final time to capture any remaining orchestrator
+   token consumption (e.g., tokens used during review presentation, user
+   interaction, and documentation spawning that occurred after the last
+   monitoring-loop report):
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier from your system context (e.g., the
