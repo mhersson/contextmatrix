@@ -249,6 +249,12 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap returns the underlying ResponseWriter, enabling http.ResponseController
+// to reach the connection for SetWriteDeadline/SetReadDeadline calls.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
 // Flush implements http.Flusher by delegating to the underlying writer.
 func (rw *responseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
