@@ -111,7 +111,19 @@ source:
   external_id: PROJ-1234
   external_url: https://company.atlassian.net/browse/PROJ-1234
 custom:
-  branch_name: feat/user-auth
+  some_key: some_value
+autonomous: true
+feature_branch: true
+create_pr: true
+branch_name: feat/ALPHA-001-implement-user-auth
+pr_url: https://github.com/org/repo/pull/42
+review_attempts: 0
+runner_status: ""
+token_usage:
+  model: claude-sonnet-4-6
+  prompt_tokens: 12340
+  completion_tokens: 5670
+  estimated_cost_usd: 0.122
 created: 2026-03-30T10:00:00Z
 updated: 2026-03-30T14:30:00Z
 activity_log:
@@ -170,25 +182,34 @@ These are the authoritative struct definitions.
 // internal/board/card.go
 
 type Card struct {
-    ID            string            `yaml:"id"              json:"id"`
-    Title         string            `yaml:"title"           json:"title"`
-    Project       string            `yaml:"project"         json:"project"`
-    Type          string            `yaml:"type"            json:"type"`
-    State         string            `yaml:"state"           json:"state"`
-    Priority      string            `yaml:"priority"        json:"priority"`
-    AssignedAgent string            `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
-    LastHeartbeat *time.Time        `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
-    Parent        string            `yaml:"parent,omitempty"         json:"parent,omitempty"`
-    Subtasks      []string          `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
-    DependsOn     []string          `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
-    Context       []string          `yaml:"context,omitempty"        json:"context,omitempty"`
-    Labels        []string          `yaml:"labels,omitempty"         json:"labels,omitempty"`
-    Source        *Source           `yaml:"source,omitempty"         json:"source,omitempty"`
-    Custom        map[string]any    `yaml:"custom,omitempty"         json:"custom,omitempty"`
-    Created       time.Time         `yaml:"created"         json:"created"`
-    Updated       time.Time         `yaml:"updated"         json:"updated"`
-    ActivityLog   []ActivityEntry   `yaml:"activity_log,omitempty"   json:"activity_log,omitempty"`
-    Body          string            `yaml:"-"               json:"body"`
+    ID             string          `yaml:"id"              json:"id"`
+    Title          string          `yaml:"title"           json:"title"`
+    Project        string          `yaml:"project"         json:"project"`
+    Type           string          `yaml:"type"            json:"type"`
+    State          string          `yaml:"state"           json:"state"`
+    Priority       string          `yaml:"priority"        json:"priority"`
+    AssignedAgent  string          `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
+    LastHeartbeat  *time.Time      `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
+    Parent         string          `yaml:"parent,omitempty"         json:"parent,omitempty"`
+    Subtasks       []string        `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
+    DependsOn      []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
+    DependenciesMet *bool          `yaml:"-"                        json:"dependencies_met,omitempty"`
+    Context        []string        `yaml:"context,omitempty"        json:"context,omitempty"`
+    Labels         []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
+    Source         *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
+    Custom         map[string]any  `yaml:"custom,omitempty"         json:"custom,omitempty"`
+    Autonomous     bool            `yaml:"autonomous,omitempty"     json:"autonomous,omitempty"`
+    FeatureBranch  bool            `yaml:"feature_branch,omitempty" json:"feature_branch,omitempty"`
+    CreatePR       bool            `yaml:"create_pr,omitempty"      json:"create_pr,omitempty"`
+    BranchName     string          `yaml:"branch_name,omitempty"    json:"branch_name,omitempty"`
+    PRUrl          string          `yaml:"pr_url,omitempty"         json:"pr_url,omitempty"`
+    ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
+    RunnerStatus   string          `yaml:"runner_status,omitempty"  json:"runner_status,omitempty"`
+    TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"    json:"token_usage,omitempty"`
+    Created        time.Time       `yaml:"created"                  json:"created"`
+    Updated        time.Time       `yaml:"updated"                  json:"updated"`
+    ActivityLog    []ActivityEntry `yaml:"activity_log,omitempty"   json:"activity_log,omitempty"`
+    Body           string          `yaml:"-"                        json:"body"`
 }
 
 type ActivityEntry struct {
@@ -203,29 +224,45 @@ type Source struct {
     ExternalID  string `yaml:"external_id"  json:"external_id"`
     ExternalURL string `yaml:"external_url" json:"external_url"`
 }
+
+type TokenUsage struct {
+    Model            string  `yaml:"model,omitempty"    json:"model,omitempty"`
+    PromptTokens     int64   `yaml:"prompt_tokens"      json:"prompt_tokens"`
+    CompletionTokens int64   `yaml:"completion_tokens"  json:"completion_tokens"`
+    EstimatedCostUSD float64 `yaml:"estimated_cost_usd" json:"estimated_cost_usd"`
+}
 ```
 
 ```go
 // internal/board/project.go
 
+type RemoteExecutionConfig struct {
+    Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
+    RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
+}
+
 type ProjectConfig struct {
-    Name        string              `yaml:"name"`
-    Prefix      string              `yaml:"prefix"`
-    NextID      int                 `yaml:"next_id"`
-    Repo        string              `yaml:"repo,omitempty"`
-    States      []string            `yaml:"states"`
-    Types       []string            `yaml:"types"`
-    Priorities  []string            `yaml:"priorities"`
-    Transitions map[string][]string `yaml:"transitions"`
-    Templates   map[string]string   `yaml:"-"` // loaded from templates/ dir at runtime
+    Name            string                 `yaml:"name"`
+    Prefix          string                 `yaml:"prefix"`
+    NextID          int                    `yaml:"next_id"`
+    Repo            string                 `yaml:"repo,omitempty"`
+    States          []string               `yaml:"states"`
+    Types           []string               `yaml:"types"`
+    Priorities      []string               `yaml:"priorities"`
+    Transitions     map[string][]string    `yaml:"transitions"`
+    RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty"`
+    Templates       map[string]string      `yaml:"-"` // loaded from templates/ dir at runtime
 }
 ```
 
 **Immutable fields** (set on creation, never changed): `id`, `project`,
-`created`, `source`.
+`created`, `source`. Additionally, `branch_name` is immutable after first
+generation.
 
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
-`created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`.
+`created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
+`runner_status`, `review_attempts`, `branch_name`, `token_usage`,
+`dependencies_met`.
 
 ## Reserved labels
 

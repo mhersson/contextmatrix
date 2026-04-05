@@ -1,98 +1,78 @@
-# Architecture Details
+# Architecture
 
-## Data flow for a mutation (e.g., create card)
+## Data flow
 
-```
-API handler (deserialize request, validate input)
-  → CardService.CreateCard()
-    → StateMachine.ValidateCard() — check type, state, priority are valid
-    → Store.CreateCard() — write .md file to disk, update in-memory index
-    → GitManager.CommitFiles() — git add + commit (card file + .board.yaml)
-    → EventBus.Publish(CardCreated) — notify SSE subscribers
-  ← return card to handler
+Every card mutation follows the same pipeline through the service layer:
+
+```text
+API handler (deserialize, validate)
+  → CardService
+    → StateMachine.ValidateCard() — type, state, priority checks
+    → Store.CreateCard()          — write .md file, update in-memory index
+    → GitManager.CommitFiles()    — git add + commit
+    → EventBus.Publish()          — notify SSE subscribers
+  ← return card
 ← serialize response
 ```
 
-The service layer is the single orchestration point. API handlers are thin —
-they deserialize, call the service, serialize the response. No business logic in
-handlers.
+The MCP server follows the same path — it calls `CardService` methods, never the
+store or git layer directly.
 
 ## Component responsibilities
 
-Clear ownership to avoid confusion during implementation:
-
 - **Store** (`storage.FilesystemStore`): reads/writes `.md` files and
-  `.board.yaml` to disk. Maintains in-memory index. Has NO knowledge of git,
-  events, or locking. Pure data access.
-- **GitManager** (`gitops.Manager`): stages and commits files. Has NO knowledge
-  of cards, stores, or events. Takes a file path and commit message, does git
-  operations.
+  `.board.yaml` to disk. Maintains an in-memory index. No knowledge of git,
+  events, or locking.
+- **GitManager** (`gitops.Manager`): stages and commits files. Takes a file path
+  and commit message. No knowledge of cards or events.
 - **Lock Manager** (`lock.Manager`): enforces claim/release/heartbeat rules.
-  Reads cards via the store to check ownership, but does NOT write to the store.
-  Returns modified card data to the caller. The **caller** (Service Layer)
-  handles the store write, git commit, and event publish.
-- **Event Bus** (`events.Bus`): pure pub/sub. Receives events, fans out to
-  subscribers. No logic.
+  Reads cards via the store to check ownership but does not write — it returns
+  modified card data to the caller (the service layer).
+- **Event Bus** (`events.Bus`): in-process pub/sub. Receives events, fans out to
+  subscribers.
 - **StateMachine** (`board.StateMachine`): validates transitions and card
   fields. Pure functions, no side effects.
-- **CardService** (`service.CardService`): the ONLY component that orchestrates
+- **CardService** (`service.CardService`): the only component that orchestrates
   multi-step operations. Every mutation follows: validate → store write → git
-  commit → event publish. This includes claim/release AND the heartbeat timeout
-  checker goroutine. The timeout checker lives in the service layer, not the
-  lock manager, because it needs to coordinate store + git + events.
-- **API handlers** (`api/*`): deserialize request → call CardService method →
-  serialize response. No business logic, no direct store/git/lock access.
-- **MCP server** (`mcp/*`): exposes `tools` (card operations) and `prompts`
-  (slash commands / skill file injection) via Streamable HTTP on `POST /mcp`,
-  registered on the same `http.ServeMux` as the REST API. Started and stopped
-  with the main server. Calls CardService — same as API handlers, no business
-  logic.
+  commit → event publish. Also runs the heartbeat timeout checker goroutine,
+  which lives here (not in the lock manager) because it coordinates store, git,
+  and events.
+- **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
+  serialize. No business logic, no direct store/git/lock access.
+- **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
+  files) via Streamable HTTP on `POST /mcp`. Registered on the same
+  `http.ServeMux` as the REST API.
 
 ## Git repository scope
 
-**The boards directory is a completely separate git repository from the
-ContextMatrix source code.** They must never share the same git repo.
+The boards directory is a separate git repository from the source code. The
+`GitManager` operates on `cfg.BoardsDir`, not the source tree. File paths passed
+to `CommitFiles()` are relative to that directory (e.g.,
+`project-alpha/tasks/ALPHA-001.md`).
 
-```
-~/code/contextmatrix/       # source code git repo
-  cmd/
-  internal/
-  web/
-  skills/
-  go.mod
-  config.yaml               # boards_dir: ~/boards/contextmatrix
+```text
+~/code/contextmatrix/           # source code repo
+  cmd/, internal/, web/, skills/
+  config.yaml                   # boards_dir: ~/boards/contextmatrix
 
-~/boards/contextmatrix/     # separate git repo for board data
+~/boards/contextmatrix/         # boards repo (separate git repo)
   project-alpha/
     .board.yaml
     tasks/
     templates/
-  project-beta/
-    .board.yaml
-    tasks/
-    templates/
 ```
 
-The `GitManager` is initialized at `cfg.BoardsDir` — the boards directory, NOT
-the source code root. File paths passed to `CommitFile()` are relative to
-`cfg.BoardsDir`, e.g., `project-alpha/tasks/ALPHA-001.md`.
+If the boards directory does not exist or is not a git repo on startup, the
+server creates it and runs `git init`.
 
-The default `config.yaml` should NOT use `./boards` (which implies a
-subdirectory of the source repo). Use an absolute path or a path outside the
-source tree. Example:
+`boards_dir` in `config.yaml` should point outside the source tree — an absolute
+path or a path like `~/boards/contextmatrix`, not `./boards`.
 
-```yaml
-boards_dir: ~/boards/contextmatrix
-```
+## File layout
 
-If the boards directory doesn't exist or isn't a git repo on startup, the server
-should create the directory and run `git init`.
+**Source code:**
 
-## File layout on disk
-
-**Source code repo** (e.g., `~/code/contextmatrix/`):
-
-```
+```text
 cmd/contextmatrix/main.go
 internal/
 web/
@@ -103,16 +83,15 @@ skills/
   review-task.md
   document-task.md
   init-project.md
+  run-autonomous.md
 go.mod
 config.yaml
 Makefile
-CLAUDE.md
 ```
 
-**Boards repo** (e.g., `~/Development/contextmatrix-boards/` — separate git
-repo):
+**Boards repo:**
 
-```
+```text
 project-alpha/
   .board.yaml
   templates/

@@ -7,7 +7,7 @@ Code.
 
 ## Architecture Overview
 
-```
+```text
                                    HMAC-signed webhooks
                       ┌──────────────────────────────────────────┐
                       │                                          ▼
@@ -26,7 +26,9 @@ Code.
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
 
-**contextmatrix-runner** is a separate binary (separate repository) that:
+**[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** is
+a separate binary that:
+
 - Receives trigger/kill webhooks from ContextMatrix
 - Spawns disposable Docker containers per task
 - Each container runs Claude Code in headless mode
@@ -41,8 +43,9 @@ All webhooks are signed using a shared secret configured in both ContextMatrix
 over the wire.
 
 **Signing process:**
+
 1. Marshal the JSON payload body
-2. Compute `HMAC-SHA256(shared_secret, body)` 
+2. Compute `HMAC-SHA256(shared_secret, body)`
 3. Hex-encode the result
 4. Set header: `X-Signature-256: sha256=<hex>`
 
@@ -105,7 +108,7 @@ include `X-Signature-256` header signed with the shared secret.
 }
 ```
 
-Valid `runner_status` values: `"running"`, `"failed"`.
+Valid `runner_status` values: `"running"`, `"failed"`, `"completed"`.
 
 Task completion is **not** reported via this endpoint — the Claude Code instance
 inside the container uses the normal MCP `complete_task` tool.
@@ -133,6 +136,7 @@ Or on error:
 ### Retry Policy
 
 ContextMatrix retries failed webhooks with exponential backoff:
+
 - 3 attempts total (1s, 2s, 4s delays)
 - Only retries on network errors and HTTP 5xx responses
 - HTTP 4xx responses fail immediately (no retry)
@@ -166,6 +170,7 @@ discarded. No partial saves.
 
 A single shared secret (`runner.api_key` / `api_key`) authenticates both
 directions:
+
 - ContextMatrix signs outbound webhooks to the runner
 - Runner signs status callbacks to ContextMatrix
 - Uses HMAC-SHA256 — the secret never travels over the wire
@@ -173,6 +178,7 @@ directions:
 ### MCP Authentication (Bearer Token)
 
 Optional but recommended. When `mcp_api_key` is set in ContextMatrix config:
+
 - All MCP requests must include `Authorization: Bearer <key>`
 - The key is passed to the runner in the trigger payload
 - Runner injects it into the container's CC MCP configuration
@@ -193,18 +199,19 @@ Each project can override the global runner setting:
 ```yaml
 # In .board.yaml
 remote_execution:
-  enabled: true                    # or false to disable for this project
-  runner_image: "custom/image:v2"  # optional per-project Docker image
+  enabled: true # or false to disable for this project
+  runner_image: "custom/image:v2" # optional per-project Docker image
 ```
 
 Resolution order:
+
 1. Project's `remote_execution.enabled` (if set)
 2. Global `runner.enabled` (fallback)
 
 **API responses reflect the effective state.** `GET /api/projects` and
 `GET /api/projects/{project}` always return `remote_execution.enabled` as the
-resolved value — global disabled overrides any per-project setting. Clients
-do not need to consult the global config separately; the response value is
+resolved value — global disabled overrides any per-project setting. Clients do
+not need to consult the global config separately; the response value is
 authoritative for whether the "Run Now" button should be enabled.
 
 ### Global Kill Switch
@@ -224,27 +231,31 @@ mcp_api_key: "your-bearer-token"
 # Runner integration
 runner:
   enabled: false
-  url: "http://localhost:9090"     # Runner base URL
-  api_key: "shared-hmac-secret"    # HMAC signing key
+  url: "http://localhost:9090" # Runner base URL
+  api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
+  public_url: "http://cm.lan:8080" # Public URL for MCP endpoint sent to runner containers
 ```
 
 Environment variable overrides:
+
 - `CONTEXTMATRIX_MCP_API_KEY`
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
+- `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 
 ### Runner (`config.yaml` — reference for runner implementor)
 
 ```yaml
 # ContextMatrix connection
 contextmatrix_url: "http://contextmatrix:8080"
-api_key: "shared-hmac-secret"     # Must match CM's runner.api_key
+api_key: "shared-hmac-secret" # Must match CM's runner.api_key
 
 # Container defaults
 docker_base_image: "contextmatrix/runner:latest"
-max_concurrent: 3                 # Max simultaneous containers
-container_timeout: "2h"           # Force-kill after this duration
+max_concurrent: 3 # Max simultaneous containers
+container_timeout: "2h" # Force-kill after this duration
+
 
 # Claude Code auth
 # The runner must be installed on a machine with a browser
@@ -265,21 +276,22 @@ remote_execution:
 The `runner_status` field tracks the container lifecycle independently of the
 card's workflow state:
 
-| runner_status | Meaning |
-|---|---|
-| (empty) | Not associated with runner |
-| `queued` | Trigger webhook sent, container not yet started |
-| `running` | Container is running, CC is working |
-| `failed` | Container crashed or webhook failed |
-| `killed` | User stopped the task |
+| runner_status | Meaning                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| (empty)       | Not associated with runner                                                    |
+| `queued`      | Trigger webhook sent, container not yet started                               |
+| `running`     | Container is running, CC is working                                           |
+| `failed`      | Container crashed or webhook failed                                           |
+| `killed`      | User stopped the task                                                         |
+| `completed`   | Container finished successfully (transient — cleared on transition to `done`) |
 
 Runner status is cleared when a card transitions to `done` or `not_planned`.
 
 ## Kill Switch Semantics
 
-| Action | Scope | Behavior |
-|---|---|---|
-| Stop (card) | Single card | Kills specific container, sets `runner_status: killed` |
-| Stop All | All cards in project | Kills all containers for the project |
-| `runner.enabled: false` | Global | Disables all runner features (requires restart) |
-| Per-project `enabled: false` | Single project | Hides Run Now for that project |
+| Action                       | Scope                | Behavior                                               |
+| ---------------------------- | -------------------- | ------------------------------------------------------ |
+| Stop (card)                  | Single card          | Kills specific container, sets `runner_status: killed` |
+| Stop All                     | All cards in project | Kills all containers for the project                   |
+| `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
+| Per-project `enabled: false` | Single project       | Hides Run Now for that project                         |

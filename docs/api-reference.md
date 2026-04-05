@@ -20,11 +20,20 @@ POST   /api/projects/{project}/cards/{id}/heartbeat   { "agent_id": "..." }
 POST   /api/projects/{project}/cards/{id}/log         { "agent_id": "...", "action": "...", "message": "..." }
 
 GET    /api/projects/{project}/cards/{id}/context
+POST   /api/projects/{project}/cards/{id}/usage       # report token usage
+POST   /api/projects/{project}/cards/{id}/report-push # record git push / PR
+
+GET    /api/projects/{project}/usage                  # aggregated token usage
+GET    /api/projects/{project}/dashboard              # project dashboard metrics
+POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
+
+POST   /api/sync                                      # trigger git sync (Bearer auth)
+GET    /api/sync                                       # sync status
 
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # health check
@@ -55,6 +64,125 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 - 502: runner webhook failed (bad gateway)
 - 503: runner not configured
 
+## Agent Endpoints
+
+### POST /api/projects/{project}/cards/{id}/usage
+
+Report token usage for a card. Accumulates across multiple calls.
+
+```json
+{
+  "agent_id": "claude-7a3f",
+  "model": "claude-sonnet-4-6",
+  "prompt_tokens": 1234,
+  "completion_tokens": 567
+}
+```
+
+Returns 200 with the updated card. Cost is calculated automatically from
+`token_costs` in `config.yaml` if the model matches a configured key.
+
+### POST /api/projects/{project}/cards/{id}/report-push
+
+Record a git push and optional PR URL on a card. Branch protection is enforced —
+pushing to `main` or `master` returns 403 `PROTECTED_BRANCH`.
+
+```json
+{
+  "agent_id": "claude-7a3f",
+  "branch": "feat/user-auth",
+  "pr_url": "https://github.com/org/repo/pull/42"
+}
+```
+
+Returns 200 with the updated card.
+
+## Project Endpoints
+
+### GET /api/projects/{project}/usage
+
+Returns aggregated token usage across all cards in a project.
+
+```json
+{
+  "prompt_tokens": 45000,
+  "completion_tokens": 12000,
+  "estimated_cost_usd": 0.315,
+  "card_count": 8
+}
+```
+
+### GET /api/projects/{project}/dashboard
+
+Returns dashboard metrics for a project.
+
+```json
+{
+  "state_counts": { "todo": 3, "in_progress": 2, "done": 5 },
+  "active_agents": [
+    {
+      "agent_id": "claude-7a3f",
+      "card_id": "ALPHA-003",
+      "card_title": "...",
+      "since": "...",
+      "last_heartbeat": "..."
+    }
+  ],
+  "total_cost_usd": 0.315,
+  "cards_completed_today": 2,
+  "agent_costs": [
+    {
+      "agent_id": "claude-7a3f",
+      "prompt_tokens": 30000,
+      "completion_tokens": 8000,
+      "estimated_cost_usd": 0.21,
+      "card_count": 5
+    }
+  ],
+  "card_costs": [
+    {
+      "card_id": "ALPHA-003",
+      "card_title": "...",
+      "prompt_tokens": 5000,
+      "completion_tokens": 1200,
+      "estimated_cost_usd": 0.033
+    }
+  ]
+}
+```
+
+### POST /api/projects/{project}/recalculate-costs
+
+Recalculate estimated costs for all cards in a project using current
+`token_costs` rates. Requires `default_model` for cards that have tokens but no
+model recorded.
+
+```json
+{ "default_model": "claude-sonnet-4-6" }
+```
+
+Returns:
+
+```json
+{ "cards_updated": 12, "total_cost_recalculated": 0.847 }
+```
+
+## Sync Endpoints
+
+### POST /api/sync
+
+Trigger a git pull on the boards repository. Requires
+`Authorization: Bearer <token>` when `mcp_api_key` is configured. Returns 503 if
+sync is disabled (no remote configured).
+
+### GET /api/sync
+
+Returns current sync status.
+
+```json
+{ "enabled": true, "last_sync": "2026-04-05T12:00:00Z", "error": "" }
+```
+
 ## Runner Endpoints
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full webhook
@@ -75,14 +203,13 @@ Returns the updated card with `runner_status: "killed"`.
 
 ### POST /api/projects/{project}/stop-all
 
-Stop all running remote executions in a project. Human-only.
-Returns `{ "affected_cards": ["PROJ-001", "PROJ-003"] }`.
+Stop all running remote executions in a project. Human-only. Returns
+`{ "affected_cards": ["PROJ-001", "PROJ-003"] }`.
 
 ### POST /api/runner/status
 
-Runner callback endpoint. Must include `X-Signature-256` header with
-HMAC-SHA256 signature. Accepts `runner_status` updates (`"running"`,
-`"failed"`).
+Runner callback endpoint. Must include `X-Signature-256` header with HMAC-SHA256
+signature. Accepts `runner_status` updates (`"running"`, `"failed"`).
 
 ```json
 {
