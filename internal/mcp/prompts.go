@@ -290,124 +290,6 @@ func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) strin
 	return b.String()
 }
 
-// buildAutonomousCreatePlanDelegationPrompt returns a full-chain delegation prompt
-// for autonomous mode. Unlike the HITL version, this skips user approval and chains
-// all phases: plan → subtasks (inline) → execute → docs → review → done.
-func buildAutonomousCreatePlanDelegationPrompt(cardID, getSkillArgs string) string {
-	var b strings.Builder
-	fmt.Fprintln(&b, "## AUTONOMOUS MODE — Full Lifecycle Chain")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Card **%s** has **autonomous mode** enabled. You will chain ALL phases\n", cardID)
-	fmt.Fprintln(&b, "without human approval gates. Guardrails still apply (see below).")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 1: Plan Drafting (inline)")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the skill prompt.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
-	fmt.Fprintln(&b, "3. Execute the skill content **inline** — do not spawn a sub-agent for planning.")
-	fmt.Fprintln(&b, "4. Follow the skill instructions to draft the plan and produce `PLAN_DRAFTED` output.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 2: Subtask Creation (inline)")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "5. **Skip user approval.** Create subtasks directly from the plan you just drafted.")
-	fmt.Fprintln(&b, "6. For each subtask in the plan, call `create_card` with:")
-	fmt.Fprintln(&b, "   - `parent`: the parent card ID")
-	fmt.Fprintln(&b, "   - `title`, `body`, `priority`, `depends_on` as specified in the plan")
-	fmt.Fprintln(&b, "7. Release the parent card claim: `release_card(card_id)`.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 3: Execution (sub-agents for context isolation)")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "8. Call `get_ready_tasks(project, parent_id='%s')` to get ready subtasks.\n", cardID)
-	fmt.Fprintln(&b, "9. For each ready subtask, spawn a sub-agent using the execute-task skill:")
-	fmt.Fprintln(&b, "    - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')`")
-	fmt.Fprintln(&b, "    - **Always spawn as sub-agent** (for context isolation + parallel execution)")
-	fmt.Fprintln(&b, "    - Spawn with the returned model and content")
-	fmt.Fprintln(&b, "    - Spawn subtasks in **parallel** where possible")
-	fmt.Fprintf(&b, "10. Call `heartbeat(card_id='%s', agent_id=<your_id>)` on the parent every 5 minutes.\n", cardID)
-	fmt.Fprintln(&b, "11. Wait for all sub-agents to complete.")
-	fmt.Fprintln(&b, "12. The parent card stays in `in_progress` when all subtasks are `done`. Proceed to Phase 4.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 4: Documentation (sub-agent for context isolation)")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "13. Call `get_skill(skill_name='document-task', card_id='%s')`.\n", cardID)
-	fmt.Fprintln(&b, "14. **Spawn a documentation sub-agent** (for context isolation). Wait for `DOCS_WRITTEN`.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 5: Review")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "15. Transition parent to review: `transition_card(card_id='%s', new_state='review')`.\n", cardID)
-	fmt.Fprintf(&b, "16. Call `get_skill(skill_name='review-task', card_id='%s', caller_model='<your_model>')`.\n", cardID)
-	fmt.Fprintln(&b, "17. Check the `inline` field:")
-	fmt.Fprintln(&b, "    - If `inline: true`: execute the review directly (your model matches the review model).")
-	fmt.Fprintln(&b, "    - If `inline: false`: spawn a review sub-agent with the returned `model`.")
-	fmt.Fprintln(&b, "18. Wait for `REVIEW_FINDINGS` structured output.")
-	fmt.Fprintln(&b, "19. Parse the `recommendation` field:")
-	fmt.Fprintln(&b, "    - **approve / approve_with_notes:** Proceed to Phase 6 (Finalization).")
-	fmt.Fprintln(&b, "    - **revise:** Check `review_attempts` on the card:")
-	fmt.Fprintf(&b, "      - If **< 3**: Call `update_card(card_id='%s', ...)` to increment `review_attempts`.\n", cardID)
-	fmt.Fprintf(&b, "        Transition parent back to in_progress: `transition_card(card_id='%s', new_state='in_progress')`.\n", cardID)
-	fmt.Fprintln(&b, "        Create new \"fix\" subtasks based on the review findings.")
-	fmt.Fprintln(&b, "        Go back to Phase 3 (Execution) for the fix subtasks only,")
-	fmt.Fprintln(&b, "        then Phase 4 (Documentation), then Phase 5 (Review) again.")
-	fmt.Fprintln(&b, "      - If **>= 3**: **STOP.** Print:")
-	fmt.Fprintln(&b, "        ```")
-	fmt.Fprintln(&b, "        AUTONOMOUS_HALTED")
-	fmt.Fprintf(&b, "        card_id: %s\n", cardID)
-	fmt.Fprintln(&b, "        reason: 3 review cycles completed without approval")
-	fmt.Fprintln(&b, "        action_required: human review")
-	fmt.Fprintln(&b, "        ```")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Phase 6: Git & Finalization")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "20. Transition card to `done`: `transition_card(card_id='%s', new_state='done')`.\n", cardID)
-	fmt.Fprintln(&b, "21. Print:")
-	fmt.Fprintln(&b, "    ```")
-	fmt.Fprintln(&b, "    AUTONOMOUS_COMPLETE")
-	fmt.Fprintf(&b, "    card_id: %s\n", cardID)
-	fmt.Fprintln(&b, "    status: done")
-	fmt.Fprintln(&b, "    ```")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Branch Protection (MANDATORY)")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- **NEVER push to main or master.** This is non-negotiable.")
-	fmt.Fprintln(&b, "- If the card has a `branch_name`, all work goes on that feature branch.")
-	fmt.Fprintln(&b, "- Call `report_push(card_id, branch, pr_url)` after any push.")
-	fmt.Fprintln(&b, "- Use conventional commit messages: `type(scope): summary` + body. No card IDs in commits.")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.\n")
-	return b.String()
-}
-
-// buildAutonomousReviewDelegationPrompt returns a review delegation prompt for
-// autonomous mode. Instead of asking the user for approval, it auto-processes
-// the review recommendation.
-func buildAutonomousReviewDelegationPrompt(model, cardID, getSkillArgs string) string {
-	var b strings.Builder
-	fmt.Fprintln(&b, "## AUTONOMOUS Review Workflow")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Card **%s** is in autonomous mode. The review proceeds without human approval.\n", cardID)
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Step 1: Run Review")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')`.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. If `inline: true`, execute directly. Otherwise spawn a sub-agent.")
-	fmt.Fprintf(&b, "3. Use model `%s` for the sub-agent.\n", model)
-	fmt.Fprintln(&b, "4. Wait for `REVIEW_FINDINGS` structured output.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Step 2: Auto-Process Recommendation")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "5. Parse the `recommendation`:")
-	fmt.Fprintln(&b, "   - **approve / approve_with_notes:** Proceed to finalization.")
-	fmt.Fprintln(&b, "   - **revise:** Check card's `review_attempts`.")
-	fmt.Fprintln(&b, "     If < 3: increment review_attempts, transition to in_progress, create fix subtasks, re-execute, re-document, re-review.")
-	fmt.Fprintln(&b, "     If >= 3: STOP and wait for human.")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
-	return b.String()
-}
 
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
@@ -486,8 +368,9 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 }
 
 // createPlanPromptHandler returns the handler for create-plan prompt.
-// Phase 1 drafts the plan, the orchestrator handles user approval (HITL) or
-// auto-approves (autonomous), then the orchestrator creates subtasks inline.
+// If the card has autonomous: true, returns a redirect to run-autonomous.
+// Otherwise, Phase 1 drafts the plan, the orchestrator handles user approval,
+// then creates subtasks inline.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
@@ -500,7 +383,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		}
 		getSkillArgs := fmt.Sprintf("skill_name='create-plan', card_id='%s'", cardID)
 
-		// Check if card is autonomous — use the full-chain delegation prompt.
+		// Check if card is autonomous — redirect to run-autonomous.
 		card, _, findErr := findCard(ctx, svc, cardID)
 		if findErr != nil {
 			slog.Warn("create-plan: could not look up card for autonomous check, falling back to HITL",
@@ -508,12 +391,24 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		}
 		isAutonomous := card != nil && card.Autonomous
 
-		var text string
 		if isAutonomous {
-			text = buildAutonomousCreatePlanDelegationPrompt(cardID, getSkillArgs)
-		} else {
-			text = buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
+			text := fmt.Sprintf(
+				"**Stop — wrong entry point.** Card **%s** has `autonomous: true` set, "+
+					"but you invoked the HITL `create-plan` prompt which is designed for "+
+					"human-in-the-loop workflows with approval gates.\n\n"+
+					"To run this card autonomously, use the `run-autonomous` prompt instead:\n\n"+
+					"```\n/contextmatrix:run-autonomous %s\n```\n\n"+
+					"Alternatively, if you intend to run this card interactively with human "+
+					"approval at each phase, remove `autonomous: true` from the card first.",
+				cardID, cardID,
+			)
+			return &mcp.GetPromptResult{
+				Description: "Create plan and subtasks for a card",
+				Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
+			}, nil
 		}
+
+		text := buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -639,20 +534,11 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 			model = "opus"
 		}
 
-		// Check if card is autonomous.
-		card, _, findErr := findCard(ctx, svc, cardID)
-		if findErr != nil {
-			slog.Warn("review-task: could not look up card for autonomous check, falling back to HITL",
-				"card_id", cardID, "error", findErr)
-		}
-		isAutonomous := card != nil && card.Autonomous
-
-		var text string
-		if isAutonomous {
-			text = buildAutonomousReviewDelegationPrompt(model, cardID, getSkillArgs)
-		} else {
-			text = buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
-		}
+		// Always use the HITL review prompt — even for autonomous cards.
+		// The only caller that hits this prompt handler is a human invoking
+		// the slash command; automated autonomous workflows use get_skill
+		// directly and never reach here.
+		text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},

@@ -1280,6 +1280,36 @@ func TestPrompt_CreatePlan(t *testing.T) {
 	assert.NotContains(t, content.Text, "haiku")
 }
 
+func TestPrompt_CreatePlan_AutonomousRedirect(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create a card and mark it autonomous.
+	createTestCard(t, env, "Autonomous feature", "feature", "high")
+	autonomous := true
+	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
+		Autonomous: &autonomous,
+	})
+	require.NoError(t, err)
+
+	result, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "create-plan",
+		Arguments: map[string]string{"card_id": "TEST-001"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Messages)
+
+	content, ok := result.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, ok)
+
+	// Must redirect to run-autonomous, not return the HITL delegation prompt.
+	assert.Contains(t, content.Text, "wrong entry point")
+	assert.Contains(t, content.Text, "run-autonomous")
+	assert.Contains(t, content.Text, "TEST-001")
+	// Must NOT contain HITL delegation content.
+	assert.NotContains(t, content.Text, "Planning Workflow")
+	assert.NotContains(t, content.Text, "get_skill")
+}
+
 // TestBuildCreatePlanDelegationPrompt tests the delegation prompt for the
 // plan-then-approve workflow with inline subtask creation.
 func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
