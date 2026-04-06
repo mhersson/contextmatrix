@@ -18,6 +18,22 @@ import { CardItem } from './CardItem';
 import { FilterBar } from './FilterBar';
 import { BoardSkeleton } from './BoardSkeleton';
 
+/**
+ * Returns true when the primary pointing device is coarse (touch screen).
+ * Uses the `pointer: coarse` media query with a fallback to maxTouchPoints
+ * for environments where matchMedia is unavailable (e.g. jsdom in tests).
+ *
+ * On touch devices drag-and-drop is disabled entirely so that finger scrolling
+ * does not accidentally move cards between states.
+ */
+export function isTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(pointer: coarse)').matches;
+  }
+  return navigator.maxTouchPoints > 0;
+}
+
 const PRIORITY_RANK: Record<string, number> = {
   critical: 0,
   high: 1,
@@ -64,11 +80,14 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    })
-  );
+  // Always construct the pointer sensor descriptor — hooks must be called
+  // unconditionally. On touch/mobile devices we pass no descriptors to
+  // useSensors so that finger scrolling never accidentally triggers a card
+  // drag. isTouchDevice() is stable for the page lifetime (the pointer media
+  // query doesn't change without a page reload).
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
+  const touchDevice = isTouchDevice();
+  const sensors = useSensors(...(touchDevice ? [] : [pointerSensor]));
 
   const hasFilter = Object.values(filter).some(Boolean);
 
