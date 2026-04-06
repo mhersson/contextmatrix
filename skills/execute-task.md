@@ -32,18 +32,8 @@ Review:
 
 Call `claim_card` with your card ID and your agent ID.
 
-If the claim fails (409 — already claimed), print:
-
-```
-TASK_BLOCKED
-card_id: <your card ID>
-status: blocked
-reason: Card already claimed by another agent
-blocker_cards: []
-needs_human: true
-```
-
-Then stop. Do not proceed.
+If the claim fails (409 — already claimed), print `TASK_BLOCKED` (see Step 6
+format) with `reason: Card already claimed by another agent` and stop.
 
 ## Step 3: Plan your approach
 
@@ -167,57 +157,24 @@ to redo your work. This wastes time and tokens.
 
 If you cannot complete normally, always end with one of:
 
-**Option A — Partial completion** (you did meaningful work but couldn't finish):
+- **Partial completion** — Use `TASK_COMPLETE` (Step 5 format) with
+  `summary: Partial: <what was done>. <what was NOT done and why>` and
+  `needs_human: true`.
+- **Blocked by error** — Use `TASK_BLOCKED` (Step 6 format) with the error as
+  the reason.
 
-```
-TASK_COMPLETE
-card_id: <your card ID>
-status: done
-summary: Partial: <what was accomplished>. <what was NOT completed and why>
-blockers: none
-needs_human: true
-```
+Before printing: call `add_log` describing what failed, then `report_usage`.
 
-**Option B — Blocked by error** (an error prevents meaningful progress):
-
-```
-TASK_BLOCKED
-card_id: <your card ID>
-status: blocked
-reason: <exact error message or description of what failed>
-blocker_cards: []
-needs_human: true
-```
-
-Before printing either format: call `add_log` describing what failed and what
-partial work was done, then call `report_usage` with your current token
-consumption.
-
-**The minimum guarantee:** No matter what happens, always print one of these two
-structured outputs as the very last thing you do. Even if every tool call failed.
-Even if you are unsure whether the work succeeded. An honest summary with
+**The minimum guarantee:** Always print `TASK_COMPLETE` or `TASK_BLOCKED` as the
+very last thing you do. Even if every tool call failed. An honest summary with
 `needs_human: true` is always better than silent exit.
 
 ### Permission denied errors
 
-If the `Edit` or `Write` tool is denied, this means the target project's Claude
-Code permissions do not include these tools. Report immediately:
-
-```
-TASK_BLOCKED
-card_id: <your card ID>
-status: blocked
-reason: Edit/Write tool permission denied — the target project's Claude Code
-  permissions must include Edit and Write in its settings (e.g.,
-  .claude/settings.local.json permissions.allow). Ask the project owner to add
-  "Edit" and "Write" to the allowlist.
-blocker_cards: []
-needs_human: true
-```
-
-Do NOT retry the edit, do NOT ask for permission in your output (sub-agent
-output is not shown to the user), and do NOT silently stop. Report blocked
-immediately so the orchestrator can surface the issue.
+If the `Edit` or `Write` tool is denied, print `TASK_BLOCKED` (Step 6 format)
+with `reason: Edit/Write tool permission denied — the target project must add
+Edit and Write to .claude/settings.local.json permissions.allow`.
+Do NOT retry, do NOT silently stop.
 
 ## Engineering standards
 
@@ -287,27 +244,13 @@ If no `branch_name` is set on the parent card:
 
 - **You own your card only.** Do not modify other cards. Do not transition the
   parent card.
-- **Heartbeat after every significant step.** This is not optional.
 - **Be specific in progress updates.** "Working on it" is not acceptable.
   "Implemented JWT Verify() with RS256, added 3 unit tests" is.
-- **Your final output must be the structured format above.** The main agent
-  parses it to determine next steps. Do not deviate from the format.
+- **Never pause mid-task.** Do not ask the user to commit, review your diff, or
+  approve changes. Complete the full lifecycle through `complete_task` without
+  stopping.
 - **If in doubt, report blocked.** It is better to ask for help than to produce
   incorrect work.
-- **Complete the full lifecycle.** Do NOT stop after making code changes. Do NOT
-  ask the user to commit, review your diff, or approve your changes mid-task.
-  After your work is done: update `## Progress`, call `report_usage`, call
-  `complete_task`. The lifecycle ends when `complete_task` is called — not when
-  the code is written, not when tests pass, not when you show the user a diff.
-- **Never orphan a card.** If you claimed it, you must either complete it (via
-  `complete_task`) or report it as blocked (via `transition_card` to `blocked`).
-  There is no third option. Leaving a card in `in_progress` without completing
-  or blocking it is never acceptable.
-- **Structured output is your lifeline.** Your `TASK_COMPLETE` or `TASK_BLOCKED`
-  output is how the main agent knows you finished. If you crash without printing
-  it, the main agent must detect this via stale heartbeats and respawn a
-  replacement. Always print structured output as the very last thing you do,
-  even if preceding steps partially failed.
 - **Always use MCP tools.** For all ContextMatrix board interactions, use the
   provided MCP tools (`claim_card`, `heartbeat`, `update_card`, `complete_task`,
   etc.). Never use curl, wget, or direct HTTP API calls — the MCP tools are the

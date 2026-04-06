@@ -21,8 +21,7 @@ subtasks. Return as soon as the plan is written.
 ## Step 0: Claim the card
 
 Call `claim_card(card_id, agent_id)` to mark the card as actively being planned.
-This makes the planning visible in the UI (pulsating border + agent badge). If
-the card is in `todo`, it auto-transitions to `in_progress`.
+If the card is in `todo`, it auto-transitions to `in_progress`.
 
 ## Step 1: Understand the task
 
@@ -230,6 +229,23 @@ sub-agent with the returned `model` as described below.
    and create a PR?"** If they approve, push to the feature branch and create
    a PR. Call
    `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+8. **Done** — After committing, re-claim the parent card for final lifecycle
+   steps: `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Call `report_usage` one final time to capture any remaining orchestrator
+   token consumption:
+   - `card_id`: the parent card ID
+   - `agent_id`: your agent ID
+   - `model`: your own model identifier from your system context (e.g., the
+     "You are powered by the model named X" line — do NOT hardcode a specific
+     model name)
+   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
+     since the last report
+   Then transition the parent card to `done`:
+   `transition_card(card_id=<parent_id>, new_state='done')`.
+   Then release the card claim:
+   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   **This is mandatory.** Skipping this leaves the card orphaned with an active
+   claim that blocks future work until the heartbeat timeout fires (30 minutes).
 
 ### Review rejection loop
 
@@ -255,80 +271,10 @@ When the user says "reject" / "send back" / "needs work" (after reviewing the
 If **no**: let the human know they can run
 `/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
 
-## MANDATORY: Complete the full workflow
-
-If the user chooses to execute, you MUST follow through the **entire pipeline**
-to completion. Do NOT stop partway:
-
-1. **Execute** — Spawn agents (via `get_skill` + `Agent` tool) for all ready
-   subtasks. Monitor agent health during execution using
-   `check_agent_health`. Do NOT simply wait for agents to return — poll
-   every 1 minute and respawn any stalled agents (max 2 respawns per
-   card before escalating to the human). When a subtask finishes, spawn
-   agents for newly unblocked tasks.
-2. **Review** — When ALL subtasks are done, call
-   `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute directly; otherwise spawn a review sub-agent
-   via the `Agent` tool with the returned `model` and `content`.
-   Wait for the review to complete and parse its structured output.
-   When you receive `REVIEW_FINDINGS`, call `get_card(card_id=<parent_id>)` to
-   read the `## Review Findings` section, present it to the user, and ask:
-   **"Do you approve this work, or should it be sent back for revision?"**
-3. **If user approves** — Proceed to documentation.
-4. **If user rejects** (says "reject", "send back", "needs work", etc.) — Handle
-   the rejection loop:
-   a. Call `transition_card(card_id=<parent_id>, state='in_progress')` to
-      move the parent back from `review` to `in_progress`.
-   b. Do **not** reset or touch existing done subtasks — their work is
-      preserved.
-   c. Call `get_skill(skill_name='create-plan', card_id=<parent_id>, caller_model='<your_model>')`.
-      If `inline` is true, execute directly with the rejection feedback.
-      Otherwise, spawn a new planning sub-agent via the `Agent` tool. Include
-      the rejection feedback from the `## Review Findings` section in the
-      `prompt` so the planner creates fix subtasks scoped only to the issues raised.
-   d. After new subtasks are created, loop back to step 1 (Execute). Repeat
-      steps 1–4 until the user approves.
-5. **Documentation** — After review approval, release your claim on the parent
-   card so the documentation agent can claim it:
-   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   Then call
-   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute directly; otherwise spawn a documentation
-   sub-agent via the `Agent` tool with the returned `model` and `content`.
-6. **Commit** — After documentation completes, ask the user: **"Want me to
-   commit these changes?"** Do NOT offer to commit earlier (e.g., between
-   review and documentation) — all changes (code + docs) are committed together
-   so the user sees the complete picture first. If the user approves and the
-   parent card has a feature branch, follow up with: **"Want me to push and
-   create a PR?"** If they approve, push to the feature branch and create a PR.
-   Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-7. **Done** — After committing, re-claim the parent card for final lifecycle
-   steps: `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   Call `report_usage` one final time to capture any remaining orchestrator
-   token consumption (e.g., tokens used during review presentation, user
-   interaction, and documentation spawning that occurred after the last
-   monitoring-loop report):
-   - `card_id`: the parent card ID
-   - `agent_id`: your agent ID
-   - `model`: your own model identifier from your system context (e.g., the
-     "You are powered by the model named X" line — do NOT hardcode a specific
-     model name)
-   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
-     since the last report
-   Then transition the parent card to `done`:
-   `transition_card(card_id=<parent_id>, new_state='done')`.
-   Then release the card claim:
-   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   **This is mandatory.** Skipping this leaves the card orphaned with an active
-   claim that blocks future work until the heartbeat timeout fires (30 minutes).
-
-Each phase MUST lead to the next. Do NOT create subtasks and then stop. Do NOT
-spawn execution agents and then stop. Do NOT complete review and then stop. Do
-NOT stop after a rejection — re-plan and try again.
-
 The parent card's full lifecycle is:
 `todo → in_progress → review → (if rejected) in_progress → review → … → (if approved) done`
 
-**Abandoning the workflow mid-stream is never acceptable.** If you cannot
-continue (e.g., the user asks to pause), clearly communicate where in the
-pipeline you stopped and what must happen next to resume.
+Each phase MUST lead to the next. **Abandoning the workflow mid-stream is never
+acceptable.** If you cannot continue (e.g., the user asks to pause), clearly
+communicate where in the pipeline you stopped and what must happen next to
+resume.

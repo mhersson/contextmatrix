@@ -16,8 +16,7 @@ collects the human's response.**
 ## Step 1: Claim the card and read everything
 
 First, call `claim_card(card_id, agent_id)` to mark the card as actively being
-reviewed. This makes the review visible in the UI (pulsating border + agent
-badge). The card stays in `review` state — claiming does not change it.
+reviewed. The card stays in `review` state — claiming does not change it.
 
 Review the card details provided above thoroughly. Only call `get_task_context`
 if you need to verify the absolute latest state. Review:
@@ -159,9 +158,6 @@ summary: <one-line summary>
   append the `## Review Findings` section before calling `release_card` or
   printing `REVIEW_FINDINGS`. This is mandatory — the orchestrator reads the
   card body to present findings to the human.
-- **Commit status is not a review concern.** In autonomous mode, execute-task
-  agents commit during execution — code may already be committed. In HITL mode,
-  code may still be uncommitted. Either way, never flag commit status as an issue.
 - **Do not decide.** Present your findings and recommendation, but the human
   makes the final call. The orchestrator (not you) collects the human's
   approve/reject response after you return.

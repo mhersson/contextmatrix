@@ -17,14 +17,11 @@ works, and how to use it.
 ## Step 1: Claim the card and read everything
 
 First, call `claim_card(card_id, agent_id)` to mark the card as actively being
-documented. This makes the documentation work visible in the UI (pulsating
-border + agent badge). The card stays in its current state — claiming does not
-change it.
+documented. The card stays in its current state — claiming does not change it.
 
 If the claim fails (409 — already claimed by another agent), log a warning but
-continue without claiming. The documentation work does not require a claim — it
-is a nice-to-have for UI visibility. Do NOT report as blocked; proceed with
-Step 2.
+continue without claiming. The documentation work does not require a claim. Do
+NOT report as blocked; proceed with Step 2.
 
 Review the card details provided above thoroughly. Only call `get_task_context`
 if you need to verify the absolute latest state. Review:
