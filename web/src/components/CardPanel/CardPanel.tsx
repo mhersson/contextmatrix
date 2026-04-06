@@ -8,6 +8,31 @@ import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
+// Approximate height in px of the panel content above the editor on mobile
+// (header bar ~57px + title section ~60px + type/priority/state row ~60px +
+// agent section ~50px + description label ~20px + spacing ~33px).
+const MOBILE_ABOVE_EDITOR_PX = 280;
+
+// Panel switches to full-width mode at this breakpoint (matches .card-panel CSS).
+const MOBILE_BREAKPOINT = 1024;
+
+const DEFAULT_EDITOR_HEIGHT = 250;
+
+/** True when the panel occupies the full viewport width. */
+function isMobileLayout(): boolean {
+  return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+/**
+ * Computes the editor height for mobile using the VisualViewport API.
+ * VisualViewport.height shrinks when the on-screen keyboard appears, giving us
+ * the precise usable height above the keyboard without any extra calculation.
+ */
+function computeMobileEditorHeight(): number {
+  const vvh = window.visualViewport?.height ?? window.innerHeight;
+  return Math.max(120, vvh - MOBILE_ABOVE_EDITOR_PX);
+}
+
 interface CardPanelProps {
   card: Card;
   config: ProjectConfig;
@@ -37,14 +62,101 @@ export function CardPanel({
 }: CardPanelProps) {
   const { theme } = useTheme();
   const panelRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+  const [editorHeight, setEditorHeight] = useState<number>(
+    isMobileLayout() ? computeMobileEditorHeight() : DEFAULT_EDITOR_HEIGHT,
+  );
 
   useFocusTrap(panelRef, true);
 
   useEffect(() => {
     setEditedCard(card);
   }, [card]);
+
+  // Dynamically resize the editor when the visual viewport changes (e.g.
+  // on-screen keyboard appearing/disappearing on mobile). On desktop the editor
+  // keeps its default fixed height.
+  useEffect(() => {
+    function updateHeight() {
+      if (isMobileLayout()) {
+        setEditorHeight(computeMobileEditorHeight());
+      } else {
+        setEditorHeight(DEFAULT_EDITOR_HEIGHT);
+      }
+    }
+
+    // VisualViewport fires 'resize' when the keyboard opens/closes on mobile.
+    window.visualViewport?.addEventListener('resize', updateHeight);
+    // Also listen to window resize for orientation changes and desktop resizes.
+    window.addEventListener('resize', updateHeight);
+
+    // Set initial height based on current state.
+    updateHeight();
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateHeight);
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, []);
+
+  // Auto-scroll the editor textarea so the cursor line stays visible when
+  // typing past the bottom of the visible editor area.
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    // The MDEditor renders a hidden textarea that receives keyboard input.
+    // We wait a tick for the editor to finish mounting before querying it.
+    let textarea: HTMLTextAreaElement | null = null;
+
+    function findTextarea() {
+      textarea = container?.querySelector<HTMLTextAreaElement>(
+        '.w-md-editor-text-input',
+      ) ?? null;
+      return textarea;
+    }
+
+    function handleInput() {
+      if (!textarea) findTextarea();
+      if (!textarea) return;
+
+      // Compute the cursor's approximate vertical position within the textarea
+      // by measuring how many lines precede the cursor and multiplying by the
+      // computed line height.
+      const { selectionEnd, value } = textarea;
+      const textBeforeCursor = value.slice(0, selectionEnd);
+      const linesBefore = textBeforeCursor.split('\n').length;
+
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computedStyle.lineHeight) || 20;
+      const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+
+      const cursorY = paddingTop + (linesBefore - 1) * lineHeight;
+
+      // Scroll so the cursor line is visible, keeping one extra line of context.
+      const visibleBottom = textarea.scrollTop + textarea.clientHeight;
+      if (cursorY + lineHeight > visibleBottom) {
+        textarea.scrollTop = cursorY + lineHeight - textarea.clientHeight + lineHeight;
+      } else if (cursorY < textarea.scrollTop) {
+        textarea.scrollTop = Math.max(0, cursorY - lineHeight);
+      }
+    }
+
+    // Delay query so MDEditor has time to render its textarea.
+    const timer = setTimeout(() => {
+      findTextarea();
+      if (textarea) {
+        textarea.addEventListener('input', handleInput);
+      }
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      textarea?.removeEventListener('input', handleInput);
+    };
+  }, []);
 
   const isDirty =
     editedCard.title !== card.title ||
@@ -145,13 +257,13 @@ export function CardPanel({
             onStop={onStopCard}
           />
 
-          <div data-color-mode={theme}>
+          <div ref={editorContainerRef} data-color-mode={theme}>
             <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
             <MDEditor
               value={editedCard.body}
               onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
               preview="edit"
-              height={250}
+              height={editorHeight}
               visibleDragbar={false}
             />
           </div>
