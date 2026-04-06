@@ -3,6 +3,10 @@ name: Build and Push
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "LICENSE"
 
 jobs:
   build:
