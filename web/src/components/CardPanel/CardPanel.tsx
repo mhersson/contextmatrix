@@ -132,7 +132,7 @@ export function CardPanel({
           onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
         />
 
-        <div className="p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 60px)' }}>
+        <div className="p-4 space-y-4 overflow-y-auto overflow-x-hidden" style={{ maxHeight: 'calc(100vh - 60px)' }}>
           <CardPanelAgent
             card={card}
             canClaim={!card.assigned_agent}

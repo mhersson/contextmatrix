@@ -95,6 +95,13 @@
   .sidebar {
     display: none;
   }
+
+  /* On narrow viewports, take full width with no minimum constraint */
+  .card-panel {
+    width: 100%;
+    min-width: unset;
+    max-width: 100%;
+  }
 }
 
 * {

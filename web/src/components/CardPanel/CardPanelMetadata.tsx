@@ -100,7 +100,7 @@ export function CardPanelMetadata({
             onChange={(e) => setLabelInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addLabel()}
             placeholder="Add label..."
-            className="flex-1 px-3 py-1.5 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
+            className="flex-1 min-w-0 px-3 py-1.5 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
           />
           <button
             onClick={addLabel}
