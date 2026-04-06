@@ -42,7 +42,7 @@ export function CardPanelAgent({
 
   return (
     <div className="p-3 rounded bg-[var(--bg0)] border border-[var(--bg3)]">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="text-xs text-[var(--grey1)] mb-1">Assigned Agent</div>
           {card.assigned_agent ? (

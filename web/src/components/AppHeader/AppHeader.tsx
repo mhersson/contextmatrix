@@ -24,10 +24,10 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
   const { toggle } = useMobileSidebar();
   return (
     <header
-      className="flex items-center justify-between px-6 py-3 border-b"
+      className="flex items-center justify-between px-3 py-2 sm:px-6 sm:py-3 border-b"
       style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)' }}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         <button
           type="button"
           onClick={toggle}
@@ -51,7 +51,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
               key={v.label}
               to={`${base}${v.to}`}
               end
-              className="px-3 py-1 rounded text-sm transition-colors"
+              className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
               style={({ isActive }) => ({
                 backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
                 color: isActive ? 'var(--fg)' : 'var(--grey1)',
@@ -63,7 +63,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         {hasActiveRunners && onStopAll && (
           <button
             type="button"
@@ -82,7 +82,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
             className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}
             style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
           />
-          <span className="text-sm" style={{ color: 'var(--grey1)' }}>
+          <span className="text-sm hidden sm:inline" style={{ color: 'var(--grey1)' }}>
             {connected ? 'Connected' : 'Disconnected'}
           </span>
         </div>

@@ -66,7 +66,7 @@ export function CardPanelHeader({
       </div>
 
       {/* Title */}
-      <div>
+      <div className="px-4 pt-3">
         <label className="block text-xs text-[var(--grey1)] mb-1">Title</label>
         <input
           type="text"
@@ -77,7 +77,7 @@ export function CardPanelHeader({
       </div>
 
       {/* Type, Priority, State row */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 px-4 pb-3">
         <div>
           <label className="block text-xs text-[var(--grey1)] mb-1">Type</label>
           <div

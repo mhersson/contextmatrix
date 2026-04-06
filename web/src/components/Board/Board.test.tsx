@@ -127,7 +127,7 @@ const sampleCard: Card = {
   body: '',
 };
 
-describe('Board — drag-and-drop disabled on touch devices', () => {
+describe('Board — touch device drag-and-drop', () => {
   const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {
@@ -173,7 +173,7 @@ describe('Board — drag-and-drop disabled on touch devices', () => {
   });
 });
 
-describe('Board — drag-and-drop enabled on pointer (desktop) devices', () => {
+describe('Board — pointer device drag-and-drop', () => {
   const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {

@@ -83,6 +83,12 @@
   }
 }
 
+@media (max-width: 480px) {
+  :root {
+    --col-width: calc(100vw - 48px);
+  }
+}
+
 @media (max-width: 1024px) {
   .card-panel {
     width: 100%;

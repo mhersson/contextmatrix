@@ -28,12 +28,12 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
     }
 
     const selectClass =
-      'px-2 py-1 text-sm rounded border bg-[var(--bg1)] border-[var(--bg3)] text-[var(--fg)]';
+      'w-full sm:w-auto px-2 py-1 text-sm rounded border bg-[var(--bg1)] border-[var(--bg3)] text-[var(--fg)]';
 
     return (
       <div
         ref={ref}
-        className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[var(--bg3)]"
+        className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 px-4 py-2 border-b border-[var(--bg3)]"
       >
         <select
           value={filter.type ?? ''}
@@ -90,7 +90,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
         {hasFilter && (
           <button
             onClick={() => onFilterChange({})}
-            className="px-2 py-1 text-sm text-[var(--grey1)] hover:text-[var(--red)] transition-colors"
+            className="col-span-2 sm:col-span-1 px-2 py-1 text-sm text-[var(--grey1)] hover:text-[var(--red)] transition-colors"
           >
             Clear
           </button>
