@@ -26,13 +26,13 @@ Review:
 - Parent card's plan (under `## Plan`) for overall context
 - Sibling cards to understand what others are working on and avoid overlap
 - `depends_on` — verify all dependencies are in `done` state. If not, you must
-  report as blocked (see Step 6).
+  report as blocked (see Step 7).
 
 ## Step 2: Claim the card
 
 Call `claim_card` with your card ID and your agent ID.
 
-If the claim fails (409 — already claimed), print `TASK_BLOCKED` (see Step 6
+If the claim fails (409 — already claimed), print `TASK_BLOCKED` (see Step 7
 format) with `reason: Card already claimed by another agent` and stop.
 
 ## Step 3: Plan your approach
@@ -57,17 +57,15 @@ and release your claim if you do not call `heartbeat` within the timeout period
 (default: 30 minutes). Call `heartbeat` proactively and often — after each step,
 after each test run, after each significant code change.
 
-**Heartbeat during idle waits.** If you are waiting for a sub-agent (e.g., the
-review sub-agent spawned by `complete_task`) or any other blocking operation,
-call `heartbeat` every 5 minutes while waiting. Do not assume a short wait — sub-agents
-can take 10+ minutes.
+**Heartbeat during idle waits.** If you are waiting for any blocking operation,
+call `heartbeat` every 5 minutes while waiting.
 
 **Token usage reporting.** After each `heartbeat`, also call `report_usage` with
 your token consumption since the last report. This tracks cost per card. Always
 include:
 - `card_id`: your card ID
 - `agent_id`: your agent ID
-- `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
+- `model`: `"claude-sonnet-4-6"`
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption since the last report
 
 ### Card body structure
@@ -90,9 +88,58 @@ Your decided approach and rationale.
 Gotchas, decisions made, alternatives considered and rejected.
 ```
 
-## Step 5: Complete
+## Step 5: Git Workflow
 
-When all work is done and verified:
+Follow the git workflow based on the card context:
+
+### Feature Branch Mode
+
+If the parent card has a `branch_name` set (visible in `get_task_context`
+response under `parent.branch_name`):
+
+1. Create or switch to the feature branch: `git checkout -b <branch_name>` (or
+   `git checkout <branch_name>` if it already exists).
+2. Use conventional commit messages: `type(scope): summary` + blank line +
+   bullet-point body of changes. **No card IDs in commit messages** — they are
+   internal to ContextMatrix and meaningless to external repo users.
+3. **NEVER push to main or master.** If you find yourself on main, switch to
+   the feature branch before committing.
+
+### Autonomous Mode
+
+If the parent card shows `autonomous: true`:
+
+- Commit and push to the feature branch automatically.
+- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>)` after
+  pushing.
+- Do **NOT** create a PR — the orchestrator creates the PR after review
+  approval.
+- **NEVER push to main or master.** This is non-negotiable.
+
+### HITL Mode (No Autonomous)
+
+At the end of your work, if the parent card does not have `autonomous: true`:
+
+- **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
+  do NOT commit. Leave your changes in the working tree. The orchestrator
+  handles committing after all work (including documentation) is complete,
+  so the user sees the full picture before any commits are made.
+- **If invoked directly** (the user ran the skill themselves in their
+  conversation): ask "Want me to commit these changes?" before committing.
+  If on a feature branch, follow up with: "Want me to push and create a PR?"
+  Never push without explicit human approval.
+
+### No Feature Branch
+
+If no `branch_name` is set on the parent card:
+
+- **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
+- **If invoked directly**: commit your changes on the current branch.
+- Do NOT push.
+
+## Step 6: Complete
+
+When all work is done, committed (if applicable), and verified:
 
 1. Update `## Progress` to mark all steps complete.
 2. Call `update_card` with the final card body.
@@ -114,7 +161,7 @@ needs_human: false
 The `complete_task` response may include a `next_step` field — **ignore it**.
 Your work is done. Print `TASK_COMPLETE` and stop.
 
-## Step 6: If blocked
+## Step 7: If blocked
 
 If you cannot complete the task due to a dependency, missing information, or
 external blocker:
@@ -150,10 +197,10 @@ to redo your work. This wastes time and tokens.
 
 If you cannot complete normally, always end with one of:
 
-- **Partial completion** — Use `TASK_COMPLETE` (Step 5 format) with
+- **Partial completion** — Use `TASK_COMPLETE` (Step 6 format) with
   `summary: Partial: <what was done>. <what was NOT done and why>` and
   `needs_human: true`.
-- **Blocked by error** — Use `TASK_BLOCKED` (Step 6 format) with the error as
+- **Blocked by error** — Use `TASK_BLOCKED` (Step 7 format) with the error as
   the reason.
 
 Before printing: call `add_log` describing what failed, then `report_usage`.
@@ -164,7 +211,7 @@ very last thing you do. Even if every tool call failed. An honest summary with
 
 ### Permission denied errors
 
-If the `Edit` or `Write` tool is denied, print `TASK_BLOCKED` (Step 6 format)
+If the `Edit` or `Write` tool is denied, print `TASK_BLOCKED` (Step 7 format)
 with `reason: Edit/Write tool permission denied — the target project must add
 Edit and Write to .claude/settings.local.json permissions.allow`.
 Do NOT retry, do NOT silently stop.
@@ -184,64 +231,15 @@ Follow these standards in all work you produce:
   self-evident. External documentation is handled by a dedicated documentation
   agent after review — focus on code-level clarity only.
 
-## Git Workflow
-
-After completing your work, follow the git workflow based on the card context:
-
-### Feature Branch Mode
-
-If the parent card has a `branch_name` set (visible in `get_task_context`
-response under `parent.branch_name`):
-
-1. Create or switch to the feature branch: `git checkout -b <branch_name>` (or
-   `git checkout <branch_name>` if it already exists).
-2. Use conventional commit messages: `type(scope): summary` + blank line +
-   bullet-point body of changes. **No card IDs in commit messages** — they are
-   internal to ContextMatrix and meaningless to external repo users.
-3. **NEVER push to main or master.** If you find yourself on main, switch to
-   the feature branch before committing.
-
-### Autonomous Mode
-
-If the parent card shows `autonomous: true`:
-
-- Commit and push to the feature branch automatically.
-- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>)` after
-  pushing.
-- Do **NOT** create a PR — the orchestrator creates the PR after review
-  approval in Phase 6.
-- **NEVER push to main or master.** This is non-negotiable.
-
-### HITL Mode (No Autonomous)
-
-At the end of your work, if the parent card does not have `autonomous: true`:
-
-- **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
-  do NOT commit. Leave your changes in the working tree. The orchestrator
-  handles committing after all work (including documentation) is complete,
-  so the user sees the full picture before any commits are made.
-- **If invoked directly** (the user ran the skill themselves in their
-  conversation): ask "Want me to commit these changes?" before committing.
-  If on a feature branch, follow up with: "Want me to push and create a PR?"
-  Never push without explicit human approval.
-
-### No Feature Branch
-
-If no `branch_name` is set on the parent card:
-
-- **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
-- **If invoked directly**: commit your changes on the current branch.
-- Do NOT push.
-
 ## Rules
 
 - **You own your card only.** Do not modify other cards. Do not transition the
   parent card.
 - **Be specific in progress updates.** "Working on it" is not acceptable.
   "Implemented JWT Verify() with RS256, added 3 unit tests" is.
-- **Never pause mid-task.** Do not ask the user to commit, review your diff, or
-  approve changes. Complete the full lifecycle through `complete_task` without
-  stopping.
+- **Never pause mid-task (sub-agents).** Do not ask the user to commit, review
+  your diff, or approve changes — sub-agent output is not shown to users.
+  Complete the full lifecycle through `complete_task` without stopping.
 - **If in doubt, report blocked.** It is better to ask for help than to produce
   incorrect work.
 - **Always use MCP tools.** For all ContextMatrix board interactions, use the
