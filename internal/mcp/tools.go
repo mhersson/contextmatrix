@@ -541,9 +541,21 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		if targetState == board.StateReview {
 			parts = append(parts, fmt.Sprintf("Card %s transitioned to review.", input.CardID))
 		} else if parentID != "" {
-			parent, perr := svc.GetCard(ctx, project, parentID)
-			if perr == nil && parent.State == board.StateReview {
-				parts = append(parts, fmt.Sprintf("Parent card %s transitioned to review.", parentID))
+			// Check if all sibling subtasks are now done. The parent stays in
+			// in_progress — the orchestrator spawns a documentation sub-agent
+			// first, then manually transitions the parent to review.
+			siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
+			if serr == nil {
+				allDone := true
+				for _, sib := range siblings {
+					if sib.State != board.StateDone {
+						allDone = false
+						break
+					}
+				}
+				if allDone {
+					parts = append(parts, fmt.Sprintf("All subtasks done. Parent %s stays in in_progress for documentation.", parentID))
+				}
 			}
 		}
 		if len(parts) > 0 {

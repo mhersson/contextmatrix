@@ -62,6 +62,15 @@ Include the failing test output in your review findings.
 - Are inline code comments adequate where logic isn't self-evident?
 - Is there dead code (unused functions, unreachable branches, commented-out blocks)?
 
+### Documentation
+
+- Were user-facing changes documented where needed (new features, endpoints,
+  config options, migration steps)?
+- Do the docs accurately describe what was actually implemented?
+- Are there stale doc references that conflict with the code changes?
+- If no external docs were written, is that correct for this type of change?
+  (Bug fixes, refactors, and internal changes typically need no docs.)
+
 ### Coherence
 
 - Do the subtasks fit together as a whole?

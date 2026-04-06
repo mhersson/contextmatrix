@@ -793,11 +793,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
-	// Flush deferred commit when card reaches not_planned — no agent will
-	// release this card so this is the only flush point.
+	// Flush deferred commit when card reaches not_planned or review — no agent
+	// will release the card in these states so this is the only flush point.
 	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
 	// handles the flush.
-	if stateChanged && card.State == board.StateNotPlanned {
+	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -958,11 +958,11 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		}
 	}
 
-	// Flush deferred commit when card reaches not_planned — no agent will
-	// release this card so this is the only flush point.
+	// Flush deferred commit when card reaches not_planned or review — no agent
+	// will release the card in these states so this is the only flush point.
 	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
 	// handles the flush.
-	if stateChanged && card.State == board.StateNotPlanned {
+	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
 			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
@@ -1915,7 +1915,10 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 //
 // Rules:
 //   - child moved to in_progress AND parent is in todo → transition parent to in_progress
-//   - child moved to done AND ALL sibling subtasks are done → transition parent to review
+//
+// The parent does NOT auto-transition to review when all subtasks are done.
+// The orchestrator spawns a documentation sub-agent (while the parent is still
+// in_progress) and then manually transitions the parent to review.
 func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Card) {
 	if child.Parent == "" {
 		return
@@ -1936,43 +1939,6 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 		if parent.State == board.StateTodo {
 			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
 				slog.Warn("parent auto-transition: todo→in_progress",
-					"parent_id", parent.ID,
-					"error", err,
-				)
-			}
-		}
-
-	case board.StateDone:
-		// Discover all children via store query (not parent.Subtasks, which may be empty
-		// when children are created with parent field but parent's subtasks list is not updated).
-		children, err := s.store.ListCards(ctx, child.Project, storage.CardFilter{Parent: child.Parent})
-		if err != nil {
-			slog.Warn("parent auto-transition: list children",
-				"parent_id", child.Parent,
-				"error", err,
-			)
-			return
-		}
-
-		// Guard: if no children found, never auto-transition
-		if len(children) == 0 {
-			return
-		}
-
-		// Check if all siblings are done
-		allDone := true
-		for _, sibling := range children {
-			if sibling.ID == child.ID {
-				continue // This child is already done (the one we just transitioned)
-			}
-			if sibling.State != board.StateDone {
-				allDone = false
-				break
-			}
-		}
-		if allDone && parent.State != board.StateReview && parent.State != board.StateDone {
-			if err := s.transitionParentDirect(ctx, parent, board.StateReview); err != nil {
-				slog.Warn("parent auto-transition: in_progress→review",
 					"parent_id", parent.ID,
 					"error", err,
 				)

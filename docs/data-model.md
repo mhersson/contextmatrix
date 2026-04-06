@@ -62,13 +62,11 @@
 9. **Parent card auto-transitions on child state changes.** When a subtask is
    claimed (transitions to `in_progress`), the service layer automatically
    transitions the parent from `todo` → `in_progress` if it is currently in
-   `todo`. When all subtasks reach `done`, the parent is automatically
-   transitioned to `review`. These transitions are handled by the service
-   layer's `maybeTransitionParent` helper after any `UpdateCard` or `PatchCard`
-   call that causes a child's state to change. The `complete_task` MCP tool
-   detects when the parent reaches `review` and returns embedded `review-task`
-   skill content in the response, so the calling agent can spawn the review
-   sub-agent immediately.
+   `todo`. When all subtasks reach `done`, the parent stays in `in_progress`
+   — the orchestrator spawns a documentation sub-agent first, then manually
+   transitions the parent to `review`. The `complete_task` MCP tool detects when all siblings
+   are done and returns an informational message so the calling agent knows
+   documentation can proceed.
 
 10. **Subtask type is automatic and immutable.** The service layer enforces
     subtask type invariants on both `CreateCard` and `UpdateCard` based on

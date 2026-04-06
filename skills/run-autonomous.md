@@ -58,8 +58,9 @@ Based on the card's current state and body content:
 |-----------|-----------|
 | `todo`, no `## Plan` in body | Phase 1: Plan Drafting |
 | `todo`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
-| `todo` or `in_progress`, has subtasks | Phase 3: Execution |
-| `review` | Phase 4: Review |
+| `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
+| `in_progress`, all subtasks done, no `## Review Findings` | Phase 4: Documentation |
+| `review` | Phase 5: Review |
 | `done` | Nothing to do — inform the user |
 
 ## Phase 1: Plan Drafting (always inline)
@@ -106,27 +107,45 @@ execution.
     this is mandatory, not optional. Include your estimated token consumption
     since the last report.
 11. Wait for all sub-agents to complete.
-12. The parent card auto-transitions to `review` when all subtasks reach `done`.
+12. The parent card stays in `in_progress` when all subtasks reach `done`.
+    Proceed to Phase 4.
 
-## Phase 4: Review (follow inline field)
+## Phase 4: Documentation (always sub-agent)
+
+Always spawn documentation as a sub-agent — the orchestrator has 150K+
+accumulated context by this phase; a fresh sub-agent starts at ~25K.
+Documentation runs while the parent is still in `in_progress`.
+
+13. Call `get_skill(skill_name='document-task', card_id='<card_id>',
+    caller_model='<your_model>')`.
+14. Release the parent card claim (`release_card`), spawn a documentation
+    sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
+    reclaim (`claim_card`).
+
+## Phase 5: Review (follow inline field)
 
 Review is the one phase where the `inline` field matters — it controls whether
 the review model matches yours. If your model is Opus, review runs inline. If
 your model is Sonnet, it spawns an Opus sub-agent for stronger reasoning.
 
-13. Call `get_skill(skill_name='review-task', card_id='<card_id>',
+15. Transition the parent card to `review`:
+    `transition_card(card_id='<card_id>', new_state='review')`.
+16. Call `get_skill(skill_name='review-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-14. If `inline: true`, execute directly. Otherwise, release the parent card
+17. If `inline: true`, execute directly. Otherwise, release the parent card
     claim (`release_card`), then spawn a review sub-agent with the returned
     `model`.
-15. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 14),
+18. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 17),
     reclaim the parent card (`claim_card`).
-16. Parse the `recommendation`:
-    - **approve** or **approve_with_notes**: Proceed to Phase 5.
+19. Parse the `recommendation`:
+    - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
-      - If **< 3**: Increment `review_attempts` by updating the card. Create
-        new "fix" subtasks based on the review findings. Go to Phase 3 for the
-        fix subtasks only, then return to Phase 4.
+      - If **< 3**: Increment `review_attempts` by updating the card.
+        Transition parent back to `in_progress`:
+        `transition_card(card_id='<card_id>', new_state='in_progress')`.
+        Create new "fix" subtasks based on the review findings. Go to Phase 3
+        for the fix subtasks only, then return to Phase 4 (Documentation),
+        then Phase 5 (Review).
       - If **>= 3**: **STOP.** Print:
         ```
         AUTONOMOUS_HALTED
@@ -135,30 +154,19 @@ your model is Sonnet, it spawns an Opus sub-agent for stronger reasoning.
         action_required: human review
         ```
 
-## Phase 5: Documentation (always sub-agent)
-
-Always spawn documentation as a sub-agent — the orchestrator has 150K+
-accumulated context by this phase; a fresh sub-agent starts at ~25K.
-
-17. Call `get_skill(skill_name='document-task', card_id='<card_id>',
-    caller_model='<your_model>')`.
-18. Release the parent card claim (`release_card`), spawn a documentation
-    sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
-    reclaim (`claim_card`).
-
 ## Phase 6: Finalization
 
-19. Call `report_usage` one final time with your remaining token consumption.
-20. If `create_pr` is enabled and the card has a `branch_name`, create a PR
+20. Call `report_usage` one final time with your remaining token consumption.
+21. If `create_pr` is enabled and the card has a `branch_name`, create a PR
     using `gh pr create` with a body referencing the card title and summarizing
     the work. Call `report_push(card_id, branch, pr_url)` with the PR URL.
-21. Transition the card to `done`:
+22. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-22. Release the card claim:
+23. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **This is mandatory.** Skipping this leaves the card orphaned with an active
     claim that blocks future work until the heartbeat timeout fires (30 minutes).
-23. Print structured output:
+24. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
@@ -180,7 +188,7 @@ accumulated context by this phase; a fresh sub-agent starts at ~25K.
 ## Git Workflow
 
 - If `feature_branch` is enabled: sub-agents create/checkout the branch, commit,
-  and push. The orchestrator creates the PR after review approval in Phase 6.
+  and push. The orchestrator creates the PR in Phase 6 after review approval.
 - If `feature_branch` is not enabled: sub-agents commit locally only. Never push.
 
 ## Rules

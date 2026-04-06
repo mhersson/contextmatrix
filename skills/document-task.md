@@ -56,8 +56,8 @@ Documentation IS needed when the change affects:
 - Keep it concise — match the scope of the docs to the scope of the change
 - Match the project's existing tone and formatting conventions
 
-Write directly to disk. Documentation is generated from reviewed, completed
-code — no human gate is needed.
+Write directly to disk. Documentation is generated from completed code — the
+review agent verifies accuracy in the next phase.
 
 ## Step 4: Commit documentation changes
 

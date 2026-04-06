@@ -24,7 +24,7 @@ own repos, and report progress back through the board.
 - **MCP-first interface** — 24 MCP tools and 7 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
-  plan-execute-review-document lifecycle without human gates. The `simple` label
+  plan-execute-document-review lifecycle without human gates. The `simple` label
   triggers a fast path that skips planning and review entirely.
 - **Remote execution** — click "Run Now" in the web UI to launch a task in a
   sandboxed Docker container. If something goes wrong, it goes wrong inside the
@@ -241,10 +241,10 @@ tool. The typical workflow:
    - Works the task, calling `heartbeat` after each significant step (30min
      timeout)
    - Calls `complete_task` when done
-4. **Review** — `/contextmatrix:review-task` provides a devils-advocate
-   assessment
-5. **Document** — `/contextmatrix:document-task` writes docs after review
-   approval
+4. **Document** — `/contextmatrix:document-task` writes docs after execution
+   completes (parent stays in `in_progress`)
+5. **Review** — `/contextmatrix:review-task` provides a devils-advocate
+   assessment of both code and documentation
 
 Cards with `depends_on` relationships are enforced — a card cannot transition to
 `in_progress` until all its dependencies are `done`. The `get_ready_tasks` tool
@@ -271,8 +271,8 @@ However, the built-in skill files installed by `make install-config` /
 
 Skill dependencies on specific states:
 
-- **`execute-task`** — expects `in_progress`, `blocked`, and `review` states. It
-  transitions the card to `in_progress` on claim and to `review` on completion.
+- **`execute-task`** — expects `in_progress`, `blocked`, and `done` states. It
+  transitions the card to `in_progress` on claim and to `done` on completion.
 - **`review-task`** — requires a `review` state to transition into and out of.
   Without it the skill cannot function.
 - **`create-plan`** and **`document-task`** — rely on `done` as the terminal
@@ -295,11 +295,11 @@ approval gates. The `/contextmatrix:run-autonomous` slash command drives the
 entire workflow for a single card:
 
 ```
-plan → subtask creation → execute (parallel) → review → document → done
+plan → subtask creation → execute (parallel) → document → review → done
 ```
 
 The orchestrator agent handles each phase in sequence, spawning sub-agents via
-the `Agent` tool for execution, review, and documentation.
+the `Agent` tool for execution, documentation, and review.
 
 ### Fast Path (`simple` label)
 

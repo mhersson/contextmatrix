@@ -1161,17 +1161,13 @@ func TestParentAutoTransition_OneSubtaskDoneParentStaysInProgress(t *testing.T) 
 	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
-func TestParentAutoTransition_AllSubtasksDoneMovesParentToReview(t *testing.T) {
+func TestParentAutoTransition_AllSubtasksDoneParentStaysInProgress(t *testing.T) {
 	svc, _, cleanup := setupTestWithReview(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
 	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
-
-	// Subscribe to events to verify parent state change event is published
-	ch, unsub := svc.bus.Subscribe()
-	defer unsub()
 
 	// Transition both subtasks to in_progress (parent also moves to in_progress)
 	inProgress := "in_progress"
@@ -1180,41 +1176,20 @@ func TestParentAutoTransition_AllSubtasksDoneMovesParentToReview(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
 
-	// Drain in_progress events
-	drainEvents(ch)
-
 	// Complete first subtask: in_progress → done
 	done := "done"
 	_, err = svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// Drain partial-done events
-	drainEvents(ch)
-
 	// Complete last subtask: in_progress → done
 	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// Parent should be in review
+	// Parent stays in in_progress — the orchestrator spawns a documentation
+	// sub-agent first, then manually transitions the parent to review.
 	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "review", updatedParent.State)
-
-	// Verify parent state change event was published
-	found := false
-	timeout := time.After(200 * time.Millisecond)
-	for !found {
-		select {
-		case event := <-ch:
-			if event.Type == events.CardStateChanged && event.CardID == parent.ID {
-				assert.Equal(t, "in_progress", event.Data["old_state"])
-				assert.Equal(t, "review", event.Data["new_state"])
-				found = true
-			}
-		case <-timeout:
-			t.Fatal("expected CardStateChanged event for parent")
-		}
-	}
+	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
 func TestParentAutoTransition_NoParentNoOp(t *testing.T) {
@@ -1256,17 +1231,6 @@ func TestParentAutoTransition_GitCommitForParent(t *testing.T) {
 	msg, err := svc.git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, parent.ID)
-}
-
-// drainEvents reads all buffered events from the channel without blocking.
-func drainEvents(ch <-chan events.Event) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
 }
 
 // createParentWithChildrenByParentField creates a parent card and the given number
@@ -1338,9 +1302,10 @@ func TestParentAutoTransition_QueryBased_OneOfThreeDoneStaysInProgress(t *testin
 	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
-// TestParentAutoTransition_QueryBased_AllThreeDoneTransitionsToReview verifies that
-// completing all 3 children (linked via parent field only) transitions the parent to review.
-func TestParentAutoTransition_QueryBased_AllThreeDoneTransitionsToReview(t *testing.T) {
+// TestParentAutoTransition_QueryBased_AllThreeDoneParentStaysInProgress verifies that
+// completing all 3 children (linked via parent field only) does NOT auto-transition
+// the parent to review. The orchestrator handles that after documentation.
+func TestParentAutoTransition_QueryBased_AllThreeDoneParentStaysInProgress(t *testing.T) {
 	svc, _, cleanup := setupTestWithReview(t)
 	defer cleanup()
 
@@ -1362,10 +1327,10 @@ func TestParentAutoTransition_QueryBased_AllThreeDoneTransitionsToReview(t *test
 		require.NoError(t, err)
 	}
 
-	// Parent should now be in review
+	// Parent stays in in_progress — orchestrator transitions after documentation
 	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "review", updatedParent.State)
+	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
 // TestParentAutoTransition_QueryBased_NoChildrenNoTransition verifies that a parent
@@ -2813,10 +2778,10 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	assert.False(t, hasPaths, "deferredPaths should be cleared after release flush")
 }
 
-// TestDeferredCommitParentAutoTransition verifies that when all subtasks reach
-// done and the parent auto-transitions to review, the parent's deferred commits
-// are flushed.
-func TestDeferredCommitParentAutoTransition(t *testing.T) {
+// TestDeferredCommitParentManualReviewTransition verifies that when the parent
+// card is manually transitioned to review (by the orchestrator after
+// documentation), deferred commits are flushed.
+func TestDeferredCommitParentManualReviewTransition(t *testing.T) {
 	svc, gitMgr := setupDeferredTestWithReview(t)
 	ctx := context.Background()
 
@@ -2843,22 +2808,26 @@ func TestDeferredCommitParentAutoTransition(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Parent should have auto-transitioned to review
+	// Parent stays in in_progress (no auto-transition to review)
 	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "review", updatedParent.State)
+	assert.Equal(t, "in_progress", updatedParent.State)
 
-	// Parent's deferred paths should be cleared (flushed)
+	// Manually transition parent to review (as the orchestrator would after documentation)
+	reviewState := "review"
+	_, err = svc.PatchCard(ctx, "test-project", parent.ID, PatchCardInput{State: &reviewState})
+	require.NoError(t, err)
+
+	// Parent's deferred paths should be cleared (flushed on review transition)
 	svc.writeMu.Lock()
 	_, hasPaths := svc.deferredPaths[parent.ID]
 	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "parent deferredPaths should be cleared after auto-transition flush")
+	assert.False(t, hasPaths, "parent deferredPaths should be cleared after review transition flush")
 
-	// The last commit should be for the parent auto-transition (or a subtask release).
 	// Verify there are no uncommitted changes in the boards repo.
 	hasUncommitted, err := gitMgr.HasUncommittedChanges()
 	require.NoError(t, err)
-	assert.False(t, hasUncommitted, "all changes should be committed after completing subtasks")
+	assert.False(t, hasUncommitted, "all changes should be committed after review transition")
 }
 
 // TestDeferredCommitBoardYamlIncluded verifies that .board.yaml changes (next_id
@@ -4103,21 +4072,22 @@ func TestDeferredCommitFullWorkflowCommitCount(t *testing.T) {
 	count, _ = gitMgr.CommitCount()
 	assert.Equal(t, countAfterCreate, count, "body update should not produce a commit")
 
-	// --- Transition to review (main task completion target) ---
+	// --- Transition to review (flushes all deferred changes) ---
 	review := "review"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &review})
 	require.NoError(t, err)
 
-	count, _ = gitMgr.CommitCount()
-	assert.Equal(t, countAfterCreate, count, "transition to review should not produce a commit")
+	countAfterReview, _ := gitMgr.CommitCount()
+	assert.Equal(t, countAfterCreate+1, countAfterReview,
+		"transition to review should flush deferred changes and produce 1 commit")
 
-	// --- Release card (this should flush all deferred changes) ---
+	// --- Release card (produces another commit for the release itself) ---
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
 	countAfterRelease, _ := gitMgr.CommitCount()
-	assert.Equal(t, countAfterCreate+1, countAfterRelease,
-		"release should produce exactly 1 commit (deferred flush)")
+	assert.Equal(t, countAfterReview+1, countAfterRelease,
+		"release should produce exactly 1 commit")
 
 	// Verify no uncommitted changes remain.
 	hasUncommitted, err := gitMgr.HasUncommittedChanges()

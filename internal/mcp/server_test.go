@@ -496,10 +496,9 @@ func TestCompleteTask_Subtask(t *testing.T) {
 
 	assert.Equal(t, "done", output.Card.State, "subtask should go all the way to done")
 	assert.Empty(t, output.Card.AssignedAgent)
-	// When there is only one subtask and no subtasks list is set on the parent,
-	// maybeTransitionParent treats it as all-done and moves the parent to review.
-	// The response should include the review-task skill prompt.
-	assert.NotEmpty(t, output.NextStep, "last subtask completion should include next_step for review")
+	// When there is only one subtask, this is the last subtask done — the
+	// response should include an informational next_step about documentation.
+	assert.NotEmpty(t, output.NextStep, "last subtask completion should include next_step about documentation")
 
 	// Verify via service layer
 	stored, err := env.svc.GetCard(ctx, "test-project", "TEST-002")
@@ -507,10 +506,10 @@ func TestCompleteTask_Subtask(t *testing.T) {
 	assert.Equal(t, "done", stored.State)
 }
 
-// TestCompleteTask_LastSubtaskTriggersReview verifies that completing the last
-// subtask causes the response to include the review-task skill content so the
-// calling agent can immediately spawn the review sub-agent.
-func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
+// TestCompleteTask_LastSubtaskInfoMessage verifies that completing the last
+// subtask includes an informational message about all subtasks being done
+// and the parent staying in in_progress for documentation.
+func TestCompleteTask_LastSubtaskInfoMessage(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
@@ -533,7 +532,7 @@ func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
 		"agent_id": "agent-sub",
 	})
 
-	// Complete the last (only) subtask — parent should auto-transition to review
+	// Complete the last (only) subtask — parent stays in in_progress
 	result := callTool(t, env, "complete_task", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-002",
@@ -549,13 +548,13 @@ func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
 	assert.Equal(t, "done", output.Card.State, "subtask should be done")
 	assert.Empty(t, output.Card.AssignedAgent)
 
-	// Parent should now be in review (via maybeTransitionParent)
+	// Parent stays in in_progress — orchestrator transitions after documentation
 	parent, err := env.svc.GetCard(ctx, "test-project", "TEST-001")
 	require.NoError(t, err)
-	assert.Equal(t, "review", parent.State, "parent should have auto-transitioned to review")
+	assert.Equal(t, "in_progress", parent.State, "parent should stay in in_progress for documentation")
 
-	// next_step should be informational only
-	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
+	// next_step should reference documentation, not review
+	assert.Contains(t, output.NextStep, "documentation", "next_step should reference documentation")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should reference the parent card ID")
 }
 
@@ -621,8 +620,8 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 	require.NoError(t, gerr)
 	assert.Equal(t, "in_progress", parentCard.State, "parent should remain in_progress while sibling is pending")
 
-	// No review skill in response
-	assert.Empty(t, output.NextStep, "should not have next_step when parent not in review")
+	// No next_step since siblings are still pending
+	assert.Empty(t, output.NextStep, "should not have next_step when siblings still pending")
 }
 
 func TestClaimCard_AutoTransition(t *testing.T) {

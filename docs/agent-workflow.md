@@ -181,12 +181,12 @@ CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 7. Prints structured completion summary (see below)
 
 Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
-card state is managed automatically by the service layer:** when the first
-subtask is claimed, the parent transitions `todo → in_progress`; when all
-subtasks reach `done`, the parent transitions to `review`. Execute-task
-sub-agents ignore any `next_step` field returned by `complete_task` — they print
-`TASK_COMPLETE` and stop. The orchestrator is responsible for detecting that the
-parent entered `review` and spawning the review sub-agent.
+card state is managed by the service layer and the orchestrator:** when the first
+subtask is claimed, the parent transitions `todo → in_progress`. When all
+subtasks reach `done`, the parent stays in `in_progress` — the orchestrator runs
+documentation first, then manually transitions the parent to `review`.
+Execute-task sub-agents ignore any `next_step` field returned by `complete_task`
+— they print `TASK_COMPLETE` and stop.
 
 During the monitoring loop the orchestrator (CC) calls `heartbeat` on the parent
 card every 5 minutes and immediately follows each heartbeat with `report_usage`
@@ -194,23 +194,35 @@ to record the orchestrator's own token consumption against the parent card. The
 `model` field must be the orchestrator's own model identifier (from its system
 context — "You are powered by the model named X") — it must not be hardcoded.
 This is separate from sub-agents' own `report_usage` calls; both are required.
-After documentation completes, the orchestrator makes one final `report_usage`
-call to capture tokens consumed during review presentation, user interaction,
-and documentation spawning before transitioning the parent to `done`.
+After review completes, the orchestrator makes one final `report_usage` call to
+capture remaining tokens before transitioning the parent to `done`.
 
-**4. Review** (`/contextmatrix:review-task <card_id>`)
+**4. Documentation** (`/contextmatrix:document-task <card_id>`)
 
-Uses a two-phase flow to avoid sub-agent death during user-approval waits:
+Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
+sub-agent that reads the parent card + all subtasks and writes external
+documentation (README updates, API docs, architecture notes) directly to disk —
+no human approval gate before writing. The sub-agent returns `DOCS_WRITTEN`
+immediately with a list of files written. CC presents the summary to the user.
+The parent card remains in `in_progress` during this phase.
+
+**5. Review** (`/contextmatrix:review-task <card_id>`)
+
+The orchestrator transitions the parent to `review` before spawning the review
+agent. Uses a two-phase flow to avoid sub-agent death during user-approval
+waits:
 
 - **Phase 1 — Review sub-agent**: CC spawns a short-lived review sub-agent that
-  evaluates the work, writes a `## Review Findings` section to the parent card
-  body via `update_card`, releases its claim, and prints `REVIEW_FINDINGS`
-  immediately — without asking the user or waiting for a decision.
+  evaluates both the code and any documentation written in step 4, writes a
+  `## Review Findings` section to the parent card body via `update_card`,
+  releases its claim, and prints `REVIEW_FINDINGS` immediately — without asking
+  the user or waiting for a decision.
 - **User decision (CC handles directly)**: CC reads the card body, presents the
   `## Review Findings` section to the user, and asks for approve/reject. CC is
   always alive for this — no sub-agent needed.
 - Based on the user's response, CC (the orchestrator) prints one of:
-  - `REVIEW_APPROVED` — main agent proceeds to documentation (step 5).
+  - `REVIEW_APPROVED` — main agent proceeds to finalization (transitions parent
+    to `done`).
   - `REVIEW_REJECTED` — main agent handles the rejection loop:
     1. Calls `transition_card` to move parent from `review` back to
        `in_progress`.
@@ -218,21 +230,11 @@ Uses a two-phase flow to avoid sub-agent death during user-approval waits:
     3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
        injected into the prompt, so it creates fix subtasks scoped to the
        issues.
-    4. Resumes the execute → review cycle. This loop repeats until the human
-       approves.
+    4. Resumes the execute → document → review cycle. This loop repeats until
+       the human approves.
 
 The parent card lifecycle with potential rejections:
-`todo → in_progress → review → (rejected) in_progress → review → … → (approved) done`
-
-**5. Documentation** (`/contextmatrix:document-task <card_id>`)
-
-Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
-sub-agent that reads the parent card + all subtasks and writes external
-documentation (README updates, API docs, architecture notes) directly to disk —
-no human approval gate before writing, since docs are generated from
-already-reviewed, completed code. The sub-agent returns `DOCS_WRITTEN`
-immediately with a list of files written. CC presents the summary to the user
-and transitions the parent card to `done`.
+`todo → in_progress → (docs) → review → (rejected) in_progress → (docs) → review → … → (approved) done`
 
 ## Autonomous mode
 
@@ -248,13 +250,13 @@ remote runner (via container config).
 Phase 1: Plan Drafting      → inline, calls create-plan skill
 Phase 2: Subtask Creation   → inline, orchestrator calls create_card directly
 Phase 3: Execution          → spawns execute-task sub-agents in parallel
-Phase 4: Review             → follows inline field (inline on Opus, sub-agent on Sonnet)
-Phase 5: Documentation      → spawns document-task sub-agent
+Phase 4: Documentation      → spawns document-task sub-agent (parent in in_progress)
+Phase 5: Review             → orchestrator transitions parent to review, follows inline field
 Phase 6: Finalization       → transitions parent to done
 ```
 
 The orchestrator determines the starting phase from the card's current state and
-body content (e.g., if the card is already `review`, it starts at Phase 4).
+body content (e.g., if the card is already `review`, it starts at Phase 5).
 
 **Guardrails:**
 
@@ -269,9 +271,8 @@ body content (e.g., if the card is already `review`, it starts at Phase 4).
   respawn stalled sub-agents.
 
 Unlike the interactive workflow, the autonomous orchestrator skips user approval
-between plan drafting and subtask creation, and between review approval and
-documentation. It only halts when review cycles are exhausted or a sub-agent
-reports `needs_human: true`.
+between plan drafting and subtask creation. It only halts when review cycles are
+exhausted or a sub-agent reports `needs_human: true`.
 
 ## Board update ownership
 

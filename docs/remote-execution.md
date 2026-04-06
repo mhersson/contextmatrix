@@ -155,7 +155,7 @@ ContextMatrix retries failed webhooks with exponential backoff:
    - Connects to ContextMatrix via MCP
    - Claims the card
    - Clones the repo from `repo_url`
-   - Plans, executes, reviews, documents
+   - Plans, executes, documents, reviews
    - Creates feature branch and PR
    - Completes the card via MCP `complete_task`
 5. Container exits after workflow completes

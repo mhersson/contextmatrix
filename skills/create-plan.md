@@ -54,7 +54,7 @@ Break the work into subtasks following these rules:
 - Do not over-engineer the plan. Solve the problem at hand — no speculative
   abstractions, no unnecessary indirection, no premature generalization.
 - Do not include documentation subtasks — external documentation is handled by a
-  dedicated documentation agent after the work is reviewed.
+  dedicated documentation agent after execution completes.
 
 ## Step 3: Write the plan to the card body
 
@@ -164,7 +164,7 @@ sub-agent with the returned `model` as described below.
         `in_progress` or `stalled` with no agent, respawn it.
    d. Call `get_subtask_summary(parent_id=<parent_id>)` to check overall
       progress. When all subtasks are `done`, exit the loop and proceed
-      to review.
+      to documentation.
    e. Repeat from (a) until all subtasks are done.
 
    ### Respawning a dead agent
@@ -195,13 +195,27 @@ sub-agent with the returned `model` as described below.
    5. Call `add_log(card_id=<id>, action='respawned',
       message='Agent stalled, respawning (attempt N)')`.
 
-4. When all subtasks are done, call
+4. When all subtasks are done, release your claim on the parent card so the
+   documentation agent can claim it:
+   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Then call
+   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   **Always spawn a documentation sub-agent** using the `Agent` tool with `model`
+   from the response, `description` set to `"document-task for <parent_id>"`, and
+   `prompt` set to the returned `content`. Documentation is always a sub-agent for
+   context isolation — ignore the `inline` field. The parent stays in `in_progress`
+   during documentation.
+5. After documentation completes, reclaim the parent card and transition it to
+   `review`:
+   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   `transition_card(card_id=<parent_id>, new_state='review')`.
+   Then call
    `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute the review directly. Otherwise, spawn a
-   review sub-agent using the `Agent` tool with `model` from the response,
-   `description` set to `"review-task for <parent_id>"`, and `prompt` set to
-   the returned `content`.
-5. Wait for the review sub-agent to complete. Parse its structured output:
+   If `inline` is true, execute the review directly. Otherwise, release the
+   parent card claim, spawn a review sub-agent using the `Agent` tool with
+   `model` from the response, `description` set to `"review-task for
+   <parent_id>"`, and `prompt` set to the returned `content`.
+6. Wait for the review sub-agent to complete. Parse its structured output:
    - **`REVIEW_FINDINGS`**: the sub-agent has written its findings to the card
      body and released the card. Call `get_card(card_id=<parent_id>)` to read
      the `## Review Findings` section from the card body. Present the findings
@@ -209,25 +223,15 @@ sub-agent with the returned `model` as described below.
      for revision?"**
    - Based on the user's response, proceed:
      - **User approves** (says "approve", "looks good", etc.): proceed to
-       documentation.
+       committing and finalization.
      - **User rejects** (says "reject", "send back", "needs work", etc.): handle
        the rejection loop (see below).
-6. After the user approves, release your claim on the parent card so the
-   documentation agent can claim it:
-   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   Then call
-   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute the documentation directly. Otherwise, spawn a
-   documentation sub-agent using the `Agent` tool with `model` from the response,
-   `description` set to `"document-task for <parent_id>"`, and `prompt` set to
-   the returned `content`.
-7. After documentation completes, ask the user: **"Want me to commit these
-   changes?"** Do NOT offer to commit earlier (e.g., between review and
-   documentation) — all changes (code + docs) are committed together so the
-   user sees the complete picture first. If the user approves the commit and
-   the parent card has a feature branch, follow up with: **"Want me to push
-   and create a PR?"** If they approve, push to the feature branch and create
-   a PR. Call
+7. After the user approves, ask the user: **"Want me to commit these
+   changes?"** Do NOT offer to commit earlier — all changes (code + docs) are
+   committed together so the user sees the complete picture first. If the user
+   approves the commit and the parent card has a feature branch, follow up
+   with: **"Want me to push and create a PR?"** If they approve, push to the
+   feature branch and create a PR. Call
    `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
 8. **Done** — After committing, re-claim the parent card for final lifecycle
    steps: `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
@@ -264,15 +268,15 @@ When the user says "reject" / "send back" / "needs work" (after reviewing the
    `prompt` so the planner knows exactly what needs fixing and creates new
    subtasks scoped only to the fixes.
 4. After the planning sub-agent finishes and the new fix subtasks are
-   created, resume the execute → review cycle from step 1 above.
-5. This loop (plan fix subtasks → execute → review) repeats until the user
-   approves.
+   created, resume the execute → document → review cycle from step 1 above.
+5. This loop (plan fix subtasks → execute → document → review) repeats until
+   the user approves.
 
 If **no**: let the human know they can run
 `/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
 
 The parent card's full lifecycle is:
-`todo → in_progress → review → (if rejected) in_progress → review → … → (if approved) done`
+`todo → in_progress → (docs) → review → (if rejected) in_progress → (docs) → review → … → (if approved) done`
 
 Each phase MUST lead to the next. **Abandoning the workflow mid-stream is never
 acceptable.** If you cannot continue (e.g., the user asks to pause), clearly

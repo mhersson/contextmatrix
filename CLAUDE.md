@@ -117,7 +117,8 @@ Full details with examples: `docs/data-model.md`.
 9. **External source tracking:** `source` field for Jira/GitHub imports,
    immutable after creation.
 10. **Parent auto-transitions:** parent goes `in_progress` when first subtask
-    claimed, `review` when all subtasks done.
+    claimed. Stays in `in_progress` when all subtasks done — orchestrator
+    transitions to `review` after documentation.
 11. **Subtask type:** automatic when `parent` is set, immutable, built-in (not
     in `.board.yaml` types).
 
