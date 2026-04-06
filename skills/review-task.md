@@ -59,7 +59,8 @@ Include the failing test output in your review findings.
 - Were tests written where appropriate?
 - Is the code consistent with the project's existing patterns?
 - Are there obvious bugs, race conditions, or error handling gaps?
-- Is the documentation adequate?
+- Are inline code comments adequate where logic isn't self-evident?
+- Is there dead code (unused functions, unreachable branches, commented-out blocks)?
 
 ### Coherence
 
