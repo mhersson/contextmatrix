@@ -110,8 +110,13 @@ create subtasks directly.
 
 # After subtasks are created — Execution (orchestrator)
 
-Once subtasks are created, the orchestrator asks the human whether to start
-execution. If **yes**:
+**STOP.** Ask the user: **"Subtasks created. Want me to start execution?"**
+
+If **no**: tell the user they can run
+`/contextmatrix:execute-task <card_id>` for individual tasks or come back
+later. Stop here.
+
+If **yes**: continue below.
 
 **Inline execution rule:** Always pass `caller_model='<your_model>'` when
 calling `get_skill` (extract your model family — **opus**, **sonnet**, or
@@ -120,12 +125,17 @@ execute the returned content directly instead of spawning a sub-agent — you
 already match the required model. If `inline` is false or absent, spawn a
 sub-agent with the returned `model` as described below.
 
+0. Claim the parent card:
+   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   Hold this claim through the entire execution phase.
 1. Call `get_ready_tasks` for the project to find subtasks with all dependencies
    met (state `todo`, no unfinished deps).
 2. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
    The response contains `model` (which model to use, e.g. `"sonnet"`) and
-   `content` (the full prompt). If `inline` is true, execute directly; otherwise
+   `content` (the full prompt). **Never pass `include_preamble: false` when
+   spawning sub-agents.** Only omit the preamble for content you execute
+   inline. If `inline` is true, execute directly; otherwise
    spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
@@ -134,7 +144,7 @@ sub-agent with the returned `model` as described below.
    message).
 3. **Monitor sub-agents with health checking.** After spawning agents, enter
    a monitoring loop. **Call `heartbeat` on the parent card every 5 minutes
-   during this loop** if you have an active claim — idle monitoring is the most
+   during this loop** — idle monitoring is the most
    common cause of stalled cards. **After each `heartbeat`, also call
    `report_usage` to record your own token consumption since the last report:**
    - `card_id`: the parent card ID
@@ -205,16 +215,15 @@ sub-agent with the returned `model` as described below.
    `prompt` set to the returned `content`. Documentation is always a sub-agent for
    context isolation — ignore the `inline` field. The parent stays in `in_progress`
    during documentation.
-5. After documentation completes, reclaim the parent card and transition it to
-   `review`:
+5. After documentation completes, reclaim the parent and transition to `review`:
    `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
    `transition_card(card_id=<parent_id>, new_state='review')`.
-   Then call
-   `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute the review directly. Otherwise, release the
-   parent card claim, spawn a review sub-agent using the `Agent` tool with
-   `model` from the response, `description` set to `"review-task for
-   <parent_id>"`, and `prompt` set to the returned `content`.
+   Call `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
+   - **`inline: true`** — execute the returned `content` directly. Keep your
+     claim. Do NOT release and re-claim.
+   - **`inline: false`** — release the claim first, then spawn a review
+     sub-agent via `Agent` with `model`, `description: "review-task for
+     <parent_id>"`, and `prompt` from the response.
 6. Wait for the review sub-agent to complete. Parse its structured output:
    - **`REVIEW_FINDINGS`**: the sub-agent has written its findings to the card
      body and released the card. Call `get_card(card_id=<parent_id>)` to read
@@ -271,9 +280,6 @@ When the user says "reject" / "send back" / "needs work" (after reviewing the
    created, resume the execute → document → review cycle from step 1 above.
 5. This loop (plan fix subtasks → execute → document → review) repeats until
    the user approves.
-
-If **no**: let the human know they can run
-`/contextmatrix:execute-task <card_id>` for individual tasks or come back later.
 
 The parent card's full lifecycle is:
 `todo → in_progress → (docs) → review → (if rejected) in_progress → (docs) → review → … → (if approved) done`
