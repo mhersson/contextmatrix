@@ -112,6 +112,14 @@ regardless of how many projects are listed.
 Columns scroll horizontally inside the columns wrapper (`overflow-x-auto`), with
 `overflow-y-hidden` preventing any vertical escape at that level.
 
+## Mobile touch and drag-and-drop
+
+Drag-and-drop is **disabled on touch devices**. `Board.tsx` calls `isTouchDevice()` at mount time and, when true, passes an empty sensor array to `useSensors()` so `@dnd-kit` never activates. This prevents accidental card state changes when users scroll the board by dragging.
+
+`isTouchDevice()` uses `window.matchMedia('(pointer: coarse)')` with a `navigator.maxTouchPoints > 0` fallback and an SSR guard (`typeof window === 'undefined'`). The result is treated as stable for the page lifetime — hybrid devices that switch pointer mode mid-session are not handled.
+
+**When adding new drag interactions:** check `isTouchDevice()` before wiring any new sensor. Do not enable pointer-based drag on touch devices without an explicit UX decision.
+
 ## Mobile sidebar
 
 On viewports narrower than `768px` (Tailwind `md` breakpoint) the desktop
