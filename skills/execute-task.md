@@ -111,15 +111,8 @@ blockers: none
 needs_human: false
 ```
 
-### Note on `complete_task` response
-
-If `complete_task` returns a `next_step` field (e.g., indicating the parent card
-moved to `review`), **ignore it**. The orchestrator (the main agent running the
-create-plan workflow) handles all lifecycle transitions including spawning review
-agents. Your job ends when you print `TASK_COMPLETE`.
-
-Do NOT spawn review sub-agents. Do NOT wait for review to finish. Print your
-structured output and stop.
+The `complete_task` response may include a `next_step` field — **ignore it**.
+Your work is done. Print `TASK_COMPLETE` and stop.
 
 ## Step 6: If blocked
 

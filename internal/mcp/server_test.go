@@ -447,18 +447,9 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Equal(t, "review", output.Card.State, "main task should stop at review")
 	assert.Empty(t, output.Card.AssignedAgent, "agent should be released after completion")
 
-	// Verify next_step instructs review via Agent tool spawning with model
+	// Verify next_step is informational only (no action directives)
 	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
-	assert.Contains(t, output.NextStep, "`Agent` tool", "next_step should instruct spawning via Agent tool")
-	assert.Contains(t, output.NextStep, "review_model", "next_step should reference review_model field")
-
-	// Verify the review skill is embedded in the response
-	assert.Equal(t, "review-task", output.ReviewSkillName)
-	assert.NotEmpty(t, output.ReviewModel, "response should include review model")
-	assert.NotEmpty(t, output.ReviewContent, "response should include review skill content")
-	assert.NotContains(t, output.ReviewContent, "## Agent Configuration",
-		"review content delivered to agent should have Agent Configuration stripped")
 
 	// Verify log entry was added
 	require.NotEmpty(t, output.Card.ActivityLog)
@@ -563,20 +554,9 @@ func TestCompleteTask_LastSubtaskTriggersReview(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "review", parent.State, "parent should have auto-transitioned to review")
 
-	// Response must include review-task skill prompt
-	assert.Equal(t, "review-task", output.ReviewSkillName, "response should include review-task skill name")
-	assert.NotEmpty(t, output.ReviewModel, "response should include review model")
-	assert.NotEmpty(t, output.ReviewContent, "response should include review skill content")
-	assert.NotContains(t, output.ReviewContent, "## Agent Configuration",
-		"review content delivered to agent should have Agent Configuration stripped")
-
-	// next_step should instruct spawning the review agent
-	assert.Contains(t, output.NextStep, "review-task", "next_step should reference review-task")
+	// next_step should be informational only
+	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should reference the parent card ID")
-	assert.Contains(t, output.NextStep, "`Agent` tool", "next_step should instruct spawning via Agent tool")
-
-	// The review content should contain the parent card ID (injected context)
-	assert.Contains(t, output.ReviewContent, "TEST-001", "review skill content should include parent card ID")
 }
 
 // TestCompleteTask_NonLastSubtaskNoReviewSkill verifies that completing a
@@ -642,9 +622,6 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 	assert.Equal(t, "in_progress", parentCard.State, "parent should remain in_progress while sibling is pending")
 
 	// No review skill in response
-	assert.Empty(t, output.ReviewSkillName, "should not include review skill when parent not in review")
-	assert.Empty(t, output.ReviewModel, "should not include review model")
-	assert.Empty(t, output.ReviewContent, "should not include review content")
 	assert.Empty(t, output.NextStep, "should not have next_step when parent not in review")
 }
 
@@ -2322,45 +2299,6 @@ func TestGetSkill_CreatePlanInline(t *testing.T) {
 	assert.True(t, out.Inline, "inline should be true for create-plan with sonnet caller")
 	assert.Equal(t, "sonnet", out.Model)
 	assert.Contains(t, out.Content, "INLINE EXECUTION")
-}
-
-// TestCompleteTask_ReviewContentStripped verifies that complete_task strips
-// the "## Agent Configuration" section from embedded review skill content.
-func TestCompleteTask_ReviewContentStripped(t *testing.T) {
-	env := setupMCP(t)
-
-	createTestCard(t, env, "Strip review test", "task", "medium")
-	callTool(t, env, "claim_card", map[string]any{
-		"project":  "test-project",
-		"card_id":  "TEST-001",
-		"agent_id": "agent-strip",
-	})
-
-	result := callTool(t, env, "complete_task", map[string]any{
-		"project":  "test-project",
-		"card_id":  "TEST-001",
-		"agent_id": "agent-strip",
-		"summary":  "Done, checking review content stripping",
-	})
-	require.False(t, result.IsError)
-
-	var output completeTaskOutput
-	unmarshalResult(t, result, &output)
-
-	// Task should be in review with review skill embedded
-	assert.Equal(t, "review", output.Card.State)
-	assert.NotEmpty(t, output.ReviewContent, "review content should be present")
-
-	// Agent Configuration section must be stripped
-	assert.NotContains(t, output.ReviewContent, "## Agent Configuration",
-		"review content embedded in complete_task response should have Agent Configuration stripped")
-
-	// Model is returned separately in ReviewModel
-	assert.NotEmpty(t, output.ReviewModel, "review model should be populated separately")
-
-	// Skill body should still be present
-	assert.Contains(t, output.ReviewContent, "Skill instructions here.",
-		"review skill body instructions should still be in content")
 }
 
 // --- Tests for project-less tool calls (project resolved from card ID) ---
