@@ -1,272 +1,239 @@
-# Deployment Example: ContextMatrix on Kubernetes with Remote Runner
+# Deploying ContextMatrix
 
-This document describes one way to deploy ContextMatrix — on a home lab
-Kubernetes cluster with a remote runner for autonomous agent tasks. It's a
-showcase of what a full-featured deployment *could* look like, not a
-requirement. ContextMatrix runs just as well as a single binary on your laptop
-with `./contextmatrix` and no containers, orchestration, or cloud services
-involved.
+This document covers deploying ContextMatrix as a persistent service — with a
+container, persistent storage, and optionally a remote runner for autonomous
+agent tasks. For local development, see the Quick Start section in the README.
 
-If you just want to get started, see the Quick Start section in the README.
-Everything below is for when you want a persistent, multi-machine setup.
+ContextMatrix runs just as well as a single binary on your laptop with
+`./contextmatrix` and no containers involved. Everything below is for when you
+want a persistent, multi-machine setup.
 
 ## Architecture Overview
 
 ```mermaid
 flowchart TB
-    subgraph internet["Internet"]
-        dev["Developer"]
+    subgraph internet["Internet (optional)"]
         browser["Browser"]
-        cf["Cloudflare Edge<br/>Access + WAF"]
-    end
-
-    subgraph github["GitHub"]
-        repo["contextmatrix<br/>(source repo)"]
-        boards["contextmatrix-boards<br/>(boards repo)"]
-        target["Project Repos<br/>(e.g., my-api, my-app)"]
+        proxy["Reverse Proxy<br/>(Cloudflare, Nginx, Caddy)"]
     end
 
     subgraph lan["Local Network"]
+        agents["Claude Code Agents"]
 
-        subgraph runner_host["Runner VM"]
-            runner["contextmatrix-runner<br/>:19090"]
-            gh_runner["GitHub Actions<br/>self-hosted runner"]
+        subgraph cm["ContextMatrix"]
+            cm_svc["ContextMatrix<br/>:8080"]
+            boards["Boards Git Repo<br/>(volume / PVC)"]
+        end
+
+        subgraph runner_host["Runner Host"]
+            runner["contextmatrix-runner<br/>:9090"]
             docker["Docker Engine"]
-            worker["Worker Container<br/>(Alpine + Claude Code)"]
+            worker["Worker Container<br/>(Claude Code headless)"]
         end
-
-        subgraph k8s["Kubernetes Cluster"]
-
-            subgraph cm_ns["contextmatrix namespace"]
-                cm_pod["ContextMatrix Pod"]
-                cm_svc["Service :8080"]
-                pvc["Longhorn PVC<br/>(boards data)"]
-                cfd["cloudflared"]
-            end
-
-            subgraph cd_ns["contextmatrix-pipelines namespace"]
-                kargo["Kargo<br/>(warehouse + stage)"]
-            end
-
-            argocd["ArgoCD"]
-            gateway["Cilium Gateway<br/>HTTPRoute + TLS"]
-            harbor["Harbor Registry"]
-        end
-
-        gitea["Gitea<br/>(CI repo)"]
     end
 
-    %% CI flow (blue)
-    dev -- "push to main" --> repo
-    repo -- "webhook" --> gh_runner
-    gh_runner -- "docker build + push" --> harbor
+    subgraph github["GitHub"]
+        target["Project Repos"]
+        boards_remote["Boards Remote<br/>(optional)"]
+    end
 
-    %% CD flow (green)
-    harbor -- "new image detected" --> kargo
-    kargo -- "promote: render manifests" --> gitea
-    gitea -- "sync rendered/" --> argocd
-    argocd -- "deploy" --> cm_pod
-
-    %% Internet access (orange)
-    browser --> cf
-    cf -- "web UI only<br/>/mcp + /healthz blocked" --> cfd
-    cfd --> cm_svc
-
-    %% LAN access
-    gateway -- "cm.lan.example.com<br/>agents + web UI" --> cm_svc
-
-    %% Runner flow (purple)
-    cm_pod -- "trigger webhook" --> runner
-    runner -- "start container" --> docker
+    browser --> proxy
+    proxy -- "block /mcp + /healthz" --> cm_svc
+    agents -- "MCP tools" --> cm_svc
+    cm_svc --> boards
+    cm_svc -- "clone on startup" --> boards_remote
+    cm_svc -- "trigger webhook" --> runner
+    runner -- "spawn container" --> docker
     docker --> worker
     worker -- "MCP tools" --> cm_svc
-    worker -- "clone repo,<br/>code changes,<br/>create PR" --> target
-    cm_pod -- "clone on startup" --> boards
-    cm_pod --> pvc
-
-    %% Styling
-    linkStyle 0,1,2 stroke:#1565c0,stroke-width:2px
-    linkStyle 3,4,5 stroke:#2e7d32,stroke-width:2px
-    linkStyle 6,7,8 stroke:#e65100,stroke-width:2px
-    linkStyle 10,11,12,13 stroke:#6a1b9a,stroke-width:2px
+    worker -- "clone, commit,<br/>push, create PR" --> target
 ```
 
-## Components
-
-| Component                | Role                                                                                                                                                                          |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ContextMatrix**        | Kanban server — REST API, web UI, MCP endpoint. Runs as a single-replica pod in k8s.                                                                                          |
-| **contextmatrix-runner** | Webhook receiver on a LAN VM. Spawns disposable Docker containers that run Claude Code autonomously — cloning project repos, making code changes, and creating pull requests. |
-| **GitHub Actions**       | CI — builds Docker image on push to main, pushes to Harbor. Uses a self-hosted runner on the LAN (Harbor is not internet-accessible).                                         |
-| **Kargo**                | CD — detects new images in Harbor, renders Kustomize manifests, pushes to CI repo.                                                                                            |
-| **ArgoCD**               | GitOps — syncs rendered manifests from CI repo to cluster.                                                                                                                    |
-| **Cloudflare Tunnel**    | Exposes the web UI to the internet with Cloudflare Access authentication. MCP and health endpoints are blocked at the edge.                                                   |
-| **Cilium Gateway**       | LAN ingress with TLS (cert-manager wildcard cert). Agents and local browsers connect here.                                                                                    |
-| **Longhorn**             | Persistent storage for the boards git repository.                                                                                                                             |
-| **Harbor**               | Private container registry on the LAN.                                                                                                                                        |
-| **Gitea**                | LAN git server hosting the CI/CD manifests repo.                                                                                                                              |
-
-## Prerequisites (for this example)
-
-This particular setup uses:
-
-- Kubernetes cluster with ArgoCD, Kargo, cert-manager, Longhorn, and a Gateway
-  API implementation (e.g., Cilium)
-- Private container registry (e.g., Harbor) accessible from the LAN
-- Local git server (e.g., Gitea) for the CI repo
-- Cloudflare account with a domain and Zero Trust Access
-- A LAN machine (VM or bare metal) with Docker for the runner
-- GitHub account (source code + boards repo)
-- GitHub App for runner git operations (clone, push, PRs)
-
-None of these are required to use ContextMatrix itself — they're specific to
-this deployment pattern.
-
-## How This Example Is Set Up
-
-### 1. Container Image
+## Building the Container Image
 
 The repo includes a multi-stage Dockerfile:
 
-- **Stage 1**: Node.js — build the React frontend
-- **Stage 2**: Go — build the binary with embedded frontend
+- **Stage 1**: Node.js — builds the React frontend
+- **Stage 2**: Go — compiles the binary with embedded frontend
 - **Stage 3**: Alpine runtime with `git` and `openssh-client`
 
-Skills are baked into the image at build time.
+Skills are baked into the image at `/etc/contextmatrix/skills/`.
 
-### 2. CI Pipeline (GitHub Actions)
-
-A workflow triggers on push to main:
-
-- Runs on a **self-hosted runner** on the LAN (required when the registry is
-  LAN-only)
-- Builds the Docker image and tags with the short commit SHA
-- Pushes to the private registry
-
-The self-hosted runner is installed on the same VM as the contextmatrix-runner.
-
-### 3. CI/CD Repo (Gitea)
-
-A separate repo on the local git server holds infrastructure manifests:
-
-```
-contextmatrix-ci/
-├── base/runtime/       # Deployment, Service, PVC, HTTPRoute, ConfigMap
-├── stages/production/  # Kustomize overlay (image tag, managed by Kargo)
-├── rendered/production/# Kargo output (ArgoCD reads this)
-├── kargo/              # Warehouse, Stage, Project
-├── cloudflared/        # Tunnel deployment + encrypted token
-├── bootstrap/argocd/   # AppProject + Application resources
-└── bootstrap.sh        # One-time setup script
+```bash
+docker build -t contextmatrix:latest .
 ```
 
-### 4. Kubernetes Manifests
+## Running with Docker
 
-**Deployment** — single replica with `Recreate` strategy (one writer to the
-boards repo):
+The simplest production deployment — a single container with a volume for boards
+data.
 
-- Boards data on a Longhorn PVC
-- SSH deploy key mounted for boards repo git operations
-- All configuration via environment variables (no config file in the container)
-- Clone-on-empty: if the PVC is fresh, CM clones the boards repo on startup
-- `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and home
+```bash
+# Initialize the boards repo
+mkdir -p ~/boards/contextmatrix
+cd ~/boards/contextmatrix && git init
 
-**ConfigMap** — for settings that can't be set via env vars (e.g.,
-`token_costs`). Mounted at `/config/config.yaml`, passed via `--config` flag.
+# Run
+docker run -d \
+  --name contextmatrix \
+  -p 8080:8080 \
+  -v ~/boards/contextmatrix:/data/boards \
+  -e CONTEXTMATRIX_BOARDS_DIR=/data/boards \
+  -e CONTEXTMATRIX_MCP_API_KEY=your-mcp-key-here \
+  contextmatrix:latest
+```
 
-**PVC** — Longhorn, 1Gi, ReadWriteOnce. The boards git repo lives here.
+For runner integration, add:
 
-**HTTPRoute** — routes `cm.lan.example.com` through the Cilium Gateway for LAN
-access.
+```bash
+  -e CONTEXTMATRIX_RUNNER_ENABLED=true \
+  -e CONTEXTMATRIX_RUNNER_URL=http://runner-host:9090 \
+  -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-min-32ch \
+  -e CONTEXTMATRIX_RUNNER_PUBLIC_URL=http://host-ip:8080 \
+```
 
-### 5. Kargo Pipeline
+`CONTEXTMATRIX_RUNNER_PUBLIC_URL` must be reachable from inside runner
+containers — `localhost` won't work. Use the host's LAN IP or
+`host.docker.internal` on Docker Desktop.
 
-- **One warehouse** watching Harbor for new image tags and the CI repo for
-  config changes
-- **One stage** (`production`) with auto-promote
-- Promotion steps: clone CI repo → kustomize-set-image → kustomize-build →
-  commit → push → ArgoCD update
+## Running on Kubernetes
 
-### 6. Cloudflare Tunnel
+ContextMatrix writes to the boards git repo on every mutation. Use a
+**single-replica** deployment with `Recreate` strategy to avoid concurrent
+writers.
 
-A separate cloudflared deployment in the CM namespace connects to Cloudflare's
-edge.
+### Key points
 
-**Security layers:**
+- **Persistent storage** — mount a PVC at the boards directory. Any storage
+  class that supports ReadWriteOnce works.
+- **Clone-on-empty** — if the PVC is empty on startup, ContextMatrix
+  automatically clones the boards repo from the configured remote URL. No manual
+  initialization needed.
+- **SSH deploy key** — mount a deploy key for boards repo git operations (push
+  to remote). Mount at a path accessible to the container user and set
+  `GIT_SSH_COMMAND` to use it.
+- **Configuration** — all settings can be set via `CONTEXTMATRIX_*` environment
+  variables. See `config.yaml.example` for the full list.
+- **Security context** — the image runs as `nobody`. Use
+  `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and
+  `/home/nobody`.
 
-- **Cloudflare Access** — requires authentication for all requests to the
-  hostname
-- **WAF rules** — block `/mcp*` and `/healthz` at the edge (these endpoints
-  should only be reachable from the LAN)
+### Example deployment snippet
 
-The tunnel is configured in the Cloudflare dashboard (token-based). The token is
-stored as a SOPS-encrypted Kubernetes secret.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contextmatrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: contextmatrix
+          image: contextmatrix:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONTEXTMATRIX_BOARDS_DIR
+              value: /data/boards
+            - name: CONTEXTMATRIX_BOARDS_REMOTE_URL
+              value: git@github.com:org/boards.git
+            - name: CONTEXTMATRIX_MCP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: contextmatrix-secrets
+                  key: mcp-api-key
+          volumeMounts:
+            - name: boards
+              mountPath: /data/boards
+            - name: ssh-key
+              mountPath: /etc/contextmatrix/ssh
+              readOnly: true
+      volumes:
+        - name: boards
+          persistentVolumeClaim:
+            claimName: contextmatrix-boards
+        - name: ssh-key
+          secret:
+            secretName: boards-deploy-key
+            defaultMode: 0400
+```
 
-### 7. TLS Certificate
+## Runner on a Separate Host
 
-This example uses cert-manager with a wildcard certificate for
-`*.lan.example.com` on the gateway, covering all LAN services without
-per-service certificates.
+The [contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)
+receives webhooks from ContextMatrix and spawns disposable Docker containers
+that execute tasks autonomously.
 
-### 8. Bootstrap
+### Requirements
 
-A one-time bootstrap script creates:
+- Docker Engine on the runner host
+- Network access from runner containers back to ContextMatrix (for MCP tools)
+- A worker Docker image with Claude Code, the project's language toolchain, and
+  GitHub CLI
 
-- Namespaces (application + pipelines)
-- Kargo git credentials (SSH key for CI repo)
-- Harbor registry credentials (for Kargo image discovery)
-- Boards repo SSH deploy key
-- MCP API key (randomly generated)
-- Runner API key (randomly generated)
-- ArgoCD applications
+### Configuration
 
-### 9. Runner Setup
+```yaml
+# runner config.yaml
+contextmatrix:
+  url: "http://cm-host:8080"
+  api_key: "same-shared-secret-as-cm"
+  public_url: "http://cm-host:8080" # URL containers use to reach CM
+```
 
-On the runner VM:
+The runner resolves the CM hostname on the host. If CM is on a LAN hostname that
+containers can't resolve, inject a `/etc/hosts` entry into containers via the
+runner config.
 
-- Build the worker Docker image (Alpine-based with Claude Code, Go, Node.js,
-  GitHub CLI)
-- Configure `config.yaml` with the CM URL, shared API key, Claude auth
-  directory, and GitHub App credentials
-- Run as a systemd user service
+## External Access (Optional)
 
-The runner resolves the CM hostname on the host (where `/etc/hosts` entries
-work) and injects it into container `/etc/hosts` entries so containers can reach
-LAN services.
+ContextMatrix is designed for trusted networks. To expose the web UI to the
+internet, put an authenticating reverse proxy in front.
+
+### General pattern
+
+```
+Internet → [Reverse Proxy + Auth + TLS] → ContextMatrix :8080
+```
+
+**Critical:** Block these paths at the proxy — they should only be reachable
+from the LAN:
+
+- `/mcp*` — MCP endpoint (agent access)
+- `/healthz` — health check
+
+### Cloudflare Tunnel example
+
+A Cloudflare Tunnel with Access provides authentication without exposing any
+ports:
+
+- **Cloudflare Access** — requires SSO/email authentication for all requests
+- **WAF rules** — block `/mcp*` and `/healthz` at the edge
+- The tunnel connects outbound from your network — no inbound firewall rules
+  needed
+
+## Secrets to Provision
+
+Before first deployment, generate these:
+
+| Secret                  | Purpose                                | Notes                                                         |
+| ----------------------- | -------------------------------------- | ------------------------------------------------------------- |
+| **MCP API key**         | Bearer token for MCP endpoint          | Random string, set in config                                  |
+| **Runner API key**      | HMAC-SHA256 webhook signing            | Shared between CM and runner, min 32 chars, never transmitted |
+| **Boards SSH key**      | Git push to boards remote              | Deploy key with write access                                  |
+| **GitHub App** (runner) | Clone repos, push branches, create PRs | Short-lived tokens (1h expiry)                                |
 
 ## Security Model
 
-| Layer                   | Protection                                                                   |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| **Internet → Web UI**   | Cloudflare Access (SSO/email auth)                                           |
-| **Internet → MCP**      | Blocked at Cloudflare edge (WAF rule)                                        |
-| **Internet → /healthz** | Blocked at Cloudflare edge (WAF rule)                                        |
-| **LAN → MCP**           | Bearer token authentication (`mcp_api_key`)                                  |
-| **CM ↔ Runner**         | HMAC-SHA256 signed webhooks (shared secret, never transmitted)               |
-| **Runner containers**   | All capabilities dropped, `no-new-privileges`, memory/PID limits, disposable |
-| **Git credentials**     | Short-lived GitHub App tokens (1-hour expiry), SSH deploy keys               |
-| **Secrets in k8s**      | SOPS encryption (age) for cloudflared token, k8s Secrets for API keys        |
-| **Container images**    | Private Harbor registry, image allowlist in runner config                    |
-
-## Key Design Decisions
-
-**Single stage, no progressive delivery** — ContextMatrix is tested locally
-before pushing. A single auto-promoting stage keeps the pipeline simple.
-
-**GitHub Actions with self-hosted runner** — The source code is on GitHub but
-the registry is LAN-only. A self-hosted runner bridges the gap without exposing
-the registry to the internet.
-
-**CI repo on local git server** — Keeps infrastructure configuration close to
-the infrastructure. ArgoCD and Kargo access it directly on the LAN with no
-external dependency.
-
-**Separate cloudflared tunnel** — Isolates CM's internet exposure from other
-services. Can be torn down independently.
-
-**Clone-on-empty** — When the PVC is fresh (first deployment or data loss), CM
-automatically clones the boards repo from the configured remote URL. No manual
-initialization needed.
-
-**Alpine worker image** — Smaller and faster to pull than Ubuntu-based
-alternatives. Clean user namespace with no pre-existing users at common UIDs.
+| Layer                 | Protection                                                                   |
+| --------------------- | ---------------------------------------------------------------------------- |
+| **Internet → Web UI** | Reverse proxy with authentication (e.g., Cloudflare Access)                  |
+| **Internet → MCP**    | Blocked at proxy (LAN-only)                                                  |
+| **LAN → MCP**         | Bearer token (`mcp_api_key`)                                                 |
+| **CM ↔ Runner**       | HMAC-SHA256 signed webhooks (shared secret, never transmitted)               |
+| **Runner containers** | All capabilities dropped, `no-new-privileges`, memory/PID limits, disposable |
+| **Git credentials**   | Short-lived GitHub App tokens (1h expiry), SSH deploy keys                   |

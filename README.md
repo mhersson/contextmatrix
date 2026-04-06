@@ -619,8 +619,8 @@ Tunnel, etc.).
 - **Agent identity** (`X-Agent-ID` header) — a coordination mechanism, not
   cryptographic authentication. Agents are trusted participants.
 
-For a production deployment example with Kubernetes, Cloudflare Access, and
-Cilium Gateway, see [`docs/deployment-example.md`](docs/deployment-example.md).
+For production deployment with Docker, Kubernetes, and external access, see
+[`docs/deployment-example.md`](docs/deployment-example.md).
 
 ## Development
 
