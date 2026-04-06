@@ -6,6 +6,7 @@ import {
   useSensor,
   useSensors,
   PointerSensor,
+  TouchSensor,
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
@@ -17,6 +18,23 @@ import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { FilterBar } from './FilterBar';
 import { BoardSkeleton } from './BoardSkeleton';
+
+/**
+ * Returns true when the primary pointing device is coarse (touch screen).
+ * Uses the `pointer: coarse` media query with a fallback to maxTouchPoints
+ * for environments where matchMedia is unavailable (e.g. jsdom in tests).
+ *
+ * On touch devices a TouchSensor with a delay constraint is used instead of
+ * PointerSensor so that press-and-hold triggers drag while normal scrolling
+ * is unaffected.
+ */
+export function isTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(pointer: coarse)').matches;
+  }
+  return navigator.maxTouchPoints > 0;
+}
 
 const PRIORITY_RANK: Record<string, number> = {
   critical: 0,
@@ -64,11 +82,14 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    })
-  );
+  // Both sensor hooks are called unconditionally (React rules of hooks).
+  // isTouchDevice() selects which sensor to pass to useSensors:
+  // - Touch: 250ms delay distinguishes press-and-hold drag from scroll.
+  // - Pointer: 5px distance threshold for immediate mouse drag.
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } });
+  const touchDevice = isTouchDevice();
+  const sensors = useSensors(touchDevice ? touchSensor : pointerSensor);
 
   const hasFilter = Object.values(filter).some(Boolean);
 
@@ -205,7 +226,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
         onDragCancel={handleDragCancel}
       >
         <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="flex gap-4 p-4 h-full min-w-max">
+          <div className="flex gap-3 p-3 sm:gap-4 sm:p-4 h-full min-w-max">
             {config.states.map((state) => (
               <Column
                 key={state}

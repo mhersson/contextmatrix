@@ -127,15 +127,15 @@ describe('paginateItems', () => {
 describe('CostTable — Cost by Card section', () => {
   const agentCosts: AgentCost[] = [];
 
-  it('shows only first 30 cards by default when there are 35', () => {
+  it('shows only first 25 cards by default when there are 35', () => {
     render(<CostTable agentCosts={agentCosts} cardCosts={cards35} />);
-    // Each card row shows the card_id. With 35 cards, page 1 shows 30.
+    // Each card row shows the card_id. With 35 cards, page 1 shows 25.
     expect(screen.getByText('PROJ-001')).toBeInTheDocument();
-    expect(screen.getByText('PROJ-030')).toBeInTheDocument();
-    expect(screen.queryByText('PROJ-031')).not.toBeInTheDocument();
+    expect(screen.getByText('PROJ-025')).toBeInTheDocument();
+    expect(screen.queryByText('PROJ-026')).not.toBeInTheDocument();
   });
 
-  it('shows pagination controls when there are more than 30 cards', () => {
+  it('shows pagination controls when there are more than 25 cards', () => {
     render(<CostTable agentCosts={agentCosts} cardCosts={cards35} />);
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled();
@@ -145,7 +145,7 @@ describe('CostTable — Cost by Card section', () => {
   it('navigates to next page showing remaining cards', () => {
     render(<CostTable agentCosts={agentCosts} cardCosts={cards35} />);
     fireEvent.click(screen.getByRole('button', { name: /next/i }));
-    expect(screen.getByText('PROJ-031')).toBeInTheDocument();
+    expect(screen.getByText('PROJ-026')).toBeInTheDocument();
     expect(screen.queryByText('PROJ-001')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /previous/i })).not.toBeDisabled();

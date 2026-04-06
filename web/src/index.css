@@ -83,6 +83,12 @@
   }
 }
 
+@media (max-width: 480px) {
+  :root {
+    --col-width: calc(100vw - 48px);
+  }
+}
+
 @media (max-width: 1024px) {
   .card-panel {
     width: 100%;
@@ -94,6 +100,13 @@
 @media (max-width: 768px) {
   .sidebar {
     display: none;
+  }
+
+  /* On narrow viewports, take full width with no minimum constraint */
+  .card-panel {
+    width: 100%;
+    min-width: unset;
+    max-width: 100%;
   }
 }
 

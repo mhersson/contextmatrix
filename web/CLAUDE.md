@@ -112,6 +112,28 @@ regardless of how many projects are listed.
 Columns scroll horizontally inside the columns wrapper (`overflow-x-auto`), with
 `overflow-y-hidden` preventing any vertical escape at that level.
 
+## Mobile touch and drag-and-drop
+
+Drag-and-drop uses different sensors for touch and pointer (mouse) devices.
+`Board.tsx` calls `isTouchDevice()` at mount time to select the sensor:
+
+- **Touch devices:** `TouchSensor` with `activationConstraint: { delay: 250, tolerance: 5 }`.
+  The 250ms press-and-hold delay distinguishes intentional drag from scroll gestures.
+- **Pointer devices:** `PointerSensor` with `activationConstraint: { distance: 5 }`.
+  A 5px movement threshold before drag activates.
+
+Both `useSensor()` calls are always executed unconditionally (React Rules of
+Hooks). The `isTouchDevice()` result selects which descriptor to pass to
+`useSensors()`.
+
+`isTouchDevice()` uses `window.matchMedia('(pointer: coarse)')` with a
+`navigator.maxTouchPoints > 0` fallback and an SSR guard
+(`typeof window === 'undefined'`). The result is treated as stable for the page
+lifetime.
+
+**When adding new drag interactions:** use the existing sensor setup. Do not
+create separate sensor configurations without updating this documentation.
+
 ## Mobile sidebar
 
 On viewports narrower than `768px` (Tailwind `md` breakpoint) the desktop
