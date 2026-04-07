@@ -36,30 +36,10 @@ export function useSync(): UseSyncResult {
         );
         break;
       case 'sync.completed':
-        setSyncStatus((prev) =>
-          prev
-            ? {
-                ...prev,
-                syncing: false,
-                last_sync_time: event.timestamp,
-                last_sync_error: undefined,
-              }
-            : prev
-        );
-        break;
       case 'sync.conflict':
       case 'sync.error':
-        setSyncStatus((prev) =>
-          prev
-            ? {
-                ...prev,
-                syncing: false,
-                last_sync_time: event.timestamp,
-                last_sync_error:
-                  (event.data?.error as string) || 'Sync failed',
-              }
-            : prev
-        );
+        // Refresh from backend to get accurate last_sync_time
+        api.getSyncStatus().then(setSyncStatus).catch(() => {});
         break;
     }
   }, []);
