@@ -40,7 +40,11 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setStates(cfg.states);
         setTypes(cfg.types);
         setPriorities(cfg.priorities);
-        setTransitions(cfg.transitions);
+        const normalized = { ...cfg.transitions };
+        cfg.states.forEach(s => {
+          if (!(s in normalized)) normalized[s] = [];
+        });
+        setTransitions(normalized);
         setCardCount(count);
       })
       .catch(err => setError(isAPIError(err) ? err.error : 'Failed to load project'))
@@ -200,7 +204,14 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         items={states}
         newValue={newState}
         setNewValue={setNewState}
-        onAdd={() => addItem(states, setStates, newState, setNewState)}
+        onAdd={() => {
+          const trimmed = newState.trim();
+          if (trimmed && !states.includes(trimmed)) {
+            setStates([...states, trimmed]);
+            setTransitions(prev => trimmed in prev ? prev : { ...prev, [trimmed]: [] });
+            setNewState('');
+          }
+        }}
         onRemove={(v) => removeItem(states, setStates, v)}
         protectedItems={['stalled', 'not_planned']}
         inputStyle={inputStyle}
