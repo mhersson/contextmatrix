@@ -36,7 +36,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
-	registerStartWorkflow(server, svc)
+	registerStartWorkflow(server, svc, skillsDir)
 	registerGetSkill(server, svc, skillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
@@ -58,10 +58,12 @@ func resolveProject(ctx context.Context, svc *service.CardService, project, card
 
 // --- Input/Output types ---
 
-type listProjectsInput struct{}
-type listProjectsOutput struct {
-	Projects []board.ProjectConfig `json:"projects"`
-}
+type (
+	listProjectsInput  struct{}
+	listProjectsOutput struct {
+		Projects []board.ProjectConfig `json:"projects"`
+	}
+)
 
 type listCardsInput struct {
 	Project string `json:"project" jsonschema:"required,project name"`
@@ -845,42 +847,52 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 // --- start_workflow tool ---
 
 type startWorkflowInput struct {
-	CardID string `json:"card_id" jsonschema:"required,card ID to start the workflow for (e.g. ALPHA-001)"`
+	CardID          string `json:"card_id" jsonschema:"required,card ID to start the workflow for (e.g. ALPHA-001)"`
+	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 type startWorkflowOutput struct {
-	CardID    string `json:"card_id"`
-	Workflow  string `json:"workflow"`
-	Prompt    string `json:"prompt"`
-	Instruction string `json:"instruction"`
+	SkillName string `json:"skill_name"`
+	Model     string `json:"model,omitempty"`
+	Content   string `json:"content"`
+	Inline    bool   `json:"inline,omitempty"`
 }
 
-func registerStartWorkflow(server *mcp.Server, svc *service.CardService) {
+func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "start_workflow",
 		Description: "Start the workflow for a card. Call this when a user asks to " +
-			"'start workflow', 'plan', 'work on', 'begin', or 'run' a card. " +
-			"Inspects the card's autonomous flag and returns which workflow prompt to invoke: " +
-			"run-autonomous (for autonomous cards) or create-plan (for human-in-the-loop cards).",
+			"'start workflow', 'start', 'plan', 'work on', 'begin', or 'run' a card. " +
+			"Inspects the card's autonomous flag and returns the full workflow skill content: " +
+			"run-autonomous (for autonomous cards) or create-plan (for human-in-the-loop cards). " +
+			"Always returns inline: true — execute the content directly.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startWorkflowInput) (*mcp.CallToolResult, startWorkflowOutput, error) {
 		card, _, err := findCard(ctx, svc, input.CardID)
 		if err != nil {
 			return nil, startWorkflowOutput{}, fmt.Errorf("start workflow: %w", err)
 		}
 
+		skill := "create-plan"
 		if card.Autonomous {
-			return nil, startWorkflowOutput{
-				CardID:      input.CardID,
-				Workflow:    "run-autonomous",
-				Prompt:      "/contextmatrix:run-autonomous " + input.CardID,
-				Instruction: "This card has autonomous mode enabled. Run the prompt shown above to drive it through the full lifecycle without human approval gates.",
-			}, nil
+			skill = "run-autonomous"
 		}
 
+		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+		result, err := buildSkillContent(ctx, svc, skillsDir, skill, skillArgs{
+			CardID: input.CardID,
+		}, includePreamble)
+		if err != nil {
+			return nil, startWorkflowOutput{}, fmt.Errorf("start workflow: %w", err)
+		}
+		content := stripAgentConfig(result.Content)
+
+		// start_workflow always returns inline content — both create-plan
+		// and run-autonomous are executed directly by the orchestrator.
+		content = buildInlineExecutionPrompt(content, input.CardID, skill)
+
 		return nil, startWorkflowOutput{
-			CardID:      input.CardID,
-			Workflow:    "create-plan",
-			Prompt:      "/contextmatrix:create-plan " + input.CardID,
-			Instruction: "This card uses the human-in-the-loop workflow. Run the prompt shown above to start planning with approval gates.",
+			SkillName: skill,
+			Content:   content,
+			Inline:    true,
 		}, nil
 	})
 }

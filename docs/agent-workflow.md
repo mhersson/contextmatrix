@@ -109,11 +109,12 @@ skills/
 
 `start-workflow` has no skill file. It exists as both a **prompt** (slash
 command) and a **tool** (`start_workflow`). Both are server-side only: they fetch
-the card, inspect the `autonomous` flag, and route to `run-autonomous` or
-`create-plan`. The tool enables natural-language triggering — when a user writes
-"start workflow for ALPHA-001" (without a slash command), the agent sees the
-`start_workflow` tool and calls it to get routing instructions. If the card
-cannot be found, both paths return an error.
+the card, inspect the `autonomous` flag, and return the full skill content for
+`run-autonomous` or `create-plan`. The tool enables natural-language triggering
+— when a user writes "start workflow for ALPHA-001" (without a slash command),
+the agent sees the `start_workflow` tool and calls it to get the executable
+workflow content directly. If the card cannot be found, both paths return an
+error.
 
 ## Slash command interface
 

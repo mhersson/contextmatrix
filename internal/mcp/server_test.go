@@ -1612,7 +1612,7 @@ func TestPrompt_StartWorkflow_Autonomous(t *testing.T) {
 }
 
 // TestTool_StartWorkflow_NonAutonomous verifies the start_workflow tool returns
-// create-plan for non-autonomous cards.
+// full create-plan skill content for non-autonomous cards.
 func TestTool_StartWorkflow_NonAutonomous(t *testing.T) {
 	env := setupMCP(t)
 
@@ -1626,14 +1626,17 @@ func TestTool_StartWorkflow_NonAutonomous(t *testing.T) {
 	var out startWorkflowOutput
 	unmarshalResult(t, result, &out)
 
-	assert.Equal(t, "TEST-001", out.CardID)
-	assert.Equal(t, "create-plan", out.Workflow)
-	assert.Contains(t, out.Prompt, "create-plan")
-	assert.Contains(t, out.Prompt, "TEST-001")
+	assert.Equal(t, "create-plan", out.SkillName)
+	assert.True(t, out.Inline, "start_workflow should always return inline=true")
+	assert.Contains(t, out.Content, "INLINE EXECUTION")
+	assert.Contains(t, out.Content, "create-plan.md")
+	assert.Contains(t, out.Content, "Skill instructions here.")
+	assert.Contains(t, out.Content, "TEST-001")
+	assert.NotContains(t, out.Content, "## Agent Configuration")
 }
 
 // TestTool_StartWorkflow_Autonomous verifies the start_workflow tool returns
-// run-autonomous for autonomous cards.
+// full run-autonomous skill content for autonomous cards.
 func TestTool_StartWorkflow_Autonomous(t *testing.T) {
 	env := setupMCP(t)
 
@@ -1652,10 +1655,13 @@ func TestTool_StartWorkflow_Autonomous(t *testing.T) {
 	var out startWorkflowOutput
 	unmarshalResult(t, result, &out)
 
-	assert.Equal(t, "TEST-001", out.CardID)
-	assert.Equal(t, "run-autonomous", out.Workflow)
-	assert.Contains(t, out.Prompt, "run-autonomous")
-	assert.Contains(t, out.Prompt, "TEST-001")
+	assert.Equal(t, "run-autonomous", out.SkillName)
+	assert.True(t, out.Inline, "start_workflow should always return inline=true")
+	assert.Contains(t, out.Content, "INLINE EXECUTION")
+	assert.Contains(t, out.Content, "run-autonomous.md")
+	assert.Contains(t, out.Content, "TEST-001")
+	assert.Contains(t, out.Content, "**Autonomous:** true")
+	assert.NotContains(t, out.Content, "## Agent Configuration")
 }
 
 func TestUpdateCard_Priority(t *testing.T) {
