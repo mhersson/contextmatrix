@@ -72,7 +72,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	ch := &cardHandlers{svc: cfg.Service}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
-	sh := &syncHandlers{syncer: cfg.Syncer, apiKey: cfg.MCPAPIKey}
+	sh := &syncHandlers{syncer: cfg.Syncer}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)

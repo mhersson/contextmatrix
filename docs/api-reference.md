@@ -32,7 +32,7 @@ POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
 
-POST   /api/sync                                      # trigger git sync (Bearer auth)
+POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
 GET    /api/events?project=                           # SSE stream
@@ -171,9 +171,8 @@ Returns:
 
 ### POST /api/sync
 
-Trigger a git pull on the boards repository. Requires
-`Authorization: Bearer <token>` when `mcp_api_key` is configured. Returns 503 if
-sync is disabled (no remote configured).
+Trigger a git pull on the boards repository. Returns 503 if sync is disabled
+(no remote configured).
 
 ### GET /api/sync
 
