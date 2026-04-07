@@ -317,8 +317,12 @@ transitions:
 ```
 
 Both `stalled` and `not_planned` must always be present in `states` and
-`transitions`. The server enforces this. Any state can transition to `stalled`
-without being listed in the source state's transitions — the server injects this
-automatically (needed for heartbeat timeout). `not_planned` follows normal
-transition rules: only states that explicitly list `not_planned` in their
-transitions can reach it (e.g., `todo: [in_progress, not_planned]`).
+`transitions`. The server enforces this. All other states are optional in the
+`transitions` map — a state with no entry is a valid terminal state (no outgoing
+transitions). For example, omitting `done` from the transitions map makes it
+truly terminal, while including `done: [todo]` allows re-opening cards. Any
+state can transition to `stalled` without being listed in the source state's
+transitions — the server injects this automatically (needed for heartbeat
+timeout). `not_planned` follows normal transition rules: only states that
+explicitly list `not_planned` in their transitions can reach it (e.g.,
+`todo: [in_progress, not_planned]`).

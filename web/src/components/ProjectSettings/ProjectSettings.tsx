@@ -35,12 +35,19 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       api.getCards(project).then(cards => cards.length),
     ])
       .then(([cfg, count]) => {
-        setConfig(cfg);
+        // Normalize transitions: ensure all states have an entry (even if empty)
+        // This prevents isDirty from being true immediately after load
+        const normalizedTransitions: Record<string, string[]> = { ...cfg.transitions };
+        cfg.states.forEach(s => {
+          if (!(s in normalizedTransitions)) normalizedTransitions[s] = [];
+        });
+        const normalizedConfig = { ...cfg, transitions: normalizedTransitions };
+        setConfig(normalizedConfig);
         setRepo(cfg.repo || '');
         setStates(cfg.states);
         setTypes(cfg.types);
         setPriorities(cfg.priorities);
-        setTransitions(cfg.transitions);
+        setTransitions(normalizedTransitions);
         setCardCount(count);
       })
       .catch(err => setError(isAPIError(err) ? err.error : 'Failed to load project'))
@@ -74,7 +81,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       onUpdated(updated);
       showToast('Project settings saved', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to save', 'error');
+      const errMsg = isAPIError(err)
+        ? (err.details ? `${err.error}: ${err.details}` : err.error)
+        : 'Failed to save';
+      showToast(errMsg, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -200,7 +210,14 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         items={states}
         newValue={newState}
         setNewValue={setNewState}
-        onAdd={() => addItem(states, setStates, newState, setNewState)}
+        onAdd={() => {
+          const trimmed = newState.trim();
+          if (trimmed && !states.includes(trimmed)) {
+            setStates([...states, trimmed]);
+            setTransitions(prev => trimmed in prev ? prev : { ...prev, [trimmed]: [] });
+            setNewState('');
+          }
+        }}
         onRemove={(v) => removeItem(states, setStates, v)}
         protectedItems={['stalled', 'not_planned']}
         inputStyle={inputStyle}

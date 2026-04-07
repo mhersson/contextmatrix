@@ -389,6 +389,10 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 
 		newTypes := toSet(input.Types)
 		for typ := range usedTypes {
+			// Skip built-in subtask type - it's auto-assigned when card has a parent
+			if typ == board.SubtaskType {
+				continue
+			}
 			if !newTypes[typ] {
 				return nil, fmt.Errorf("cannot remove type %q: in use by cards: %w", typ, board.ErrInvalidProjectConfig)
 			}

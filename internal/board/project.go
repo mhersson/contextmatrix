@@ -149,13 +149,6 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 		return ErrMissingNotPlannedTransitions
 	}
 
-	// Check all states have transition entries
-	for _, state := range cfg.States {
-		if _, ok := cfg.Transitions[state]; !ok {
-			return fmt.Errorf("%w: state %q has no entry in transitions", ErrInvalidProjectConfig, state)
-		}
-	}
-
 	// Validate transition targets exist in the state list (including built-in states).
 	allStates := append(slices.Clone(cfg.States), StateStalled, StateNotPlanned)
 	for fromState, targets := range cfg.Transitions {
