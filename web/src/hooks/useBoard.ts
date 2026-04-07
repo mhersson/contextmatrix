@@ -72,6 +72,14 @@ export function useBoard(
         return;
       }
 
+      // Handle project config updates - reload to get new transitions
+      if (event.type === 'project.updated' && event.project === project) {
+        api.getProject(project).then(setConfig).catch((err) => {
+          console.error('Failed to refresh config after project.updated:', err);
+        });
+        return;
+      }
+
       if (event.project !== project) return;
       if (inFlightRef.current.has(event.card_id)) return;
 

@@ -2000,6 +2000,41 @@ func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot remove type")
 }
 
+func TestUpdateProject_SubtaskTypeDoesNotBlockUpdate(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a parent card and a subtask
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Parent", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Subtask", Type: "task", Priority: "medium", Parent: parent.ID,
+	})
+	require.NoError(t, err)
+
+	// Now update project settings - should NOT fail because of subtask type
+	// The subtask type is built-in and auto-assigned, not user-configured
+	input := UpdateProjectInput{
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"}, // subtask is NOT here (it's built-in)
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress", "done"},
+			"in_progress": {"done", "todo"},
+			"done":        {},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	}
+
+	_, err = svc.UpdateProject(ctx, "test-project", input)
+	require.NoError(t, err, "Update should succeed - subtask is a built-in type that shouldn't block updates")
+}
+
 func TestUpdateProject_NotFound(t *testing.T) {
 	svc, _ := setupEmptyTest(t)
 	ctx := context.Background()
@@ -2033,6 +2068,73 @@ func TestUpdateProject_TodoToDone(t *testing.T) {
 	// done has no transitions entry — it is a valid terminal state
 	_, hasDoneTransitions := cfg.Transitions["done"]
 	assert.False(t, hasDoneTransitions, "done should be a terminal state with no transitions entry")
+}
+
+func TestUpdateProject_FrontendNormalization(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// First, set up a project where "done" is a terminal state (no transitions entry)
+	// This simulates the state after the user already configured done as terminal
+	setupInput := UpdateProjectInput{
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			// done is intentionally omitted - it's a terminal state
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	}
+	_, err := svc.UpdateProject(ctx, "test-project", setupInput)
+	require.NoError(t, err, "Setup: creating project with terminal 'done' state")
+
+	// Get the current project config (simulates frontend loading config)
+	cfg, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+
+	// Verify done has no transitions entry (terminal state)
+	_, hasDone := cfg.Transitions["done"]
+	require.False(t, hasDone, "Setup: done should be terminal (no transitions entry)")
+
+	// Simulate frontend normalization: add empty arrays for states without transitions
+	normalizedTransitions := make(map[string][]string)
+	for k, v := range cfg.Transitions {
+		normalizedTransitions[k] = v
+	}
+	for _, s := range cfg.States {
+		if _, ok := normalizedTransitions[s]; !ok {
+			normalizedTransitions[s] = []string{}
+		}
+	}
+
+	// Now done should be in the normalized map with empty array
+	doneAfterNorm, hasDoneAfterNorm := normalizedTransitions["done"]
+	require.True(t, hasDoneAfterNorm, "After normalization: done should be in map")
+	require.Empty(t, doneAfterNorm, "After normalization: done should have empty transitions")
+
+	// Add todo → done transition (what user wants to do)
+	normalizedTransitions["todo"] = append(normalizedTransitions["todo"], "done")
+
+	// This is exactly what the frontend sends - including done: [] from normalization
+	input := UpdateProjectInput{
+		States:      cfg.States,
+		Types:       cfg.Types,
+		Priorities:  cfg.Priorities,
+		Transitions: normalizedTransitions,
+	}
+
+	updatedCfg, err := svc.UpdateProject(ctx, "test-project", input)
+	require.NoError(t, err, "Frontend-style update with normalized transitions should succeed")
+	assert.Contains(t, updatedCfg.Transitions["todo"], "done", "todo should now have done as a valid transition")
+
+	// done should have an entry (empty array from normalization)
+	doneTransitions, hasDoneInResult := updatedCfg.Transitions["done"]
+	assert.True(t, hasDoneInResult, "done should be in transitions (with empty array from frontend normalization)")
+	assert.Empty(t, doneTransitions, "done should have empty transitions (terminal state)")
 }
 
 func TestDeleteProject(t *testing.T) {

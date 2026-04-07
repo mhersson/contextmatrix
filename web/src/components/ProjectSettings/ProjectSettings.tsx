@@ -35,16 +35,19 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       api.getCards(project).then(cards => cards.length),
     ])
       .then(([cfg, count]) => {
-        setConfig(cfg);
+        // Normalize transitions: ensure all states have an entry (even if empty)
+        // This prevents isDirty from being true immediately after load
+        const normalizedTransitions: Record<string, string[]> = { ...cfg.transitions };
+        cfg.states.forEach(s => {
+          if (!(s in normalizedTransitions)) normalizedTransitions[s] = [];
+        });
+        const normalizedConfig = { ...cfg, transitions: normalizedTransitions };
+        setConfig(normalizedConfig);
         setRepo(cfg.repo || '');
         setStates(cfg.states);
         setTypes(cfg.types);
         setPriorities(cfg.priorities);
-        const normalized = { ...cfg.transitions };
-        cfg.states.forEach(s => {
-          if (!(s in normalized)) normalized[s] = [];
-        });
-        setTransitions(normalized);
+        setTransitions(normalizedTransitions);
         setCardCount(count);
       })
       .catch(err => setError(isAPIError(err) ? err.error : 'Failed to load project'))
@@ -78,7 +81,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       onUpdated(updated);
       showToast('Project settings saved', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to save', 'error');
+      const errMsg = isAPIError(err)
+        ? (err.details ? `${err.error}: ${err.details}` : err.error)
+        : 'Failed to save';
+      showToast(errMsg, 'error');
     } finally {
       setIsSaving(false);
     }
