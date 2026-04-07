@@ -41,10 +41,8 @@ If `Complexity: simple`:
 10. Release: `release_card(card_id, agent_id)`.
 11. Print `AUTONOMOUS_COMPLETE` structured output and stop.
 
-The fast path skips planning, subtask creation, review, and documentation.
-It NEVER skips: card claim, heartbeat, tests, branch protection, release_card.
-
-**NEVER push to main or master.** This is non-negotiable even on the fast path.
+**NEVER push to main or master.** This is non-negotiable. Fast path never
+skips: claim, heartbeat, tests, branch protection, release_card.
 
 ### Standard Task Path
 
@@ -65,79 +63,99 @@ Based on the card's current state and body content:
 
 ## Phase 1: Plan Drafting (always inline)
 
-Run planning **inline** — do not spawn a sub-agent. The orchestrator retains
-the plan context for subtask creation.
-
 1. Call `get_skill(skill_name='create-plan', card_id='<card_id>',
    caller_model='<your_model>')`.
 2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
    returned content.
-3. Execute the content directly (inline). Follow its instructions to draft the
-   plan and produce `PLAN_DRAFTED` output.
-4. **Skip user approval** — proceed directly to Phase 2.
+3. Execute inline. Produce `PLAN_DRAFTED` output.
+4. Skip user approval — proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation (always inline)
 
-Create subtasks directly from the plan you just drafted — do not spawn a
-sub-agent. You already have the plan in context.
-
-5. For each subtask in the plan, call `create_card` with:
+5. Call `list_cards(project=<project>, parent=<card_id>)` to fetch existing
+   subtasks. For each planned subtask, if a non-terminal subtask (any state
+   except `done`/`not_planned`) with the same title already exists
+   (case-insensitive, trimmed), skip it and reuse the existing card's ID.
+6. For each subtask that does NOT already exist, call `create_card` with:
    - `parent`: the parent card ID
    - `title`, `body`, `priority`, `depends_on` as specified in the plan
    - Note: the `type` field is automatically set to `subtask` by the backend
-6. Proceed directly to Phase 3.
+7. Proceed directly to Phase 3.
 
 ## Phase 3: Execution (always sub-agents)
 
-Always spawn execution as sub-agents — never inline. Sub-agents provide context
-isolation (fresh ~50K context vs accumulated 150K+) and enable parallel
-execution.
-
-7. Call `get_ready_tasks(project, parent_id='<card_id>')` to get unclaimed
-    subtasks with dependencies met.
-8. For each ready subtask, spawn a sub-agent:
+8. Call `get_ready_tasks(project, parent_id='<card_id>')`.
+9. For each ready subtask:
     - Call `get_skill(skill_name='execute-task', card_id='<subtask_id>',
       caller_model='<your_model>')`.
-    - **Always spawn as sub-agent** using the `Agent` tool with the returned
-      `model` and `content`. Do NOT execute inline even if `inline` is true.
-    - Spawn subtasks in **parallel** where possible.
-9. Call `heartbeat(card_id='<card_id>', agent_id=<your_id>)` on the parent
-    every 5 minutes while waiting.
-10. Call `report_usage` on the parent card after **every** `heartbeat` call —
-    this is mandatory, not optional. Include your estimated token consumption
-    since the last report.
-11. Wait for all sub-agents to complete.
-12. The parent card stays in `in_progress` when all subtasks reach `done`.
-    Proceed to Phase 4.
+    - Spawn as sub-agent via `Agent` with the returned `model` and `content`.
+      Do NOT execute inline even if `inline` is true.
+    - Spawn all ready subtasks in **parallel**.
+10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` on the
+    parent every 5 minutes. After each `heartbeat`, call `report_usage` with
+    your token consumption since the last report — this is mandatory, not
+    optional.
+
+    a. Wait 1 minute between checks.
+    b. Call `check_agent_health(parent_id=<card_id>)`.
+    c. Act on each subtask's status:
+       - **`active`** — no action.
+       - **`completed`** — call `get_ready_tasks` and spawn agents for newly
+         unblocked tasks (same as step 9).
+       - **`warning`** — note it, do not act yet.
+       - **`stalled`** — respawn (see below).
+       - **`unassigned`** — if `todo`, `get_ready_tasks` picks it up. If
+         `in_progress` or `stalled` with no agent, respawn it.
+    d. Call `get_subtask_summary(parent_id=<card_id>)`. When all subtasks are
+       `done`, exit the loop.
+    e. Repeat from (a).
+
+    ### Respawning a stalled agent
+
+    1. If the card is in `stalled` state:
+       `transition_card(card_id=<id>, new_state='todo')` then
+       `transition_card(card_id=<id>, new_state='in_progress')`.
+    2. Track respawn count per card. **Maximum 2 respawns.** On the 3rd stall,
+       print:
+       ```
+       AUTONOMOUS_HALTED
+       card_id: <parent_card_id>
+       reason: Card <stalled_card_id> has stalled 3 times
+       action_required: human investigation
+       ```
+    3. Call `get_task_context(card_id=<id>)` to get the card body (may contain
+       progress notes from the previous agent).
+    4. Call `get_skill(skill_name='execute-task', card_id=<id>,
+       caller_model='<your_model>')`. Spawn as sub-agent via `Agent` with the
+       returned `model` and `content` **prepended with the card body from
+       step 3**. Add this instruction at the top of the prompt: "The previous
+       agent stalled. The card body above contains its progress notes. Continue
+       from where it left off."
+    5. Call `add_log(card_id=<id>, action='respawned',
+       message='Agent stalled, respawning (attempt N)')`.
+
+11. Proceed to Phase 4.
 
 ## Phase 4: Documentation (always sub-agent)
 
-Always spawn documentation as a sub-agent — the orchestrator has 150K+
-accumulated context by this phase; a fresh sub-agent starts at ~25K.
-Documentation runs while the parent is still in `in_progress`.
-
-13. Call `get_skill(skill_name='document-task', card_id='<card_id>',
+12. Call `get_skill(skill_name='document-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-14. Release the parent card claim (`release_card`), spawn a documentation
+13. Release the parent card claim (`release_card`), spawn a documentation
     sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
     reclaim (`claim_card`).
 
 ## Phase 5: Review (follow inline field)
 
-Review is the one phase where the `inline` field matters — it controls whether
-the review model matches yours. If your model is Opus, review runs inline. If
-your model is Sonnet, it spawns an Opus sub-agent for stronger reasoning.
-
-15. Transition the parent card to `review`:
+14. Transition the parent card to `review`:
     `transition_card(card_id='<card_id>', new_state='review')`.
-16. Call `get_skill(skill_name='review-task', card_id='<card_id>',
+15. Call `get_skill(skill_name='review-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-17. If `inline: true`, execute directly. Otherwise, release the parent card
+16. If `inline: true`, execute directly. Otherwise, release the parent card
     claim (`release_card`), then spawn a review sub-agent with the returned
     `model`.
-18. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 17),
+17. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 16),
     reclaim the parent card (`claim_card`).
-19. Parse the `recommendation`:
+18. Parse the `recommendation`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**: Increment `review_attempts` by updating the card.
@@ -156,17 +174,16 @@ your model is Sonnet, it spawns an Opus sub-agent for stronger reasoning.
 
 ## Phase 6: Finalization
 
-20. Call `report_usage` one final time with your remaining token consumption.
-21. If `create_pr` is enabled and the card has a `branch_name`, create a PR
+19. Call `report_usage` one final time with your remaining token consumption.
+20. If `create_pr` is enabled and the card has a `branch_name`, create a PR
     using `gh pr create` with a body referencing the card title and summarizing
     the work. Call `report_push(card_id, branch, pr_url)` with the PR URL.
-22. Transition the card to `done`:
+21. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-23. Release the card claim:
+22. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
-    **This is mandatory.** Skipping this leaves the card orphaned with an active
-    claim that blocks future work until the heartbeat timeout fires (30 minutes).
-24. Print structured output:
+    **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
+23. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
@@ -179,22 +196,20 @@ your model is Sonnet, it spawns an Opus sub-agent for stronger reasoning.
 ## Branch Protection (MANDATORY)
 
 - **NEVER push to main or master.** This is non-negotiable.
-- If the card has a `branch_name` set, ALL work goes on that feature branch.
-- Instruct all execute-task sub-agents to work on the feature branch.
+- All work goes on the feature branch (if `branch_name` is set).
 - After pushing, call `report_push(card_id, branch, pr_url)`.
-- Use conventional commit messages: `type(scope): summary` + blank line +
-  bullet-point body. **No card IDs in commit messages.**
+- Conventional commits: `type(scope): summary` + bullet-point body.
+  **No card IDs in commit messages.**
 
 ## Git Workflow
 
-- If `feature_branch` is enabled: sub-agents create/checkout the branch, commit,
-  and push. The orchestrator creates the PR in Phase 6 after review approval.
-- If `feature_branch` is not enabled: sub-agents commit locally only. Never push.
+- `feature_branch` enabled: sub-agents create/checkout branch, commit, push.
+  Orchestrator creates PR in Phase 6.
+- `feature_branch` not enabled: sub-agents commit locally only. Never push.
 
 ## Rules
 
 - Always use MCP tools for all ContextMatrix interactions.
-- Call `heartbeat` on the parent card every 5 minutes during idle waits.
-- Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.
-- Do NOT skip any phase. If a phase is already complete (based on card state),
-  skip it naturally by starting from the correct phase.
+- Call `heartbeat` on the parent every 5 minutes during idle waits.
+- Spawn sub-agents with `Agent` tool, not `SendMessage`.
+- Do not skip phases. Start from the correct phase based on card state.

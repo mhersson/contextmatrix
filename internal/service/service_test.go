@@ -4323,3 +4323,180 @@ func TestDeferredCommitUpdateRunnerStatusNonTerminal(t *testing.T) {
 	svc.writeMu.Unlock()
 	assert.False(t, hasPaths, "deferredPaths should be cleared after terminal runner status flush")
 }
+
+// TestCreateCard_DuplicateSubtaskGuard verifies that creating a subtask with the
+// same title as an existing non-terminal sibling returns the existing card rather
+// than creating a duplicate, and that terminal-state siblings do NOT trigger dedup.
+func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
+	ctx := context.Background()
+
+	// helper: create parent + one subtask, then optionally transition the subtask.
+	setup := func(t *testing.T, subtaskState string) (*CardService, *board.Card, *board.Card) {
+		t.Helper()
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Parent Task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Existing Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "todo", subtask.State)
+
+		if subtaskState != "" && subtaskState != "todo" {
+			subtask, err = svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{State: &subtaskState})
+			require.NoError(t, err)
+			require.Equal(t, subtaskState, subtask.State)
+		}
+
+		return svc, parent, subtask
+	}
+
+	t.Run("dedup in todo state returns existing card", func(t *testing.T) {
+		svc, parent, existing := setup(t, "")
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Existing Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, got.ID, "should return the existing subtask, not create a new one")
+	})
+
+	t.Run("dedup in in_progress state returns existing card", func(t *testing.T) {
+		inProgress := "in_progress"
+		svc, parent, existing := setup(t, inProgress)
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Existing Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, got.ID, "should return the existing in_progress subtask, not create a new one")
+	})
+
+	t.Run("done state creates new card (terminal state)", func(t *testing.T) {
+		// Need to go todo -> in_progress -> done
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Parent Task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		existing, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Done Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+
+		inProgress := "in_progress"
+		_, err = svc.PatchCard(ctx, "test-project", existing.ID, PatchCardInput{State: &inProgress})
+		require.NoError(t, err)
+
+		done := "done"
+		_, err = svc.PatchCard(ctx, "test-project", existing.ID, PatchCardInput{State: &done})
+		require.NoError(t, err)
+
+		// Same title, same parent — but existing is done (terminal) so a new card must be created.
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Done Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, existing.ID, got.ID, "terminal done state must not trigger dedup — new card expected")
+	})
+
+	t.Run("not_planned state creates new card (terminal state)", func(t *testing.T) {
+		notPlanned := "not_planned"
+		svc, parent, existing := setup(t, notPlanned)
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Existing Subtask",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, existing.ID, got.ID, "terminal not_planned state must not trigger dedup — new card expected")
+	})
+
+	t.Run("no dedup for top-level cards (no parent)", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Top Level Card",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		second, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Top Level Card",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, first.ID, second.ID, "top-level cards must never be deduped")
+	})
+
+	t.Run("no dedup when titles differ", func(t *testing.T) {
+		svc, parent, existing := setup(t, "")
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Different Title",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, existing.ID, got.ID, "different title must create a new card")
+	})
+
+	t.Run("case-insensitive title matching", func(t *testing.T) {
+		svc, parent, existing := setup(t, "")
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "EXISTING SUBTASK",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, got.ID, "title matching must be case-insensitive")
+	})
+
+	t.Run("whitespace-trimmed title matching", func(t *testing.T) {
+		svc, parent, existing := setup(t, "")
+
+		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "  Existing Subtask  ",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, got.ID, "title matching must trim whitespace")
+	})
+}

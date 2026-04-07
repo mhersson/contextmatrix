@@ -121,6 +121,11 @@ Full details with examples: `docs/data-model.md`.
     transitions to `review` after documentation.
 11. **Subtask type:** automatic when `parent` is set, immutable, built-in (not
     in `.board.yaml` types).
+12. **Duplicate subtask guard:** `CreateCard` with a `parent` deduplicates by
+    title (case-insensitive, trimmed). If an identically-titled subtask exists
+    in a non-terminal state (`done`/`not_planned` excepted), the existing card
+    is returned instead of creating a new one. Prevents re-entry after
+    crash/restart from producing orphaned duplicate cards.
 
 ## Running the project
 

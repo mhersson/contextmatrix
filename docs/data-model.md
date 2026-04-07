@@ -85,6 +85,26 @@
     fully managed by the service layer whenever the `parent` field changes; do
     not pass `type` when setting or clearing `parent`.
 
+11. **Duplicate subtask guard.** When `CreateCard` is called with a `parent`
+    set, the service layer checks for an existing subtask under that parent
+    whose title matches (case-insensitive, whitespace-trimmed) and is in a
+    **non-terminal** state (anything other than `done` or `not_planned`). If a
+    match is found, the existing card is returned as-is — no new card is
+    created. The response is identical in shape to a normal create response
+    (200 with the card body), so callers do not need to handle this case
+    specially.
+
+    Rationale: LLM agents may re-enter Phase 2 (subtask creation) after a
+    crash or context reset, causing the same subtask to be created twice with
+    sequential IDs. The guard prevents orphaned duplicate cards without
+    requiring callers to check first.
+
+    - The check is under `writeMu`, so there is no TOCTOU race.
+    - The `next_id` counter is still incremented and the gap is harmless.
+    - If an identically-titled subtask exists but is already `done` or
+      `not_planned`, a new card **is** created — duplicates of completed work
+      are intentional (e.g., re-doing a failed step).
+
 ## Card file format
 
 ```yaml

@@ -601,6 +601,31 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, err
 	}
 
+	// Dedup guard: if this is a subtask, check for an existing subtask with the
+	// same title (case-insensitive, trimmed) that is not in a terminal state.
+	// writeMu is held so there is no TOCTOU race.
+	if parentID != "" {
+		existing, listErr := s.store.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
+		if listErr != nil {
+			return nil, fmt.Errorf("list subtasks for dedup check: %w", listErr)
+		}
+
+		titleNorm := strings.ToLower(strings.TrimSpace(input.Title))
+		for _, sub := range existing {
+			if strings.ToLower(strings.TrimSpace(sub.Title)) == titleNorm &&
+				sub.State != board.StateDone && sub.State != board.StateNotPlanned {
+				slog.Info("duplicate subtask detected, returning existing card",
+					"existing_id", sub.ID,
+					"parent_id", parentID,
+					"title", sub.Title,
+					"state", sub.State,
+				)
+				s.enrichDependenciesMet(ctx, sub)
+				return sub, nil
+			}
+		}
+	}
+
 	// Persist card
 	if err := s.store.CreateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("create card: %w", err)
