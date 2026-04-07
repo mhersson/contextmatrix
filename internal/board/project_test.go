@@ -267,6 +267,14 @@ func TestValidateProjectConfig(t *testing.T) {
 			},
 			expectedErr: ErrMissingNotPlannedTransitions,
 		},
+		{
+			name: "terminal state with no transitions entry is valid",
+			modify: func(cfg *ProjectConfig) {
+				// done is in states but has no entry in transitions — valid terminal state
+				delete(cfg.Transitions, "done")
+			},
+			expectedErr: nil,
+		},
 	}
 
 	for _, tt := range tests {

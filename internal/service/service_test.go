@@ -2008,6 +2008,33 @@ func TestUpdateProject_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
 }
 
+func TestUpdateProject_TodoToDone(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Add todo → done transition so cards can go directly from todo to done
+	input := UpdateProjectInput{
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress", "done", "not_planned"},
+			"in_progress": {"done", "todo"},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	}
+
+	cfg, err := svc.UpdateProject(ctx, "test-project", input)
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Transitions["todo"], "done")
+
+	// done has no transitions entry — it is a valid terminal state
+	_, hasDoneTransitions := cfg.Transitions["done"]
+	assert.False(t, hasDoneTransitions, "done should be a terminal state with no transitions entry")
+}
+
 func TestDeleteProject(t *testing.T) {
 	svc, _ := setupEmptyTest(t)
 	ctx := context.Background()
