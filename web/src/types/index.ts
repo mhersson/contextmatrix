@@ -48,6 +48,15 @@ export interface TokenUsage {
   estimated_cost_usd: number;
 }
 
+export interface GitHubImportConfig {
+  import_issues: boolean;
+  owner?: string;
+  repo?: string;
+  card_type?: string;
+  default_priority?: string;
+  labels?: string[];
+}
+
 export interface ProjectConfig {
   name: string;
   prefix: string;
@@ -61,6 +70,7 @@ export interface ProjectConfig {
     enabled?: boolean;
     runner_image?: string;
   };
+  github?: GitHubImportConfig;
   templates?: Record<string, string>;
 }
 
@@ -212,6 +222,7 @@ export interface UpdateProjectInput {
   types: string[];
   priorities: string[];
   transitions: Record<string, string[]>;
+  github?: GitHubImportConfig;
 }
 
 export interface StopAllResponse {

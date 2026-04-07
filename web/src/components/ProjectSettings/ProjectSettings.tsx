@@ -1,12 +1,18 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { api, isAPIError } from '../../api/client';
-import type { ProjectConfig, UpdateProjectInput } from '../../types';
+import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
 
 interface ProjectSettingsProps {
   project: string;
   onUpdated: (config: ProjectConfig) => void;
   onDeleted: () => void;
   showToast: (message: string, type: 'success' | 'error' | 'info') => void;
+}
+
+const emptyGitHub: GitHubImportConfig = { import_issues: false };
+
+function ghToString(gh: GitHubImportConfig | undefined): string {
+  return JSON.stringify(gh ?? emptyGitHub);
 }
 
 export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: ProjectSettingsProps) {
@@ -22,6 +28,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [newState, setNewState] = useState('');
   const [newType, setNewType] = useState('');
   const [newPriority, setNewPriority] = useState('');
+  const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -48,6 +55,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setTypes(cfg.types);
         setPriorities(cfg.priorities);
         setTransitions(normalizedTransitions);
+        setGitHub(cfg.github ?? emptyGitHub);
         setCardCount(count);
       })
       .catch(err => setError(isAPIError(err) ? err.error : 'Failed to load project'))
@@ -61,9 +69,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       JSON.stringify(states) !== JSON.stringify(config.states) ||
       JSON.stringify(types) !== JSON.stringify(config.types) ||
       JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
-      JSON.stringify(transitions) !== JSON.stringify(config.transitions)
+      JSON.stringify(transitions) !== JSON.stringify(config.transitions) ||
+      ghToString(github) !== ghToString(config.github)
     );
-  }, [config, repo, states, types, priorities, transitions]);
+  }, [config, repo, states, types, priorities, transitions, github]);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -75,6 +84,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         types,
         priorities,
         transitions,
+        github: github.import_issues ? github : { import_issues: false },
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -88,7 +98,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     } finally {
       setIsSaving(false);
     }
-  }, [isDirty, isSaving, repo, states, types, priorities, transitions, project, onUpdated, showToast]);
+  }, [isDirty, isSaving, repo, states, types, priorities, transitions, github, project, onUpdated, showToast]);
 
   const handleDelete = useCallback(async () => {
     if (isDeleting) return;
@@ -272,6 +282,15 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         </div>
       </div>
 
+      {/* GitHub Issue Import */}
+      <GitHubImportSection
+        github={github}
+        onChange={setGitHub}
+        types={types}
+        priorities={priorities}
+        inputStyle={inputStyle}
+      />
+
       {/* Danger zone */}
       <div className="pt-4 border-t" style={{ borderColor: 'var(--bg3)' }}>
         <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
@@ -309,6 +328,108 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           >
             Delete Project
           </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface GitHubImportSectionProps {
+  github: GitHubImportConfig;
+  onChange: (gh: GitHubImportConfig) => void;
+  types: string[];
+  priorities: string[];
+  inputStyle: React.CSSProperties;
+}
+
+function GitHubImportSection({ github, onChange, types, priorities, inputStyle }: GitHubImportSectionProps) {
+  const update = (patch: Partial<GitHubImportConfig>) => onChange({ ...github, ...patch });
+  const labelsStr = github.labels?.join(', ') ?? '';
+
+  return (
+    <div>
+      <label className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>GitHub Issue Import</label>
+      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }}>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={github.import_issues}
+            onChange={(e) => update({ import_issues: e.target.checked })}
+            className="accent-[var(--green)]"
+          />
+          <span className="text-sm" style={{ color: 'var(--fg)' }}>Import open issues from GitHub</span>
+        </label>
+        {github.import_issues && (
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Owner</label>
+                <input
+                  type="text"
+                  value={github.owner ?? ''}
+                  onChange={(e) => update({ owner: e.target.value || undefined })}
+                  placeholder="auto-detected from repo URL"
+                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repo</label>
+                <input
+                  type="text"
+                  value={github.repo ?? ''}
+                  onChange={(e) => update({ repo: e.target.value || undefined })}
+                  placeholder="auto-detected from repo URL"
+                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Card type</label>
+                <select
+                  value={github.card_type ?? ''}
+                  onChange={(e) => update({ card_type: e.target.value || undefined })}
+                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+                  style={inputStyle}
+                >
+                  <option value="">task (default)</option>
+                  {types.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Default priority</label>
+                <select
+                  value={github.default_priority ?? ''}
+                  onChange={(e) => update({ default_priority: e.target.value || undefined })}
+                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+                  style={inputStyle}
+                >
+                  <option value="">medium (default)</option>
+                  {priorities.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Filter by GitHub labels</label>
+              <input
+                type="text"
+                value={labelsStr}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  update({ labels: val ? val.split(',').map(l => l.trim()).filter(Boolean) : undefined });
+                }}
+                placeholder="comma-separated, e.g. bug, help wanted (empty = all)"
+                className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+                style={inputStyle}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

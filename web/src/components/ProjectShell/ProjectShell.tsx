@@ -15,7 +15,7 @@ import { ProjectSettings } from '../ProjectSettings/ProjectSettings';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { NotFound } from '../NotFound';
-import type { Card, CreateCardInput, ProjectConfig } from '../../types';
+import type { BoardEvent, Card, CreateCardInput, ProjectConfig } from '../../types';
 
 export function ProjectShell() {
   const { project } = useParams<{ project: string }>();
@@ -44,7 +44,15 @@ export function ProjectShell() {
   }, [project]);
 
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
-  const { config, cards, loading, error, connected, updateCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent);
+
+  const handleCardCreated = useCallback((event: BoardEvent) => {
+    if (event.data?.source_system === 'github') {
+      const title = (event.data?.title as string) || event.card_id;
+      showToast(`New issue from GitHub: ${title}`, 'info');
+    }
+  }, [showToast]);
+
+  const { config, cards, loading, error, connected, updateCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,

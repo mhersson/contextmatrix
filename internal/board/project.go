@@ -18,6 +18,16 @@ type RemoteExecutionConfig struct {
 	RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
 }
 
+// GitHubImportConfig controls per-project GitHub issue import settings.
+type GitHubImportConfig struct {
+	ImportIssues    bool     `yaml:"import_issues"              json:"import_issues"`
+	Owner           string   `yaml:"owner,omitempty"            json:"owner,omitempty"`
+	Repo            string   `yaml:"repo,omitempty"             json:"repo,omitempty"`
+	CardType        string   `yaml:"card_type,omitempty"        json:"card_type,omitempty"`
+	DefaultPriority string   `yaml:"default_priority,omitempty" json:"default_priority,omitempty"`
+	Labels          []string `yaml:"labels,omitempty"           json:"labels,omitempty"`
+}
+
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml
 type ProjectConfig struct {
@@ -30,6 +40,7 @@ type ProjectConfig struct {
 	Priorities      []string               `yaml:"priorities" json:"priorities"`
 	Transitions     map[string][]string    `yaml:"transitions" json:"transitions"`
 	RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
+	GitHub          *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
 	Templates       map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 
