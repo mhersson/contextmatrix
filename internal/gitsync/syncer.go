@@ -205,8 +205,10 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		return nil
 	}
 
-	// Rebase local commits on top of remote.
-	if _, err := runGit(ctx, s.repoPath, "rebase", remote); err != nil {
+	// Rebase local commits on top of remote. --autostash stashes any
+	// uncommitted changes before the rebase and restores them after, so a
+	// dirty worktree does not block the sync.
+	if _, err := runGit(ctx, s.repoPath, "rebase", "--autostash", remote); err != nil {
 		// Rebase conflict — abort and report.
 		slog.Error("git sync: rebase conflict, aborting", "error", err)
 		_, _ = runGit(ctx, s.repoPath, "rebase", "--abort")

@@ -202,6 +202,36 @@ func TestPullRebase_WithLocalCommits(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestPullRebase_DirtyWorktree(t *testing.T) {
+	syncer, upstream, clone, _ := setupSyncTest(t)
+	ctx := context.Background()
+
+	// Create a remote commit via clone2.
+	clone2 := filepath.Join(t.TempDir(), "clone2")
+	run(t, "", "git", "clone", upstream, clone2)
+	run(t, clone2, "git", "config", "user.email", "test@test.com")
+	run(t, clone2, "git", "config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(clone2, "upstream.txt"), []byte("upstream"), 0o644))
+	run(t, clone2, "git", "add", "-A")
+	run(t, clone2, "git", "commit", "-m", "upstream commit")
+	run(t, clone2, "git", "push", "origin", "HEAD")
+
+	// Write an uncommitted file in the clone, making the worktree dirty.
+	require.NoError(t, os.WriteFile(filepath.Join(clone, "dirty.txt"), []byte("dirty"), 0o644))
+
+	// pullRebase must succeed even with a dirty worktree (--autostash handles it).
+	err := syncer.pullRebase(ctx, "test")
+	require.NoError(t, err)
+
+	// The upstream file should be present after the rebase.
+	_, err = os.Stat(filepath.Join(clone, "upstream.txt"))
+	require.NoError(t, err, "upstream file should exist after pull")
+
+	// The dirty file should still exist (autostash restores it).
+	_, err = os.Stat(filepath.Join(clone, "dirty.txt"))
+	require.NoError(t, err, "dirty worktree file should be restored after autostash")
+}
+
 func TestPullRebase_Conflict(t *testing.T) {
 	syncer, upstream, clone, bus := setupSyncTest(t)
 	ctx := context.Background()

@@ -18,6 +18,7 @@ export function useSync(): UseSyncResult {
   }, []);
 
   const triggerSync = useCallback(async () => {
+    setSyncStatus((prev) => (prev ? { ...prev, syncing: true } : prev));
     try {
       const status = await api.triggerSync();
       setSyncStatus(status);
