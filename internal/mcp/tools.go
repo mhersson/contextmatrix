@@ -36,6 +36,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
+	registerStartWorkflow(server, svc)
 	registerGetSkill(server, svc, skillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
@@ -838,6 +839,49 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 			return nil, deleteProjectOutput{}, fmt.Errorf("delete project %s: %w", input.Project, err)
 		}
 		return nil, deleteProjectOutput{Deleted: true}, nil
+	})
+}
+
+// --- start_workflow tool ---
+
+type startWorkflowInput struct {
+	CardID string `json:"card_id" jsonschema:"required,card ID to start the workflow for (e.g. ALPHA-001)"`
+}
+type startWorkflowOutput struct {
+	CardID    string `json:"card_id"`
+	Workflow  string `json:"workflow"`
+	Prompt    string `json:"prompt"`
+	Instruction string `json:"instruction"`
+}
+
+func registerStartWorkflow(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "start_workflow",
+		Description: "Start the workflow for a card. Call this when a user asks to " +
+			"'start workflow', 'plan', 'work on', 'begin', or 'run' a card. " +
+			"Inspects the card's autonomous flag and returns which workflow prompt to invoke: " +
+			"run-autonomous (for autonomous cards) or create-plan (for human-in-the-loop cards).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startWorkflowInput) (*mcp.CallToolResult, startWorkflowOutput, error) {
+		card, _, err := findCard(ctx, svc, input.CardID)
+		if err != nil {
+			return nil, startWorkflowOutput{}, fmt.Errorf("start workflow: %w", err)
+		}
+
+		if card.Autonomous {
+			return nil, startWorkflowOutput{
+				CardID:      input.CardID,
+				Workflow:    "run-autonomous",
+				Prompt:      "/contextmatrix:run-autonomous " + input.CardID,
+				Instruction: "This card has autonomous mode enabled. Run the prompt shown above to drive it through the full lifecycle without human approval gates.",
+			}, nil
+		}
+
+		return nil, startWorkflowOutput{
+			CardID:      input.CardID,
+			Workflow:    "create-plan",
+			Prompt:      "/contextmatrix:create-plan " + input.CardID,
+			Instruction: "This card uses the human-in-the-loop workflow. Run the prompt shown above to start planning with approval gates.",
+		}, nil
 	})
 }
 

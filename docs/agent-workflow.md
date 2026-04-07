@@ -104,21 +104,36 @@ skills/
   document-task.md    # /contextmatrix:document-task
   init-project.md     # /contextmatrix:init-project
   run-autonomous.md   # /contextmatrix:run-autonomous
+                      # /contextmatrix:start-workflow  (server-side only — no skill file)
 ```
+
+`start-workflow` has no skill file. It exists as both a **prompt** (slash
+command) and a **tool** (`start_workflow`). Both are server-side only: they fetch
+the card, inspect the `autonomous` flag, and route to `run-autonomous` or
+`create-plan`. The tool enables natural-language triggering — when a user writes
+"start workflow for ALPHA-001" (without a slash command), the agent sees the
+`start_workflow` tool and calls it to get routing instructions. If the card
+cannot be found, both paths return an error.
 
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:
 
-| Command                         | Argument      | Type               | Description                              |
-| ------------------------------- | ------------- | ------------------ | ---------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview            |
-| `/contextmatrix:create-plan`    | `card_id`     | required           | Create plan + subtasks for a card        |
-| `/contextmatrix:execute-task`   | `card_id`     | required           | Claim and execute a task                 |
-| `/contextmatrix:review-task`    | `card_id`     | required           | Devils-advocate review of a task         |
-| `/contextmatrix:document-task`  | `card_id`     | required           | Write external docs for a task           |
-| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board           |
-| `/contextmatrix:run-autonomous` | `card_id`     | required           | Run full autonomous lifecycle for a card |
+| Command                          | Argument      | Type               | Description                                                        |
+| -------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------ |
+| `/contextmatrix:create-task`     | `description` | optional free text | Start task creation interview                                      |
+| `/contextmatrix:create-plan`     | `card_id`     | required           | Create plan + subtasks for a card                                  |
+| `/contextmatrix:execute-task`    | `card_id`     | required           | Claim and execute a task                                           |
+| `/contextmatrix:review-task`     | `card_id`     | required           | Devils-advocate review of a task                                   |
+| `/contextmatrix:document-task`   | `card_id`     | required           | Write external docs for a task                                     |
+| `/contextmatrix:init-project`    | `name`        | optional           | Initialize a new project board                                     |
+| `/contextmatrix:run-autonomous`  | `card_id`     | required           | Run full autonomous lifecycle for a card                           |
+| `/contextmatrix:start-workflow`  | `card_id`     | required           | Start the workflow for a card, routing automatically based on card |
+
+`/contextmatrix:start-workflow` is a convenience entry point: it inspects the
+card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
+`create-plan` (HITL cards). Use it when you know the card ID but not which
+workflow applies.
 
 Usage examples:
 
@@ -129,6 +144,7 @@ Usage examples:
 /contextmatrix:execute-task ALPHA-003
 /contextmatrix:review-task ALPHA-001
 /contextmatrix:document-task ALPHA-001
+/contextmatrix:start-workflow ALPHA-001   # routes to run-autonomous or create-plan automatically
 ```
 
 For delegation-wrapper skills (`create-plan`, `execute-task`, `review-task`,

@@ -348,6 +348,14 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 			{Name: "card_id", Description: "Card ID to run autonomously (e.g. ALPHA-001)", Required: true},
 		},
 	}, runAutonomousPromptHandler(svc, skillsDir))
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "start-workflow",
+		Description: "Start the workflow for a card. Automatically routes to run-autonomous for autonomous cards or create-plan for human-in-the-loop cards.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "card_id", Description: "Card ID to start the workflow for (e.g. ALPHA-001)", Required: true},
+		},
+	}, startWorkflowPromptHandler(svc, skillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
@@ -584,6 +592,29 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 			Description: "Initialize a new project board",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
+	}
+}
+
+// startWorkflowPromptHandler returns the handler for start-workflow prompt.
+// It inspects the card's autonomous flag and delegates to runAutonomousPromptHandler
+// (autonomous: true) or createPlanPromptHandler (autonomous: false / unset).
+// No routing logic is duplicated — it calls through to the captured handlers directly.
+func startWorkflowPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+	autonomousHandler := runAutonomousPromptHandler(svc, skillsDir)
+	planHandler := createPlanPromptHandler(svc, skillsDir)
+
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		cardID := req.Params.Arguments["card_id"]
+
+		card, _, err := findCard(ctx, svc, cardID)
+		if err != nil {
+			return nil, fmt.Errorf("start workflow: %w", err)
+		}
+
+		if card.Autonomous {
+			return autonomousHandler(ctx, req)
+		}
+		return planHandler(ctx, req)
 	}
 }
 

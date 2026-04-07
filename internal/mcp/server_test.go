@@ -88,6 +88,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"review-task.md":   "claude-opus-4-6",
 		"document-task.md": "claude-sonnet-4-6",
 		"init-project.md":  "claude-sonnet-4-6",
+		"run-autonomous.md": "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -186,6 +187,7 @@ func TestListTools(t *testing.T) {
 		"create_project",
 		"update_project",
 		"delete_project",
+		"start_workflow",
 		"get_skill",
 		"report_push",
 		"increment_review_attempts",
@@ -1108,6 +1110,7 @@ func TestListPrompts(t *testing.T) {
 		"document-task",
 		"init-project",
 		"run-autonomous",
+		"start-workflow",
 	}
 
 	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))
@@ -1543,6 +1546,116 @@ func TestPrompt_CreatePlan_MissingCardID(t *testing.T) {
 		Arguments: map[string]string{},
 	})
 	require.Error(t, err)
+}
+
+// TestPrompt_StartWorkflow_NonAutonomous verifies that start-workflow routes to
+// the create-plan prompt when the card does not have autonomous: true.
+func TestPrompt_StartWorkflow_NonAutonomous(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "HITL feature", "feature", "high")
+
+	result, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "start-workflow",
+		Arguments: map[string]string{"card_id": "TEST-001"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Messages)
+
+	content, ok := result.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, ok)
+
+	// Must produce the create-plan delegation prompt (HITL path).
+	assert.Contains(t, content.Text, "Planning Workflow")
+	assert.Contains(t, content.Text, "Plan Drafting")
+	assert.Contains(t, content.Text, "PLAN_DRAFTED")
+	assert.Contains(t, content.Text, "get_skill")
+	assert.Contains(t, content.Text, "TEST-001")
+	// Must NOT be the autonomous prompt content.
+	assert.NotContains(t, content.Text, "autonomous orchestrator")
+}
+
+// TestPrompt_StartWorkflow_Autonomous verifies that start-workflow routes to
+// the run-autonomous prompt when the card has autonomous: true.
+func TestPrompt_StartWorkflow_Autonomous(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Autonomous feature", "feature", "high")
+	autonomous := true
+	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
+		Autonomous: &autonomous,
+	})
+	require.NoError(t, err)
+
+	result, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "start-workflow",
+		Arguments: map[string]string{"card_id": "TEST-001"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Messages)
+
+	content, ok := result.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, ok)
+
+	// Must produce the run-autonomous prompt content (stripped of Agent Configuration):
+	// the card context is injected, and the stub skill body appears.
+	assert.Contains(t, content.Text, "run-autonomous.md")
+	assert.Contains(t, content.Text, "Skill instructions here.")
+	assert.Contains(t, content.Text, "TEST-001")
+	// The card's autonomous flag must appear in the injected card context.
+	assert.Contains(t, content.Text, "**Autonomous:** true")
+	// Must NOT contain the HITL planning workflow.
+	assert.NotContains(t, content.Text, "Planning Workflow")
+	assert.NotContains(t, content.Text, "Plan Drafting")
+	// Agent Configuration section must be stripped.
+	assert.NotContains(t, content.Text, "## Agent Configuration")
+}
+
+// TestTool_StartWorkflow_NonAutonomous verifies the start_workflow tool returns
+// create-plan for non-autonomous cards.
+func TestTool_StartWorkflow_NonAutonomous(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "HITL feature", "feature", "high")
+
+	result := callTool(t, env, "start_workflow", map[string]any{
+		"card_id": "TEST-001",
+	})
+	require.False(t, result.IsError)
+
+	var out startWorkflowOutput
+	unmarshalResult(t, result, &out)
+
+	assert.Equal(t, "TEST-001", out.CardID)
+	assert.Equal(t, "create-plan", out.Workflow)
+	assert.Contains(t, out.Prompt, "create-plan")
+	assert.Contains(t, out.Prompt, "TEST-001")
+}
+
+// TestTool_StartWorkflow_Autonomous verifies the start_workflow tool returns
+// run-autonomous for autonomous cards.
+func TestTool_StartWorkflow_Autonomous(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Autonomous feature", "feature", "high")
+	autonomous := true
+	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
+		Autonomous: &autonomous,
+	})
+	require.NoError(t, err)
+
+	result := callTool(t, env, "start_workflow", map[string]any{
+		"card_id": "TEST-001",
+	})
+	require.False(t, result.IsError)
+
+	var out startWorkflowOutput
+	unmarshalResult(t, result, &out)
+
+	assert.Equal(t, "TEST-001", out.CardID)
+	assert.Equal(t, "run-autonomous", out.Workflow)
+	assert.Contains(t, out.Prompt, "run-autonomous")
+	assert.Contains(t, out.Prompt, "TEST-001")
 }
 
 func TestUpdateCard_Priority(t *testing.T) {
