@@ -29,6 +29,9 @@ own repos, and report progress back through the board.
 - **Remote execution** — click "Run Now" in the web UI to launch a task in a
   sandboxed Docker container. If something goes wrong, it goes wrong inside the
   container.
+- **GitHub issue import** — periodically fetches open issues from GitHub and
+  creates cards automatically. Imported cards show a GitHub icon badge and
+  trigger a toast notification in the web UI.
 - **Cost tracking** — per-model token usage reporting with USD cost estimates,
   broken down by agent and card on the dashboard.
 - **Customizable workflow** — define your own states, types, priorities, and
@@ -387,6 +390,42 @@ Cards track execution state via `runner_status`: `queued` → `running` →
 active tasks. See [`docs/remote-execution.md`](docs/remote-execution.md) for the
 full architecture, webhook protocol, and security model.
 
+## GitHub Issue Import
+
+When a GitHub token is configured and a project has `github.import_issues`
+enabled in its `.board.yaml`, ContextMatrix periodically fetches open issues and
+creates cards in the project's `todo` column. Duplicate issues are detected by
+external ID and never imported twice.
+
+```yaml
+# config.yaml (global)
+github:
+  token: "ghp_..."       # Fine-grained PAT with Issues: Read
+  sync_interval: "5m"    # Minimum 5m
+```
+
+```yaml
+# .board.yaml (per-project)
+github:
+  import_issues: true
+  card_type: task           # optional, default: task
+  default_priority: medium  # optional, default: medium
+  labels: []                # optional, only import issues with these GitHub labels
+```
+
+Owner and repo are resolved automatically from the project's `repo` field (SSH
+and HTTPS GitHub URLs are supported). You can override them explicitly:
+
+```yaml
+github:
+  import_issues: true
+  owner: myorg
+  repo: myrepo
+```
+
+Imported cards display a GitHub icon next to the type badge in the web UI and
+trigger an info toast notification on creation.
+
 ## API
 
 All endpoints are under `/api`. Agent identity is sent via the `X-Agent-ID`
@@ -564,6 +603,8 @@ curl http://localhost:8080/healthz
 | `runner.url`          | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
 | `runner.api_key`      | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
 | `runner.public_url`   | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
+| `github.token`        | `""`                    | GitHub fine-grained PAT with `Issues: Read` permission (empty = disabled)                     |
+| `github.sync_interval`| `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
 
 Token cost configuration:
 
@@ -593,6 +634,8 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
+- `CONTEXTMATRIX_GITHUB_TOKEN`
+- `CONTEXTMATRIX_GITHUB_SYNC_INTERVAL`
 
 ## Security
 

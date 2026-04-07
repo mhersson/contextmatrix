@@ -115,6 +115,7 @@ type UpdateProjectInput struct {
 	Types       []string
 	Priorities  []string
 	Transitions map[string][]string
+	GitHub      *board.GitHubImportConfig
 }
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
@@ -412,6 +413,9 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	cfg.Types = input.Types
 	cfg.Priorities = input.Priorities
 	cfg.Transitions = input.Transitions
+	if input.GitHub != nil {
+		cfg.GitHub = input.GitHub
+	}
 
 	// SaveProject validates and persists
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
@@ -649,12 +653,21 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		s.notifyCommit()
 	}
 
-	// Publish event
+	// Publish event — include source metadata so SSE listeners can
+	// display contextual notifications (e.g. "New issue from GitHub").
+	var eventData map[string]any
+	if input.Source != nil {
+		eventData = map[string]any{
+			"source_system": input.Source.System,
+			"title":         input.Title,
+		}
+	}
 	s.bus.Publish(events.Event{
 		Type:      events.CardCreated,
 		Project:   project,
 		CardID:    cardID,
 		Timestamp: now,
+		Data:      eventData,
 	})
 
 	s.enrichDependenciesMet(ctx, card)

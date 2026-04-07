@@ -18,7 +18,8 @@ interface UseBoardResult {
 export function useBoard(
   project: string,
   filter?: CardFilter,
-  onSyncEvent?: (event: BoardEvent) => void
+  onSyncEvent?: (event: BoardEvent) => void,
+  onCardCreated?: (event: BoardEvent) => void,
 ): UseBoardResult {
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
@@ -60,6 +61,11 @@ export function useBoard(
     onSyncEventRef.current = onSyncEvent;
   }, [onSyncEvent]);
 
+  const onCardCreatedRef = useRef(onCardCreated);
+  useEffect(() => {
+    onCardCreatedRef.current = onCardCreated;
+  }, [onCardCreated]);
+
   const handleEvent = useCallback(
     (event: BoardEvent) => {
       // Forward sync events to the sync handler.
@@ -82,6 +88,10 @@ export function useBoard(
 
       if (event.project !== project) return;
       if (inFlightRef.current.has(event.card_id)) return;
+
+      if (event.type === 'card.created') {
+        onCardCreatedRef.current?.(event);
+      }
 
       switch (event.type) {
         case 'card.created':

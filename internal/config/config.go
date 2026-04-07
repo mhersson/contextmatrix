@@ -29,6 +29,12 @@ type RunnerConfig struct {
 	PublicURL string `yaml:"public_url"` // public URL for MCP endpoint sent to runner containers
 }
 
+// GitHubConfig holds configuration for GitHub issue import.
+type GitHubConfig struct {
+	Token        string `yaml:"token"`
+	SyncInterval string `yaml:"sync_interval"`
+}
+
 // Config holds the application configuration.
 type Config struct {
 	Port                int                  `yaml:"port"`
@@ -46,6 +52,7 @@ type Config struct {
 	TokenCosts          map[string]ModelCost `yaml:"token_costs"`
 	MCPAPIKey           string               `yaml:"mcp_api_key"`
 	Runner              RunnerConfig         `yaml:"runner"`
+	GitHub              GitHubConfig         `yaml:"github"`
 }
 
 // defaults returns a Config with default values.
@@ -78,6 +85,18 @@ func (c *Config) Validate() error {
 	}
 	if c.GitCloneOnEmpty && c.GitRemoteURL == "" {
 		return fmt.Errorf("git_remote_url is required when git_clone_on_empty is enabled")
+	}
+	if c.GitHub.Token != "" {
+		if c.GitHub.SyncInterval == "" {
+			c.GitHub.SyncInterval = "5m"
+		}
+		interval, err := time.ParseDuration(c.GitHub.SyncInterval)
+		if err != nil {
+			return fmt.Errorf("invalid github.sync_interval %q: %w", c.GitHub.SyncInterval, err)
+		}
+		if interval < 5*time.Minute {
+			return fmt.Errorf("github.sync_interval must be at least 5m, got %s", c.GitHub.SyncInterval)
+		}
 	}
 	if c.Runner.Enabled {
 		if c.Runner.URL == "" {
@@ -237,6 +256,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL"); v != "" {
 		cfg.Runner.PublicURL = v
 	}
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
+		cfg.GitHub.Token = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_SYNC_INTERVAL"); v != "" {
+		cfg.GitHub.SyncInterval = v
+	}
 }
 
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
@@ -247,6 +272,11 @@ func (c *Config) HeartbeatDuration() (time.Duration, error) {
 // PullIntervalDuration parses GitPullInterval as a time.Duration.
 func (c *Config) PullIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.GitPullInterval)
+}
+
+// SyncIntervalDuration parses SyncInterval as a time.Duration.
+func (c *GitHubConfig) SyncIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(c.SyncInterval)
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.

@@ -3,6 +3,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { runnerStatusStyles } from '../../types';
+import { gitHubIcon } from '../icons';
 
 interface CardItemProps {
   card: Card;
@@ -105,6 +106,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           >
             {card.type}
           </span>
+          {card.source?.system === 'github' && gitHubIcon}
           {card.parent && (
             <button
               onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
@@ -153,6 +155,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           >
             {card.type}
           </span>
+          {card.source?.system === 'github' && gitHubIcon}
           {collapseButton}
         </div>
       </div>

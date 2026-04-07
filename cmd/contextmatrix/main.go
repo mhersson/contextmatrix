@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
+	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -123,6 +124,16 @@ func main() {
 		}
 	}
 
+	// Start GitHub issue syncer if configured
+	var ghSyncer *ghimport.Syncer
+	if cfg.GitHub.Token != "" {
+		syncInterval, _ := cfg.GitHub.SyncIntervalDuration()
+		ghClient := ghimport.NewClient(cfg.GitHub.Token)
+		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.BoardsDir, syncInterval)
+		ghSyncer.Start(ctx)
+		slog.Info("github issue sync enabled", "interval", syncInterval)
+	}
+
 	// Create runner client if enabled
 	var runnerClient *runner.Client
 	if cfg.Runner.Enabled {
@@ -192,9 +203,12 @@ func main() {
 	// Stop background tasks
 	cancel()
 
-	// Wait for git sync goroutines to finish
+	// Wait for background goroutines to finish
 	if syncer != nil {
 		syncer.Wait()
+	}
+	if ghSyncer != nil {
+		ghSyncer.Wait()
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
