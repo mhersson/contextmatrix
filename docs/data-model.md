@@ -59,7 +59,24 @@
    if the external ID exists before creating, update if it does. The `source`
    field is immutable after creation.
 
-9. **Parent card auto-transitions on child state changes.** When a subtask is
+9. **Human vetting gate for externally-imported cards.** Cards with a `source`
+   field (external origin) carry a `vetted` boolean that defaults to `false` on
+   creation. AI agents cannot claim an unvetted card — `ClaimCard` returns 403
+   `CARD_NOT_VETTED` if `card.Source != nil && !card.Vetted`. A human must
+   inspect the card content and toggle `vetted: true` via the web UI before any
+   agent can work on it.
+
+   - **Internal cards** (no `source` field) always have `vetted: true`; the
+     guard does not apply and the field is irrelevant for them.
+   - **`vetted` is a human-only field.** Agents receive 403 `HUMAN_ONLY_FIELD`
+     if they attempt to set it via the API or MCP. The MCP `update_card` tool
+     does not expose `vetted` at all — agents cannot self-vet cards.
+   - The `get_ready_tasks` MCP tool automatically excludes unvetted external
+     cards from its results so agents never see them as claimable work.
+   - The web UI shows an "unvetted" badge on board cards and a warning banner
+     in the card panel for cards with `source && !vetted`.
+
+10. **Parent card auto-transitions on child state changes.** When a subtask is
    claimed (transitions to `in_progress`), the service layer automatically
    transitions the parent from `todo` → `in_progress` if it is currently in
    `todo`. When all subtasks reach `done`, the parent stays in `in_progress`
@@ -68,7 +85,7 @@
    are done and returns an informational message so the calling agent knows
    documentation can proceed.
 
-10. **Subtask type is automatic and immutable.** The service layer enforces
+11. **Subtask type is automatic and immutable.** The service layer enforces
     subtask type invariants on both `CreateCard` and `UpdateCard` based on
     parent field transitions:
 
@@ -85,7 +102,7 @@
     fully managed by the service layer whenever the `parent` field changes; do
     not pass `type` when setting or clearing `parent`.
 
-11. **Duplicate subtask guard.** When `CreateCard` is called with a `parent`
+12. **Duplicate subtask guard.** When `CreateCard` is called with a `parent`
     set, the service layer checks for an existing subtask under that parent
     whose title matches (case-insensitive, whitespace-trimmed) and is in a
     **non-terminal** state (anything other than `done` or `not_planned`). If a
@@ -128,6 +145,7 @@ source:
   system: jira
   external_id: PROJ-1234
   external_url: https://company.atlassian.net/browse/PROJ-1234
+vetted: true
 custom:
   some_key: some_value
 autonomous: true
@@ -215,6 +233,7 @@ type Card struct {
     Context        []string        `yaml:"context,omitempty"        json:"context,omitempty"`
     Labels         []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
     Source         *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
+    Vetted         bool            `yaml:"vetted,omitempty"         json:"vetted,omitempty"`
     Custom         map[string]any  `yaml:"custom,omitempty"         json:"custom,omitempty"`
     Autonomous     bool            `yaml:"autonomous,omitempty"     json:"autonomous,omitempty"`
     FeatureBranch  bool            `yaml:"feature_branch,omitempty" json:"feature_branch,omitempty"`
@@ -281,6 +300,11 @@ generation.
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
 `runner_status`, `review_attempts`, `branch_name`, `token_usage`,
 `dependencies_met`.
+
+**Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
+`human:`): `vetted`, `autonomous`, `feature_branch`, `create_pr`. Agents that
+attempt to set these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card`
+tool does not expose them.
 
 ## Reserved labels
 

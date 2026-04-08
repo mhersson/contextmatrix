@@ -403,6 +403,48 @@ func TestFilesystemStore_ListCards_FilterByExternalID(t *testing.T) {
 	assert.Equal(t, "JIRA-123", cards[0].Source.ExternalID)
 }
 
+func boolPtr(b bool) *bool { return &b }
+
+func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	card1 := testCard("TEST-001", "todo")
+	card1.Vetted = true
+	card2 := testCard("TEST-002", "todo")
+	card2.Vetted = false
+	card3 := testCard("TEST-003", "todo")
+	card3.Vetted = true
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
+	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
+
+	t.Run("filter by Vetted=true returns only vetted cards", func(t *testing.T) {
+		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: boolPtr(true)})
+		require.NoError(t, err)
+		assert.Len(t, cards, 2)
+		for _, c := range cards {
+			assert.True(t, c.Vetted)
+		}
+	})
+
+	t.Run("filter by Vetted=false returns only unvetted cards", func(t *testing.T) {
+		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: boolPtr(false)})
+		require.NoError(t, err)
+		assert.Len(t, cards, 1)
+		assert.False(t, cards[0].Vetted)
+	})
+
+	t.Run("filter by Vetted=nil returns all cards", func(t *testing.T) {
+		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: nil})
+		require.NoError(t, err)
+		assert.Len(t, cards, 3)
+	})
+}
+
 func TestFilesystemStore_ListCards_MultipleFilters(t *testing.T) {
 	dir := t.TempDir()
 	setupTestProject(t, dir, "test-project", "TEST")

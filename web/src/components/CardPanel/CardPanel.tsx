@@ -166,7 +166,8 @@ export function CardPanel({
     JSON.stringify(editedCard.labels) !== JSON.stringify(card.labels) ||
     (editedCard.autonomous ?? false) !== (card.autonomous ?? false) ||
     (editedCard.feature_branch ?? false) !== (card.feature_branch ?? false) ||
-    (editedCard.create_pr ?? false) !== (card.create_pr ?? false);
+    (editedCard.create_pr ?? false) !== (card.create_pr ?? false) ||
+    (editedCard.vetted ?? false) !== (card.vetted ?? false);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -202,6 +203,9 @@ export function CardPanel({
       }
       if ((editedCard.create_pr ?? false) !== (card.create_pr ?? false)) {
         updates.create_pr = editedCard.create_pr ?? false;
+      }
+      if ((editedCard.vetted ?? false) !== (card.vetted ?? false)) {
+        updates.vetted = editedCard.vetted ?? false;
       }
       await onSave(updates);
     } finally {
@@ -283,6 +287,8 @@ export function CardPanel({
               create_pr: v ? prev.create_pr : false,
             }))}
             onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
+            editedVetted={editedCard.vetted ?? false}
+            onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
           />
 
           <CardPanelActivity activityLog={card.activity_log} />

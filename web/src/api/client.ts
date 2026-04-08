@@ -108,6 +108,7 @@ class APIClient {
       if (filter.label) params.set('label', filter.label);
       if (filter.parent) params.set('parent', filter.parent);
       if (filter.external_id) params.set('external_id', filter.external_id);
+      if (filter.vetted !== undefined) params.set('vetted', String(filter.vetted));
     }
     const query = params.toString();
     const path = `/projects/${project}/cards${query ? `?${query}` : ''}`;

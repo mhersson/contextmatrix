@@ -165,6 +165,8 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 			labels = append(labels, l.Name)
 		}
 
+		// Vetted intentionally left false — imported cards must be vetted by a human
+		// before agents can claim them.
 		_, err = s.svc.CreateCard(ctx, cfg.Name, service.CreateCardInput{
 			Title:    issue.Title,
 			Type:     cardType,

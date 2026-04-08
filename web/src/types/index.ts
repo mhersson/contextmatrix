@@ -27,6 +27,7 @@ export interface Card {
   context?: string[];
   labels?: string[];
   source?: Source;
+  vetted?: boolean;
   custom?: Record<string, unknown>;
   autonomous?: boolean;
   feature_branch?: boolean;
@@ -82,6 +83,7 @@ export interface CardFilter {
   label?: string;
   parent?: string;
   external_id?: string;
+  vetted?: boolean;
 }
 
 export interface APIError {
@@ -164,6 +166,7 @@ export interface PatchCardInput {
   autonomous?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
+  vetted?: boolean;
 }
 
 export interface CardContext {

@@ -7,7 +7,7 @@ GET    /api/projects/{project}
 PUT    /api/projects/{project}                            # update project config
 DELETE /api/projects/{project}                            # delete project (requires 0 cards)
 
-GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=
+GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=
 POST   /api/projects/{project}/cards
 GET    /api/projects/{project}/cards/{id}
 PUT    /api/projects/{project}/cards/{id}
@@ -58,12 +58,34 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 - 200: success (GET, PUT, PATCH)
 - 201: created (POST)
 - 204: deleted (DELETE)
-- 403: agent mismatch (wrong agent trying to modify claimed card)
+- 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
+  claim attempt (`CARD_NOT_VETTED`), or agent attempting a human-only field
+  mutation (`HUMAN_ONLY_FIELD`)
 - 404: card or project not found
 - 409: conflict (invalid transition, card already claimed)
 - 422: validation error (missing required fields, unknown type/state/priority)
 - 502: runner webhook failed (bad gateway)
 - 503: runner not configured
+
+**Error codes relevant to vetting:**
+
+| Code                | HTTP | When                                                                                       |
+| ------------------- | ---- | ------------------------------------------------------------------------------------------ |
+| `CARD_NOT_VETTED`   | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`. |
+| `HUMAN_ONLY_FIELD`  | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, or `create_pr`. |
+
+### Card list query parameters
+
+| Parameter     | Values          | Description                                                                                     |
+| ------------- | --------------- | ----------------------------------------------------------------------------------------------- |
+| `state`       | state name      | Filter by card state                                                                            |
+| `type`        | type name       | Filter by card type                                                                             |
+| `label`       | label string    | Filter cards that have this label                                                               |
+| `agent`       | agent ID        | Filter by `assigned_agent`                                                                      |
+| `parent`      | card ID         | Filter by parent card                                                                           |
+| `priority`    | priority name   | Filter by priority                                                                              |
+| `external_id` | external ID     | Filter by `source.external_id` (idempotent import check)                                       |
+| `vetted`      | `true` / `false`| Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
 
 ## Agent Endpoints
 

@@ -30,6 +30,7 @@ var (
 
 // CardFilter specifies filtering criteria for listing cards.
 // All fields are optional; empty strings mean "no filter".
+// Vetted uses *bool to distinguish "no filter" (nil) from "filter by false".
 type CardFilter struct {
 	State         string
 	Type          string
@@ -38,6 +39,7 @@ type CardFilter struct {
 	Label         string
 	Parent        string
 	ExternalID    string
+	Vetted        *bool
 }
 
 // Store defines the interface for card persistence.

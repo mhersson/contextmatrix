@@ -1096,6 +1096,83 @@ func TestGetReadyTasks_ScopedToParent(t *testing.T) {
 	assert.Equal(t, "TEST-002", output.Cards[0].ID)
 }
 
+// TestGetReadyTasks_VettingFilter verifies that unvetted external cards are excluded,
+// vetted external cards are included, and internal cards (no source) are always included.
+func TestGetReadyTasks_VettingFilter(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create an internal card (no source) — should always appear
+	internalCard := createTestCard(t, env, "Internal task", "task", "medium")
+
+	// Create an unvetted external card via store directly (source set, vetted=false)
+	unvettedCard := createTestCard(t, env, "Unvetted external task", "task", "medium")
+	storedUnvetted, err := env.svc.GetCard(ctx, "test-project", unvettedCard.ID)
+	require.NoError(t, err)
+	storedUnvetted.Source = &board.Source{System: "github", ExternalID: "42", ExternalURL: "https://github.com/org/repo/issues/42"}
+	storedUnvetted.Vetted = false
+	require.NoError(t, env.store.UpdateCard(ctx, "test-project", storedUnvetted))
+
+	// Create a vetted external card via store directly (source set, vetted=true)
+	vettedCard := createTestCard(t, env, "Vetted external task", "task", "medium")
+	storedVetted, err := env.svc.GetCard(ctx, "test-project", vettedCard.ID)
+	require.NoError(t, err)
+	storedVetted.Source = &board.Source{System: "github", ExternalID: "99", ExternalURL: "https://github.com/org/repo/issues/99"}
+	storedVetted.Vetted = true
+	require.NoError(t, env.store.UpdateCard(ctx, "test-project", storedVetted))
+
+	// Get ready tasks
+	result := callTool(t, env, "get_ready_tasks", map[string]any{
+		"project": "test-project",
+	})
+	require.False(t, result.IsError)
+
+	var output getReadyTasksOutput
+	unmarshalResult(t, result, &output)
+
+	readyIDs := make(map[string]bool)
+	for _, card := range output.Cards {
+		readyIDs[card.ID] = true
+	}
+
+	assert.True(t, readyIDs[internalCard.ID], "internal card (no source) should always be ready")
+	assert.True(t, readyIDs[vettedCard.ID], "vetted external card should be ready")
+	assert.False(t, readyIDs[unvettedCard.ID], "unvetted external card must be excluded")
+}
+
+// TestClaimCard_UnvettedExternal verifies that claiming an unvetted external card returns an error.
+func TestClaimCard_UnvettedExternal(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	// Create a card and mark it as an unvetted external import
+	card := createTestCard(t, env, "Unvetted import", "task", "medium")
+	stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	stored.Source = &board.Source{System: "github", ExternalID: "7", ExternalURL: "https://github.com/org/repo/issues/7"}
+	stored.Vetted = false
+	require.NoError(t, env.store.UpdateCard(ctx, "test-project", stored))
+
+	// Agent tries to claim the unvetted card — must fail
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "claim_card",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-x",
+		},
+	})
+
+	if err != nil {
+		assert.Contains(t, err.Error(), "vetted")
+		return
+	}
+	require.True(t, result.IsError, "claiming unvetted external card should produce an error result")
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "vetted")
+}
+
 func TestListPrompts(t *testing.T) {
 	env := setupMCP(t)
 

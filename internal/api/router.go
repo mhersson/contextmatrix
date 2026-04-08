@@ -40,6 +40,7 @@ const (
 	ErrCodeHumanOnlyField     = "HUMAN_ONLY_FIELD"
 	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
 	ErrCodeInvalidSignature   = "INVALID_SIGNATURE"
+	ErrCodeCardNotVetted      = "CARD_NOT_VETTED"
 )
 
 // APIError is the standard error response format.
@@ -340,6 +341,9 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, ErrCodeNotClaimed, "card is not claimed", "")
 	case errors.Is(err, lock.ErrAgentMismatch):
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent does not own this card", err.Error())
+	case errors.Is(err, service.ErrCardNotVetted):
+		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
+			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
 	default:
 		slog.Error("unhandled error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")

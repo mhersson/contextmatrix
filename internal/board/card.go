@@ -29,6 +29,7 @@ type Card struct {
 	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom         map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous     bool            `yaml:"autonomous,omitempty"      json:"autonomous,omitempty"`
+	Vetted         bool            `yaml:"vetted,omitempty"          json:"vetted"`
 	FeatureBranch  bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
 	CreatePR       bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
 	BranchName     string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`

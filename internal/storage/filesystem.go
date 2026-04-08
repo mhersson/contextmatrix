@@ -36,6 +36,7 @@ type cardIndex struct {
 	Parent        string
 	Labels        []string
 	ExternalID    string
+	Vetted        bool
 	FilePath      string
 }
 
@@ -155,6 +156,7 @@ func (s *FilesystemStore) buildCardIndex(card *board.Card, filePath string) *car
 		AssignedAgent: card.AssignedAgent,
 		Parent:        card.Parent,
 		Labels:        card.Labels,
+		Vetted:        card.Vetted,
 		FilePath:      filePath,
 	}
 
@@ -207,6 +209,9 @@ func (s *FilesystemStore) matchesFilter(idx *cardIndex, f CardFilter) bool {
 		return false
 	}
 	if f.Label != "" && !slices.Contains(idx.Labels, f.Label) {
+		return false
+	}
+	if f.Vetted != nil && idx.Vetted != *f.Vetted {
 		return false
 	}
 	return true
