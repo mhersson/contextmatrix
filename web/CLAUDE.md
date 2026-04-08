@@ -79,6 +79,89 @@ throughout all components. Do not hardcode hex values in components.
 - Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
   active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
 
+## Runner Console
+
+The Runner Console is a live log panel that streams output from
+`contextmatrix-runner` containers while they execute autonomous tasks.
+
+### Visibility and connection lifecycle
+
+The console is gated on `remote_execution.enabled` for the current project.
+The `EventSource` is opened only while the panel is visible — no background
+streaming. `useRunnerLogs` connects on mount when `enabled=true` and
+disconnects on `enabled=false` or component unmount.
+
+### AppHeader integration
+
+When `runnerEnabled` is true, a **Console** button (`>_` icon) is rendered
+inside the VIEWS pill group between **Board** and **Dashboard**. It behaves
+like a toggle, not a NavLink — it calls `onToggleConsole` rather than
+navigating. Props added to `AppHeaderProps`:
+
+| Prop | Type | Purpose |
+|---|---|---|
+| `runnerEnabled` | `boolean?` | Controls whether the Console button is shown |
+| `consoleOpen` | `boolean?` | Active highlight on the button |
+| `onToggleConsole` | `() => void?` | Toggle handler |
+
+Keyboard shortcut: `c` (registered in `useKeyboardShortcuts`; only fires when
+no panel is open and `remote_execution.enabled` is true).
+
+### ProjectShell layout
+
+`ProjectShell` owns the console state and the log data. Its `<main>` is a
+`flex-col` container. When the console is open the board area takes
+`flex: 3 1 0%` and the console panel takes `flex: 2 1 0%`, producing a
+60/40 split (board gets the larger share). The transition is
+`transition-all duration-300`.
+
+```
+<main className="flex-1 overflow-hidden flex flex-col">
+  <div style={{ flex: consoleOpen ? '3 1 0%' : '1 1 100%' }} className="overflow-hidden transition-all duration-300">
+    {/* Board / Dashboard / Settings routes */}
+  </div>
+  {consoleOpen && <RunnerConsole ... />}  {/* flex: 2 1 0% */}
+</main>
+```
+
+### Component tree
+
+| File | Role |
+|---|---|
+| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000 }`. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
+| `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
+| `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |
+| `web/src/components/RunnerConsole/RunnerConsoleLog.tsx` | Scrollable log area. Auto-scrolls to bottom unless user has scrolled up (threshold: 50px from bottom). Each line: timestamp `HH:MM:SS.sss`, card-ID badge (colour hashed from ID), type indicator, content. |
+
+### LogEntry type (`types/index.ts`)
+
+```typescript
+export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system';
+
+export interface LogEntry {
+  ts: string;        // ISO timestamp (matches Go json:"ts" tag)
+  card_id: string;
+  type: LogEntryType;
+  content: string;
+}
+```
+
+The `project` field sent by the runner is not included in the frontend
+`LogEntry` interface (it is available in the SSE payload but unused in the UI).
+
+### Log line colours
+
+| type | CSS variable |
+|---|---|
+| `thinking` | `--grey2` |
+| `text` | `--fg` |
+| `tool_call` | `--aqua` |
+| `stderr` | `--yellow` |
+| `system` | `--green` |
+
+Timestamps use `--grey1`. Card ID badges use a deterministic colour hash over
+`--blue`, `--purple`, `--aqua`, `--orange`, `--yellow`.
+
 ## Layout and viewport constraints
 
 The app is constrained to exactly the browser viewport height at every level of
@@ -93,7 +176,8 @@ page to scroll instead of only the board columns.
 | Root | `#root` in `web/src/index.css` | `height: 100vh` |
 | App | outer `div` in `App.tsx` | `h-screen flex flex-row` |
 | Content area | right-side `div` in `App.tsx` | `flex-1 flex flex-col min-w-0` |
-| ProjectShell | `<main>` in `ProjectShell.tsx` | `flex-1 overflow-hidden` |
+| ProjectShell | `<main>` in `ProjectShell.tsx` | `flex-1 overflow-hidden flex flex-col` |
+| ProjectShell board area | inner `div` in `ProjectShell.tsx` | `overflow-hidden transition-all duration-300` (flex grows to fill remaining height; shrinks to ~50% when console is open) |
 | Board | root `div` in `Board.tsx` | `flex flex-col h-full` |
 | Columns wrapper | inner `div` in `Board.tsx` | `flex-1 overflow-x-auto overflow-y-hidden` |
 | Column card list | scroll container in `Column.tsx` | `overflow-y-auto min-h-0` |

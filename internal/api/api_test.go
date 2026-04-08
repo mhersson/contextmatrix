@@ -2347,8 +2347,10 @@ remote_execution:
 		var project board.ProjectConfig
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
 
-		assert.Nil(t, project.RemoteExecution,
-			"remote_execution should be nil when runner is enabled but no per-project override exists")
+		require.NotNil(t, project.RemoteExecution,
+			"remote_execution should be injected when runner is enabled globally")
+		assert.True(t, *project.RemoteExecution.Enabled,
+			"remote_execution.enabled should be true when runner is enabled globally")
 	})
 }
 

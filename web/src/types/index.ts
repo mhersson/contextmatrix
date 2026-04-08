@@ -231,6 +231,15 @@ export interface StopAllResponse {
 
 export type RunnerStatus = NonNullable<Card['runner_status']>;
 
+export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system';
+
+export interface LogEntry {
+  ts: string;
+  card_id: string;
+  type: LogEntryType;
+  content: string;
+}
+
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
   queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },

@@ -38,7 +38,10 @@ store or git layer directly.
   which lives here (not in the lock manager) because it coordinates store, git,
   and events.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
-  serialize. No business logic, no direct store/git/lock access.
+  serialize. No business logic, no direct store/git/lock access. The runner log
+  proxy (`GET /api/runner/logs`) is the exception: it issues an outbound
+  HMAC-signed SSE request to the runner and forwards the stream verbatim,
+  closing the upstream connection when the browser disconnects.
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
   `http.ServeMux` as the REST API.
