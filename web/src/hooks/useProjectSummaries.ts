@@ -9,7 +9,9 @@ export function useProjectSummaries(projectNames: string[]) {
   const [summaries, setSummaries] = useState<Map<string, DashboardData>>(new Map());
   const [loading, setLoading] = useState(true);
   const projectNamesRef = useRef(projectNames);
-  projectNamesRef.current = projectNames;
+  useEffect(() => {
+    projectNamesRef.current = projectNames;
+  });
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const fetchAll = useCallback(async () => {
@@ -39,9 +41,10 @@ export function useProjectSummaries(projectNames: string[]) {
 
   const projectKey = projectNames.join(',');
   useEffect(() => {
-    fetchAll();
+    const initialTimeout = setTimeout(fetchAll, 0);
     const interval = setInterval(fetchAll, REFRESH_INTERVAL);
     return () => {
+      clearTimeout(initialTimeout);
       clearInterval(interval);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

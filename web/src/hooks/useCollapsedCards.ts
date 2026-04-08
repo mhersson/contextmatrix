@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 const STORAGE_KEY = 'contextmatrix-collapsed-cards';
 
@@ -18,16 +18,12 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
     return new Set();
   });
 
-  useEffect(() => {
-    if (validCardIds.length === 0) return;
+  const prunedCollapsed = useMemo(() => {
+    if (validCardIds.length === 0) return collapsed;
     const validSet = new Set(validCardIds);
-    setCollapsed((prev) => {
-      const next = new Set([...prev].filter((id) => validSet.has(id)));
-      if (next.size === prev.size) return prev;
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
-      return next;
-    });
-  }, [project, validCardIds]);
+    const filtered = new Set([...collapsed].filter((id) => validSet.has(id)));
+    return filtered.size === collapsed.size ? collapsed : filtered;
+  }, [collapsed, validCardIds]);
 
   const toggle = useCallback((cardId: string) => {
     setCollapsed((prev) => {
@@ -64,5 +60,5 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
     });
   }, [project]);
 
-  return { collapsed, toggle, collapseMany, expandMany };
+  return { collapsed: prunedCollapsed, toggle, collapseMany, expandMany };
 }

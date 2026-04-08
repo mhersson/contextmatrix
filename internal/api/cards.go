@@ -27,6 +27,7 @@ type createCardRequest struct {
 	Autonomous    bool         `json:"autonomous"`
 	FeatureBranch bool         `json:"feature_branch"`
 	CreatePR      bool         `json:"create_pr"`
+	Vetted        bool         `json:"vetted"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
@@ -46,6 +47,7 @@ type updateCardRequest struct {
 	Autonomous    bool           `json:"autonomous"`
 	FeatureBranch bool           `json:"feature_branch"`
 	CreatePR      bool           `json:"create_pr"`
+	Vetted        bool           `json:"vetted"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -58,6 +60,7 @@ type patchCardRequest struct {
 	Autonomous    *bool    `json:"autonomous,omitempty"`
 	FeatureBranch *bool    `json:"feature_branch,omitempty"`
 	CreatePR      *bool    `json:"create_pr,omitempty"`
+	Vetted        *bool    `json:"vetted,omitempty"`
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
@@ -95,6 +98,12 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build filter from query params
+	var vettedFilter *bool
+	if v := r.URL.Query().Get("vetted"); v != "" {
+		b := v == "true"
+		vettedFilter = &b
+	}
+
 	filter := storage.CardFilter{
 		State:         r.URL.Query().Get("state"),
 		Type:          r.URL.Query().Get("type"),
@@ -103,6 +112,7 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		Label:         r.URL.Query().Get("label"),
 		Parent:        r.URL.Query().Get("parent"),
 		ExternalID:    r.URL.Query().Get("external_id"),
+		Vetted:        vettedFilter,
 	}
 
 	cards, err := h.svc.ListCards(r.Context(), projectName, filter)
@@ -134,9 +144,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR) {
+	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, and create_pr can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be set via the UI")
 		return
 	}
 
@@ -151,6 +161,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		Autonomous:    req.Autonomous,
 		FeatureBranch: req.FeatureBranch,
 		CreatePR:      req.CreatePR,
+		Vetted:        req.Vetted,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -212,9 +223,10 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// For PUT semantics, compare against existing values to catch both setting AND clearing.
 	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
 		req.FeatureBranch != existingCard.FeatureBranch ||
-		req.CreatePR != existingCard.CreatePR) {
+		req.CreatePR != existingCard.CreatePR ||
+		req.Vetted != existingCard.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, and create_pr can only be changed via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be changed via the UI")
 		return
 	}
 
@@ -234,6 +246,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		Autonomous:      req.Autonomous,
 		FeatureBranch:   req.FeatureBranch,
 		CreatePR:        req.CreatePR,
+		Vetted:          req.Vetted,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -262,9 +275,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous != nil || req.FeatureBranch != nil || req.CreatePR != nil) {
+	if isNonHumanAgent(r) && (req.Autonomous != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, and create_pr can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be set via the UI")
 		return
 	}
 
@@ -289,6 +302,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		Autonomous:      req.Autonomous,
 		FeatureBranch:   req.FeatureBranch,
 		CreatePR:        req.CreatePR,
+		Vetted:          req.Vetted,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

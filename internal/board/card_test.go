@@ -555,6 +555,125 @@ func TestRoundTrip_AutonomousFields(t *testing.T) {
 	assert.Equal(t, original.ReviewAttempts, parsed.ReviewAttempts)
 }
 
+func TestParseCard_VettedField(t *testing.T) {
+	t.Run("vetted true deserializes correctly", func(t *testing.T) {
+		input := `---
+id: TEST-001
+title: Vetted card
+project: test
+type: task
+state: todo
+priority: medium
+vetted: true
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		assert.True(t, card.Vetted)
+	})
+
+	t.Run("without vetted field defaults to false", func(t *testing.T) {
+		input := `---
+id: TEST-001
+title: Unvetted card
+project: test
+type: task
+state: todo
+priority: medium
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		assert.False(t, card.Vetted)
+	})
+}
+
+func TestSerializeCard_VettedOmitempty(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	t.Run("vetted false omitted from YAML", func(t *testing.T) {
+		card := &Card{
+			ID:       "TEST-001",
+			Title:    "Test card",
+			Project:  "test-project",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+			Vetted:   false,
+			Created:  created,
+			Updated:  created,
+		}
+		data, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "vetted")
+	})
+
+	t.Run("vetted true present in YAML", func(t *testing.T) {
+		card := &Card{
+			ID:       "TEST-001",
+			Title:    "Test card",
+			Project:  "test-project",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+			Vetted:   true,
+			Created:  created,
+			Updated:  created,
+		}
+		data, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "vetted: true")
+	})
+}
+
+func TestRoundTrip_VettedField(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	t.Run("vetted true round-trips correctly", func(t *testing.T) {
+		original := &Card{
+			ID:       "TEST-001",
+			Title:    "Vetted card",
+			Project:  "test-project",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+			Vetted:   true,
+			Created:  created,
+			Updated:  created,
+		}
+		data, err := SerializeCard(original)
+		require.NoError(t, err)
+
+		parsed, err := ParseCard(data)
+		require.NoError(t, err)
+		assert.True(t, parsed.Vetted)
+	})
+
+	t.Run("vetted false round-trips correctly", func(t *testing.T) {
+		original := &Card{
+			ID:       "TEST-001",
+			Title:    "Unvetted card",
+			Project:  "test-project",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+			Vetted:   false,
+			Created:  created,
+			Updated:  created,
+		}
+		data, err := SerializeCard(original)
+		require.NoError(t, err)
+
+		parsed, err := ParseCard(data)
+		require.NoError(t, err)
+		assert.False(t, parsed.Vetted)
+	})
+}
+
 func TestRoundTrip_CustomFields(t *testing.T) {
 	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 

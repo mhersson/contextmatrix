@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 const STORAGE_KEY = 'contextmatrix-collapsed-columns';
 
@@ -11,16 +11,12 @@ export function useCollapsedColumns(project: string, validStates: string[]): [Se
     return new Set();
   });
 
-  useEffect(() => {
-    if (validStates.length === 0) return;
+  const prunedCollapsed = useMemo(() => {
+    if (validStates.length === 0) return collapsed;
     const validSet = new Set(validStates);
-    setCollapsed((prev) => {
-      const next = new Set([...prev].filter((s) => validSet.has(s)));
-      if (next.size === prev.size) return prev;
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
-      return next;
-    });
-  }, [project, validStates]);
+    const filtered = new Set([...collapsed].filter((s) => validSet.has(s)));
+    return filtered.size === collapsed.size ? collapsed : filtered;
+  }, [collapsed, validStates]);
 
   const toggle = useCallback((state: string) => {
     setCollapsed((prev) => {
@@ -35,5 +31,5 @@ export function useCollapsedColumns(project: string, validStates: string[]): [Se
     });
   }, [project]);
 
-  return [collapsed, toggle];
+  return [prunedCollapsed, toggle];
 }

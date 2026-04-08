@@ -2116,8 +2116,8 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Agent sends PUT with same autonomous values — should pass through
-	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true}`
+	// Agent sends PUT with same autonomous+vetted values — should pass through
+	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true,"vetted":true}`
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -2394,5 +2394,239 @@ remote_execution:
 		require.NotNil(t, projects[0].RemoteExecution.Enabled)
 		assert.False(t, *projects[0].RemoteExecution.Enabled,
 			"remote_execution.enabled should be false in list when runner is globally disabled")
+	})
+}
+
+func TestHumanOnlyFields_Vetted_PatchCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Vetted patch test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	patchBody := `{"vetted": true}`
+
+	t.Run("agent PATCH with vetted=true returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human PATCH with vetted=true returns 200", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.True(t, updated.Vetted)
+	})
+}
+
+func TestHumanOnlyFields_Vetted_CreateCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := `{"title":"Vetted import","type":"task","priority":"medium","vetted":true}`
+
+	t.Run("agent create with vetted=true returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-importer")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+}
+
+func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card with vetted=false (default for card without source)
+	// But we need a card that is NOT vetted, so create it with an explicit false.
+	// Cards created without a source are auto-vetted, so let's use the service to
+	// create a card and then manually set vetted=false by patching via service.
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Vetted PUT test", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "JIRA-42", ExternalURL: "https://example.com/JIRA-42"},
+	})
+	require.NoError(t, err)
+	assert.False(t, card.Vetted)
+
+	t.Run("agent PUT changing vetted returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		// Card has vetted=false; agent PUTs with vetted=true — must be rejected
+		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`, card.Title)
+		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+		// Verify the card was NOT modified
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, reloaded.Vetted, "vetted should still be false")
+	})
+}
+
+func TestClaimCard_VettedGuard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create an imported card (with source) — not vetted by default.
+	unvetted, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title:    "Imported task",
+		Type:     "task",
+		Priority: "medium",
+		Source:   &board.Source{System: "jira", ExternalID: "JIRA-99", ExternalURL: "https://example.com/JIRA-99"},
+	})
+	require.NoError(t, err)
+	assert.False(t, unvetted.Vetted)
+
+	t.Run("agent claim unvetted card returns 403 CARD_NOT_VETTED", func(t *testing.T) {
+		body := agentRequest{AgentID: "agent-1"}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/"+unvetted.ID+"/claim",
+			bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeCardNotVetted, apiErr.Code)
+	})
+
+	t.Run("human claim unvetted card returns 200", func(t *testing.T) {
+		body := agentRequest{AgentID: "human:alice"}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/"+unvetted.ID+"/claim",
+			bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestListCards_VettedFilter(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card without source — auto-vetted.
+	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Auto-vetted task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create an imported card — not vetted.
+	_, err = svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title:    "Imported task",
+		Type:     "task",
+		Priority: "medium",
+		Source:   &board.Source{System: "jira", ExternalID: "JIRA-1", ExternalURL: "https://example.com/1"},
+	})
+	require.NoError(t, err)
+
+	t.Run("?vetted=true returns only vetted cards", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?vetted=true")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var cards []*board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
+		assert.Len(t, cards, 1)
+		assert.True(t, cards[0].Vetted)
+	})
+
+	t.Run("?vetted=false returns only unvetted cards", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?vetted=false")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var cards []*board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
+		assert.Len(t, cards, 1)
+		assert.False(t, cards[0].Vetted)
+	})
+
+	t.Run("no vetted param returns all cards", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards")
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var cards []*board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
+		assert.Len(t, cards, 2)
 	})
 }

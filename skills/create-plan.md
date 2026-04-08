@@ -140,6 +140,8 @@ sub-agent with the returned `model` as described below.
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
    - `prompt`: the `content` from `get_skill`
+   - `isolation`: `"worktree"` — **REQUIRED** when spawning multiple agents
+     in parallel. Omit only for a single agent.
    Spawn all ready tasks **in parallel** (multiple `Agent` tool calls in one
    message).
 3. **Monitor sub-agents with health checking.** After spawning agents, enter
@@ -162,8 +164,11 @@ sub-agent with the returned `model` as described below.
       status of all subtask agents.
    c. For each subtask, act on its status:
       - **`active`** — healthy, no action needed.
-      - **`completed`** — finished. Call `get_ready_tasks` to find newly
-        unblocked tasks and spawn agents for them.
+      - **`completed`** — call `get_card(card_id=<id>)` to verify the card
+        is in `done` state. If still in `todo` or `in_progress`, claim it
+        and call `complete_task` — or respawn if work is incomplete. Then
+        call `get_ready_tasks` to find newly unblocked tasks and spawn
+        agents for them.
       - **`warning`** — heartbeat is stale (>15 min). Note it but do not
         act yet — the agent may be in a long operation.
       - **`stalled`** — agent is dead (heartbeat exceeded 30 min timeout,

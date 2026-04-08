@@ -93,6 +93,8 @@ type createCardInput struct {
 	DependsOn []string `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
 }
 
+// NOTE: vetted, autonomous, feature_branch, create_pr are intentionally
+// excluded — they are human-only fields.
 type updateCardInput struct {
 	Project  string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string   `json:"card_id" jsonschema:"required,card ID"`
@@ -698,6 +700,9 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 			}
 			if card.DependenciesMet != nil && !*card.DependenciesMet {
 				continue
+			}
+			if card.Source != nil && !card.Vetted {
+				continue // unvetted external cards cannot be claimed by agents
 			}
 			ready = append(ready, card)
 		}

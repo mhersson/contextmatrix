@@ -53,6 +53,7 @@ type CreateCardInput struct {
 	Autonomous    bool
 	FeatureBranch bool
 	CreatePR      bool
+	Vetted        bool
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -74,6 +75,7 @@ type UpdateCardInput struct {
 	Autonomous      bool
 	FeatureBranch   bool
 	CreatePR        bool
+	Vetted          bool
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -88,6 +90,7 @@ type PatchCardInput struct {
 	Autonomous      *bool
 	FeatureBranch   *bool
 	CreatePR        *bool
+	Vetted          *bool
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -580,9 +583,17 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		Autonomous:    input.Autonomous,
 		FeatureBranch: input.FeatureBranch,
 		CreatePR:      input.CreatePR,
+		Vetted:        input.Vetted,
 		Created:       now,
 		Updated:       now,
 		Body:          input.Body,
+	}
+
+	// Cards without an external source are implicitly vetted.
+	// GitHub/Jira importers set Source but leave Vetted false (Go zero value)
+	// until a human approves, so only auto-default when no source is set.
+	if input.Source == nil {
+		card.Vetted = true
 	}
 
 	// Auto-generate branch name when feature_branch is enabled.
@@ -767,6 +778,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	card.Body = input.Body
 	card.Autonomous = input.Autonomous
 	card.FeatureBranch = input.FeatureBranch
+	card.Vetted = input.Vetted
 	// BranchName is immutable after first generation — only set when empty.
 	// Not exposed on any input struct by design; this guard is defense-in-depth.
 	if card.FeatureBranch && card.BranchName == "" {
@@ -959,6 +971,9 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 	if input.CreatePR != nil && card.FeatureBranch {
 		card.CreatePR = *input.CreatePR
+	}
+	if input.Vetted != nil {
+		card.Vetted = *input.Vetted
 	}
 	card.Updated = time.Now()
 
@@ -1447,6 +1462,19 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 
 	if err := validateAgentIDFormat(agentID); err != nil {
 		return nil, err
+	}
+
+	// Block non-human agents from claiming cards that have an external source
+	// but have not been vetted. This prevents prompt-injection attacks where a
+	// malicious issue body could instruct an agent to perform unintended actions.
+	if !isHumanAgent(agentID) {
+		card, err := s.store.GetCard(ctx, project, strings.ToUpper(id))
+		if err != nil {
+			return nil, fmt.Errorf("get card for vetting check: %w", err)
+		}
+		if card.Source != nil && !card.Vetted {
+			return nil, fmt.Errorf("claim card: %w", ErrCardNotVetted)
+		}
 	}
 
 	s.writeMu.Lock()
@@ -2189,6 +2217,12 @@ func validateFieldLimits(title, body string, labels []string) error {
 	return nil
 }
 
+// isHumanAgent returns true if the agent ID represents a human user.
+// Human agent IDs are prefixed with "human:" (e.g. "human:alice").
+func isHumanAgent(agentID string) bool {
+	return strings.HasPrefix(agentID, "human:")
+}
+
 // validateAgentIDFormat checks that an agent ID is within length limits.
 func validateAgentIDFormat(agentID string) error {
 	if len(agentID) > maxAgentIDLen {
@@ -2198,6 +2232,9 @@ func validateAgentIDFormat(agentID string) error {
 }
 
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
+
+// ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
+var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 
 // ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
 var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")

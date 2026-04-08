@@ -286,6 +286,13 @@ body content (e.g., if the card is already `review`, it starts at Phase 5).
 - **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
   the parent card every 5 minutes and uses `check_agent_health` to detect and
   respawn stalled sub-agents.
+- **Human vetting gate** — cards imported from external sources (GitHub Issues,
+  Jira, etc.) require explicit human approval before agents can work on them.
+  `get_ready_tasks` automatically filters out unvetted external cards; a
+  `claim_card` call on an unvetted card returns 403 `CARD_NOT_VETTED`. A human
+  must inspect the card content in the web UI and enable the "Content vetted"
+  toggle before any agent workflow can proceed. This prevents malicious
+  instructions embedded in external issue bodies from being executed by agents.
 
 Unlike the interactive workflow, the autonomous orchestrator skips user approval
 between plan drafting and subtask creation. It only halts when review cycles are

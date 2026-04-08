@@ -14,6 +14,8 @@ interface CardPanelMetadataProps {
   onAutonomousChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
+  editedVetted: boolean;
+  onVettedChange: (value: boolean) => void;
 }
 
 export function CardPanelMetadata({
@@ -27,15 +29,14 @@ export function CardPanelMetadata({
   onAutonomousChange,
   onFeatureBranchChange,
   onCreatePRChange,
+  editedVetted,
+  onVettedChange,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!card.depends_on?.length) {
-      setDepStates({});
-      return;
-    }
+    if (!card.depends_on?.length) return;
     let cancelled = false;
     const fetchDeps = async () => {
       const states: Record<string, string> = {};
@@ -183,6 +184,27 @@ export function CardPanelMetadata({
           prUrl={card.pr_url}
           reviewAttempts={card.review_attempts}
         />
+      )}
+
+      {/* External Import */}
+      {card.source && (
+        <div>
+          <label className="block text-xs text-[var(--grey1)] mb-2">External Import</label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={editedVetted}
+              onChange={(e) => onVettedChange(e.target.checked)}
+              className="rounded border-[var(--bg3)] bg-[var(--bg2)] accent-[var(--green)]"
+            />
+            <span className="text-sm text-[var(--fg)]">Content vetted</span>
+          </label>
+          {!editedVetted && (
+            <p className="mt-1 text-xs text-[var(--yellow)]">
+              Agents cannot claim this card until it is marked as vetted.
+            </p>
+          )}
+        </div>
       )}
 
       {/* Metadata footer */}

@@ -4500,3 +4500,248 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 		assert.Equal(t, existing.ID, got.ID, "title matching must trim whitespace")
 	})
 }
+
+// TestCreateCard_VettedAutoDefault verifies the auto-vetting logic on card creation.
+func TestCreateCard_VettedAutoDefault(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no source — auto-vetted", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Internal task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted, "cards without a source must be auto-vetted")
+	})
+
+	t.Run("with source — not vetted by default", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "GitHub issue",
+			Type:     "bug",
+			Priority: "high",
+			Source: &board.Source{
+				System:     "github",
+				ExternalID: "42",
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Vetted, "imported cards must not be auto-vetted")
+	})
+
+	t.Run("with source and explicit vetted=true", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Pre-approved issue",
+			Type:     "bug",
+			Priority: "high",
+			Source: &board.Source{
+				System:     "github",
+				ExternalID: "99",
+			},
+			Vetted: true,
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted, "explicit Vetted=true must be respected")
+	})
+}
+
+// TestClaimCard_VettingEnforcement verifies the claim-time vetting gate.
+func TestClaimCard_VettingEnforcement(t *testing.T) {
+	ctx := context.Background()
+
+	// makeCard creates a card with or without an external source.
+	makeCard := func(t *testing.T, svc *CardService, withSource bool) *board.Card {
+		t.Helper()
+		input := CreateCardInput{
+			Title:    "Test card",
+			Type:     "task",
+			Priority: "medium",
+		}
+		if withSource {
+			input.Source = &board.Source{
+				System:     "github",
+				ExternalID: "1",
+			}
+		}
+		card, err := svc.CreateCard(ctx, "test-project", input)
+		require.NoError(t, err)
+		return card
+	}
+
+	t.Run("agent can claim vetted card (no source)", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card := makeCard(t, svc, false)
+		assert.True(t, card.Vetted)
+
+		_, err := svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err)
+	})
+
+	t.Run("agent blocked from claiming unvetted imported card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card := makeCard(t, svc, true)
+		assert.False(t, card.Vetted)
+
+		_, err := svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrCardNotVetted)
+	})
+
+	t.Run("agent can claim vetted imported card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card := makeCard(t, svc, true)
+		assert.False(t, card.Vetted)
+
+		// Vet the card via PatchCard (simulates human approval).
+		vetted := true
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Vetted: &vetted})
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err)
+	})
+
+	t.Run("human agent can claim unvetted imported card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card := makeCard(t, svc, true)
+		assert.False(t, card.Vetted)
+
+		_, err := svc.ClaimCard(ctx, "test-project", card.ID, "human:alice")
+		require.NoError(t, err)
+	})
+}
+
+// TestPatchCard_VettedToggle verifies that Vetted can be toggled via PatchCard.
+func TestPatchCard_VettedToggle(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("set vetted=true on imported card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "GitHub issue",
+			Type:     "task",
+			Priority: "medium",
+			Source: &board.Source{
+				System:     "github",
+				ExternalID: "7",
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Vetted)
+
+		vetted := true
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Vetted: &vetted})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted)
+	})
+
+	t.Run("set vetted=false on internal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Internal task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted)
+
+		vetted := false
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Vetted: &vetted})
+		require.NoError(t, err)
+		assert.False(t, updated.Vetted)
+	})
+
+	t.Run("nil Vetted leaves field unchanged", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Internal task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted)
+
+		title := "Updated title"
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Title: &title})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted, "nil Vetted must not change existing value")
+	})
+}
+
+// TestUpdateCard_VettedField verifies that UpdateCard propagates the Vetted field.
+func TestUpdateCard_VettedField(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("vetted=false on full update clears field", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Internal task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted)
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title:    card.Title,
+			Type:     card.Type,
+			State:    card.State,
+			Priority: card.Priority,
+			Vetted:   false,
+		})
+		require.NoError(t, err)
+		assert.False(t, updated.Vetted)
+	})
+
+	t.Run("vetted=true on full update sets field", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "GitHub issue",
+			Type:     "task",
+			Priority: "medium",
+			Source: &board.Source{
+				System:     "github",
+				ExternalID: "5",
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Vetted)
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title:    card.Title,
+			Type:     card.Type,
+			State:    card.State,
+			Priority: card.Priority,
+			Vetted:   true,
+		})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted)
+	})
+}

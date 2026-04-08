@@ -1,4 +1,4 @@
-.PHONY: build run test test-race fmt lint build-frontend install-frontend install install-config docker-build clean
+.PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install install-config docker-build clean
 
 build: build-frontend
 	go build -o contextmatrix ./cmd/contextmatrix
@@ -17,6 +17,12 @@ fmt:
 
 lint:
 	golangci-lint run
+
+test-frontend:
+	cd web && npx vitest run
+
+lint-frontend:
+	cd web && npm run lint
 
 install-frontend:
 	cd web && npm install

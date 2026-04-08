@@ -90,6 +90,7 @@ Based on the card's current state and body content:
       caller_model='<your_model>')`.
     - Spawn as sub-agent via `Agent` with the returned `model` and `content`.
       Do NOT execute inline even if `inline` is true.
+    - **Use `isolation: "worktree"`** when spawning multiple agents in parallel.
     - Spawn all ready subtasks in **parallel**.
 10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` on the
     parent every 5 minutes. After each `heartbeat`, call `report_usage` with
@@ -100,8 +101,11 @@ Based on the card's current state and body content:
     b. Call `check_agent_health(parent_id=<card_id>)`.
     c. Act on each subtask's status:
        - **`active`** — no action.
-       - **`completed`** — call `get_ready_tasks` and spawn agents for newly
-         unblocked tasks (same as step 9).
+       - **`completed`** — call `get_card(card_id=<id>)` to verify the card
+         is in `done` state. If still in `todo` or `in_progress`, claim it
+         and call `complete_task` — or respawn if work is incomplete. Then
+         call `get_ready_tasks` and spawn agents for newly unblocked tasks
+         (same as step 9).
        - **`warning`** — note it, do not act yet.
        - **`stalled`** — respawn (see below).
        - **`unassigned`** — if `todo`, `get_ready_tasks` picks it up. If

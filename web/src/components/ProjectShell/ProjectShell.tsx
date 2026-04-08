@@ -18,7 +18,7 @@ import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
-import type { BoardEvent, Card, CreateCardInput, ProjectConfig } from '../../types';
+import type { BoardEvent, Card, CreateCardInput } from '../../types';
 
 export function ProjectShell() {
   const { project } = useParams<{ project: string }>();
@@ -47,10 +47,12 @@ export function ProjectShell() {
     if (project) setLastProject(project);
   }, [project, setLastProject]);
 
-  useEffect(() => {
+  const [prevProject, setPrevProject] = useState(project);
+  if (project !== prevProject) {
+    setPrevProject(project);
     setSelectedCard(null);
     setCreatePanelOpen(false);
-  }, [project]);
+  }
 
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
 
@@ -110,7 +112,7 @@ export function ProjectShell() {
   );
 
   const handleProjectUpdated = useCallback(
-    (_updated: ProjectConfig) => {
+    () => {
       // ProjectsProvider will pick this up via SSE
     },
     []

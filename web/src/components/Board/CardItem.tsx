@@ -107,6 +107,11 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
             {card.type}
           </span>
           {card.source?.system === 'github' && gitHubIcon}
+          {card.source && !card.vetted && (
+            <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
+              unvetted
+            </span>
+          )}
           {card.parent && (
             <button
               onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
@@ -156,6 +161,11 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
             {card.type}
           </span>
           {card.source?.system === 'github' && gitHubIcon}
+          {card.source && !card.vetted && (
+            <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
+              unvetted
+            </span>
+          )}
           {collapseButton}
         </div>
       </div>
