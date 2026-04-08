@@ -9,6 +9,7 @@ import { useLastProject } from '../../hooks/useLastProject';
 import { useProjects } from '../../hooks/useProjects';
 import { useToast } from '../../hooks/useToast';
 import { useRunnerLogs } from '../../hooks/useRunnerLogs';
+import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
 import { Dashboard } from '../Dashboard';
@@ -32,6 +33,11 @@ export function ProjectShell() {
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
+    containerRef: mainRef,
+    enabled: consoleOpen,
+  });
 
   useEffect(() => {
     return () => clearTimeout(flashTimerRef.current);
@@ -152,10 +158,10 @@ export function ProjectShell() {
         consoleOpen={consoleOpen}
         onToggleConsole={() => setConsoleOpen((prev) => !prev)}
       />
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
         <div
-          style={{ flex: consoleOpen ? '3 1 0%' : '1 1 100%' }}
-          className="overflow-hidden transition-all duration-300"
+          style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}
+          className={`overflow-hidden ${isDragging ? '' : 'transition-all duration-300'}`}
         >
           <Routes>
             <Route
@@ -193,12 +199,30 @@ export function ProjectShell() {
           </Routes>
         </div>
         {consoleOpen && (
-          <RunnerConsole
-            logs={runnerLogs}
-            connected={consoleConnected}
-            onClose={() => setConsoleOpen(false)}
-            onClear={clearLogs}
-          />
+          <>
+            <div
+              className="flex-shrink-0 cursor-row-resize"
+              {...dividerHandleProps}
+            >
+              <div
+                className="mx-auto rounded-full transition-colors"
+                style={{
+                  width: 32,
+                  height: 4,
+                  marginTop: 2,
+                  marginBottom: 2,
+                  background: isDragging ? 'var(--bg5)' : 'var(--bg3)',
+                }}
+              />
+            </div>
+            <RunnerConsole
+              logs={runnerLogs}
+              connected={consoleConnected}
+              onClose={() => setConsoleOpen(false)}
+              onClear={clearLogs}
+              flexBasis={`${100 - boardPercent}%`}
+            />
+          </>
         )}
       </main>
 

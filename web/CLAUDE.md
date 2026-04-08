@@ -110,25 +110,42 @@ no panel is open and `remote_execution.enabled` is true).
 ### ProjectShell layout
 
 `ProjectShell` owns the console state and the log data. Its `<main>` is a
-`flex-col` container. When the console is open the board area takes
-`flex: 3 1 0%` and the console panel takes `flex: 2 1 0%`, producing a
-60/40 split (board gets the larger share). The transition is
-`transition-all duration-300`.
+`flex-col` container. When the console is open the board area and console
+use percentage-based flex basis controlled by `useResizeDivider`. Default
+split is 60/40 (board/console). A draggable divider between them lets the
+user resize. The transition is `transition-all duration-300` (disabled
+during active drag to avoid lag).
 
 ```
-<main className="flex-1 overflow-hidden flex flex-col">
-  <div style={{ flex: consoleOpen ? '3 1 0%' : '1 1 100%' }} className="overflow-hidden transition-all duration-300">
+<main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
+  <div style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}>
     {/* Board / Dashboard / Settings routes */}
   </div>
-  {consoleOpen && <RunnerConsole ... />}  {/* flex: 2 1 0% */}
+  {consoleOpen && (
+    <>
+      <div {...dividerHandleProps}>{/* resize pill */}</div>
+      <RunnerConsole flexBasis={`${100 - boardPercent}%`} ... />
+    </>
+  )}
 </main>
 ```
+
+### Resizable divider
+
+`useResizeDivider` (`web/src/hooks/useResizeDivider.ts`) uses native Pointer
+Events with `setPointerCapture` for cross-device (mouse + touch) drag. Returns
+`{ boardPercent, isDragging, handleProps }`. Constraints: board min 20%,
+console min 15%. During drag, `document.body.style.userSelect` is set to
+`'none'` and cursor to `'row-resize'` (restored on pointer up or unmount).
+The divider element sets `touch-action: none` to prevent browser gesture
+interference on touch devices.
 
 ### Component tree
 
 | File | Role |
 |---|---|
 | `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000 }`. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
+| `web/src/hooks/useResizeDivider.ts` | Pointer-event-based resize hook. Returns `{ boardPercent, isDragging, handleProps }`. Spread `handleProps` onto the divider element. |
 | `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
 | `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |
 | `web/src/components/RunnerConsole/RunnerConsoleLog.tsx` | Scrollable log area. Auto-scrolls to bottom unless user has scrolled up (threshold: 50px from bottom). Each line: timestamp `HH:MM:SS.sss`, card-ID badge (colour hashed from ID), type indicator, content. |

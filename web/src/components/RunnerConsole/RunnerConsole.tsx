@@ -8,9 +8,10 @@ interface RunnerConsoleProps {
   connected: boolean;
   onClose: () => void;
   onClear: () => void;
+  flexBasis?: string;
 }
 
-export function RunnerConsole({ logs, connected, onClose, onClear }: RunnerConsoleProps) {
+export function RunnerConsole({ logs, connected, onClose, onClear, flexBasis }: RunnerConsoleProps) {
   const [cardFilter, setCardFilter] = useState<string>('');
 
   const uniqueCardIds = useMemo(() => {
@@ -27,7 +28,7 @@ export function RunnerConsole({ logs, connected, onClose, onClear }: RunnerConso
     <div
       className="flex flex-col font-mono"
       style={{
-        flex: '2 1 0%',
+        flex: flexBasis ? `0 1 ${flexBasis}` : '2 1 0%',
         background: 'var(--bg-dim)',
         borderTop: '1px solid var(--bg3)',
         minHeight: 0,
