@@ -32,8 +32,11 @@ Review:
 
 Call `claim_card` with your card ID and your agent ID.
 
-If the claim fails (409 — already claimed), print `TASK_BLOCKED` (see Step 7
-format) with `reason: Card already claimed by another agent` and stop.
+If the claim fails for **any reason**, print `TASK_BLOCKED` (Step 7 format)
+with the error and stop. **Never proceed without a successful claim.**
+
+Verify the response shows your agent ID in `assigned_agent`. If not, treat
+as a failed claim.
 
 ## Step 3: Plan your approach
 
@@ -146,8 +149,7 @@ When all work is done, committed (if applicable), and verified:
 3. Call `report_usage` with your final token consumption. Include `model: "claude-sonnet-4-6"`.
 4. Call `complete_task` with your card ID, agent ID, and a one-line summary.
 
-Then print this **exact format** as your final output (the main agent parses
-this):
+If `complete_task` **succeeds**, print this exact format:
 
 ```
 TASK_COMPLETE
@@ -158,8 +160,8 @@ blockers: none
 needs_human: false
 ```
 
-The `complete_task` response may include a `next_step` field — **ignore it**.
-Your work is done. Print `TASK_COMPLETE` and stop.
+If `complete_task` **fails**, print `TASK_BLOCKED` (Step 7 format) with the
+error. Never print `TASK_COMPLETE` unless `complete_task` succeeded.
 
 ## Step 7: If blocked
 
