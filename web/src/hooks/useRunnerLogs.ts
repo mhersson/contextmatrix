@@ -118,8 +118,6 @@ export function useRunnerLogs({
   useEffect(() => {
     if (enabled) {
       connect();
-    } else {
-      disconnect();
     }
 
     return () => {

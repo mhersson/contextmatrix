@@ -27,6 +27,7 @@ export function useResizeDivider({
   minConsole = 15,
 }: UseResizeDividerOptions): UseResizeDividerResult {
   const [boardPercent, setBoardPercent] = useState(DEFAULT_BOARD);
+  const [isDragging, setIsDragging] = useState(false);
   const draggingRef = useRef(false);
   const startYRef = useRef(0);
   const startPercentRef = useRef(DEFAULT_BOARD);
@@ -45,6 +46,7 @@ export function useResizeDivider({
       if (!enabled || !containerRef.current) return;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       draggingRef.current = true;
+      setIsDragging(true);
       startYRef.current = e.clientY;
       startPercentRef.current = boardPercent;
       document.body.style.userSelect = 'none';
@@ -70,6 +72,7 @@ export function useResizeDivider({
       if (!draggingRef.current) return;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       draggingRef.current = false;
+      setIsDragging(false);
       restoreBodyStyles();
     },
     [restoreBodyStyles]
@@ -77,7 +80,7 @@ export function useResizeDivider({
 
   return {
     boardPercent: enabled ? boardPercent : DEFAULT_BOARD,
-    isDragging: draggingRef.current,
+    isDragging,
     handleProps: {
       onPointerDown,
       onPointerMove,

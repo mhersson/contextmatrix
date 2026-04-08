@@ -36,6 +36,8 @@ const automationProps = {
   onAutonomousChange: vi.fn(),
   onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
+  editedVetted: false,
+  onVettedChange: vi.fn(),
 };
 
 describe('CardPanelMetadata — parent section', () => {

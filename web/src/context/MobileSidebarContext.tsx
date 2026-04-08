@@ -27,6 +27,7 @@ export function MobileSidebarProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useMobileSidebar(): MobileSidebarContextValue {
   const ctx = useContext(MobileSidebarContext);
   if (!ctx) {

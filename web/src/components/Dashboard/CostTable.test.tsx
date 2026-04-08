@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { filterCardCosts, paginateItems, CostTable } from './CostTable';
+import { filterCardCosts, paginateItems } from '../../utils/costTableUtils';
+import { CostTable } from './CostTable';
 import type { AgentCost, CardCost } from '../../types';
 
 // ---------------------------------------------------------------------------

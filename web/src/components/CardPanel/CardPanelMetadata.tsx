@@ -36,10 +36,7 @@ export function CardPanelMetadata({
   const [depStates, setDepStates] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!card.depends_on?.length) {
-      setDepStates({});
-      return;
-    }
+    if (!card.depends_on?.length) return;
     let cancelled = false;
     const fetchDeps = async () => {
       const states: Record<string, string> = {};

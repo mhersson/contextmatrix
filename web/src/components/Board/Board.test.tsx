@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { isTouchDevice, Board } from './Board';
+import { isTouchDevice } from '../../utils/isTouchDevice';
+import { Board } from './Board';
 import type { Card, ProjectConfig } from '../../types';
 
 // ---------------------------------------------------------------------------
