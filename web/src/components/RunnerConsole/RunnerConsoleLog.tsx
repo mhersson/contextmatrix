@@ -3,6 +3,7 @@ import type { LogEntry, LogEntryType } from '../../types';
 
 interface RunnerConsoleLogProps {
   logs: LogEntry[];
+  error: string | null;
 }
 
 const TYPE_COLORS: Record<LogEntryType, string> = {
@@ -76,7 +77,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 const NEAR_BOTTOM_THRESHOLD = 50;
 
-export function RunnerConsoleLog({ logs }: RunnerConsoleLogProps) {
+export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
 
@@ -97,9 +98,9 @@ export function RunnerConsoleLog({ logs }: RunnerConsoleLogProps) {
     return (
       <div
         className="flex-1 flex items-center justify-center text-xs"
-        style={{ color: 'var(--grey1)' }}
+        style={{ color: error ? 'var(--red)' : 'var(--grey1)' }}
       >
-        No log entries
+        {error ?? 'No log entries'}
       </div>
     );
   }

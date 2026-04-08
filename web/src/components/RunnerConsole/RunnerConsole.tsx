@@ -6,12 +6,13 @@ import { RunnerConsoleLog } from './RunnerConsoleLog';
 interface RunnerConsoleProps {
   logs: LogEntry[];
   connected: boolean;
+  error: string | null;
   onClose: () => void;
   onClear: () => void;
   flexBasis?: string;
 }
 
-export function RunnerConsole({ logs, connected, onClose, onClear, flexBasis }: RunnerConsoleProps) {
+export function RunnerConsole({ logs, connected, error, onClose, onClear, flexBasis }: RunnerConsoleProps) {
   const [cardFilter, setCardFilter] = useState<string>('');
 
   const uniqueCardIds = useMemo(() => {
@@ -42,7 +43,7 @@ export function RunnerConsole({ logs, connected, onClose, onClear, flexBasis }: 
         onClear={onClear}
         onClose={onClose}
       />
-      <RunnerConsoleLog logs={filteredLogs} />
+      <RunnerConsoleLog logs={filteredLogs} error={error} />
     </div>
   );
 }

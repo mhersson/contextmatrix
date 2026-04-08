@@ -76,7 +76,7 @@ export function ProjectShell() {
       showToast,
     });
 
-  const { logs: runnerLogs, connected: consoleConnected, clear: clearLogs } = useRunnerLogs({
+  const { logs: runnerLogs, connected: consoleConnected, error: consoleError, clear: clearLogs } = useRunnerLogs({
     project: project || '',
     enabled: consoleOpen,
   });
@@ -218,6 +218,7 @@ export function ProjectShell() {
             <RunnerConsole
               logs={runnerLogs}
               connected={consoleConnected}
+              error={consoleError}
               onClose={() => setConsoleOpen(false)}
               onClear={clearLogs}
               flexBasis={`${100 - boardPercent}%`}

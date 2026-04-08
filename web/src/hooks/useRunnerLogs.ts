@@ -67,7 +67,12 @@ export function useRunnerLogs({
 
     es.onmessage = (event) => {
       try {
-        const entry = JSON.parse(event.data) as LogEntry;
+        const data = JSON.parse(event.data);
+        if (data.type === 'error') {
+          setError(data.content || 'Unknown error');
+          return;
+        }
+        const entry = data as LogEntry;
         setLogs((prev) => {
           const next = [...prev, entry];
           return next.length > maxEntriesRef.current
@@ -85,7 +90,7 @@ export function useRunnerLogs({
       eventSourceRef.current = null;
 
       const delay = reconnectDelayRef.current;
-      setError(`Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
+      setError((prev) => prev ?? `Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         if (!isMountedRef.current) return;
