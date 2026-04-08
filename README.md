@@ -8,7 +8,7 @@ ContextMatrix is a coordination layer — it tracks tasks but never touches your
 project code repositories. Claude Code agents claim tasks, execute them in their
 own repos, and report progress back through the board.
 
-![contextmatrix-kanban](assets/contextmatrix-kanban.png)
+![contextmatrix-kanban-console](assets/contextmatrix-kanban-console.png)
 
 ## Features
 
@@ -400,17 +400,17 @@ external ID and never imported twice.
 ```yaml
 # config.yaml (global)
 github:
-  token: "ghp_..."       # Fine-grained PAT with Issues: Read
-  sync_interval: "5m"    # Minimum 5m
+  token: "ghp_..." # Fine-grained PAT with Issues: Read
+  sync_interval: "5m" # Minimum 5m
 ```
 
 ```yaml
 # .board.yaml (per-project)
 github:
   import_issues: true
-  card_type: task           # optional, default: task
-  default_priority: medium  # optional, default: medium
-  labels: []                # optional, only import issues with these GitHub labels
+  card_type: task # optional, default: task
+  default_priority: medium # optional, default: medium
+  labels: [] # optional, only import issues with these GitHub labels
 ```
 
 Owner and repo are resolved automatically from the project's `repo` field (SSH
@@ -585,26 +585,26 @@ curl http://localhost:8080/healthz
 
 ### config.yaml
 
-| Field                 | Default                 | Description                                                                                   |
-| --------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
-| `port`                | `8080`                  | HTTP server port                                                                              |
-| `boards_dir`          | ---                     | Path to boards git repo (required)                                                            |
-| `git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                                             |
-| `git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
-| `git_auto_push`       | `false`                 | Auto-push after each commit                                                                   |
-| `git_auto_pull`       | `false`                 | Pull from remote on startup and at `git_pull_interval`                                        |
-| `git_pull_interval`   | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string)                        |
-| `heartbeat_timeout`   | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
-| `cors_origin`         | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
-| `skills_dir`          | `./skills`              | Path to skill file markdown directory                                                         |
-| `token_costs`         | ---                     | Per-model token cost rates (see example below)                                                |
-| `mcp_api_key`         | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
-| `runner.enabled`      | `false`                 | Enable remote execution integration                                                           |
-| `runner.url`          | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
-| `runner.api_key`      | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
-| `runner.public_url`   | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
-| `github.token`        | `""`                    | GitHub fine-grained PAT with `Issues: Read` permission (empty = disabled)                     |
-| `github.sync_interval`| `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
+| Field                  | Default                 | Description                                                                                   |
+| ---------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `port`                 | `8080`                  | HTTP server port                                                                              |
+| `boards_dir`           | ---                     | Path to boards git repo (required)                                                            |
+| `git_auto_commit`      | `true`                  | Auto-commit card mutations to git                                                             |
+| `git_deferred_commit`  | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
+| `git_auto_push`        | `false`                 | Auto-push after each commit                                                                   |
+| `git_auto_pull`        | `false`                 | Pull from remote on startup and at `git_pull_interval`                                        |
+| `git_pull_interval`    | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string)                        |
+| `heartbeat_timeout`    | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
+| `cors_origin`          | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
+| `skills_dir`           | `./skills`              | Path to skill file markdown directory                                                         |
+| `token_costs`          | ---                     | Per-model token cost rates (see example below)                                                |
+| `mcp_api_key`          | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
+| `runner.enabled`       | `false`                 | Enable remote execution integration                                                           |
+| `runner.url`           | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
+| `runner.api_key`       | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
+| `runner.public_url`    | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
+| `github.token`         | `""`                    | GitHub fine-grained PAT with `Issues: Read` permission (empty = disabled)                     |
+| `github.sync_interval` | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
 
 Token cost configuration:
 
