@@ -40,6 +40,15 @@ type projectHandlers struct {
 // the effective state rather than the raw per-project configuration.
 func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) board.ProjectConfig {
 	if h.runnerEnabled {
+		if cfg.RemoteExecution == nil {
+			enabled := true
+			cfg.RemoteExecution = &board.RemoteExecutionConfig{Enabled: &enabled}
+		} else if cfg.RemoteExecution.Enabled == nil {
+			re := *cfg.RemoteExecution
+			enabled := true
+			re.Enabled = &enabled
+			cfg.RemoteExecution = &re
+		}
 		return cfg
 	}
 	// Runner is globally disabled — force enabled=false so the frontend disables the button.

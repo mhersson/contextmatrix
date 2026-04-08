@@ -118,9 +118,10 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
-	// Only register the runner status callback when the runner is enabled.
+	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 	}
 
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler

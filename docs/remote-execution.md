@@ -14,14 +14,19 @@ Code.
   ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────┐
   │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-     │
   │  (Run Now)   │─────────│  (REST API)       │───►│ runner             │
-  └──────────────┘         │                   │    │                    │
-                           │  POST /mcp        │◄───│  Docker containers │
-                           │  (MCP tools)      │    │  (Claude Code)     │
+  │  (Console)   │◄────────│  (SSE proxy)      │◄───│  Docker containers │
+  └──────────────┘         │  POST /mcp        │◄───│  (Claude Code)     │
+                           │  (MCP tools)      │    │                    │
                            └───────────────────┘    └────────────────────┘
                                   ▲                         │
                                   │    MCP (Bearer auth)    │
                                   └─────────────────────────┘
 ```
+
+**Live log streaming** adds a second data path: the runner exposes a
+`GET /logs` SSE endpoint, and ContextMatrix proxies it as
+`GET /api/runner/logs`. The web UI opens an `EventSource` to the proxy only
+while the Runner Console panel is open — no background streaming.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -91,6 +96,56 @@ Sent when a user clicks "Stop All" in the header.
   "project": "my-project"
 }
 ```
+
+### Runner → ContextMatrix: SSE Log Stream
+
+#### GET {runner_url}/logs
+
+Streams live log entries via Server-Sent Events. Used by the ContextMatrix
+proxy endpoint — not called directly by the browser.
+
+**Authentication:** HMAC-signed GET request. The body is empty; the signature
+covers `timestamp.""` (timestamp concatenated with empty body).
+
+Required headers:
+
+```
+X-Signature-256: sha256=<hex>
+X-Webhook-Timestamp: <unix-timestamp>
+```
+
+**Query parameter:** `?project=<name>` — filters entries to a single project.
+Omit to receive entries from all projects.
+
+**Response:** `Content-Type: text/event-stream`. Each event is a JSON-encoded
+`LogEntry`:
+
+```json
+{
+  "ts": "2026-04-08T12:34:56.789Z",
+  "card_id": "PROJ-042",
+  "project": "my-project",
+  "type": "text",
+  "content": "Planning the implementation..."
+}
+```
+
+`type` values:
+
+| type | Source | Meaning |
+|---|---|---|
+| `text` | Claude Code stdout | Parsed assistant text block |
+| `thinking` | Claude Code stdout | Parsed assistant thinking block |
+| `tool_call` | Claude Code stdout | Non-MCP tool call (name only) |
+| `stderr` | Container stderr | Raw stderr line from the container |
+| `system` | Runner lifecycle | Container lifecycle events (started, completed, failed, canceled) |
+
+**Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
+prevent proxy and browser timeouts.
+
+**Secret redaction:** The log parser redacts common credential patterns (GitHub
+tokens, Anthropic API keys, Bearer tokens) before publishing. Secrets are
+replaced with `[REDACTED]`.
 
 ### Runner → ContextMatrix Callback
 
@@ -168,12 +223,16 @@ discarded. No partial saves.
 
 ### Webhook Signing (HMAC)
 
-A single shared secret (`runner.api_key` / `api_key`) authenticates both
+A single shared secret (`runner.api_key` / `api_key`) authenticates all
 directions:
 
-- ContextMatrix signs outbound webhooks to the runner
+- ContextMatrix signs outbound webhooks to the runner (trigger, kill, stop-all)
+- ContextMatrix signs the SSE log proxy request to the runner (`GET /logs`)
 - Runner signs status callbacks to ContextMatrix
 - Uses HMAC-SHA256 — the secret never travels over the wire
+
+For the `GET /logs` request the body is empty, so the signature covers
+`timestamp.""` (timestamp bytes concatenated with empty body bytes).
 
 ### MCP Authentication (Bearer Token)
 
@@ -219,6 +278,62 @@ authoritative for whether the "Run Now" button should be enabled.
 Set `runner.enabled: false` in `config.yaml` to disable remote execution
 entirely. The "Run Now" button will not appear in the UI, and trigger endpoints
 return 503.
+
+## Log Streaming Architecture
+
+The live log pipeline has three layers:
+
+### Runner: `internal/logbroadcast`
+
+`Broadcaster` is a thread-safe fan-out hub. It manages a set of subscribers,
+each with a buffered channel (256 entries). `Publish(LogEntry)` is
+non-blocking: if a subscriber's buffer is full the entry is dropped and a
+warning logged (slow subscriber protection).
+
+`Subscribe(project string)` returns a `(<-chan LogEntry, unsubscribe func())`.
+Pass an empty string to receive all projects.
+
+Sources that call `Publish`:
+
+- **`container.Manager`** — emits `system` entries for container lifecycle
+  events (started, completed, failed, canceled, timed-out) and `stderr` entries
+  for each container stderr line.
+- **`logparser.ProcessStream`** — emits `text`, `thinking`, and `tool_call`
+  entries parsed from Claude Code's `--output-format stream-json` stdout. The
+  caller (container manager) pre-fills `card_id` and `project` on each entry
+  before publishing.
+
+### Runner: `GET /logs` SSE Endpoint
+
+`webhook.Handler.handleLogs` subscribes to the broadcaster, then streams
+entries as `data: {json}\n\n` SSE events. It sends `: keepalive\n\n` comments
+every 15 seconds. The write deadline is cleared on the underlying connection to
+allow long-lived connections past the server's `WriteTimeout`.
+
+### ContextMatrix: `GET /api/runner/logs` SSE Proxy
+
+`api.runnerHandlers.streamRunnerLogs` is a transparent SSE proxy:
+
+1. Asserts the browser's `http.ResponseWriter` implements `http.Flusher`.
+2. Clears the write deadline via `http.ResponseController`.
+3. Sends SSE headers and flushes immediately (triggers browser `onopen`).
+4. Issues an HMAC-signed `GET {runner_url}/logs?project=` using a dedicated
+   `http.Client` with `Timeout: 0` (no per-request deadline).
+5. Reads upstream body line-by-line with `bufio.Scanner` (1 MB buffer).
+6. Forwards `data:` lines and `: keepalive` comments verbatim, flushing after
+   each.
+7. Checks `r.Context().Done()` between lines; returns immediately on browser
+   disconnect, which causes the upstream `GET /logs` request to be canceled.
+
+The endpoint is only registered when `runner != nil` (i.e., runner is enabled
+in config). The browser is never exposed to the upstream HMAC credentials.
+
+### Frontend: On-demand connection
+
+The `EventSource` is opened only while the Runner Console panel is visible.
+`useRunnerLogs({ enabled })` connects on `enabled=true` and disconnects on
+`enabled=false` or component unmount. This satisfies the requirement that no
+log traffic flows when the console is closed.
 
 ## Configuration Reference
 

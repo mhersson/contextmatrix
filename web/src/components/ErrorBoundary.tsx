@@ -69,7 +69,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 color: 'var(--bg-dim)',
               }}
             >
-              Try Again
+              Go Back
             </button>
           </div>
         </div>

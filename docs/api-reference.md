@@ -31,6 +31,7 @@ POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
+GET    /api/runner/logs?project=                      # SSE log stream proxy (runner must be enabled)
 
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
@@ -204,6 +205,38 @@ Returns the updated card with `runner_status: "killed"`.
 
 Stop all running remote executions in a project. Human-only. Returns
 `{ "affected_cards": ["PROJ-001", "PROJ-003"] }`.
+
+### GET /api/runner/logs
+
+SSE proxy that streams live log entries from the runner. Only available when
+runner is enabled (`runner.enabled: true` in config). Not authenticated — the
+browser connects directly; HMAC signing is performed server-side toward the
+runner.
+
+**Query parameter:** `?project=<name>` — filters entries to a single project.
+Omit to receive all projects.
+
+**Response:** `Content-Type: text/event-stream`. Each event carries a JSON
+`LogEntry`:
+
+```json
+{
+  "ts": "2026-04-08T12:34:56.789Z",
+  "card_id": "PROJ-042",
+  "project": "my-project",
+  "type": "text",
+  "content": "Planning the implementation..."
+}
+```
+
+`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`.
+
+Keepalive comments (`: keepalive`) are forwarded every 15 seconds. The
+connection is closed when the browser disconnects, which in turn cancels the
+upstream request to the runner.
+
+See [`docs/remote-execution.md`](remote-execution.md) for the full log
+streaming architecture and `LogEntry` type details.
 
 ### POST /api/runner/status
 

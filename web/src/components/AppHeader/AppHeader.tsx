@@ -11,6 +11,9 @@ interface AppHeaderProps {
   onSyncClick?: () => void;
   hasActiveRunners?: boolean;
   onStopAll?: () => void;
+  runnerEnabled?: boolean;
+  consoleOpen?: boolean;
+  onToggleConsole?: () => void;
 }
 
 const VIEWS = [
@@ -19,7 +22,7 @@ const VIEWS = [
   { label: 'Settings', to: '/settings' },
 ] as const;
 
-export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActiveRunners, onStopAll }: AppHeaderProps) {
+export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
   return (
@@ -46,7 +49,36 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         </span>
 
         <div className="flex items-center gap-1 rounded p-0.5" style={{ backgroundColor: 'var(--bg1)' }}>
-          {VIEWS.map((v) => (
+          {VIEWS.slice(0, 1).map((v) => (
+            <NavLink
+              key={v.label}
+              to={`${base}${v.to}`}
+              end
+              className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
+              style={({ isActive }) => ({
+                backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
+                color: isActive ? 'var(--fg)' : 'var(--grey1)',
+              })}
+            >
+              {v.label}
+            </NavLink>
+          ))}
+          {runnerEnabled && (
+            <button
+              type="button"
+              onClick={onToggleConsole}
+              className="px-2 py-1 sm:px-3 rounded text-sm transition-colors flex items-center gap-1"
+              style={{
+                backgroundColor: consoleOpen ? 'var(--bg3)' : 'transparent',
+                color: consoleOpen ? 'var(--fg)' : 'var(--grey1)',
+              }}
+              title="Toggle runner console (c)"
+            >
+              <span aria-hidden="true" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{'>_'}</span>
+              Console
+            </button>
+          )}
+          {VIEWS.slice(1).map((v) => (
             <NavLink
               key={v.label}
               to={`${base}${v.to}`}
