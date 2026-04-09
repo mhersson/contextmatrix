@@ -57,6 +57,7 @@ const (
 	maxLogAction  = 200
 )
 
+
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 type CardService struct {
@@ -238,6 +239,7 @@ func (s *CardService) UnlockWrites() {
 
 	s.writeMu.Unlock()
 }
+
 
 // HeartbeatTimeout returns the configured heartbeat timeout duration.
 func (s *CardService) HeartbeatTimeout() time.Duration {

@@ -28,6 +28,7 @@ type CreateProjectInput struct {
 	Types       []string
 	Priorities  []string
 	Transitions map[string][]string
+	Jira        *board.JiraEpicConfig
 }
 
 // UpdateProjectInput contains the mutable fields for updating a project.
@@ -39,6 +40,7 @@ type UpdateProjectInput struct {
 	Priorities  []string
 	Transitions map[string][]string
 	GitHub      *board.GitHubImportConfig
+	Jira        *board.JiraEpicConfig
 }
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
@@ -79,6 +81,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		Types:       input.Types,
 		Priorities:  input.Priorities,
 		Transitions: input.Transitions,
+		Jira:        input.Jira,
 	}
 
 	// SaveProject validates config and creates directory + .board.yaml
@@ -190,6 +193,9 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	cfg.Transitions = input.Transitions
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
+	}
+	if input.Jira != nil {
+		cfg.Jira = input.Jira
 	}
 
 	// SaveProject validates and persists

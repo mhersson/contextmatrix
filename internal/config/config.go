@@ -76,6 +76,26 @@ func (g *GitHubConfig) AllowedHosts() []string {
 	return []string{"github.com", g.Host}
 }
 
+// JiraRepoMapping maps a Jira component name to a code repository URL.
+type JiraRepoMapping struct {
+	Component string `yaml:"component"`
+	Repo      string `yaml:"repo"`
+}
+
+// JiraProjectMapping holds repo mappings for a single Jira project.
+type JiraProjectMapping struct {
+	RepoMappings []JiraRepoMapping `yaml:"repo_mappings"`
+	DefaultRepo  string            `yaml:"default_repo,omitempty"`
+}
+
+// JiraConfig holds configuration for Jira integration.
+type JiraConfig struct {
+	BaseURL  string                        `yaml:"base_url"`  // e.g. https://company.atlassian.net
+	Email    string                        `yaml:"email"`     // Jira Cloud only (Basic Auth)
+	Token    string                        `yaml:"token"`     // API token (Cloud) or PAT (Server/DC)
+	Projects map[string]JiraProjectMapping `yaml:"projects"`  // keyed by Jira project key
+}
+
 // BoardsConfig holds all configuration related to the boards git repository.
 type BoardsConfig struct {
 	Dir               string `yaml:"dir"`
@@ -101,6 +121,7 @@ type Config struct {
 	MCPAPIKey        string               `yaml:"mcp_api_key"`
 	Runner           RunnerConfig         `yaml:"runner"`
 	GitHub           GitHubConfig         `yaml:"github"`
+	Jira             JiraConfig           `yaml:"jira"`
 	LogFormat        string               `yaml:"log_format"`      // "json" or "text", default "text"
 	LogLevel         string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
 	AdminPort        int                  `yaml:"admin_port"`      // 0 = disabled
@@ -263,6 +284,9 @@ func (c *Config) Validate() error {
 		c.AdminBindAddr = "127.0.0.1"
 	}
 
+	if c.Jira.Token != "" && c.Jira.BaseURL == "" {
+		return fmt.Errorf("jira.base_url is required when jira.token is set")
+	}
 	return nil
 }
 
@@ -465,7 +489,6 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
-
 	if v := os.Getenv("CONTEXTMATRIX_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v
 	}
@@ -484,6 +507,17 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_ADMIN_BIND_ADDR"); v != "" {
 		cfg.AdminBindAddr = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_BASE_URL"); v != "" {
+		cfg.Jira.BaseURL = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_EMAIL"); v != "" {
+		cfg.Jira.Email = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_TOKEN"); v != "" {
+		cfg.Jira.Token = v
+	}
 	}
 }
 

@@ -39,6 +39,7 @@ internal/service/            → CardService: orchestrates store, git, lock, eve
 internal/api/                → REST API handlers (stdlib http.ServeMux) + SSE endpoint
 internal/mcp/                → MCP server: tools + prompts
 internal/runner/             → webhook client for contextmatrix-runner
+internal/jira/               → Jira client, epic importer, write-back handler
 internal/events/             → in-process pub/sub event bus
 internal/config/             → global config loading
 internal/ctxlog/             → request_id context logger (WithRequestID / Logger)

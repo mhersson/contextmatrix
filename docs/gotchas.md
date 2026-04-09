@@ -58,68 +58,6 @@
   like `"30m"` with `gopkg.in/yaml.v3`. Either use a custom type with
   `UnmarshalYAML`, or store as string in config and parse with
   `time.ParseDuration()` at load time.
-- **`/healthz` and `/readyz` requests are not logged:** the HTTP logging
-  middleware skips `slog.Info` for `GET /healthz` and `GET /readyz` to prevent
-  k8s liveness/readiness probe traffic from spamming logs. Both endpoints still
-  respond normally — only the log line is suppressed. If you expect to see probe
-  traffic in logs for debugging, hit any other path or check the endpoints
-  directly with `curl`.
-- **Firefox per-origin SSE connection limit:** Firefox's connection manager
-  cancels in-flight requests to the same origin with `NS_BINDING_ABORTED` /
-  "connection interrupted while the page was loading" when a new navigation-
-  adjacent fetch pushes the total past its limit. Practically: if the app opens
-  ≥ 3 `EventSource('/api/events')` connections and then a 4th SSE stream opens
-  at the same origin (e.g. `/api/runner/logs` on HITL start), Firefox aborts the
-  earlier three simultaneously. Chrome does not exhibit this behaviour. The fix
-  is to share a single `EventSource` for the whole app via `SSEProvider` and fan
-  events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
-  Never open more than one `EventSource` per distinct URL; use the subscriber
-  API for additional consumers of the same stream. For runner logs specifically,
-  `ProjectShell` owns a single card-scoped `useRunnerLogs` call (enabled only
-  while the selected card is a HITL running session) and passes the resulting
-  `LogEntry[]` array down to `CardChat` as a prop — `CardChat` does not open
-  its own `EventSource`.
-- **`sessionlog.Manager` fan-out invariants:** `readUpstream` (card-scoped) and
-  `readProjectUpstream` (project-scoped) both append to the ring buffer and fan
-  out to subscribers under a single `m.mu` lock.  These two operations must stay
-  under the same lock — separating them reintroduces the duplicate-delivery race
-  where an event lands in the snapshot AND in `sub.pending` for the same
-  subscriber.  The primed-flag protocol (`sub.primed`, `sub.pending`) is what
-  enforces snapshot-before-live ordering: the pump stages live events in
-  `sub.pending` while `sub.primed` is false; the snapshot goroutine in
-  `Subscribe`/`SubscribeProject` flips `primed = true` (under `m.mu`) only after
-  draining both the snapshot slice and `sub.pending` into the subscriber's
-  channel.  Do not bypass this gate.  Two additional channels on `subscriber`
-  enforce lifecycle safety: `done` (closed by `unsub` or `Stop`/terminal-error)
-  signals the snapshot goroutine to exit early; `snapDone` (closed by the
-  snapshot goroutine via `defer`) signals that it has exited.  `Stop` and the
-  terminal-error path in both pumps call `closeSubscriber`, which closes `done`,
-  waits on `snapDone` (up to 1 s), then sends the terminal event and calls
-  `close(ch)`.  This ordering is mandatory: closing `ch` while the snapshot
-  goroutine is still sending on it panics.  `close(done)` is guarded by
-  `sync.Once` (`doneOnce`) so both `unsub` and `Stop` can call it safely.  The
-  snapshot goroutine blocks on each channel send
-  (`select { case ch <- evt: case <-sub.done: return }`) rather than dropping —
-  slow subscribers receive the full snapshot; they are never silently truncated.
-  Project-scoped sessions use the key `"project:<name>"` in the shared
-  `activeSessions`, `pendingSubs`, and `sessions` maps; this prefix prevents
-  collisions with card IDs.  The only difference from the card-scoped pump is
-  that `readProjectUpstream` does not filter by card ID — it accepts every event
-  and preserves the originating `CardID` field on `sessionlog.Event`.
-- **`request_id` log correlation:** every HTTP request gets a `request_id`
-  UUID injected into its context by the `requestID` middleware via
-  `ctxlog.WithRequestID(ctx, id)`. All log sites must use `ctxlog.Logger(ctx)`
-  — not `slog.Default()` or a package-level logger — otherwise the log line
-  will not carry the correlation ID. Background goroutines (stall scanner,
-  git-pull ticker) do not go through the middleware; `ctxlog.Logger(ctx)`
-  falls back to `slog.Default()` safely in those paths.
-- **`/metrics` and pprof live on the admin port:** Prometheus scraping
-  (`GET /metrics`) and `/debug/pprof/*` are served only on the admin listener
-  (`admin_port`), which defaults to `127.0.0.1` (`admin_bind_addr`). The main
-  listener never exposes them. There is no authentication on the admin
-  listener — keep it loopback-only, or gate with firewall / NetworkPolicy /
-  service-mesh rules if your scrape setup requires a non-loopback bind. A
-  non-loopback bind logs a warning at startup.
 - **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
   the fine-grained PAT must have `Contents: Read and write` on the boards repo
   **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`
@@ -127,3 +65,19 @@
   must start with `https://` — SSH URLs are rejected at startup when PAT mode is
   active. PAT mode only works with GitHub (github.com or GHEC/GHES); use SSH for
   other git hosts.
+- **Jira Cloud ADF descriptions:** Jira Cloud uses Atlassian Document Format (a
+  JSON structure) for issue descriptions, not plain text. The importer extracts
+  text content recursively but does not preserve rich formatting (tables, macros,
+  embedded media). Jira Server/DC uses plain text or wiki markup, which passes
+  through as-is.
+- **Jira auth auto-detection:** The Jira client uses Basic Auth (email:token) when
+  `jira.email` is set in config, and Bearer token when it is not. Jira Cloud
+  requires email; Jira Server/DC uses PAT (Personal Access Token) with Bearer.
+  Setting `email` for a Server/DC instance will break authentication.
+- **Jira write-back is async and fire-and-forget:** The write-back handler
+  subscribes to the event bus. If posting a comment to Jira fails (network error,
+  auth expired, rate limit), the failure is logged but does not affect the card
+  state transition. There is no retry mechanism in v1.
+- **Epic child issue cap:** The Jira client fetches at most 500 child issues per
+  epic (10 pages x 50 results). Larger epics are silently truncated. If you need
+  more, split the epic or run multiple imports.

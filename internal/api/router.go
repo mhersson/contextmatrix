@@ -17,6 +17,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
@@ -78,6 +79,8 @@ type RouterConfig struct {
 	Syncer             Syncer
 	Runner             *runner.Client
 	RunnerCfg          config.RunnerConfig
+	JiraImporter       *jira.Importer
+	JiraBaseURL        string
 	MCPAPIKey          string
 	Port               int
 	GitHubToken        string
@@ -179,6 +182,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
+	}
+
+	// Jira routes
+	jh := &jiraHandlers{importer: cfg.JiraImporter, baseURL: cfg.JiraBaseURL}
+	mux.HandleFunc("GET /api/jira/status", jh.status)
+	if cfg.JiraImporter != nil {
+		mux.HandleFunc("GET /api/jira/epic/{epicKey}", jh.previewEpic)
+		mux.HandleFunc("POST /api/jira/import-epic", jh.importEpic)
 	}
 
 	// MCP server routes — registered on the inner mux so they share the

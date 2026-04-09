@@ -13,6 +13,9 @@ import type {
   DashboardData,
   SyncStatus,
   StopAllResponse,
+  JiraEpicPreview,
+  JiraImportEpicInput,
+  JiraImportResult,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -294,6 +297,22 @@ class APIClient {
       `/projects/${project}/stop-all`,
       { method: 'POST' }
     );
+  }
+
+  // Jira
+  async getJiraStatus(): Promise<{ configured: boolean; base_url?: string }> {
+    return this.request<{ configured: boolean; base_url?: string }>('/jira/status');
+  }
+
+  async previewJiraEpic(epicKey: string): Promise<JiraEpicPreview> {
+    return this.request<JiraEpicPreview>(`/jira/epic/${encodeURIComponent(epicKey)}`);
+  }
+
+  async importJiraEpic(input: JiraImportEpicInput): Promise<JiraImportResult> {
+    return this.request<JiraImportResult>('/jira/import-epic', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   }
 
   async fetchBranches(project: string): Promise<string[]> {

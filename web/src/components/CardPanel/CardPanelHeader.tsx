@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { Card, ProjectConfig } from '../../types';
-import { gitHubIcon } from '../icons';
+import { gitHubIcon, jiraIcon } from '../icons';
 import { typeColors, isSafeHttpUrl } from './utils';
 
 interface CardPanelHeaderProps {
@@ -65,6 +65,17 @@ export function CardPanelHeader({
               title={`Open GitHub issue: ${card.source.external_url}`}
             >
               {gitHubIcon}
+            </a>
+          )}
+          {card.source?.system === 'jira' && card.source.external_url && (
+            <a
+              href={card.source.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-[var(--fg)] transition-colors"
+              title={`Open Jira issue: ${card.source.external_id}`}
+            >
+              {jiraIcon}
             </a>
           )}
           {card.source && !card.vetted && (

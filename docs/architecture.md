@@ -121,6 +121,13 @@ write and commit completion. The service layer closes that gap on failure:
   `internal/events/`, git-sync histogram in `internal/gitops/`, stall-scanner
   histogram and counter in `internal/service/`. See the full metric list in
   `internal/metrics/metrics.go`.
+- **Jira integration** (`jira/*`): HTTP client for the Jira REST API, epic
+  importer (creates CM projects from Jira epics with child issues as cards),
+  and a write-back handler that posts comments on Jira issues when cards
+  complete. The write-back handler subscribes to the event bus and runs
+  asynchronously — failures are logged but never block card state transitions.
+  Auth auto-detects Cloud (Basic Auth) vs Server/DC (Bearer token) based on
+  whether `email` is configured.
 
 ## Git repository scope
 

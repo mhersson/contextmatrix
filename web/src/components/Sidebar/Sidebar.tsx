@@ -5,15 +5,18 @@ import { useProjectSummaries } from '../../hooks/useProjectSummaries';
 import { useTheme } from '../../hooks/useTheme';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
+import { jiraIcon } from '../icons';
 import { ProjectCard } from './ProjectCard';
 
 interface SidebarProps {
   onNewProject: () => void;
+  onJiraImport?: () => void;
+  jiraConfigured?: boolean;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
 
-export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({ onNewProject, onJiraImport, jiraConfigured, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects, connected } = useProjects();
   const { version } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
@@ -135,6 +138,16 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
           </svg>
           New Project
         </button>
+        {jiraConfigured && onJiraImport && (
+          <button
+            onClick={onJiraImport}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors hover:opacity-80"
+            style={{ backgroundColor: 'var(--bg1)', color: 'var(--blue)' }}
+          >
+            {jiraIcon}
+            Import from Jira
+          </button>
+        )}
         <div className="flex items-center gap-2 px-1">
           <span
             className="w-2 h-2 rounded-full"

@@ -34,6 +34,10 @@ own repos, and report progress back through the board.
 - **GitHub issue import** — periodically fetches open issues from GitHub and
   creates cards automatically. Imported cards show a GitHub icon badge and
   trigger a toast notification in the web UI.
+- **Jira epic import** — import a Jira epic as a CM project via the web UI. All
+  child issues become cards with priority, labels, and component mappings
+  preserved. On card completion, a comment is posted back to the Jira issue.
+  When all cards are done, a summary comment is posted on the epic.
 - **Cost tracking** — per-model token usage reporting with USD cost estimates,
   broken down by agent and card on the dashboard.
 - **Customizable workflow** — define your own states, types, priorities, and
@@ -460,6 +464,35 @@ github:
 Imported cards display a GitHub icon next to the type badge in the web UI and
 trigger an info toast notification on creation.
 
+## Jira Epic Import
+
+Import Jira epics as CM projects via the web UI. Each epic becomes a project,
+and its child issues become cards. When a card transitions to `done`, a comment
+is posted back to the original Jira issue. When all imported cards are complete,
+a summary comment is posted on the Jira epic.
+
+```yaml
+# config.yaml (global)
+jira:
+  base_url: "https://company.atlassian.net"
+  email: "bot@company.com"          # Jira Cloud only; omit for Server/DC
+  token: "your-api-token"           # API token (Cloud) or PAT (Server/DC)
+  projects:                          # optional component→repo mappings
+    BACKEND:
+      default_repo: "git@github.com:org/monorepo.git"
+      repo_mappings:
+        - component: "auth-service"
+          repo: "git@github.com:org/auth-service.git"
+```
+
+The import wizard is available in the sidebar when Jira is configured. Enter an
+epic key (e.g., `PROJ-42`), preview the child issues, configure the project name
+and prefix, and import. Cards are created with `source.system: "jira"` and are
+automatically vetted (human-initiated import).
+
+Jira Cloud uses Basic Auth (email + API token). Jira Server/Data Center uses
+Bearer token (PAT). The client auto-detects based on whether `email` is set.
+
 ## API
 
 All endpoints are under `/api`. Agent identity is sent via the `X-Agent-ID`
@@ -666,6 +699,10 @@ format.
 | `github.host`                | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
 | `github.api_base_url`        | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
 | `github.sync_interval`       | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
+| `jira.base_url`              | `""`                    | Jira instance URL, e.g. `https://company.atlassian.net` (empty = disabled)                    |
+| `jira.email`                 | `""`                    | Email for Jira Cloud Basic Auth (omit for Server/DC PAT auth)                                 |
+| `jira.token`                 | `""`                    | API token (Jira Cloud) or Personal Access Token (Server/DC)                                   |
+| `jira.projects`              | ---                     | Component-to-repo mappings per Jira project key (optional, see config.yaml.example)           |
 
 Token cost configuration:
 
@@ -702,6 +739,9 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
 - `CONTEXTMATRIX_GITHUB_SYNC_INTERVAL`
+- `CONTEXTMATRIX_JIRA_BASE_URL`
+- `CONTEXTMATRIX_JIRA_EMAIL`
+- `CONTEXTMATRIX_JIRA_TOKEN`
 
 ## Security
 
