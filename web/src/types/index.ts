@@ -58,6 +58,36 @@ export interface GitHubImportConfig {
   labels?: string[];
 }
 
+export interface JiraEpicConfig {
+  epic_key: string;
+  project_key: string;
+}
+
+export interface JiraIssuePreview {
+  key: string;
+  summary: string;
+  status: string;
+  issue_type: string;
+  done?: boolean;
+}
+
+export interface JiraEpicPreview {
+  epic: JiraIssuePreview;
+  children: JiraIssuePreview[];
+}
+
+export interface JiraImportEpicInput {
+  epic_key: string;
+  name?: string;
+  prefix?: string;
+}
+
+export interface JiraImportResult {
+  project: ProjectConfig;
+  cards_imported: number;
+  skipped: number;
+}
+
 export interface ProjectConfig {
   name: string;
   prefix: string;
@@ -72,6 +102,7 @@ export interface ProjectConfig {
     runner_image?: string;
   };
   github?: GitHubImportConfig;
+  jira?: JiraEpicConfig;
   templates?: Record<string, string>;
 }
 

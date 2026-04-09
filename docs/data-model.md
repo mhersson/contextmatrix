@@ -278,6 +278,20 @@ type RemoteExecutionConfig struct {
     RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
 }
 
+type GitHubImportConfig struct {
+    ImportIssues    bool     `yaml:"import_issues"              json:"import_issues"`
+    Owner           string   `yaml:"owner,omitempty"            json:"owner,omitempty"`
+    Repo            string   `yaml:"repo,omitempty"             json:"repo,omitempty"`
+    CardType        string   `yaml:"card_type,omitempty"        json:"card_type,omitempty"`
+    DefaultPriority string   `yaml:"default_priority,omitempty" json:"default_priority,omitempty"`
+    Labels          []string `yaml:"labels,omitempty"           json:"labels,omitempty"`
+}
+
+type JiraEpicConfig struct {
+    EpicKey    string `yaml:"epic_key"    json:"epic_key"`
+    ProjectKey string `yaml:"project_key" json:"project_key"`
+}
+
 type ProjectConfig struct {
     Name            string                 `yaml:"name"`
     Prefix          string                 `yaml:"prefix"`
@@ -288,6 +302,8 @@ type ProjectConfig struct {
     Priorities      []string               `yaml:"priorities"`
     Transitions     map[string][]string    `yaml:"transitions"`
     RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty"`
+    GitHub          *GitHubImportConfig    `yaml:"github,omitempty"`
+    Jira            *JiraEpicConfig        `yaml:"jira,omitempty"`
     Templates       map[string]string      `yaml:"-"` // loaded from templates/ dir at runtime
 }
 ```
@@ -359,6 +375,49 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 ```
+
+Optional integration fields:
+
+```yaml
+# Set automatically when importing a Jira epic (not user-edited)
+jira:
+  epic_key: PROJ-42
+  project_key: PROJ
+```
+
+### Jira field mapping
+
+When importing a Jira epic, child issue fields are mapped to CM card fields as
+follows.
+
+**Priority mapping** (`internal/jira/priority.go`):
+
+| Jira priority                         | CM priority |
+| ------------------------------------- | ----------- |
+| Highest, Critical, Blocker            | critical    |
+| High                                  | high        |
+| Medium, Normal                        | medium      |
+| Low, Lowest, Trivial, Minor          | low         |
+| Unknown or empty                      | medium      |
+
+**Issue type mapping** (`internal/jira/importer.go`):
+
+| Jira issue type         | CM card type |
+| ----------------------- | ------------ |
+| Bug                     | bug          |
+| Story, Task, Sub-task   | task         |
+| Improvement, New Feature| feature      |
+| Everything else         | task         |
+
+**Other mappings:**
+
+- Jira labels + component names are merged into the CM card's `labels` field.
+- Jira description (plain text or ADF) is extracted as plain text into the CM
+  card body. Rich formatting (tables, macros, embedded media) is not preserved.
+- All imported cards have `vetted: true` (human-initiated import is considered
+  vetted).
+- `source.system` is set to `"jira"`, `source.external_id` to the Jira issue
+  key, and `source.external_url` to the browse URL for the issue.
 
 Both `stalled` and `not_planned` must always be present in `states` and
 `transitions`. The server enforces this. All other states are optional in the

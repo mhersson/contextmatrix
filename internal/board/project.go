@@ -28,6 +28,12 @@ type GitHubImportConfig struct {
 	Labels          []string `yaml:"labels,omitempty"           json:"labels,omitempty"`
 }
 
+// JiraEpicConfig records the Jira epic that this project was imported from.
+type JiraEpicConfig struct {
+	EpicKey    string `yaml:"epic_key"    json:"epic_key"`
+	ProjectKey string `yaml:"project_key" json:"project_key"`
+}
+
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml
 type ProjectConfig struct {
@@ -41,6 +47,7 @@ type ProjectConfig struct {
 	Transitions     map[string][]string    `yaml:"transitions" json:"transitions"`
 	RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
 	GitHub          *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
+	Jira            *JiraEpicConfig        `yaml:"jira,omitempty"             json:"jira,omitempty"`
 	Templates       map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 

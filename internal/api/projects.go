@@ -21,12 +21,13 @@ type createProjectRequest struct {
 
 // updateProjectRequest is the JSON body for PUT /api/projects/{project}.
 type updateProjectRequest struct {
-	Repo        string                   `json:"repo,omitempty"`
-	States      []string                 `json:"states"`
-	Types       []string                 `json:"types"`
-	Priorities  []string                 `json:"priorities"`
-	Transitions map[string][]string      `json:"transitions"`
+	Repo        string                    `json:"repo,omitempty"`
+	States      []string                  `json:"states"`
+	Types       []string                  `json:"types"`
+	Priorities  []string                  `json:"priorities"`
+	Transitions map[string][]string       `json:"transitions"`
 	GitHub      *board.GitHubImportConfig `json:"github,omitempty"`
+	Jira        *board.JiraEpicConfig     `json:"jira,omitempty"`
 }
 
 // projectHandlers contains handlers for project-related endpoints.
@@ -182,6 +183,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		Priorities:  req.Priorities,
 		Transitions: req.Transitions,
 		GitHub:      req.GitHub,
+		Jira:        req.Jira,
 	})
 	if err != nil {
 		handleServiceError(w, err)

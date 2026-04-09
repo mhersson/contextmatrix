@@ -358,3 +358,36 @@ When adding a new top-level route in `App.tsx` or a new nested route in
 `ProjectShell.tsx`, always keep the `path="*"` catch-all as the **last** entry.
 React Router evaluates routes in declaration order, so inserting a route after
 the catch-all has no effect.
+
+## Jira Import Wizard
+
+The `JiraImportWizard` component (`web/src/components/JiraImportWizard/`) lets
+users import Jira epics as CM projects via a two-step modal flow.
+
+### Visibility
+
+The "Import from Jira" button appears in the sidebar footer only when
+`jiraConfigured` is true. `App.tsx` checks `GET /api/jira/status` on mount and
+passes the result to `Sidebar` via the `jiraConfigured` prop.
+
+### Flow
+
+1. **Step 1 — Epic lookup:** User enters a Jira epic key (e.g., `PROJ-42`).
+   Enter or "Preview" button calls `api.previewJiraEpic()`. The response shows
+   the epic details and a scrollable list of child issues.
+
+2. **Step 2 — Configure + import:** User sees auto-derived project name and
+   prefix (editable). "Import" button calls `api.importJiraEpic()`, which
+   creates the CM project and imports all child issues as cards.
+
+On success, `onImported(result)` fires. `App.tsx` closes the wizard, shows a
+success toast, and navigates to the new project.
+
+### Source indicators
+
+Cards imported from Jira display a blue Jira icon (`jiraIcon` from
+`icons.tsx`) in:
+- `CardItem.tsx` — board view, next to the type badge
+- `CardPanelHeader.tsx` — detail panel, as a link to the Jira issue
+
+The icon uses `var(--blue)` from the Everforest palette.

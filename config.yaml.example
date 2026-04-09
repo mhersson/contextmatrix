@@ -139,3 +139,38 @@ github:
   # Minimum: 5m. Default: 5m
   # Env: CONTEXTMATRIX_GITHUB_SYNC_INTERVAL
   sync_interval: "5m"
+
+# Jira integration for importing epics as projects.
+# When configured, users can import Jira epics via the web UI. Each epic
+# becomes a CM project with its child issues imported as cards.
+# On card completion, a comment is posted back to the Jira issue.
+jira:
+  # Jira instance base URL (without trailing slash).
+  # Example: https://company.atlassian.net
+  # Env: CONTEXTMATRIX_JIRA_BASE_URL
+  base_url: ""
+
+  # Email address for Jira Cloud Basic Auth (email:token).
+  # Leave empty for Jira Server/Data Center PAT authentication.
+  # Env: CONTEXTMATRIX_JIRA_EMAIL
+  email: ""
+
+  # API token (Jira Cloud) or Personal Access Token (Server/Data Center).
+  # Leave empty to disable Jira integration.
+  # Env: CONTEXTMATRIX_JIRA_TOKEN
+  token: ""
+
+  # Maps Jira project keys to component→repo mappings.
+  # When importing an epic, child issues are matched to code repositories
+  # via their Jira component. If no component matches, default_repo is used.
+  # NOTE: This setting can only be configured via the config file, not via
+  # environment variables (the nested structure cannot be expressed as a
+  # single env var).
+  # projects:
+  #   BACKEND:
+  #     default_repo: "git@github.com:company/monorepo.git"
+  #     repo_mappings:
+  #       - component: "auth-service"
+  #         repo: "git@github.com:company/auth-service.git"
+  #       - component: "api-gateway"
+  #         repo: "git@github.com:company/api-gateway.git"

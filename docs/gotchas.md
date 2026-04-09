@@ -53,3 +53,19 @@
   from spamming logs. The endpoint still responds normally — only the log line
   is suppressed. If you expect to see probe traffic in logs for debugging, hit
   any other path or check the endpoint directly with `curl`.
+- **Jira Cloud ADF descriptions:** Jira Cloud uses Atlassian Document Format (a
+  JSON structure) for issue descriptions, not plain text. The importer extracts
+  text content recursively but does not preserve rich formatting (tables, macros,
+  embedded media). Jira Server/DC uses plain text or wiki markup, which passes
+  through as-is.
+- **Jira auth auto-detection:** The Jira client uses Basic Auth (email:token) when
+  `jira.email` is set in config, and Bearer token when it is not. Jira Cloud
+  requires email; Jira Server/DC uses PAT (Personal Access Token) with Bearer.
+  Setting `email` for a Server/DC instance will break authentication.
+- **Jira write-back is async and fire-and-forget:** The write-back handler
+  subscribes to the event bus. If posting a comment to Jira fails (network error,
+  auth expired, rate limit), the failure is logged but does not affect the card
+  state transition. There is no retry mechanism in v1.
+- **Epic child issue cap:** The Jira client fetches at most 500 child issues per
+  epic (10 pages x 50 results). Larger epics are silently truncated. If you need
+  more, split the epic or run multiple imports.

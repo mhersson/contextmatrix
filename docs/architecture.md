@@ -45,6 +45,13 @@ store or git layer directly.
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
   `http.ServeMux` as the REST API.
+- **Jira integration** (`jira/*`): HTTP client for the Jira REST API, epic
+  importer (creates CM projects from Jira epics with child issues as cards),
+  and a write-back handler that posts comments on Jira issues when cards
+  complete. The write-back handler subscribes to the event bus and runs
+  asynchronously — failures are logged but never block card state transitions.
+  Auth auto-detects Cloud (Basic Auth) vs Server/DC (Bearer token) based on
+  whether `email` is configured.
 
 ## Git repository scope
 

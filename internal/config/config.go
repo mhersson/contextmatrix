@@ -35,6 +35,26 @@ type GitHubConfig struct {
 	SyncInterval string `yaml:"sync_interval"`
 }
 
+// JiraRepoMapping maps a Jira component name to a code repository URL.
+type JiraRepoMapping struct {
+	Component string `yaml:"component"`
+	Repo      string `yaml:"repo"`
+}
+
+// JiraProjectMapping holds repo mappings for a single Jira project.
+type JiraProjectMapping struct {
+	RepoMappings []JiraRepoMapping `yaml:"repo_mappings"`
+	DefaultRepo  string            `yaml:"default_repo,omitempty"`
+}
+
+// JiraConfig holds configuration for Jira integration.
+type JiraConfig struct {
+	BaseURL  string                        `yaml:"base_url"`  // e.g. https://company.atlassian.net
+	Email    string                        `yaml:"email"`     // Jira Cloud only (Basic Auth)
+	Token    string                        `yaml:"token"`     // API token (Cloud) or PAT (Server/DC)
+	Projects map[string]JiraProjectMapping `yaml:"projects"`  // keyed by Jira project key
+}
+
 // Config holds the application configuration.
 type Config struct {
 	Port                int                  `yaml:"port"`
@@ -53,6 +73,7 @@ type Config struct {
 	MCPAPIKey           string               `yaml:"mcp_api_key"`
 	Runner              RunnerConfig         `yaml:"runner"`
 	GitHub              GitHubConfig         `yaml:"github"`
+	Jira                JiraConfig           `yaml:"jira"`
 }
 
 // defaults returns a Config with default values.
@@ -111,6 +132,9 @@ func (c *Config) Validate() error {
 		if c.Runner.PublicURL == "" {
 			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
+	}
+	if c.Jira.Token != "" && c.Jira.BaseURL == "" {
+		return fmt.Errorf("jira.base_url is required when jira.token is set")
 	}
 	return nil
 }
@@ -261,6 +285,15 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.SyncInterval = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_BASE_URL"); v != "" {
+		cfg.Jira.BaseURL = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_EMAIL"); v != "" {
+		cfg.Jira.Email = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_TOKEN"); v != "" {
+		cfg.Jira.Token = v
 	}
 }
 

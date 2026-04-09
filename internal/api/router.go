@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -56,10 +57,12 @@ type RouterConfig struct {
 	Bus        *events.Bus
 	CORSOrigin string
 	Syncer     Syncer
-	Runner     *runner.Client
-	RunnerCfg  config.RunnerConfig
-	MCPAPIKey  string
-	Port       int
+	Runner       *runner.Client
+	RunnerCfg    config.RunnerConfig
+	JiraImporter *jira.Importer
+	JiraBaseURL  string
+	MCPAPIKey    string
+	Port         int
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -123,6 +126,14 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
+	}
+
+	// Jira routes
+	jh := &jiraHandlers{importer: cfg.JiraImporter, baseURL: cfg.JiraBaseURL}
+	mux.HandleFunc("GET /api/jira/status", jh.status)
+	if cfg.JiraImporter != nil {
+		mux.HandleFunc("GET /api/jira/epic/{epicKey}", jh.previewEpic)
+		mux.HandleFunc("POST /api/jira/import-epic", jh.importEpic)
 	}
 
 	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler

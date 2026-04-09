@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
@@ -134,6 +135,17 @@ func main() {
 		slog.Info("github issue sync enabled", "interval", syncInterval)
 	}
 
+	// Start Jira integration if configured
+	var jiraImporter *jira.Importer
+	var jiraWriteBack *jira.WriteBackHandler
+	if cfg.Jira.Token != "" && cfg.Jira.BaseURL != "" {
+		jiraClient := jira.NewClient(cfg.Jira)
+		jiraImporter = jira.NewImporter(jiraClient, svc, store, cfg.Jira)
+		jiraWriteBack = jira.NewWriteBackHandler(jiraClient, store, bus)
+		jiraWriteBack.Start(ctx)
+		slog.Info("jira integration enabled", "base_url", cfg.Jira.BaseURL)
+	}
+
 	// Create runner client if enabled
 	var runnerClient *runner.Client
 	if cfg.Runner.Enabled {
@@ -143,14 +155,16 @@ func main() {
 
 	// Create router with all API routes
 	mux := api.NewRouter(api.RouterConfig{
-		Service:    svc,
-		Bus:        bus,
-		CORSOrigin: cfg.CORSOrigin,
-		Syncer:     syncer,
-		Runner:     runnerClient,
-		RunnerCfg:  cfg.Runner,
-		MCPAPIKey:  cfg.MCPAPIKey,
-		Port:       cfg.Port,
+		Service:      svc,
+		Bus:          bus,
+		CORSOrigin:   cfg.CORSOrigin,
+		Syncer:       syncer,
+		Runner:       runnerClient,
+		RunnerCfg:    cfg.Runner,
+		JiraImporter: jiraImporter,
+		JiraBaseURL:  cfg.Jira.BaseURL,
+		MCPAPIKey:    cfg.MCPAPIKey,
+		Port:         cfg.Port,
 	})
 
 	// Create MCP server and register on the mux
@@ -209,6 +223,9 @@ func main() {
 	}
 	if ghSyncer != nil {
 		ghSyncer.Wait()
+	}
+	if jiraWriteBack != nil {
+		jiraWriteBack.Wait()
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)

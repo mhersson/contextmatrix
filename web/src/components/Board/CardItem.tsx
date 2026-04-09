@@ -3,7 +3,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { runnerStatusStyles } from '../../types';
-import { gitHubIcon } from '../icons';
+import { gitHubIcon, jiraIcon } from '../icons';
 
 interface CardItemProps {
   card: Card;
@@ -107,6 +107,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
             {card.type}
           </span>
           {card.source?.system === 'github' && gitHubIcon}
+          {card.source?.system === 'jira' && jiraIcon}
           {card.source && !card.vetted && (
             <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
               unvetted
@@ -161,6 +162,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
             {card.type}
           </span>
           {card.source?.system === 'github' && gitHubIcon}
+          {card.source?.system === 'jira' && jiraIcon}
           {card.source && !card.vetted && (
             <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
               unvetted

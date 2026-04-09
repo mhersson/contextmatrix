@@ -36,6 +36,10 @@ GET    /api/runner/logs?project=                      # SSE log stream proxy (ru
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
+GET    /api/jira/status                               # check if Jira is configured
+GET    /api/jira/epic/{epicKey}                        # preview epic + children (no import)
+POST   /api/jira/import-epic                           # create project from epic (human-only)
+
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # health check
 ```
@@ -64,8 +68,9 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 - 404: card or project not found
 - 409: conflict (invalid transition, card already claimed)
 - 422: validation error (missing required fields, unknown type/state/priority)
-- 502: runner webhook failed (bad gateway)
-- 503: runner not configured
+- 429: Jira rate limit exceeded (`JIRA_RATE_LIMITED`)
+- 502: runner webhook failed (bad gateway), or Jira authentication failed (`JIRA_UNAUTHORIZED`)
+- 503: runner not configured, or Jira not configured (`JIRA_NOT_CONFIGURED`)
 
 **Error codes relevant to vetting:**
 
@@ -273,3 +278,93 @@ signature. Accepts `runner_status` updates (`"running"`, `"failed"`).
   "message": "container started"
 }
 ```
+
+---
+
+## Jira integration
+
+### GET /api/jira/status
+
+Returns whether Jira integration is configured. No credentials exposed.
+
+```json
+{ "configured": true, "base_url": "https://company.atlassian.net" }
+```
+
+### GET /api/jira/epic/{epicKey}
+
+Preview a Jira epic and its child issues without importing. Requires Jira to be
+configured.
+
+**Response (200):**
+
+```json
+{
+  "epic": {
+    "key": "PROJ-42",
+    "summary": "Auth overhaul",
+    "status": "In Progress",
+    "issue_type": "Epic"
+  },
+  "children": [
+    {
+      "key": "PROJ-43",
+      "summary": "Add OAuth support",
+      "status": "To Do",
+      "issue_type": "Story"
+    }
+  ]
+}
+```
+
+**Error codes:** `JIRA_NOT_FOUND` (404), `JIRA_UNAUTHORIZED` (502),
+`JIRA_RATE_LIMITED` (429), `JIRA_NOT_CONFIGURED` (503).
+
+### POST /api/jira/import-epic
+
+Create a CM project from a Jira epic with all child issues as cards. **Human-only**
+— requests with `X-Agent-ID` header are rejected with 403.
+
+**Request:**
+
+```json
+{
+  "epic_key": "PROJ-42",
+  "name": "auth-overhaul",
+  "prefix": "PROJ"
+}
+```
+
+`name` and `prefix` are optional — derived from the epic summary and Jira project
+key if omitted.
+
+**Response (201):**
+
+```json
+{
+  "project": { "name": "auth-overhaul", "prefix": "PROJ", "..." : "..." },
+  "cards_imported": 12,
+  "skipped": 0
+}
+```
+
+**Error codes:**
+
+| Code                 | HTTP | When                                                   |
+| -------------------- | ---- | ------------------------------------------------------ |
+| `BAD_REQUEST`        | 400  | Missing or invalid `epic_key`                          |
+| `HUMAN_ONLY_FIELD`   | 403  | Request includes `X-Agent-ID` header (human-only)      |
+| `JIRA_NOT_FOUND`     | 404  | Epic not found in Jira                                 |
+| `JIRA_RATE_LIMITED`  | 429  | Jira rate limit exceeded                               |
+| `JIRA_UNAUTHORIZED`  | 502  | Jira authentication failed                             |
+| `JIRA_NOT_CONFIGURED`| 503  | Jira integration not configured                        |
+
+**Notes on partial imports:**
+
+- `skipped`: number of child issues not imported because they already exist (by
+  `source.external_id`) or failed to create.
+- If the import is interrupted (network failure, timeout), the project and
+  already-created cards persist — there is no rollback.
+
+Imported cards have `source.system: "jira"`, `source.external_id` set to the Jira
+issue key, and `vetted: true` (human-initiated import is considered vetted).
