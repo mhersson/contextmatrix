@@ -43,7 +43,7 @@ func TestFetchIssue_BasicResponse(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "/rest/api/2/issue/PROJ-42")
+		assert.Contains(t, r.URL.Path, "/rest/api/3/issue/PROJ-42")
 		assert.Equal(t, "application/json", r.Header.Get("Accept"))
 		assert.Equal(t, "contextmatrix", r.Header.Get("User-Agent"))
 		// Basic Auth: email:token
@@ -129,7 +129,7 @@ func TestFetchEpicChildren_BasicResponse(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "/rest/api/2/search")
+		assert.Contains(t, r.URL.Path, "/rest/api/3/search/jql")
 		assert.Contains(t, r.URL.RawQuery, "PROJ-42")
 		_ = json.NewEncoder(w).Encode(searchResult{
 			StartAt:    0,
@@ -194,7 +194,7 @@ func TestFetchEpicChildren_Empty(t *testing.T) {
 func TestPostComment_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Contains(t, r.URL.Path, "/rest/api/2/issue/PROJ-1/comment")
+		assert.Contains(t, r.URL.Path, "/rest/api/3/issue/PROJ-1/comment")
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var body struct {

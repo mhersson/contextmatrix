@@ -52,7 +52,7 @@ func NewClient(cfg config.JiraConfig) *Client {
 
 // FetchIssue retrieves a single issue by key (e.g. "PROJ-42").
 func (c *Client) FetchIssue(ctx context.Context, key string) (*Issue, error) {
-	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s", c.baseURL, key)
+	rawURL := fmt.Sprintf("%s/rest/api/3/issue/%s", c.baseURL, key)
 
 	var issue Issue
 	if err := c.get(ctx, rawURL, &issue); err != nil {
@@ -76,7 +76,7 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 			return all, ctx.Err()
 		}
 
-		rawURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&startAt=%d&maxResults=%d",
+		rawURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&startAt=%d&maxResults=%d",
 			c.baseURL, url.QueryEscape(jql), startAt, searchPageSize)
 
 		var result searchResult
@@ -97,7 +97,7 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 
 // PostComment adds a comment to a Jira issue.
 func (c *Client) PostComment(ctx context.Context, issueKey, body string) error {
-	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s/comment", c.baseURL, issueKey)
+	rawURL := fmt.Sprintf("%s/rest/api/3/issue/%s/comment", c.baseURL, issueKey)
 
 	payload := struct {
 		Body string `json:"body"`

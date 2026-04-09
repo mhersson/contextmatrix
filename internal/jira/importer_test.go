@@ -65,7 +65,7 @@ func setupTestImporter(t *testing.T, handler http.Handler) (*Importer, *httptest
 
 func TestPreviewEpic(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rest/api/2/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Issue{
 			Key: "PROJ-42",
 			Fields: IssueFields{
@@ -75,7 +75,7 @@ func TestPreviewEpic(t *testing.T) {
 			},
 		})
 	})
-	mux.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResult{
 			Total: 2,
 			Issues: []Issue{
@@ -99,7 +99,7 @@ func TestPreviewEpic(t *testing.T) {
 
 func TestImportEpic_CreatesProjectAndCards(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rest/api/2/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Issue{
 			Key: "PROJ-42",
 			Fields: IssueFields{
@@ -108,7 +108,7 @@ func TestImportEpic_CreatesProjectAndCards(t *testing.T) {
 			},
 		})
 	})
-	mux.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResult{
 			Total: 2,
 			Issues: []Issue{
@@ -163,13 +163,13 @@ func TestImportEpic_CreatesProjectAndCards(t *testing.T) {
 
 func TestImportEpic_CustomNameAndPrefix(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rest/api/2/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Issue{
 			Key:    "PROJ-42",
 			Fields: IssueFields{Summary: "Epic", IssueType: NameField{Name: "Epic"}},
 		})
 	})
-	mux.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResult{Total: 0})
 	})
 
@@ -187,13 +187,13 @@ func TestImportEpic_CustomNameAndPrefix(t *testing.T) {
 
 func TestImportEpic_DeduplicatesOnReimport(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rest/api/2/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Issue{
 			Key:    "PROJ-42",
 			Fields: IssueFields{Summary: "Epic", IssueType: NameField{Name: "Epic"}},
 		})
 	})
-	mux.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResult{
 			Total:  1,
 			Issues: []Issue{{Key: "PROJ-43", Fields: IssueFields{Summary: "Task", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}}},
@@ -219,13 +219,13 @@ func TestImportEpic_DeduplicatesOnReimport(t *testing.T) {
 
 func TestImportEpic_CardFieldMapping(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rest/api/2/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Issue{
 			Key:    "PROJ-42",
 			Fields: IssueFields{Summary: "Epic", IssueType: NameField{Name: "Epic"}},
 		})
 	})
-	mux.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(searchResult{
 			Total: 1,
 			Issues: []Issue{{

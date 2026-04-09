@@ -125,11 +125,11 @@ func TestWriteBack_PostsCommentOnCardDone(t *testing.T) {
 	// Single Jira card done → card comment + epic comment (all 1/1 done).
 	require.Len(t, comments, 2)
 	// First comment: card completion.
-	assert.Contains(t, comments[0].Path, "/rest/api/2/issue/PROJ-43/comment")
+	assert.Contains(t, comments[0].Path, "/rest/api/3/issue/PROJ-43/comment")
 	assert.Contains(t, comments[0].Body, "Task completed")
 	assert.Contains(t, comments[0].Body, "Test task")
 	// Second comment: epic completion.
-	assert.Contains(t, comments[1].Path, "/rest/api/2/issue/PROJ-42/comment")
+	assert.Contains(t, comments[1].Path, "/rest/api/3/issue/PROJ-42/comment")
 	assert.Contains(t, comments[1].Body, "All tasks completed")
 }
 
@@ -221,7 +221,7 @@ func TestWriteBack_PostsEpicCommentWhenAllDone(t *testing.T) {
 	jiraComments2 := filterJiraComments(comments2)
 	// card1 done + card2 done + epic completion = 3
 	require.Len(t, jiraComments2, 3)
-	assert.Contains(t, jiraComments2[2].Path, "/rest/api/2/issue/PROJ-42/comment")
+	assert.Contains(t, jiraComments2[2].Path, "/rest/api/3/issue/PROJ-42/comment")
 	assert.Contains(t, jiraComments2[2].Body, "All tasks completed")
 }
 
@@ -256,7 +256,7 @@ func TestFormatCardComment(t *testing.T) {
 func filterJiraComments(comments []capturedComment) []capturedComment {
 	var filtered []capturedComment
 	for _, c := range comments {
-		if strings.Contains(c.Path, "/rest/api/2/issue/") {
+		if strings.Contains(c.Path, "/rest/api/3/issue/") {
 			filtered = append(filtered, c)
 		}
 	}

@@ -23,7 +23,7 @@ type NameField struct {
 	Name string `json:"name"`
 }
 
-// searchResult is the paginated response from Jira's /rest/api/2/search endpoint.
+// searchResult is the paginated response from Jira's /rest/api/3/search/jql endpoint.
 type searchResult struct {
 	StartAt    int     `json:"startAt"`
 	MaxResults int     `json:"maxResults"`
