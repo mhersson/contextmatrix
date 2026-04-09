@@ -111,7 +111,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         <SyncIndicator status={syncStatus} onClick={onSyncClick} />
         <div className="flex items-center gap-2">
           <span
-            className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}
+            className="w-2 h-2 rounded-full"
             style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
           />
           <span className="text-sm hidden sm:inline" style={{ color: 'var(--grey1)' }}>

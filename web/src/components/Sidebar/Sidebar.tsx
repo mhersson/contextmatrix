@@ -111,7 +111,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
         </button>
         <div className="flex items-center gap-2 px-1">
           <span
-            className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse' : ''}`}
+            className="w-2 h-2 rounded-full"
             style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
           />
           <span className="text-xs" style={{ color: 'var(--grey0)' }}>
