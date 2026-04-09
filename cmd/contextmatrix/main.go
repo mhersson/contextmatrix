@@ -138,7 +138,7 @@ func main() {
 	// Start Jira integration if configured
 	var jiraImporter *jira.Importer
 	var jiraWriteBack *jira.WriteBackHandler
-	if cfg.Jira.Token != "" && cfg.Jira.BaseURL != "" {
+	if (cfg.Jira.Token != "" || cfg.Jira.SessionToken != "") && cfg.Jira.BaseURL != "" {
 		jiraClient := jira.NewClient(cfg.Jira)
 		jiraImporter = jira.NewImporter(jiraClient, svc, store, cfg.Jira)
 		jiraWriteBack = jira.NewWriteBackHandler(jiraClient, store, bus)

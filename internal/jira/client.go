@@ -32,25 +32,27 @@ const (
 
 // Client is a Jira REST API client.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string // e.g. https://company.atlassian.net
-	email      string // non-empty → Basic Auth (Cloud), empty → Bearer (Server/DC)
-	token      string
+	httpClient   *http.Client
+	baseURL      string // e.g. https://company.atlassian.net
+	email        string // non-empty → Basic Auth (Cloud), empty → Bearer (Server/DC)
+	token        string
+	sessionToken string // browser session cookie (testing only)
 }
 
 // NewClient creates a new Jira API client from the global config.
 func NewClient(cfg config.JiraConfig) *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
-		email:      cfg.Email,
-		token:      cfg.Token,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		baseURL:      strings.TrimRight(cfg.BaseURL, "/"),
+		email:        cfg.Email,
+		token:        cfg.Token,
+		sessionToken: cfg.SessionToken,
 	}
 }
 
 // FetchIssue retrieves a single issue by key (e.g. "PROJ-42").
 func (c *Client) FetchIssue(ctx context.Context, key string) (*Issue, error) {
-	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s", c.baseURL, url.PathEscape(key))
+	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s", c.baseURL, key)
 
 	var issue Issue
 	if err := c.get(ctx, rawURL, &issue); err != nil {
@@ -95,7 +97,7 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 
 // PostComment adds a comment to a Jira issue.
 func (c *Client) PostComment(ctx context.Context, issueKey, body string) error {
-	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s/comment", c.baseURL, url.PathEscape(issueKey))
+	rawURL := fmt.Sprintf("%s/rest/api/2/issue/%s/comment", c.baseURL, issueKey)
 
 	payload := struct {
 		Body string `json:"body"`
@@ -178,10 +180,12 @@ func checkResponseStatus(resp *http.Response) error {
 	return nil
 }
 
-// setAuth sets the appropriate Authorization header.
-// Jira Cloud uses Basic Auth (email:token); Server/DC uses Bearer token.
+// setAuth sets the appropriate authentication on the request.
+// Priority: session cookie → Basic Auth (Cloud) → Bearer token (Server/DC).
 func (c *Client) setAuth(req *http.Request) {
-	if c.email != "" {
+	if c.sessionToken != "" {
+		req.AddCookie(&http.Cookie{Name: "tenant.session.token", Value: c.sessionToken})
+	} else if c.email != "" {
 		req.SetBasicAuth(c.email, c.token)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+c.token)
