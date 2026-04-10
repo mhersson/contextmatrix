@@ -54,9 +54,13 @@ export function Dashboard({ project }: DashboardProps) {
   if (!data) return null;
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto h-full">
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-[var(--bg3)]">
+        <h1 className="text-lg font-medium text-[var(--fg)]">{project}</h1>
+        <p className="text-xs text-[var(--grey1)]">Cost overview</p>
+      </div>
+      <div className="p-6 space-y-6 overflow-y-auto flex-1">
       <SummaryCards
-        project={project}
         stateCounts={data.state_counts}
         totalCost={data.total_cost_usd}
         completedToday={data.cards_completed_today}
@@ -64,6 +68,7 @@ export function Dashboard({ project }: DashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ActiveAgentsFeed agents={data.active_agents} />
         <CostTable agentCosts={data.agent_costs} cardCosts={data.card_costs} />
+      </div>
       </div>
     </div>
   );
