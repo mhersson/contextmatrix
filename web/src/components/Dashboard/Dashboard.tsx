@@ -56,6 +56,7 @@ export function Dashboard({ project }: DashboardProps) {
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       <SummaryCards
+        project={project}
         stateCounts={data.state_counts}
         totalCost={data.total_cost_usd}
         completedToday={data.cards_completed_today}

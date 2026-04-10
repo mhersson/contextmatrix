@@ -1,4 +1,5 @@
 interface SummaryCardsProps {
+  project: string;
   stateCounts: Record<string, number>;
   totalCost: number;
   completedToday: number;
@@ -16,13 +17,14 @@ function StatTile({ label, value, color }: { label: string; value: string; color
   );
 }
 
-export function SummaryCards({ stateCounts, totalCost, completedToday }: SummaryCardsProps) {
+export function SummaryCards({ project, stateCounts, totalCost, completedToday }: SummaryCardsProps) {
   const openTasks = Object.entries(stateCounts)
     .filter(([state]) => state !== 'done' && state !== 'stalled' && state !== 'not_planned')
     .reduce((sum, [, count]) => sum + count, 0);
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <StatTile label="Project" value={project} color="var(--aqua)" />
       <StatTile label="Open Tasks" value={String(openTasks)} color="var(--blue)" />
       <StatTile label="In Progress" value={String(stateCounts['in_progress'] ?? 0)} color="var(--yellow)" />
       <StatTile label="Done Today" value={String(completedToday)} color="var(--green)" />
