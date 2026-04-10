@@ -131,11 +131,9 @@ func TestFetchEpicChildren_BasicResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Contains(t, r.URL.Path, "/rest/api/3/search/jql")
 		assert.Contains(t, r.URL.RawQuery, "PROJ-42")
+		assert.Contains(t, r.URL.RawQuery, "fields=")
 		_ = json.NewEncoder(w).Encode(searchResult{
-			StartAt:    0,
-			MaxResults: 50,
-			Total:      2,
-			Issues:     children,
+			Issues: children,
 		})
 	}))
 	defer srv.Close()
@@ -150,20 +148,21 @@ func TestFetchEpicChildren_BasicResponse(t *testing.T) {
 
 func TestFetchEpicChildren_Paginated(t *testing.T) {
 	var callCount atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := callCount.Add(1)
 		switch n {
 		case 1:
+			assert.NotContains(t, r.URL.RawQuery, "nextPageToken")
 			_ = json.NewEncoder(w).Encode(searchResult{
-				StartAt: 0, MaxResults: 2, Total: 3,
 				Issues: []Issue{
 					{Key: "PROJ-1"},
 					{Key: "PROJ-2"},
 				},
+				NextPageToken: "page2",
 			})
 		case 2:
+			assert.Contains(t, r.URL.RawQuery, "nextPageToken=page2")
 			_ = json.NewEncoder(w).Encode(searchResult{
-				StartAt: 2, MaxResults: 2, Total: 3,
 				Issues: []Issue{
 					{Key: "PROJ-3"},
 				},
@@ -181,7 +180,7 @@ func TestFetchEpicChildren_Paginated(t *testing.T) {
 
 func TestFetchEpicChildren_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(searchResult{Total: 0})
+		_ = json.NewEncoder(w).Encode(searchResult{})
 	}))
 	defer srv.Close()
 

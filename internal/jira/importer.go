@@ -73,7 +73,8 @@ func (imp *Importer) PreviewEpic(ctx context.Context, epicKey string) (*EpicPrev
 	}
 
 	preview := &EpicPreview{
-		Epic: issueToPreview(epic),
+		Epic:     issueToPreview(epic),
+		Children: make([]IssuePreview, 0, len(children)),
 	}
 	for i := range children {
 		preview.Children = append(preview.Children, issueToPreview(&children[i]))
