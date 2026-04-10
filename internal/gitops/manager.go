@@ -326,10 +326,11 @@ func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message 
 	}
 
 	// Commit with explicit author to match go-git commits.
+	// go-git commits are unsigned, so disable gpg signing for consistency.
 	author := fmt.Sprintf("%s <%s>", m.author.Name, m.author.Email)
 	start := time.Now()
 
-	if err := m.runGit(ctx, "commit", "--author", author, "-m", message); err != nil {
+	if err := m.runGit(ctx, "commit", "--no-gpg-sign", "--author", author, "-m", message); err != nil {
 		metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 		return fmt.Errorf("commit: %w", err)

@@ -40,6 +40,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	run(t, "", "git", "clone", upstream, clone)
 	run(t, clone, "git", "config", "user.email", "test@test.com")
 	run(t, clone, "git", "config", "user.name", "Test")
+	run(t, clone, "git", "config", "commit.gpgsign", "false")
 
 	// Create a project so the store has something to index.
 	projectDir := filepath.Join(clone, "test-project", "tasks")
@@ -141,6 +142,7 @@ func TestPullRebase_NewUpstreamCommits(t *testing.T) {
 	run(t, "", "git", "clone", upstream, clone2)
 	run(t, clone2, "git", "config", "user.email", "test@test.com")
 	run(t, clone2, "git", "config", "user.name", "Test")
+	run(t, clone2, "git", "config", "commit.gpgsign", "false")
 
 	// Create a card file in clone2 and push.
 	cardContent := `---
@@ -187,6 +189,7 @@ func TestPullRebase_WithLocalCommits(t *testing.T) {
 	run(t, "", "git", "clone", upstream, clone2)
 	run(t, clone2, "git", "config", "user.email", "test@test.com")
 	run(t, clone2, "git", "config", "user.name", "Test")
+	run(t, clone2, "git", "config", "commit.gpgsign", "false")
 	require.NoError(t, os.WriteFile(filepath.Join(clone2, "remote.txt"), []byte("remote"), 0o644))
 	run(t, clone2, "git", "add", "-A")
 	run(t, clone2, "git", "commit", "-m", "remote commit")
@@ -217,6 +220,7 @@ func TestPullRebase_DirtyWorktree(t *testing.T) {
 	run(t, "", "git", "clone", upstream, clone2)
 	run(t, clone2, "git", "config", "user.email", "test@test.com")
 	run(t, clone2, "git", "config", "user.name", "Test")
+	run(t, clone2, "git", "config", "commit.gpgsign", "false")
 	require.NoError(t, os.WriteFile(filepath.Join(clone2, "upstream.txt"), []byte("upstream"), 0o644))
 	run(t, clone2, "git", "add", "-A")
 	run(t, clone2, "git", "commit", "-m", "upstream commit")
@@ -250,6 +254,7 @@ func TestPullRebase_Conflict(t *testing.T) {
 	run(t, "", "git", "clone", upstream, clone2)
 	run(t, clone2, "git", "config", "user.email", "test@test.com")
 	run(t, clone2, "git", "config", "user.name", "Test")
+	run(t, clone2, "git", "config", "commit.gpgsign", "false")
 
 	// Read current content, modify it differently.
 	content, err := os.ReadFile(filepath.Join(clone2, "test-project", ".board.yaml"))

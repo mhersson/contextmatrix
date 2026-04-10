@@ -725,7 +725,7 @@ func TestReloadRepo(t *testing.T) {
 	cmd := exec.Command("git", "add", "shell.txt")
 	cmd.Dir = tmpDir
 	require.NoError(t, cmd.Run())
-	cmd = exec.Command("git", "commit", "-m", "shell commit")
+	cmd = exec.Command("git", "commit", "--no-gpg-sign", "-m", "shell commit")
 	cmd.Dir = tmpDir
 	require.NoError(t, cmd.Run())
 
@@ -768,7 +768,7 @@ func createBareRepo(t *testing.T) string {
 	cmd.Dir = work
 	require.NoError(t, cmd.Run())
 
-	cmd = exec.Command("git", "commit", "-m", "initial commit")
+	cmd = exec.Command("git", "commit", "--no-gpg-sign", "-m", "initial commit")
 	cmd.Dir = work
 
 	cmd.Env = append(os.Environ(),
