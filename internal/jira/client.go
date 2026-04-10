@@ -63,21 +63,25 @@ func (c *Client) FetchIssue(ctx context.Context, key string) (*Issue, error) {
 }
 
 // FetchEpicChildren retrieves all child issues of an epic via JQL search.
-// Uses pagination to handle large epics, capped at maxSearchPages * searchPageSize.
+// Uses cursor-based pagination (nextPageToken), capped at maxSearchPages.
 func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue, error) {
 	// "Epic Link" is the classic field; "parent" covers next-gen / team-managed projects.
 	jql := fmt.Sprintf(`"Epic Link" = "%s" OR parent = "%s"`, epicKey, epicKey)
+	fields := "summary,status,issuetype,priority,labels,components,description"
 
 	var all []Issue
-	startAt := 0
+	nextPageToken := ""
 
 	for range maxSearchPages {
 		if ctx.Err() != nil {
 			return all, ctx.Err()
 		}
 
-		rawURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&startAt=%d&maxResults=%d",
-			c.baseURL, url.QueryEscape(jql), startAt, searchPageSize)
+		rawURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=%s",
+			c.baseURL, url.QueryEscape(jql), searchPageSize, url.QueryEscape(fields))
+		if nextPageToken != "" {
+			rawURL += "&nextPageToken=" + url.QueryEscape(nextPageToken)
+		}
 
 		var result searchResult
 		if err := c.get(ctx, rawURL, &result); err != nil {
@@ -86,10 +90,10 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 
 		all = append(all, result.Issues...)
 
-		if startAt+len(result.Issues) >= result.Total {
+		if result.NextPageToken == "" {
 			break
 		}
-		startAt += len(result.Issues)
+		nextPageToken = result.NextPageToken
 	}
 
 	return all, nil

@@ -24,9 +24,8 @@ type NameField struct {
 }
 
 // searchResult is the paginated response from Jira's /rest/api/3/search/jql endpoint.
+// The v3 endpoint uses cursor-based pagination (nextPageToken) instead of offset-based (startAt/total).
 type searchResult struct {
-	StartAt    int     `json:"startAt"`
-	MaxResults int     `json:"maxResults"`
-	Total      int     `json:"total"`
-	Issues     []Issue `json:"issues"`
+	Issues        []Issue `json:"issues"`
+	NextPageToken string  `json:"nextPageToken,omitempty"`
 }
