@@ -44,10 +44,6 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
             <rect x="2" y="14" width="16" height="2" rx="1" fill="currentColor" />
           </svg>
         </button>
-        <span className="text-sm font-medium" style={{ color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}>
-          {project}
-        </span>
-
         <div className="flex items-center gap-1 rounded p-0.5" style={{ backgroundColor: 'var(--bg1)' }}>
           {VIEWS.slice(0, 1).map((v) => (
             <NavLink
