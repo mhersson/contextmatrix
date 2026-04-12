@@ -250,7 +250,7 @@ func TestImportEpic_CardFieldMapping(t *testing.T) {
 	require.Len(t, cards, 1)
 
 	card := cards[0]
-	assert.Equal(t, "Implement retry logic", card.Title)
+	assert.Equal(t, "PROJ-50 Implement retry logic", card.Title)
 	assert.Equal(t, "bug", card.Type)
 	assert.Equal(t, "critical", card.Priority)
 	assert.Contains(t, card.Labels, "backend")

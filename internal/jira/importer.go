@@ -181,7 +181,7 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		repo := imp.resolveRepo(jiraProjectKey, child.Fields.Components)
 
 		_, err = imp.svc.CreateCard(ctx, projectName, service.CreateCardInput{
-			Title:    child.Fields.Summary,
+			Title:    fmt.Sprintf("%s %s", child.Key, child.Fields.Summary),
 			Type:     cardType,
 			Priority: priority,
 			Labels:   labels,
