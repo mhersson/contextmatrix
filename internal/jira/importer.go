@@ -151,21 +151,33 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 	// Extract the Jira project key from the epic key.
 	jiraProjectKey := extractProjectKey(input.EpicKey)
 
-	// Create the CM project.
-	project, err := imp.svc.CreateProject(ctx, service.CreateProjectInput{
-		Name:       projectName,
-		Prefix:     prefix,
-		States:     defaultStates(),
-		Types:      defaultTypes(),
-		Priorities: defaultPriorities(),
-		Transitions: defaultTransitions(),
-		Jira: &board.JiraEpicConfig{
-			EpicKey:    input.EpicKey,
-			ProjectKey: jiraProjectKey,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create project: %w", err)
+	// Reuse an existing CM project if one already maps to this epic key.
+	// This handles re-imports of additional tasks from an already-imported epic.
+	var project *board.ProjectConfig
+	if existingName := imp.findProjectByEpicKey(ctx, input.EpicKey); existingName != "" {
+		project, err = imp.svc.GetProject(ctx, existingName)
+		if err != nil {
+			return nil, fmt.Errorf("get existing project: %w", err)
+		}
+		// Use the existing project's name so card deduplication checks the right project.
+		projectName = existingName
+	} else {
+		// No project yet — create one.
+		project, err = imp.svc.CreateProject(ctx, service.CreateProjectInput{
+			Name:       projectName,
+			Prefix:     prefix,
+			States:     defaultStates(),
+			Types:      defaultTypes(),
+			Priorities: defaultPriorities(),
+			Transitions: defaultTransitions(),
+			Jira: &board.JiraEpicConfig{
+				EpicKey:    input.EpicKey,
+				ProjectKey: jiraProjectKey,
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create project: %w", err)
+		}
 	}
 
 	// Import each child issue as a card.
