@@ -5,11 +5,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,12 @@ const (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
+	// ID is optional. When non-empty the caller specifies the card ID directly
+	// (e.g. a Jira issue key such as "PROJ-42"). The ID must be path-safe.
+	// If a card with that ID already exists, CreateCard returns an error.
+	// NextID is advanced past the numeric suffix so auto-generated IDs stay ahead.
+	// When empty the server auto-generates the next sequential ID.
+	ID            string
 	Title         string
 	Type          string
 	Priority      string
@@ -541,7 +549,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 }
 
 // CreateCard creates a new card in the project.
-// Flow: generate ID → validate → store → git commit → publish event.
+// Flow: use provided ID or generate one → validate → store → git commit → publish event.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -556,8 +564,45 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
-	// Generate card ID (increments NextID)
-	cardID := board.GenerateCardID(cfg)
+	var cardID string
+	if input.ID != "" {
+		// Caller-specified ID: validate it is path-safe, check for duplicates,
+		// and advance NextID past the numeric suffix so auto-IDs stay ahead.
+		customID := strings.ToUpper(strings.TrimSpace(input.ID))
+		if customID == "" || customID == "." || customID == ".." ||
+			strings.ContainsAny(customID, "/\\") {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("%w: %q", storage.ErrInvalidPath, input.ID)
+		}
+
+		// Check for duplicate: if GetCard succeeds the ID is already taken.
+		_, dupErr := s.store.GetCard(ctx, project, customID)
+		if dupErr == nil {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("%w: card %s already exists", storage.ErrCardExists, customID)
+		}
+		if !errors.Is(dupErr, storage.ErrCardNotFound) {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("check duplicate card ID: %w", dupErr)
+		}
+
+		cardID = customID
+
+		// Advance NextID past the numeric suffix of the custom ID so that
+		// auto-generated IDs never collide with caller-specified ones.
+		// Strip the "PREFIX-" prefix and parse the remainder as an integer.
+		prefix := cfg.Prefix + "-"
+		if strings.HasPrefix(customID, prefix) {
+			if n, parseErr := strconv.Atoi(customID[len(prefix):]); parseErr == nil {
+				if n+1 > cfg.NextID {
+					cfg.NextID = n + 1
+				}
+			}
+		}
+	} else {
+		// Auto-generate card ID (increments NextID)
+		cardID = board.GenerateCardID(cfg)
+	}
 
 	// Persist updated NextID
 	if err := s.store.SaveProject(ctx, cfg); err != nil {

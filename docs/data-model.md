@@ -5,7 +5,10 @@
 1. **Card IDs** are globally unique: `PREFIX-NNN`, zero-padded to 3 digits
    minimum. `ALPHA-001`, `ALPHA-042`, `ALPHA-999`, `ALPHA-1000` (grows past 3
    digits when needed). The server generates IDs by incrementing `next_id` in
-   `.board.yaml`. IDs are immutable once created.
+   `.board.yaml`. IDs are immutable once created. **Exception:** cards imported
+   from Jira use the Jira issue key directly as the card ID (e.g., `PROJ-43`).
+   When this happens, `next_id` is advanced past the numeric suffix of the
+   assigned key so that subsequent auto-generated IDs never collide.
 
 2. **State transitions are enforced.** Transitions defined in `.board.yaml`
    under `transitions`. API returns 409 Conflict with descriptive error on
@@ -411,6 +414,8 @@ follows.
 
 **Other mappings:**
 
+- Card ID equals the Jira issue key (e.g., `PROJ-43`). This means the CM card
+  can be referenced by the same identifier used in Jira.
 - Card title is `"<issue key> <summary>"` (e.g., `"PROJ-43 Implement feature"`).
   The issue key prefix makes the Jira origin visible at a glance in the board UI.
 - Jira labels + component names are merged into the CM card's `labels` field.
