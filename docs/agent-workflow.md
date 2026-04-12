@@ -174,6 +174,11 @@ run planning inline and create subtasks directly.
 
 The flow is:
 
+0. **Claim the card immediately**: The orchestrator calls `claim_card` as its
+   very first action — before any exploration or planning begins. This moves the
+   card to `in_progress` at the start of planning, not after subtasks are
+   created. The card stays claimed through drafting, user approval, and subtask
+   creation.
 1. **Plan drafting (inline)**: The orchestrator runs the create-plan skill
    inline — no sub-agent. It drafts the plan, writes it to the parent card body
    via `update_card`, and produces `PLAN_DRAFTED` structured output. Running
@@ -264,6 +269,7 @@ remote runner (via container config).
 **Lifecycle phases:**
 
 ```
+Step 0:  Claim the card     → claim_card called before any exploration begins
 Phase 1: Plan Drafting      → inline, calls create-plan skill
 Phase 2: Subtask Creation   → inline, orchestrator calls create_card directly
 Phase 3: Execution          → spawns execute-task sub-agents in parallel
@@ -272,8 +278,10 @@ Phase 5: Review             → orchestrator transitions parent to review, follo
 Phase 6: Finalization       → transitions parent to done
 ```
 
-The orchestrator determines the starting phase from the card's current state and
-body content (e.g., if the card is already `review`, it starts at Phase 5).
+The orchestrator claims the card and moves it to `in_progress` before
+determining the starting phase. If the card is already `in_progress` or
+`review`, the claim is still required — the starting-phase table determines
+which phase to resume from.
 
 **Guardrails:**
 

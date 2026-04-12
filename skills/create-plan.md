@@ -18,10 +18,9 @@ You are a planning agent. Your job is to draft a plan and return immediately.
 Do NOT ask the user for approval. Do NOT wait for user input. Do NOT create
 subtasks. Return as soon as the plan is written.
 
-## Step 0: Claim the card
+## Step 0: Ensure the card is claimed
 
-Call `claim_card(card_id, agent_id)` to mark the card as actively being planned.
-If the card is in `todo`, it auto-transitions to `in_progress`.
+If the card is not already claimed, call `claim_card(card_id, agent_id)`.
 
 ## Step 1: Understand the task
 
@@ -78,7 +77,7 @@ section. Use this format:
 Note: Do not include `Type` in subtask plans. The backend automatically sets the
 type to `subtask` for any card created with a `parent` field.
 
-## Step 4: Report usage and release
+## Step 4: Report usage
 
 Call `report_usage` with:
 - `card_id`: the parent card ID you are planning
@@ -88,7 +87,7 @@ Call `report_usage` with:
     model name)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
 
-Call `release_card(card_id, agent_id)` to release your claim.
+Do NOT release the card.
 
 ## Step 5: Return structured output
 

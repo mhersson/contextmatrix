@@ -1398,6 +1398,11 @@ func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
 
 	text := buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
 
+	// Step 0: early claim before plan drafting.
+	assert.Contains(t, text, "claim_card")
+	assert.Contains(t, text, cardID)
+	assert.Contains(t, text, "Claim the card immediately")
+
 	// Plan drafting — always inline.
 	assert.Contains(t, text, "Plan Drafting")
 	assert.Contains(t, text, "PLAN_DRAFTED")

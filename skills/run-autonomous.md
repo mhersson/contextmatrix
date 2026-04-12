@@ -50,14 +50,19 @@ skips: claim, heartbeat, tests, branch protection, release_card.
 
 If `Complexity: standard`, follow the full pipeline below.
 
+## Step 0: Claim the card
+
+Call `claim_card(card_id, agent_id)` before determining the starting point.
+Hold this claim through the entire lifecycle.
+
 ## Determine Starting Point
 
 Based on the card's current state and body content:
 
 | Condition | Start from |
 |-----------|-----------|
-| `todo`, no `## Plan` in body | Phase 1: Plan Drafting |
-| `todo`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
+| `todo` or `in_progress`, no `## Plan` in body | Phase 1: Plan Drafting |
+| `todo` or `in_progress`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
 | `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
 | `in_progress`, all subtasks done, no `## Review Findings` | Phase 4: Documentation |
 | `review` | Phase 5: Review |
@@ -159,8 +164,8 @@ Based on the card's current state and body content:
 16. If `inline: true`, execute directly. Otherwise, release the parent card
     claim (`release_card`), then spawn a review sub-agent with the returned
     `model`.
-17. Wait for `REVIEW_FINDINGS` structured output. If you delegated (step 16),
-    reclaim the parent card (`claim_card`).
+17. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
+    (`claim_card`) — the review always releases the claim when done.
 18. Parse the `recommendation`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
