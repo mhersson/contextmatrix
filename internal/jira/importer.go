@@ -33,9 +33,10 @@ func NewImporter(client *Client, svc *service.CardService, store *storage.Filesy
 
 // ImportEpicInput contains the parameters for importing a Jira epic.
 type ImportEpicInput struct {
-	EpicKey string // required: Jira epic key (e.g. "PROJ-42")
-	Name    string // optional: CM project name (derived from epic summary if empty)
-	Prefix  string // optional: card ID prefix (derived from Jira project key if empty)
+	EpicKey      string   // required: Jira epic key (e.g. "PROJ-42")
+	Name         string   // optional: CM project name (derived from epic summary if empty)
+	Prefix       string   // optional: card ID prefix (derived from Jira project key if empty)
+	SelectedKeys []string `json:"selected_keys"` // optional: if non-empty, only import issues whose key appears here
 }
 
 // ImportEpicResult contains the result of an epic import.
@@ -140,6 +141,12 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 
 		// Skip issues already done in Jira — no point importing completed work.
 		if isDoneStatus(child.Fields.Status.Name) {
+			skipped++
+			continue
+		}
+
+		// If a specific set of keys was requested, skip issues not in that set.
+		if len(input.SelectedKeys) > 0 && !containsKey(input.SelectedKeys, child.Key) {
 			skipped++
 			continue
 		}
@@ -334,6 +341,16 @@ func defaultTypes() []string {
 // defaultPriorities returns the standard set of CM card priorities.
 func defaultPriorities() []string {
 	return []string{"critical", "high", "medium", "low"}
+}
+
+// containsKey reports whether key appears in the slice.
+func containsKey(keys []string, key string) bool {
+	for _, k := range keys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultTransitions returns the standard CM state transition map.

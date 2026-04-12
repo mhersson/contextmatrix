@@ -331,12 +331,16 @@ Create a CM project from a Jira epic with all child issues as cards. **Human-onl
 {
   "epic_key": "PROJ-42",
   "name": "auth-overhaul",
-  "prefix": "PROJ"
+  "prefix": "PROJ",
+  "selected_keys": ["PROJ-43", "PROJ-45"]
 }
 ```
 
 `name` and `prefix` are optional — derived from the epic summary and Jira project
-key if omitted.
+key if omitted. `selected_keys` is optional — when provided, only child issues
+whose Jira key appears in the list are imported (done-status filtering still
+applies regardless). Omitting `selected_keys` or passing an empty array imports
+all non-done children.
 
 **Response (201):**
 

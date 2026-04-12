@@ -307,6 +307,113 @@ func TestExtractEpicPrefix(t *testing.T) {
 	assert.Equal(t, "BACKEND123", extractEpicPrefix("BACKEND-123"))
 }
 
+func TestImportEpic_SelectedKeys(t *testing.T) {
+	// Three children: PROJ-43 (To Do), PROJ-44 (To Do), PROJ-45 (Done).
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(Issue{
+			Key:    "PROJ-42",
+			Fields: IssueFields{Summary: "Epic", IssueType: NameField{Name: "Epic"}},
+		})
+	})
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(searchResult{
+			Issues: []Issue{
+				{Key: "PROJ-43", Fields: IssueFields{Summary: "Task A", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}},
+				{Key: "PROJ-44", Fields: IssueFields{Summary: "Task B", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}},
+				{Key: "PROJ-45", Fields: IssueFields{Summary: "Task C", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "Done"}}},
+			},
+		})
+	})
+
+	t.Run("empty selected_keys imports all non-done", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		result, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey:      "PROJ-42",
+			Name:         "all-non-done",
+			Prefix:       "AND",
+			SelectedKeys: []string{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.CardsImported) // PROJ-43, PROJ-44
+		assert.Equal(t, 1, result.Skipped)       // PROJ-45 (done)
+	})
+
+	t.Run("nil selected_keys imports all non-done", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		result, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey: "PROJ-42",
+			Name:    "nil-selected",
+			Prefix:  "NIL",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.CardsImported) // PROJ-43, PROJ-44
+		assert.Equal(t, 1, result.Skipped)       // PROJ-45 (done)
+	})
+
+	t.Run("all keys selected imports all non-done", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		result, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey:      "PROJ-42",
+			Name:         "all-selected",
+			Prefix:       "ALS",
+			SelectedKeys: []string{"PROJ-43", "PROJ-44", "PROJ-45"},
+		})
+		require.NoError(t, err)
+		// PROJ-45 is done so still skipped even though it is in SelectedKeys.
+		assert.Equal(t, 2, result.CardsImported)
+		assert.Equal(t, 1, result.Skipped)
+	})
+
+	t.Run("subset selected imports only matching non-done keys", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		result, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey:      "PROJ-42",
+			Name:         "subset-selected",
+			Prefix:       "SUB",
+			SelectedKeys: []string{"PROJ-43"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, result.CardsImported) // only PROJ-43
+		assert.Equal(t, 2, result.Skipped)       // PROJ-44 (not selected), PROJ-45 (done)
+
+		cards, err := imp.store.ListCards(context.Background(), "subset-selected", storage.CardFilter{})
+		require.NoError(t, err)
+		require.Len(t, cards, 1)
+		assert.Equal(t, "PROJ-43 Task A", cards[0].Title)
+	})
+
+	t.Run("done key explicitly selected is still skipped", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		result, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey:      "PROJ-42",
+			Name:         "done-selected",
+			Prefix:       "DNS",
+			SelectedKeys: []string{"PROJ-45"}, // only the done issue
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 0, result.CardsImported) // PROJ-45 is done, still skipped
+		assert.Equal(t, 3, result.Skipped)       // PROJ-45 (done), PROJ-43 (not selected), PROJ-44 (not selected)
+
+		cards, err := imp.store.ListCards(context.Background(), "done-selected", storage.CardFilter{})
+		require.NoError(t, err)
+		assert.Len(t, cards, 0)
+	})
+}
+
+func TestContainsKey(t *testing.T) {
+	assert.True(t, containsKey([]string{"PROJ-43", "PROJ-44"}, "PROJ-43"))
+	assert.True(t, containsKey([]string{"PROJ-43", "PROJ-44"}, "PROJ-44"))
+	assert.False(t, containsKey([]string{"PROJ-43", "PROJ-44"}, "PROJ-45"))
+	assert.False(t, containsKey([]string{}, "PROJ-43"))
+	assert.False(t, containsKey(nil, "PROJ-43"))
+}
+
 func TestMapIssueType(t *testing.T) {
 	tests := []struct {
 		input string
