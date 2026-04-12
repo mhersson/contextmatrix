@@ -12,12 +12,18 @@ interface AutomationCheckboxesProps {
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
+  baseBranch?: string;
+  onBaseBranchChange: (value: string) => void;
+  branches: string[];
+  branchesLoading?: boolean;
+  branchesError?: boolean;
 }
 
 export const AutomationCheckboxes = memo(function AutomationCheckboxes({
   autonomous, featureBranch, createPR,
   onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
   branchName, prUrl, reviewAttempts,
+  baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
 }: AutomationCheckboxesProps) {
   return (
     <div>
@@ -54,6 +60,26 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
           />
           <span className="text-sm text-[var(--fg)]">Create PR</span>
         </label>
+        {autonomous && (
+          <div>
+            <label className="block text-xs text-[var(--grey1)] mb-1">Base branch</label>
+            <select
+              aria-label="Base branch"
+              value={baseBranch ?? ''}
+              onChange={(e) => onBaseBranchChange(e.target.value)}
+              disabled={branchesLoading}
+              className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)] text-sm disabled:opacity-50"
+            >
+              <option value="">Default branch</option>
+              {branches.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+            {branchesError && (
+              <div className="text-xs text-[var(--yellow)] mt-1">Could not load branches</div>
+            )}
+          </div>
+        )}
       </div>
       {branchName && (
         <div className="mt-2 text-xs font-mono px-2 py-1 rounded bg-[var(--bg2)] text-[var(--aqua)]">

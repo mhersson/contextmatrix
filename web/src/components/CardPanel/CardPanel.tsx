@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import type { Card, ProjectConfig, PatchCardInput } from '../../types';
+import { api } from '../../api/client';
 import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
@@ -65,6 +66,9 @@ export function CardPanel({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number>(
     isMobileLayout() ? computeMobileEditorHeight() : DEFAULT_EDITOR_HEIGHT,
   );
@@ -74,6 +78,21 @@ export function CardPanel({
   useEffect(() => {
     setEditedCard(card);
   }, [card]);
+
+  useEffect(() => {
+    if (!config.remote_execution?.enabled) return;
+    let cancelled = false;
+    setBranchesLoading(true);
+    setBranchesError(false);
+    api.fetchBranches(card.project).then((data) => {
+      if (!cancelled) setBranches(data);
+    }).catch(() => {
+      if (!cancelled) setBranchesError(true);
+    }).finally(() => {
+      if (!cancelled) setBranchesLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [card.project, config.remote_execution?.enabled]);
 
   // Dynamically resize the editor when the visual viewport changes (e.g.
   // on-screen keyboard appearing/disappearing on mobile). On desktop the editor
@@ -167,7 +186,8 @@ export function CardPanel({
     (editedCard.autonomous ?? false) !== (card.autonomous ?? false) ||
     (editedCard.feature_branch ?? false) !== (card.feature_branch ?? false) ||
     (editedCard.create_pr ?? false) !== (card.create_pr ?? false) ||
-    (editedCard.vetted ?? false) !== (card.vetted ?? false);
+    (editedCard.vetted ?? false) !== (card.vetted ?? false) ||
+    (editedCard.base_branch ?? '') !== (card.base_branch ?? '');
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -206,6 +226,9 @@ export function CardPanel({
       }
       if ((editedCard.vetted ?? false) !== (card.vetted ?? false)) {
         updates.vetted = editedCard.vetted ?? false;
+      }
+      if ((editedCard.base_branch ?? '') !== (card.base_branch ?? '')) {
+        updates.base_branch = editedCard.base_branch ?? '';
       }
       await onSave(updates);
     } finally {
@@ -280,7 +303,7 @@ export function CardPanel({
             editedAutonomous={editedCard.autonomous ?? false}
             editedFeatureBranch={editedCard.feature_branch ?? false}
             editedCreatePR={editedCard.create_pr ?? false}
-            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v }))}
+            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
             onFeatureBranchChange={(v) => setEditedCard((prev) => ({
               ...prev,
               feature_branch: v,
@@ -289,6 +312,11 @@ export function CardPanel({
             onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
             editedVetted={editedCard.vetted ?? false}
             onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
+            baseBranch={editedCard.base_branch}
+            onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
+            branches={branches}
+            branchesLoading={branchesLoading}
+            branchesError={branchesError}
           />
 
           <CardPanelActivity activityLog={card.activity_log} />

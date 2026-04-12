@@ -205,6 +205,8 @@ export function CreateCardForm({
             if (!v) setCreatePR(false);
           }}
           onCreatePRChange={setCreatePR}
+          branches={[]}
+          onBaseBranchChange={() => {}}
         />
       )}
 

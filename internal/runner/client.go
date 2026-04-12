@@ -29,6 +29,7 @@ type TriggerPayload struct {
 	MCPURL      string `json:"mcp_url"`
 	MCPAPIKey   string `json:"mcp_api_key,omitempty"`
 	RunnerImage string `json:"runner_image,omitempty"`
+	BaseBranch  string `json:"base_branch,omitempty"`
 }
 
 // KillPayload is sent to the runner to stop a specific task.

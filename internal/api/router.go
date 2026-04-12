@@ -52,14 +52,15 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service    *service.CardService
-	Bus        *events.Bus
-	CORSOrigin string
-	Syncer     Syncer
-	Runner     *runner.Client
-	RunnerCfg  config.RunnerConfig
-	MCPAPIKey  string
-	Port       int
+	Service     *service.CardService
+	Bus         *events.Bus
+	CORSOrigin  string
+	Syncer      Syncer
+	Runner      *runner.Client
+	RunnerCfg   config.RunnerConfig
+	MCPAPIKey   string
+	Port        int
+	GitHubToken string
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -74,6 +75,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
+	bh := &branchHandlers{svc: cfg.Service, githubToken: cfg.GitHubToken, newBranchClient: defaultBranchClient}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -109,6 +111,9 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
 	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
+
+	// Branch listing
+	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
 
 	// Sync routes
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)

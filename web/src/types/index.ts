@@ -33,6 +33,7 @@ export interface Card {
   feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
+  base_branch?: string;
   pr_url?: string;
   review_attempts?: number;
   runner_status?: 'queued' | 'running' | 'failed' | 'killed';
@@ -166,6 +167,7 @@ export interface PatchCardInput {
   autonomous?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
+  base_branch?: string;
   vetted?: boolean;
 }
 

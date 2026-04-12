@@ -286,6 +286,92 @@ func TestPatchCard(t *testing.T) {
 	assert.Contains(t, patched.Body, "Original body") // Unchanged (may have trailing newline)
 }
 
+func TestPatchCard_BaseBranch(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Base Branch Test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, card.BaseBranch)
+
+	// Set base_branch
+	branch := "main"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &branch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "main", patched.BaseBranch)
+
+	// Update to a different base_branch
+	devBranch := "develop"
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &devBranch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+
+	// Clear base_branch with empty string
+	empty := ""
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &empty,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, patched.BaseBranch)
+
+	// Nil BaseBranch should leave existing value unchanged
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &devBranch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: nil, // no change
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+
+	// Cascade: disabling feature_branch should clear base_branch and create_pr.
+	t.Run("cleared by feature_branch cascade", func(t *testing.T) {
+		svc2, _, cleanup2 := setupTest(t)
+		defer cleanup2()
+
+		card2, err := svc2.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Cascade Test",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// Enable feature_branch and set base_branch.
+		featureOn := true
+		base := "develop"
+		patched2, err := svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
+			FeatureBranch: &featureOn,
+			BaseBranch:    &base,
+		})
+		require.NoError(t, err)
+		assert.True(t, patched2.FeatureBranch)
+		assert.Equal(t, "develop", patched2.BaseBranch)
+
+		// Disable feature_branch — base_branch and create_pr must be cleared.
+		featureOff := false
+		patched2, err = svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
+			FeatureBranch: &featureOff,
+		})
+		require.NoError(t, err)
+		assert.False(t, patched2.FeatureBranch)
+		assert.Empty(t, patched2.BaseBranch)
+		assert.False(t, patched2.CreatePR)
+	})
+}
+
 func TestPatchCardStateTransition(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

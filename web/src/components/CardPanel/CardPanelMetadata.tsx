@@ -16,6 +16,11 @@ interface CardPanelMetadataProps {
   onCreatePRChange: (value: boolean) => void;
   editedVetted: boolean;
   onVettedChange: (value: boolean) => void;
+  baseBranch?: string;
+  onBaseBranchChange: (value: string) => void;
+  branches: string[];
+  branchesLoading?: boolean;
+  branchesError?: boolean;
 }
 
 export function CardPanelMetadata({
@@ -31,6 +36,11 @@ export function CardPanelMetadata({
   onCreatePRChange,
   editedVetted,
   onVettedChange,
+  baseBranch,
+  onBaseBranchChange,
+  branches,
+  branchesLoading,
+  branchesError,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
@@ -183,6 +193,11 @@ export function CardPanelMetadata({
           branchName={card.branch_name}
           prUrl={card.pr_url}
           reviewAttempts={card.review_attempts}
+          baseBranch={baseBranch}
+          onBaseBranchChange={onBaseBranchChange}
+          branches={branches}
+          branchesLoading={branchesLoading}
+          branchesError={branchesError}
         />
       )}
 

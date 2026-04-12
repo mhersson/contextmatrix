@@ -67,6 +67,48 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestTriggerPayload_BaseBranch(t *testing.T) {
+	var received TriggerPayload
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &received)
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "test-key")
+
+	// With base_branch set: should appear in JSON.
+	err := c.Trigger(context.Background(), TriggerPayload{
+		CardID:     "TEST-001",
+		Project:    "test-project",
+		RepoURL:    "git@github.com:org/repo.git",
+		MCPURL:     "http://localhost:8080/mcp",
+		BaseBranch: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "main", received.BaseBranch)
+
+	// With base_branch empty: should be omitted from JSON (omitempty).
+	var rawPayload map[string]any
+	srvOmit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &rawPayload)
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srvOmit.Close()
+
+	c2 := NewClient(srvOmit.URL, "test-key")
+	err = c2.Trigger(context.Background(), TriggerPayload{
+		CardID:  "TEST-001",
+		Project: "test-project",
+	})
+	require.NoError(t, err)
+	_, hasBaseBranch := rawPayload["base_branch"]
+	assert.False(t, hasBaseBranch, "base_branch should be omitted when empty")
+}
+
 func TestClient_Kill_Success(t *testing.T) {
 	var received KillPayload
 
