@@ -151,10 +151,10 @@ func (h *WriteBackHandler) formatEpicComment(ctx context.Context, project string
 		switch c.State {
 		case board.StateDone:
 			doneCount++
-			lines = append(lines, fmt.Sprintf("- %s: %s (done)", c.Source.ExternalID, c.Title))
+			lines = append(lines, fmt.Sprintf("- %s (done)", c.Title))
 		case board.StateNotPlanned:
 			notPlannedCount++
-			lines = append(lines, fmt.Sprintf("- %s: %s (not planned)", c.Source.ExternalID, c.Title))
+			lines = append(lines, fmt.Sprintf("- %s (not planned)", c.Title))
 		}
 	}
 
