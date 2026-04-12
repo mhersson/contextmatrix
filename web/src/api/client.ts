@@ -233,6 +233,10 @@ class APIClient {
       { method: 'POST' }
     );
   }
+
+  async fetchBranches(project: string): Promise<string[]> {
+    return this.request<string[]>(`/projects/${project}/branches`);
+  }
 }
 
 export const api = new APIClient();

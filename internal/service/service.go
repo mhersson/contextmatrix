@@ -91,6 +91,7 @@ type PatchCardInput struct {
 	FeatureBranch   *bool
 	CreatePR        *bool
 	Vetted          *bool
+	BaseBranch      *string
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -974,6 +975,9 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 	if input.Vetted != nil {
 		card.Vetted = *input.Vetted
+	}
+	if input.BaseBranch != nil {
+		card.BaseBranch = *input.BaseBranch
 	}
 	card.Updated = time.Now()
 

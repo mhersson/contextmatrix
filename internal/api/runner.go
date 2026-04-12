@@ -107,11 +107,12 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// Build trigger payload.
 	mcpURL := fmt.Sprintf("%s/mcp", h.runnerCfg.PublicURL)
 	payload := runner.TriggerPayload{
-		CardID:    id,
-		Project:   project,
-		RepoURL:   projectCfg.Repo,
-		MCPURL:    mcpURL,
-		MCPAPIKey: h.mcpAPIKey,
+		CardID:     id,
+		Project:    project,
+		RepoURL:    projectCfg.Repo,
+		MCPURL:     mcpURL,
+		MCPAPIKey:  h.mcpAPIKey,
+		BaseBranch: card.BaseBranch,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage

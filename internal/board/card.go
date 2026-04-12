@@ -33,6 +33,7 @@ type Card struct {
 	FeatureBranch  bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
 	CreatePR       bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
 	BranchName     string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
+	BaseBranch     string          `yaml:"base_branch,omitempty"     json:"base_branch,omitempty"`
 	PRUrl          string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
 	ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
 	RunnerStatus   string          `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`

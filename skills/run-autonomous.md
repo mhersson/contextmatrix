@@ -34,7 +34,9 @@ If `Complexity: simple`:
 4. Run tests (`make test` or the project's test command). If tests fail, fix
    and retry once. If still failing, report blocked and stop.
 5. Commit with a conventional commit message. Push to the feature branch.
-6. Create a PR if `create_pr` is enabled (use `gh pr create`).
+6. Create a PR if `create_pr` is enabled (use `gh pr create`). If the card has
+   a `base_branch` field set in its context, use `gh pr create --base <base_branch>`
+   to target that branch instead of the default.
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
 8. Call `report_usage` with your token consumption.
 9. Transition to `done`: `transition_card(card_id, new_state='done')`.
@@ -181,7 +183,9 @@ Based on the card's current state and body content:
 19. Call `report_usage` one final time with your remaining token consumption.
 20. If `create_pr` is enabled and the card has a `branch_name`, create a PR
     using `gh pr create` with a body referencing the card title and summarizing
-    the work. Call `report_push(card_id, branch, pr_url)` with the PR URL.
+    the work. If the card has a `base_branch` field, pass `--base <base_branch>`
+    to `gh pr create` so the PR targets the correct branch. Call
+    `report_push(card_id, branch, pr_url)` with the PR URL.
 21. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
 22. Release the card claim:
@@ -204,6 +208,9 @@ Based on the card's current state and body content:
 - After pushing, call `report_push(card_id, branch, pr_url)`.
 - Conventional commits: `type(scope): summary` + bullet-point body.
   **No card IDs in commit messages.**
+- When `base_branch` is set, PRs target that branch. The "never push to
+  main/master" rule still applies — the feature branch is pushed to origin,
+  and the PR is opened against `base_branch`.
 
 ## Git Workflow
 

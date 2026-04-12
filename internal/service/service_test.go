@@ -286,6 +286,58 @@ func TestPatchCard(t *testing.T) {
 	assert.Contains(t, patched.Body, "Original body") // Unchanged (may have trailing newline)
 }
 
+func TestPatchCard_BaseBranch(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Base Branch Test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, card.BaseBranch)
+
+	// Set base_branch
+	branch := "main"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &branch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "main", patched.BaseBranch)
+
+	// Update to a different base_branch
+	devBranch := "develop"
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &devBranch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+
+	// Clear base_branch with empty string
+	empty := ""
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &empty,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, patched.BaseBranch)
+
+	// Nil BaseBranch should leave existing value unchanged
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: &devBranch,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		BaseBranch: nil, // no change
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "develop", patched.BaseBranch)
+}
+
 func TestPatchCardStateTransition(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

@@ -61,6 +61,7 @@ type patchCardRequest struct {
 	FeatureBranch *bool    `json:"feature_branch,omitempty"`
 	CreatePR      *bool    `json:"create_pr,omitempty"`
 	Vetted        *bool    `json:"vetted,omitempty"`
+	BaseBranch    *string  `json:"base_branch,omitempty"`
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
@@ -275,9 +276,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil) {
+	if isNonHumanAgent(r) && (req.Autonomous != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil || req.BaseBranch != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, and base_branch can only be set via the UI")
 		return
 	}
 
@@ -303,6 +304,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		FeatureBranch:   req.FeatureBranch,
 		CreatePR:        req.CreatePR,
 		Vetted:          req.Vetted,
+		BaseBranch:      req.BaseBranch,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

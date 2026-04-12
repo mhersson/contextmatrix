@@ -143,14 +143,15 @@ func main() {
 
 	// Create router with all API routes
 	mux := api.NewRouter(api.RouterConfig{
-		Service:    svc,
-		Bus:        bus,
-		CORSOrigin: cfg.CORSOrigin,
-		Syncer:     syncer,
-		Runner:     runnerClient,
-		RunnerCfg:  cfg.Runner,
-		MCPAPIKey:  cfg.MCPAPIKey,
-		Port:       cfg.Port,
+		Service:     svc,
+		Bus:         bus,
+		CORSOrigin:  cfg.CORSOrigin,
+		Syncer:      syncer,
+		Runner:      runnerClient,
+		RunnerCfg:   cfg.Runner,
+		MCPAPIKey:   cfg.MCPAPIKey,
+		Port:        cfg.Port,
+		GitHubToken: cfg.GitHub.Token,
 	})
 
 	// Create MCP server and register on the mux
