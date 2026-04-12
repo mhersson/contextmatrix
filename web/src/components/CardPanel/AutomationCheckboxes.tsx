@@ -16,13 +16,14 @@ interface AutomationCheckboxesProps {
   onBaseBranchChange: (value: string) => void;
   branches: string[];
   branchesLoading?: boolean;
+  branchesError?: boolean;
 }
 
 export const AutomationCheckboxes = memo(function AutomationCheckboxes({
   autonomous, featureBranch, createPR,
   onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
   branchName, prUrl, reviewAttempts,
-  baseBranch, onBaseBranchChange, branches, branchesLoading,
+  baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
 }: AutomationCheckboxesProps) {
   return (
     <div>
@@ -63,6 +64,7 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
           <div>
             <label className="block text-xs text-[var(--grey1)] mb-1">Base branch</label>
             <select
+              aria-label="Base branch"
               value={baseBranch ?? ''}
               onChange={(e) => onBaseBranchChange(e.target.value)}
               disabled={branchesLoading}
@@ -73,6 +75,9 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
+            {branchesError && (
+              <div className="text-xs text-[var(--yellow)] mt-1">Could not load branches</div>
+            )}
           </div>
         )}
       </div>

@@ -68,6 +68,7 @@ export function CardPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number>(
     isMobileLayout() ? computeMobileEditorHeight() : DEFAULT_EDITOR_HEIGHT,
   );
@@ -82,10 +83,11 @@ export function CardPanel({
     if (!config.remote_execution?.enabled) return;
     let cancelled = false;
     setBranchesLoading(true);
+    setBranchesError(false);
     api.fetchBranches(card.project).then((data) => {
       if (!cancelled) setBranches(data);
     }).catch(() => {
-      // Non-fatal: branch list stays empty, dropdown shows only default option
+      if (!cancelled) setBranchesError(true);
     }).finally(() => {
       if (!cancelled) setBranchesLoading(false);
     });
@@ -301,7 +303,7 @@ export function CardPanel({
             editedAutonomous={editedCard.autonomous ?? false}
             editedFeatureBranch={editedCard.feature_branch ?? false}
             editedCreatePR={editedCard.create_pr ?? false}
-            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v }))}
+            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
             onFeatureBranchChange={(v) => setEditedCard((prev) => ({
               ...prev,
               feature_branch: v,
@@ -314,6 +316,7 @@ export function CardPanel({
             onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
             branches={branches}
             branchesLoading={branchesLoading}
+            branchesError={branchesError}
           />
 
           <CardPanelActivity activityLog={card.activity_log} />

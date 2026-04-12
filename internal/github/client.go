@@ -126,11 +126,19 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 	nextURL := u.String()
 
 	for page := 0; page < maxPages && nextURL != ""; page++ {
-		names, next, err := c.fetchBranchPage(ctx, nextURL)
+		names, next, rateLimited, err := c.fetchBranchPage(ctx, nextURL)
 		if err != nil {
 			return allNames, err
 		}
 		allNames = append(allNames, names...)
+
+		if rateLimited {
+			// This page was the last one before the rate limit is hit.
+			// Return what we have so far plus the sentinel error.
+			sort.Strings(allNames)
+			return allNames, ErrRateLimited
+		}
+
 		nextURL = next
 	}
 
@@ -139,11 +147,11 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 }
 
 // fetchBranchPage fetches a single page of branches. Returns the branch names, the next
-// page URL (empty if none), and any error.
-func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, string, error) {
+// page URL (empty if none), whether the rate limit is now exhausted, and any error.
+func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, string, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("create request: %w", err)
+		return nil, "", false, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -155,22 +163,22 @@ func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("http request: %w", err)
+		return nil, "", false, fmt.Errorf("http request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
-		return nil, "", ErrRateLimited
+		return nil, "", false, ErrRateLimited
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, "", fmt.Errorf("github api: status %d: %s", resp.StatusCode, string(body))
+		return nil, "", false, fmt.Errorf("github api: status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var branches []branchItem
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&branches); err != nil {
-		return nil, "", fmt.Errorf("decode response: %w", err)
+		return nil, "", false, fmt.Errorf("decode response: %w", err)
 	}
 
 	names := make([]string, 0, len(branches))
@@ -179,7 +187,17 @@ func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, 
 	}
 
 	next := parseLinkNext(resp.Header.Get("Link"))
-	return names, next, nil
+
+	// Check if rate limit is now exhausted. The current page's data is valid;
+	// remaining=0 means the *next* request would be rate-limited.
+	rateLimited := false
+	if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
+		if n, _ := strconv.Atoi(remaining); n == 0 {
+			rateLimited = true
+		}
+	}
+
+	return names, next, rateLimited, nil
 }
 
 // fetchPage fetches a single page of issues. Returns the issues, the next page
@@ -248,7 +266,7 @@ func parseLinkNext(header string) string {
 	// Validate that the next URL points to the expected GitHub API host
 	// to prevent SSRF via manipulated Link headers.
 	u, err := url.Parse(m[1])
-	if err != nil || (u.Host != allowedAPIHost && u.Host != "") {
+	if err != nil || u.Host != allowedAPIHost {
 		return ""
 	}
 

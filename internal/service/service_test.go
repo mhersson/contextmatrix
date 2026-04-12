@@ -336,6 +336,40 @@ func TestPatchCard_BaseBranch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "develop", patched.BaseBranch)
+
+	// Cascade: disabling feature_branch should clear base_branch and create_pr.
+	t.Run("cleared by feature_branch cascade", func(t *testing.T) {
+		svc2, _, cleanup2 := setupTest(t)
+		defer cleanup2()
+
+		card2, err := svc2.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Cascade Test",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// Enable feature_branch and set base_branch.
+		featureOn := true
+		base := "develop"
+		patched2, err := svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
+			FeatureBranch: &featureOn,
+			BaseBranch:    &base,
+		})
+		require.NoError(t, err)
+		assert.True(t, patched2.FeatureBranch)
+		assert.Equal(t, "develop", patched2.BaseBranch)
+
+		// Disable feature_branch — base_branch and create_pr must be cleared.
+		featureOff := false
+		patched2, err = svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
+			FeatureBranch: &featureOff,
+		})
+		require.NoError(t, err)
+		assert.False(t, patched2.FeatureBranch)
+		assert.Empty(t, patched2.BaseBranch)
+		assert.False(t, patched2.CreatePR)
+	})
 }
 
 func TestPatchCardStateTransition(t *testing.T) {

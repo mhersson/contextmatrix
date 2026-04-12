@@ -248,6 +248,17 @@ func TestFetchBranches_RateLimited(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRateLimited)
 }
 
+func TestFetchBranches_429TooManyRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv)
+	_, err := client.FetchBranches(context.Background(), "o", "r")
+	assert.ErrorIs(t, err, ErrRateLimited)
+}
+
 func TestFetchBranches_EmptyRepo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]branchItem{})

@@ -965,9 +965,10 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		if card.FeatureBranch && card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
-		// Auto-clear create_pr when feature_branch is disabled.
+		// Auto-clear create_pr and base_branch when feature_branch is disabled.
 		if !card.FeatureBranch {
 			card.CreatePR = false
+			card.BaseBranch = ""
 		}
 	}
 	if input.CreatePR != nil && card.FeatureBranch {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/mhersson/contextmatrix/internal/github"
@@ -51,8 +52,9 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 	client := h.newBranchClient(h.githubToken)
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
+		slog.Error("failed to fetch branches", "project", projectName, "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError,
-			"failed to fetch branches", err.Error())
+			"failed to fetch branches", "")
 		return
 	}
 
