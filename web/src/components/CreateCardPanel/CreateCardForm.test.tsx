@@ -82,6 +82,9 @@ function ControlledForm({
       setFeatureBranch={vi.fn()}
       createPR={false}
       setCreatePR={vi.fn()}
+      baseBranch=""
+      onBaseBranchChange={vi.fn()}
+      branches={[]}
     />
   );
 }
