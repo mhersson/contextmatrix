@@ -417,6 +417,120 @@ func TestContainsKey(t *testing.T) {
 	assert.False(t, containsKey(nil, "PROJ-43"))
 }
 
+func TestPreviewEpic_AlreadyImported(t *testing.T) {
+	// Jira mock: epic PROJ-42 with three children.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(Issue{
+			Key: "PROJ-42",
+			Fields: IssueFields{
+				Summary:   "Auth overhaul",
+				IssueType: NameField{Name: "Epic"},
+				Status:    NameField{Name: "In Progress"},
+			},
+		})
+	})
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(searchResult{
+			Issues: []Issue{
+				{Key: "PROJ-43", Fields: IssueFields{Summary: "Add OAuth", IssueType: NameField{Name: "Story"}, Status: NameField{Name: "To Do"}}},
+				{Key: "PROJ-44", Fields: IssueFields{Summary: "Fix token refresh", IssueType: NameField{Name: "Bug"}, Status: NameField{Name: "To Do"}}},
+				{Key: "PROJ-45", Fields: IssueFields{Summary: "Write docs", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}},
+			},
+		})
+	})
+
+	t.Run("no prior import — all AlreadyImported false", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
+		require.NoError(t, err)
+		require.Len(t, preview.Children, 3)
+		for _, child := range preview.Children {
+			assert.False(t, child.AlreadyImported, "expected AlreadyImported=false for %s", child.Key)
+		}
+	})
+
+	t.Run("epic key not matching any project — all AlreadyImported false", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		// Import a different epic so a project exists, but with a different key.
+		differentMux := http.NewServeMux()
+		differentMux.HandleFunc("GET /rest/api/3/issue/PROJ-99", func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(Issue{
+				Key:    "PROJ-99",
+				Fields: IssueFields{Summary: "Other epic", IssueType: NameField{Name: "Epic"}},
+			})
+		})
+		differentMux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(searchResult{})
+		})
+		otherSrv := httptest.NewServer(differentMux)
+		defer otherSrv.Close()
+		otherClient := &Client{
+			httpClient: otherSrv.Client(),
+			baseURL:    otherSrv.URL,
+			email:      "test@example.com",
+			token:      "test-token",
+		}
+		otherImp := NewImporter(otherClient, imp.svc, imp.store, imp.jiraCfg)
+		_, err := otherImp.ImportEpic(context.Background(), ImportEpicInput{EpicKey: "PROJ-99", Name: "other-project", Prefix: "OTH"})
+		require.NoError(t, err)
+
+		// Preview PROJ-42 — no project matches this epic key.
+		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
+		require.NoError(t, err)
+		require.Len(t, preview.Children, 3)
+		for _, child := range preview.Children {
+			assert.False(t, child.AlreadyImported, "expected AlreadyImported=false for %s", child.Key)
+		}
+	})
+
+	t.Run("partial prior import — mixed AlreadyImported", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		// Import only PROJ-43 by selecting just that key.
+		_, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey:      "PROJ-42",
+			Name:         "auth-overhaul",
+			Prefix:       "AUTH",
+			SelectedKeys: []string{"PROJ-43"},
+		})
+		require.NoError(t, err)
+
+		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
+		require.NoError(t, err)
+		require.Len(t, preview.Children, 3)
+
+		byKey := make(map[string]IssuePreview, 3)
+		for _, c := range preview.Children {
+			byKey[c.Key] = c
+		}
+		assert.True(t, byKey["PROJ-43"].AlreadyImported, "PROJ-43 was imported, expected AlreadyImported=true")
+		assert.False(t, byKey["PROJ-44"].AlreadyImported, "PROJ-44 was not imported, expected AlreadyImported=false")
+		assert.False(t, byKey["PROJ-45"].AlreadyImported, "PROJ-45 was not imported, expected AlreadyImported=false")
+	})
+
+	t.Run("full prior import — all AlreadyImported true", func(t *testing.T) {
+		imp, _ := setupTestImporter(t, mux)
+
+		// Import all three children.
+		_, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+			EpicKey: "PROJ-42",
+			Name:    "auth-overhaul",
+			Prefix:  "AUTH",
+		})
+		require.NoError(t, err)
+
+		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
+		require.NoError(t, err)
+		require.Len(t, preview.Children, 3)
+		for _, child := range preview.Children {
+			assert.True(t, child.AlreadyImported, "expected AlreadyImported=true for %s (all were imported)", child.Key)
+		}
+	})
+}
+
 func TestMapIssueType(t *testing.T) {
 	tests := []struct {
 		input string
