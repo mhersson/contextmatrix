@@ -48,11 +48,12 @@ type ImportEpicResult struct {
 
 // IssuePreview is a lightweight view of a Jira issue for the preview endpoint.
 type IssuePreview struct {
-	Key       string `json:"key"`
-	Summary   string `json:"summary"`
-	Status    string `json:"status"`
-	IssueType string `json:"issue_type"`
-	Done      bool   `json:"done,omitempty"` // true if issue is already done in Jira (will be skipped on import)
+	Key             string `json:"key"`
+	Summary         string `json:"summary"`
+	Status          string `json:"status"`
+	IssueType       string `json:"issue_type"`
+	Done            bool   `json:"done,omitempty"`            // true if issue is already done in Jira (will be skipped on import)
+	AlreadyImported bool   `json:"already_imported,omitempty"` // true if a CM card with this Jira key already exists
 }
 
 // EpicPreview contains a Jira epic and its child issues for display in the UI.
@@ -62,6 +63,8 @@ type EpicPreview struct {
 }
 
 // PreviewEpic fetches a Jira epic and its children without importing.
+// For each child issue, AlreadyImported is set to true when a CM card with a
+// matching ExternalID already exists (i.e. it was imported in a prior run).
 func (imp *Importer) PreviewEpic(ctx context.Context, epicKey string) (*EpicPreview, error) {
 	epic, err := imp.client.FetchIssue(ctx, epicKey)
 	if err != nil {
@@ -73,15 +76,51 @@ func (imp *Importer) PreviewEpic(ctx context.Context, epicKey string) (*EpicPrev
 		return nil, fmt.Errorf("fetch children: %w", err)
 	}
 
+	// Find the CM project (if any) whose Jira epic key matches this request.
+	// This is used to flag child issues that were already imported.
+	importedProject := imp.findProjectByEpicKey(ctx, epicKey)
+
 	preview := &EpicPreview{
 		Epic:     issueToPreview(epic),
 		Children: make([]IssuePreview, 0, len(children)),
 	}
 	for i := range children {
-		preview.Children = append(preview.Children, issueToPreview(&children[i]))
+		child := issueToPreview(&children[i])
+		if importedProject != "" {
+			child.AlreadyImported = imp.isAlreadyImported(ctx, importedProject, children[i].Key)
+		}
+		preview.Children = append(preview.Children, child)
 	}
 
 	return preview, nil
+}
+
+// findProjectByEpicKey returns the name of the CM project whose jira.epic_key
+// matches epicKey, or empty string if no such project exists.
+func (imp *Importer) findProjectByEpicKey(ctx context.Context, epicKey string) string {
+	projects, err := imp.store.ListProjects(ctx)
+	if err != nil {
+		slog.Warn("jira preview: list projects", "error", err)
+		return ""
+	}
+	for _, p := range projects {
+		if p.Jira != nil && p.Jira.EpicKey == epicKey {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// isAlreadyImported reports whether a card with the given Jira issue key already
+// exists in the specified CM project.
+func (imp *Importer) isAlreadyImported(ctx context.Context, projectName, issueKey string) bool {
+	cards, err := imp.store.ListCards(ctx, projectName, storage.CardFilter{ExternalID: issueKey})
+	if err != nil {
+		slog.Warn("jira preview: check existing card",
+			"project", projectName, "issue_key", issueKey, "error", err)
+		return false
+	}
+	return len(cards) > 0
 }
 
 // ImportEpic imports a Jira epic as a CM project with all child issues as cards.

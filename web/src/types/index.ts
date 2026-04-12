@@ -69,6 +69,7 @@ export interface JiraIssuePreview {
   status: string;
   issue_type: string;
   done?: boolean;
+  already_imported?: boolean;
 }
 
 export interface JiraEpicPreview {

@@ -296,6 +296,12 @@ Returns whether Jira integration is configured. No credentials exposed.
 Preview a Jira epic and its child issues without importing. Requires Jira to be
 configured.
 
+Each child issue is checked against existing CM cards. If a card with a matching
+`source.external_id` already exists in any project whose `jira.epic_key` matches
+the requested epic, `already_imported` is set to `true` on that issue. This
+allows the UI to distinguish new tasks from previously imported ones when
+re-previewing an epic.
+
 **Response (200):**
 
 ```json
@@ -312,10 +318,29 @@ configured.
       "summary": "Add OAuth support",
       "status": "To Do",
       "issue_type": "Story"
+    },
+    {
+      "key": "PROJ-44",
+      "summary": "Migrate legacy sessions",
+      "status": "Done",
+      "issue_type": "Story",
+      "done": true,
+      "already_imported": true
     }
   ]
 }
 ```
+
+Child issue fields:
+
+| Field              | Type    | Description                                                                           |
+| ------------------ | ------- | ------------------------------------------------------------------------------------- |
+| `key`              | string  | Jira issue key                                                                        |
+| `summary`          | string  | Issue title                                                                           |
+| `status`           | string  | Jira status name                                                                      |
+| `issue_type`       | string  | Jira issue type (Story, Task, Bug, …)                                                 |
+| `done`             | boolean | Omitted when false. True if the issue is already done in Jira — skipped on import.   |
+| `already_imported` | boolean | Omitted when false. True if a CM card with this issue key already exists.             |
 
 **Error codes:** `JIRA_NOT_FOUND` (404), `JIRA_UNAUTHORIZED` (502),
 `JIRA_RATE_LIMITED` (429), `JIRA_NOT_CONFIGURED` (503).
