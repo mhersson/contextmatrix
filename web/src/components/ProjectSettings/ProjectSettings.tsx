@@ -190,6 +190,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         <div>
           <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</label>
           <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
+            {config.jira?.epic_key && <><span style={{ color: 'var(--grey1)' }}>{config.jira.epic_key}</span>{' '}</>}
             {config.name}
           </div>
         </div>

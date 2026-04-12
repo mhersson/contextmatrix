@@ -185,7 +185,7 @@ export function ProjectShell() {
                 )
               }
             />
-            <Route path="dashboard" element={<Dashboard project={project || ''} />} />
+            <Route path="dashboard" element={<Dashboard project={project || ''} epicKey={config?.jira?.epic_key} />} />
             <Route
               path="settings"
               element={
