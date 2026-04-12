@@ -147,16 +147,24 @@ func TestImportEpic_CreatesProjectAndCards(t *testing.T) {
 
 	// Project created with derived name.
 	assert.Equal(t, "auth-overhaul", result.Project.Name)
-	assert.Equal(t, "PROJ42", result.Project.Prefix)
+	assert.Equal(t, "PROJ", result.Project.Prefix)
 	assert.NotNil(t, result.Project.Jira)
 	assert.Equal(t, "PROJ-42", result.Project.Jira.EpicKey)
 	assert.Equal(t, 2, result.CardsImported)
 	assert.Equal(t, 0, result.Skipped)
 
-	// Verify cards exist.
+	// Verify cards exist with Jira issue keys as IDs.
 	cards, err := imp.store.ListCards(context.Background(), "auth-overhaul", storage.CardFilter{})
 	require.NoError(t, err)
 	require.Len(t, cards, 2)
+
+	// Collect card IDs for assertion (order may vary).
+	cardIDs := make(map[string]bool, len(cards))
+	for _, c := range cards {
+		cardIDs[c.ID] = true
+	}
+	assert.True(t, cardIDs["PROJ-43"], "expected card with ID PROJ-43")
+	assert.True(t, cardIDs["PROJ-44"], "expected card with ID PROJ-44")
 }
 
 func TestImportEpic_CustomNameAndPrefix(t *testing.T) {
@@ -301,11 +309,6 @@ func TestIsDoneStatus(t *testing.T) {
 	assert.False(t, isDoneStatus(""))
 }
 
-func TestExtractEpicPrefix(t *testing.T) {
-	assert.Equal(t, "PROJ42", extractEpicPrefix("PROJ-42"))
-	assert.Equal(t, "PROJ43", extractEpicPrefix("PROJ-43"))
-	assert.Equal(t, "BACKEND123", extractEpicPrefix("BACKEND-123"))
-}
 
 func TestImportEpic_SelectedKeys(t *testing.T) {
 	// Three children: PROJ-43 (To Do), PROJ-44 (To Do), PROJ-45 (Done).
