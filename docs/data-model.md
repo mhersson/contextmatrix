@@ -411,6 +411,8 @@ follows.
 
 **Other mappings:**
 
+- Card title is `"<issue key> <summary>"` (e.g., `"PROJ-43 Implement feature"`).
+  The issue key prefix makes the Jira origin visible at a glance in the board UI.
 - Jira labels + component names are merged into the CM card's `labels` field.
 - Jira description (plain text or ADF) is extracted as plain text into the CM
   card body. Rich formatting (tables, macros, embedded media) is not preserved.
