@@ -212,14 +212,72 @@ func TestImportEpic_DeduplicatesOnReimport(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result1.CardsImported)
 
-	// Second import of the same cards into the same project should skip them.
-	// We can't call ImportEpic again (project already exists), so simulate
-	// by importing cards directly.
-	children := []Issue{{Key: "PROJ-43", Fields: IssueFields{Summary: "Task", IssueType: NameField{Name: "Task"}}}}
-	existing, _ := imp.store.ListCards(context.Background(), "epic", storage.CardFilter{ExternalID: "PROJ-43"})
-	assert.Len(t, existing, 1) // Card exists from first import.
+	// Second import of the same epic must succeed (reuses the existing project)
+	// and skip already-imported cards.
+	result2, err := imp.ImportEpic(context.Background(), ImportEpicInput{EpicKey: "PROJ-42"})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result2.CardsImported) // PROJ-43 already imported
+	assert.Equal(t, 1, result2.Skipped)
+	assert.Equal(t, result1.Project.Name, result2.Project.Name) // same project reused
 
-	_ = children // used above for assertion context
+	// Verify only one card exists (no duplicates created).
+	cards, err := imp.store.ListCards(context.Background(), result1.Project.Name, storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 1)
+}
+
+func TestImportEpic_ReimportWithSelectedKeys(t *testing.T) {
+	// Epic has three children; first import brings in only PROJ-43.
+	// Second import with SelectedKeys=["PROJ-44"] should import PROJ-44 into the
+	// existing project without error and without duplicating PROJ-43.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rest/api/3/issue/PROJ-42", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(Issue{
+			Key:    "PROJ-42",
+			Fields: IssueFields{Summary: "Epic", IssueType: NameField{Name: "Epic"}},
+		})
+	})
+	mux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(searchResult{
+			Issues: []Issue{
+				{Key: "PROJ-43", Fields: IssueFields{Summary: "Task A", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}},
+				{Key: "PROJ-44", Fields: IssueFields{Summary: "Task B", IssueType: NameField{Name: "Task"}, Status: NameField{Name: "To Do"}}},
+			},
+		})
+	})
+
+	imp, _ := setupTestImporter(t, mux)
+
+	// First import: bring in only PROJ-43.
+	result1, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+		EpicKey:      "PROJ-42",
+		SelectedKeys: []string{"PROJ-43"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result1.CardsImported)
+	assert.Equal(t, 1, result1.Skipped) // PROJ-44 not selected
+
+	// Second import: bring in PROJ-44 from the already-existing project.
+	result2, err := imp.ImportEpic(context.Background(), ImportEpicInput{
+		EpicKey:      "PROJ-42",
+		SelectedKeys: []string{"PROJ-44"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result2.CardsImported) // PROJ-44 newly imported
+	assert.Equal(t, 1, result2.Skipped)       // PROJ-43 not selected
+	assert.Equal(t, result1.Project.Name, result2.Project.Name) // same project reused
+
+	// Both cards must exist in the project with no duplicates.
+	cards, err := imp.store.ListCards(context.Background(), result1.Project.Name, storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 2)
+
+	cardIDs := make(map[string]bool, len(cards))
+	for _, c := range cards {
+		cardIDs[c.ID] = true
+	}
+	assert.True(t, cardIDs["PROJ-43"], "expected PROJ-43 card")
+	assert.True(t, cardIDs["PROJ-44"], "expected PROJ-44 card")
 }
 
 func TestImportEpic_CardFieldMapping(t *testing.T) {
