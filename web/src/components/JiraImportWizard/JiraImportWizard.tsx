@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { JiraEpicPreview, JiraImportResult } from '../../types';
 import { jiraIcon } from '../icons';
@@ -16,6 +16,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
   const [isLoading, setIsLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -25,14 +26,24 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const nonDoneChildren = useMemo(
+    () => (preview ? preview.children.filter((c) => !c.done) : []),
+    [preview]
+  );
+
+  const allSelected = nonDoneChildren.length > 0 && selectedKeys.size === nonDoneChildren.length;
+
   const handlePreview = useCallback(async () => {
     if (!epicKey.trim() || isLoading) return;
     setIsLoading(true);
     setError(null);
     setPreview(null);
+    setSelectedKeys(new Set());
     try {
       const result = await api.previewJiraEpic(epicKey.trim().toUpperCase());
       setPreview(result);
+      // Auto-select all non-done children.
+      setSelectedKeys(new Set(result.children.filter((c) => !c.done).map((c) => c.key)));
       // Auto-derive project name and prefix from epic.
       const slug = result.epic.summary
         .toLowerCase()
@@ -52,7 +63,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
   }, [epicKey, isLoading]);
 
   const handleImport = useCallback(async () => {
-    if (!epicKey.trim() || !name.trim() || !prefix.trim() || isImporting) return;
+    if (!epicKey.trim() || !name.trim() || !prefix.trim() || isImporting || selectedKeys.size === 0) return;
     setIsImporting(true);
     setError(null);
     try {
@@ -60,6 +71,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
         epic_key: epicKey.trim().toUpperCase(),
         name: name.trim(),
         prefix: prefix.trim().toUpperCase(),
+        selected_keys: Array.from(selectedKeys),
       });
       onImported(result);
     } catch (err) {
@@ -67,7 +79,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     } finally {
       setIsImporting(false);
     }
-  }, [epicKey, name, prefix, isImporting, onImported]);
+  }, [epicKey, name, prefix, isImporting, selectedKeys, onImported]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -75,6 +87,35 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     },
     [preview, handlePreview]
   );
+
+  const toggleKey = useCallback((key: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(nonDoneChildren.map((c) => c.key)));
+    }
+  }, [allSelected, nonDoneChildren]);
+
+  const importButtonEnabled =
+    !!preview && name.trim() !== '' && prefix.trim() !== '' && selectedKeys.size > 0 && !isImporting;
+
+  const importLabel = isImporting
+    ? 'Importing...'
+    : preview
+    ? `Import ${selectedKeys.size} of ${nonDoneChildren.length} issue${nonDoneChildren.length === 1 ? '' : 's'}`
+    : 'Import';
 
   return (
     <>
@@ -98,14 +139,14 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
           {preview && (
             <button
               onClick={handleImport}
-              disabled={!name.trim() || !prefix.trim() || isImporting}
+              disabled={!importButtonEnabled}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                name.trim() && prefix.trim()
+                importButtonEnabled
                   ? 'bg-[var(--blue)] text-[var(--bg-dim)] hover:opacity-90'
                   : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
               }`}
             >
-              {isImporting ? 'Importing...' : `Import ${preview.children.filter(c => !c.done).length} issue${preview.children.filter(c => !c.done).length === 1 ? '' : 's'}`}
+              {importLabel}
             </button>
           )}
         </div>
@@ -167,7 +208,11 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
                   </span>
                 </div>
                 <span className="text-xs" style={{ color: 'var(--grey1)' }}>
-                  {preview.children.filter(c => !c.done).length} to import{preview.children.some(c => c.done) ? `, ${preview.children.filter(c => c.done).length} already done` : ''} | Status: {preview.epic.status}
+                  {selectedKeys.size} of {nonDoneChildren.length} selected to import
+                  {preview.children.some((c) => c.done)
+                    ? `, ${preview.children.filter((c) => c.done).length} already done`
+                    : ''}
+                  {' '}| Status: {preview.epic.status}
                 </span>
               </div>
 
@@ -206,14 +251,25 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
 
               {preview.children.length > 0 && (
                 <div>
-                  <label className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-                    Issues to import
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs" style={{ color: 'var(--grey1)' }}>
+                      Issues to import
+                    </label>
+                    {nonDoneChildren.length > 0 && (
+                      <button
+                        onClick={toggleAll}
+                        className="text-xs hover:underline"
+                        style={{ color: 'var(--aqua)' }}
+                      >
+                        {allSelected ? 'Deselect all' : 'Select all'}
+                      </button>
+                    )}
+                  </div>
                   <div
                     className="rounded border overflow-y-auto"
                     style={{
                       borderColor: 'var(--bg3)',
-                      maxHeight: 'calc(100vh - 420px)',
+                      maxHeight: 'calc(100vh - 450px)',
                     }}
                   >
                     {preview.children.map((child) => (
@@ -222,6 +278,18 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
                         className={`flex items-center gap-2 px-3 py-2 border-b last:border-b-0 text-sm${child.done ? ' opacity-40' : ''}`}
                         style={{ borderColor: 'var(--bg3)', backgroundColor: 'var(--bg1)' }}
                       >
+                        {!child.done ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedKeys.has(child.key)}
+                            onChange={() => toggleKey(child.key)}
+                            className="flex-shrink-0 cursor-pointer"
+                            style={{ accentColor: 'var(--green)' }}
+                            aria-label={`Select ${child.key}`}
+                          />
+                        ) : (
+                          <span className="flex-shrink-0 w-4" />
+                        )}
                         <span className="font-mono text-xs flex-shrink-0" style={{ color: 'var(--grey1)' }}>
                           {child.key}
                         </span>
@@ -250,7 +318,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
               )}
 
               <button
-                onClick={() => { setPreview(null); setError(null); }}
+                onClick={() => { setPreview(null); setError(null); setSelectedKeys(new Set()); }}
                 className="text-xs hover:underline"
                 style={{ color: 'var(--grey1)' }}
               >
