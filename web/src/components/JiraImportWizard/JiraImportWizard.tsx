@@ -26,12 +26,19 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const nonDoneChildren = useMemo(
-    () => (preview ? preview.children.filter((c) => !c.done) : []),
+  // Issues that can be newly imported: not done and not already imported.
+  const importableChildren = useMemo(
+    () => (preview ? preview.children.filter((c) => !c.done && !c.already_imported) : []),
     [preview]
   );
 
-  const allSelected = nonDoneChildren.length > 0 && selectedKeys.size === nonDoneChildren.length;
+  // Issues already imported into CM from a prior run.
+  const alreadyImportedChildren = useMemo(
+    () => (preview ? preview.children.filter((c) => c.already_imported) : []),
+    [preview]
+  );
+
+  const allSelected = importableChildren.length > 0 && selectedKeys.size === importableChildren.length;
 
   const handlePreview = useCallback(async () => {
     if (!epicKey.trim() || isLoading) return;
@@ -42,8 +49,10 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     try {
       const result = await api.previewJiraEpic(epicKey.trim().toUpperCase());
       setPreview(result);
-      // Auto-select all non-done children.
-      setSelectedKeys(new Set(result.children.filter((c) => !c.done).map((c) => c.key)));
+      // Auto-select all importable (non-done, non-already-imported) children.
+      setSelectedKeys(
+        new Set(result.children.filter((c) => !c.done && !c.already_imported).map((c) => c.key))
+      );
       // Auto-derive project name and prefix from epic.
       const slug = result.epic.summary
         .toLowerCase()
@@ -104,9 +113,9 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
     if (allSelected) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(nonDoneChildren.map((c) => c.key)));
+      setSelectedKeys(new Set(importableChildren.map((c) => c.key)));
     }
-  }, [allSelected, nonDoneChildren]);
+  }, [allSelected, importableChildren]);
 
   const importButtonEnabled =
     !!preview && name.trim() !== '' && prefix.trim() !== '' && selectedKeys.size > 0 && !isImporting;
@@ -114,7 +123,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
   const importLabel = isImporting
     ? 'Importing...'
     : preview
-    ? `Import ${selectedKeys.size} of ${nonDoneChildren.length} issue${nonDoneChildren.length === 1 ? '' : 's'}`
+    ? `Import ${selectedKeys.size} of ${importableChildren.length} issue${importableChildren.length === 1 ? '' : 's'}`
     : 'Import';
 
   return (
@@ -208,7 +217,7 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
                   </span>
                 </div>
                 <span className="text-xs" style={{ color: 'var(--grey1)' }}>
-                  {selectedKeys.size} of {nonDoneChildren.length} selected to import
+                  {selectedKeys.size} of {importableChildren.length} selected to import
                   {preview.children.some((c) => c.done)
                     ? `, ${preview.children.filter((c) => c.done).length} already done`
                     : ''}
@@ -252,10 +261,19 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
               {preview.children.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs" style={{ color: 'var(--grey1)' }}>
-                      Issues to import
-                    </label>
-                    {nonDoneChildren.length > 0 && (
+                    <div className="flex items-center gap-3">
+                      <label className="block text-xs" style={{ color: 'var(--grey1)' }}>
+                        Issues to import
+                      </label>
+                      {alreadyImportedChildren.length > 0 && (
+                        <span className="text-xs" style={{ color: 'var(--grey0)' }}>
+                          {importableChildren.length} new task{importableChildren.length === 1 ? '' : 's'}
+                          {' · '}
+                          {alreadyImportedChildren.length} already imported
+                        </span>
+                      )}
+                    </div>
+                    {importableChildren.length > 0 && (
                       <button
                         onClick={toggleAll}
                         className="text-xs hover:underline"
@@ -272,41 +290,57 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
                       maxHeight: 'calc(100vh - 450px)',
                     }}
                   >
-                    {preview.children.map((child) => (
-                      <div
-                        key={child.key}
-                        className={`flex items-center gap-2 px-3 py-2 border-b last:border-b-0 text-sm${child.done ? ' opacity-40' : ''}`}
-                        style={{ borderColor: 'var(--bg3)', backgroundColor: 'var(--bg1)' }}
-                      >
-                        {!child.done ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedKeys.has(child.key)}
-                            onChange={() => toggleKey(child.key)}
-                            className="flex-shrink-0 cursor-pointer"
-                            style={{ accentColor: 'var(--green)' }}
-                            aria-label={`Select ${child.key}`}
-                          />
-                        ) : (
-                          <span className="flex-shrink-0 w-4" />
-                        )}
-                        <span className="font-mono text-xs flex-shrink-0" style={{ color: 'var(--grey1)' }}>
-                          {child.key}
-                        </span>
-                        <span className="text-xs px-1 py-0.5 rounded flex-shrink-0" style={{
-                          backgroundColor: child.issue_type === 'Bug' ? 'var(--bg-red)' : 'var(--bg-blue)',
-                          color: child.issue_type === 'Bug' ? 'var(--red)' : 'var(--blue)',
-                        }}>
-                          {child.issue_type}
-                        </span>
-                        <span className="truncate" style={{ color: 'var(--fg)' }}>
-                          {child.summary}
-                        </span>
-                        <span className="ml-auto text-xs flex-shrink-0" style={{ color: 'var(--grey0)' }}>
-                          {child.done ? 'skipped' : child.status}
-                        </span>
-                      </div>
-                    ))}
+                    {preview.children.map((child) => {
+                      const isAlreadyImported = !!child.already_imported;
+                      const isDone = !!child.done;
+                      const isDisabled = isAlreadyImported || isDone;
+                      return (
+                        <div
+                          key={child.key}
+                          className={`flex items-center gap-2 px-3 py-2 border-b last:border-b-0 text-sm${isDisabled ? ' opacity-40' : ''}`}
+                          style={{ borderColor: 'var(--bg3)', backgroundColor: 'var(--bg1)' }}
+                        >
+                          {!isDisabled ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedKeys.has(child.key)}
+                              onChange={() => toggleKey(child.key)}
+                              className="flex-shrink-0 cursor-pointer"
+                              style={{ accentColor: 'var(--green)' }}
+                              aria-label={`Select ${child.key}`}
+                            />
+                          ) : (
+                            <span className="flex-shrink-0 w-4" />
+                          )}
+                          <span className="font-mono text-xs flex-shrink-0" style={{ color: 'var(--grey1)' }}>
+                            {child.key}
+                          </span>
+                          <span className="text-xs px-1 py-0.5 rounded flex-shrink-0" style={{
+                            backgroundColor: child.issue_type === 'Bug' ? 'var(--bg-red)' : 'var(--bg-blue)',
+                            color: child.issue_type === 'Bug' ? 'var(--red)' : 'var(--blue)',
+                          }}>
+                            {child.issue_type}
+                          </span>
+                          <span className="truncate" style={{ color: 'var(--fg)' }}>
+                            {child.summary}
+                          </span>
+                          <span className="ml-auto text-xs flex-shrink-0" style={{ color: 'var(--grey0)' }}>
+                            {isAlreadyImported ? (
+                              <span
+                                className="px-1.5 py-0.5 rounded"
+                                style={{ backgroundColor: 'var(--bg-green)', color: 'var(--green)' }}
+                              >
+                                Already imported
+                              </span>
+                            ) : isDone ? (
+                              'skipped'
+                            ) : (
+                              child.status
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
