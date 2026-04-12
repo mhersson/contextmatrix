@@ -366,5 +366,7 @@ key if omitted.
 - If the import is interrupted (network failure, timeout), the project and
   already-created cards persist — there is no rollback.
 
-Imported cards have `source.system: "jira"`, `source.external_id` set to the Jira
-issue key, and `vetted: true` (human-initiated import is considered vetted).
+Imported cards use the Jira issue key as the card ID (e.g., `PROJ-43`). The
+board prefix is derived from the Jira project key (e.g., `PROJ`, not `PROJ42`).
+Imported cards have `source.system: "jira"`, `source.external_id` set to the
+Jira issue key, and `vetted: true` (human-initiated import is considered vetted).
