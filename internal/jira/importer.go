@@ -105,7 +105,7 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 
 	prefix := input.Prefix
 	if prefix == "" {
-		prefix = extractEpicPrefix(input.EpicKey)
+		prefix = extractProjectKey(input.EpicKey)
 	}
 
 	// Extract the Jira project key from the epic key.
@@ -181,6 +181,7 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		repo := imp.resolveRepo(jiraProjectKey, child.Fields.Components)
 
 		_, err = imp.svc.CreateCard(ctx, projectName, service.CreateCardInput{
+			ID:       child.Key,
 			Title:    fmt.Sprintf("%s %s", child.Key, child.Fields.Summary),
 			Type:     cardType,
 			Priority: priority,
@@ -311,14 +312,6 @@ func extractProjectKey(issueKey string) string {
 		return strings.ToUpper(parts[0])
 	}
 	return issueKey
-}
-
-// extractEpicPrefix derives a unique CM card ID prefix from a Jira epic key.
-// Includes the issue number to avoid collisions when multiple epics from the
-// same Jira project are imported (e.g. "PROJ-42" → "PROJ42", "PROJ-43" → "PROJ43").
-func extractEpicPrefix(epicKey string) string {
-	// Strip the hyphen: "PROJ-42" → "PROJ42"
-	return strings.ToUpper(strings.ReplaceAll(epicKey, "-", ""))
 }
 
 // defaultStates returns the standard set of CM board states.
