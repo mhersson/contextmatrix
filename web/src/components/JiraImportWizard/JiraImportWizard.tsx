@@ -332,8 +332,6 @@ export function JiraImportWizard({ onClose, onImported }: JiraImportWizardProps)
                               >
                                 Already imported
                               </span>
-                            ) : isDone ? (
-                              'skipped'
                             ) : (
                               child.status
                             )}
