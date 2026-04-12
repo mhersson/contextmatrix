@@ -377,11 +377,23 @@ passes the result to `Sidebar` via the `jiraConfigured` prop.
    the epic details and a scrollable list of child issues.
 
 2. **Step 2 — Configure + import:** User sees auto-derived project name and
-   prefix (editable). "Import" button calls `api.importJiraEpic()`, which
-   creates the CM project and imports all child issues as cards.
+   prefix (editable), plus a scrollable checklist of child issues with
+   per-ticket checkboxes. Done issues (already completed in Jira) are shown at
+   reduced opacity with no checkbox and are always skipped. A "Select all /
+   Deselect all" toggle appears above the list. The Import button label reflects
+   the current selection (e.g. "Import 3 of 5 issues") and is disabled when
+   nothing is selected. Clicking Import calls `api.importJiraEpic()` with the
+   checked keys sent as `selected_keys`.
 
 On success, `onImported(result)` fires. `App.tsx` closes the wizard, shows a
 success toast, and navigates to the new project.
+
+### Selective import state
+
+`selectedKeys: Set<string>` is initialised with all non-done child keys when
+the preview loads. Toggling a checkbox adds or removes the key. `toggleAll`
+either fills the set with all non-done keys or clears it. The set is reset when
+the user clicks "Change epic key" to return to Step 1.
 
 ### Source indicators
 
