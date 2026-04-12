@@ -367,6 +367,16 @@ whose Jira key appears in the list are imported (done-status filtering still
 applies regardless). Omitting `selected_keys` or passing an empty array imports
 all non-done children.
 
+**Re-importing an already-imported epic:**
+
+Calling this endpoint again for the same `epic_key` is safe and idempotent at
+the project level. If a CM project already exists for the given epic key (matched
+via `jira.epic_key` in `.board.yaml`), that project is reused — no new project
+is created. Only child issues that have not been imported before (no existing
+card with a matching `source.external_id`) are created. Previously imported cards
+are counted in `skipped`. This allows incremental imports: use `selected_keys` to
+add specific tasks from an epic that has already been partially imported.
+
 **Response (201):**
 
 ```json
@@ -391,7 +401,8 @@ all non-done children.
 **Notes on partial imports:**
 
 - `skipped`: number of child issues not imported because they already exist (by
-  `source.external_id`) or failed to create.
+  `source.external_id`), were already done in Jira, were filtered out by
+  `selected_keys`, or failed to create.
 - If the import is interrupted (network failure, timeout), the project and
   already-created cards persist — there is no rollback.
 
