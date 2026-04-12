@@ -28,6 +28,11 @@ interface CreateCardFormProps {
   setFeatureBranch: (v: boolean) => void;
   createPR: boolean;
   setCreatePR: (v: boolean) => void;
+  baseBranch: string;
+  onBaseBranchChange: (v: string) => void;
+  branches: string[];
+  branchesLoading?: boolean;
+  branchesError?: boolean;
 }
 
 export function CreateCardForm({
@@ -36,6 +41,7 @@ export function CreateCardForm({
   config, cards, bodyDirty, setBodyDirty,
   autonomous, setAutonomous, featureBranch, setFeatureBranch,
   createPR, setCreatePR,
+  baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
 }: CreateCardFormProps) {
   const { theme } = useTheme();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -205,8 +211,11 @@ export function CreateCardForm({
             if (!v) setCreatePR(false);
           }}
           onCreatePRChange={setCreatePR}
-          branches={[]}
-          onBaseBranchChange={() => {}}
+          baseBranch={baseBranch}
+          onBaseBranchChange={onBaseBranchChange}
+          branches={branches}
+          branchesLoading={branchesLoading}
+          branchesError={branchesError}
         />
       )}
 

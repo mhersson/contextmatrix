@@ -142,6 +142,7 @@ export interface CreateCardInput {
   autonomous?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
+  base_branch?: string;
 }
 
 export interface UpdateCardInput {
