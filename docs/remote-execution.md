@@ -72,9 +72,15 @@ Sent when a user clicks "Run Now" on an autonomous card.
   "repo_url": "git@github.com:org/repo.git",
   "mcp_url": "http://contextmatrix:8080/mcp",
   "mcp_api_key": "optional-bearer-token",
-  "runner_image": "optional/custom-image:latest"
+  "runner_image": "optional/custom-image:latest",
+  "base_branch": "develop"
 }
 ```
+
+`base_branch` is omitted when not set on the card. When present, the runner
+should clone using `-b <base_branch>` and instruct Claude Code to open PRs
+against that branch instead of the repository default. See the runner card
+CTXRUN-019 for the implementation on the runner side.
 
 #### POST {runner_url}/kill
 

@@ -23,6 +23,7 @@ GET    /api/projects/{project}/cards/{id}/context
 POST   /api/projects/{project}/cards/{id}/usage       # report token usage
 POST   /api/projects/{project}/cards/{id}/report-push # record git push / PR
 
+GET    /api/projects/{project}/branches               # list branches from project's GitHub repo
 GET    /api/projects/{project}/usage                  # aggregated token usage
 GET    /api/projects/{project}/dashboard              # project dashboard metrics
 POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
@@ -72,7 +73,7 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 | Code                | HTTP | When                                                                                       |
 | ------------------- | ---- | ------------------------------------------------------------------------------------------ |
 | `CARD_NOT_VETTED`   | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`. |
-| `HUMAN_ONLY_FIELD`  | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, or `create_pr`. |
+| `HUMAN_ONLY_FIELD`  | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, `create_pr`, or `base_branch`. |
 
 ### Card list query parameters
 
@@ -121,6 +122,26 @@ pushing to `main` or `master` returns 403 `PROTECTED_BRANCH`.
 Returns 200 with the updated card.
 
 ## Project Endpoints
+
+### GET /api/projects/{project}/branches
+
+Returns a JSON array of branch name strings for the project's GitHub repository.
+Used by the card editor to populate the base branch dropdown.
+
+Requires a GitHub token to be configured (`github.token` in `config.yaml` or
+`CONTEXTMATRIX_GITHUB_TOKEN`). Returns 503 if no token is configured. Returns
+404 with `NO_GITHUB_REPO` if the project's `repo` field is not a GitHub URL.
+
+```json
+["main", "develop", "release/v2", "feat/some-branch"]
+```
+
+**Error codes:**
+
+| Code              | HTTP | When                                              |
+| ----------------- | ---- | ------------------------------------------------- |
+| `NO_GITHUB_TOKEN` | 503  | `github.token` is not configured                  |
+| `NO_GITHUB_REPO`  | 404  | Project `repo` is not a GitHub repository URL     |
 
 ### GET /api/projects/{project}/usage
 

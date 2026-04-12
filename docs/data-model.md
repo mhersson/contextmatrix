@@ -152,6 +152,7 @@ autonomous: true
 feature_branch: true
 create_pr: true
 branch_name: feat/ALPHA-001-implement-user-auth
+base_branch: develop
 pr_url: https://github.com/org/repo/pull/42
 review_attempts: 0
 runner_status: ""
@@ -239,6 +240,7 @@ type Card struct {
     FeatureBranch  bool            `yaml:"feature_branch,omitempty" json:"feature_branch,omitempty"`
     CreatePR       bool            `yaml:"create_pr,omitempty"      json:"create_pr,omitempty"`
     BranchName     string          `yaml:"branch_name,omitempty"    json:"branch_name,omitempty"`
+    BaseBranch     string          `yaml:"base_branch,omitempty"    json:"base_branch,omitempty"`
     PRUrl          string          `yaml:"pr_url,omitempty"         json:"pr_url,omitempty"`
     ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
     RunnerStatus   string          `yaml:"runner_status,omitempty"  json:"runner_status,omitempty"`
@@ -302,9 +304,9 @@ generation.
 `dependencies_met`.
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `autonomous`, `feature_branch`, `create_pr`. Agents that
-attempt to set these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card`
-tool does not expose them.
+`human:`): `vetted`, `autonomous`, `feature_branch`, `create_pr`, `base_branch`.
+Agents that attempt to set these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP
+`update_card` tool does not expose them.
 
 ## Reserved labels
 
