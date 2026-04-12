@@ -82,6 +82,7 @@ export interface JiraImportEpicInput {
   epic_key: string;
   name?: string;
   prefix?: string;
+  selected_keys?: string[];
 }
 
 export interface JiraImportResult {
