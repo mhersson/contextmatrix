@@ -549,7 +549,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 }
 
 // CreateCard creates a new card in the project.
-// Flow: generate ID → validate → store → git commit → publish event.
+// Flow: use provided ID or generate one → validate → store → git commit → publish event.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
