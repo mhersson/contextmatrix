@@ -63,10 +63,6 @@ now — before planning or spawning any sub-agents:
 `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it already
 exists).
 
-All subsequent work (planning, execution, documentation, review) happens on
-this branch. Sub-agents inherit the branch via the working directory or
-worktree and do **not** need to check it out themselves.
-
 If no `branch_name` is set, skip this step.
 
 ## Determine Starting Point
