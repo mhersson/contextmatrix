@@ -36,18 +36,21 @@ func (h *jiraHandlers) status(w http.ResponseWriter, _ *http.Request) {
 func (h *jiraHandlers) previewEpic(w http.ResponseWriter, r *http.Request) {
 	if h.importer == nil {
 		writeError(w, http.StatusServiceUnavailable, "JIRA_NOT_CONFIGURED", "Jira integration is not configured", "")
+
 		return
 	}
 
 	epicKey := r.PathValue("epicKey")
 	if epicKey == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "epic key is required", "")
+
 		return
 	}
 
 	preview, err := h.importer.PreviewEpic(r.Context(), epicKey)
 	if err != nil {
 		handleJiraError(w, r, err)
+
 		return
 	}
 
@@ -67,23 +70,27 @@ type importEpicRequest struct {
 func (h *jiraHandlers) importEpic(w http.ResponseWriter, r *http.Request) {
 	if h.importer == nil {
 		writeError(w, http.StatusServiceUnavailable, "JIRA_NOT_CONFIGURED", "Jira integration is not configured", "")
+
 		return
 	}
 
 	// Human-only: reject agent requests.
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "Jira import is a human-only operation", "")
+
 		return
 	}
 
 	var req importEpicRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+
 		return
 	}
 
 	if req.EpicKey == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "epic_key is required", "")
+
 		return
 	}
 
@@ -98,6 +105,7 @@ func (h *jiraHandlers) importEpic(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		handleJiraError(w, r, err)
+
 		return
 	}
 

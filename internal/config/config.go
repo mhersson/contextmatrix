@@ -90,11 +90,11 @@ type JiraProjectMapping struct {
 
 // JiraConfig holds configuration for Jira integration.
 type JiraConfig struct {
-	BaseURL      string                        `yaml:"base_url"`       // e.g. https://company.atlassian.net
-	Email        string                        `yaml:"email"`          // Jira Cloud only (Basic Auth)
-	Token        string                        `yaml:"token"`          // API token (Cloud) or PAT (Server/DC)
-	SessionToken string                        `yaml:"session_token"`  // browser session cookie (testing only)
-	Projects     map[string]JiraProjectMapping `yaml:"projects"`       // keyed by Jira project key
+	BaseURL      string                        `yaml:"base_url"`      // e.g. https://company.atlassian.net
+	Email        string                        `yaml:"email"`         // Jira Cloud only (Basic Auth)
+	Token        string                        `yaml:"token"`         // API token (Cloud) or PAT (Server/DC)
+	SessionToken string                        `yaml:"session_token"` // browser session cookie (testing only)
+	Projects     map[string]JiraProjectMapping `yaml:"projects"`      // keyed by Jira project key
 }
 
 // BoardsConfig holds all configuration related to the boards git repository.
@@ -235,7 +235,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
 	}
-<<<<<<< HEAD
 
 	if c.Theme == "" {
 		c.Theme = "everforest"
@@ -289,6 +288,7 @@ func (c *Config) Validate() error {
 	if (c.Jira.Token != "" || c.Jira.SessionToken != "") && c.Jira.BaseURL == "" {
 		return fmt.Errorf("jira.base_url is required when jira credentials are set")
 	}
+
 	return nil
 }
 
@@ -491,6 +491,7 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v
 	}
@@ -514,12 +515,13 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_JIRA_BASE_URL"); v != "" {
 		cfg.Jira.BaseURL = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_JIRA_EMAIL"); v != "" {
 		cfg.Jira.Email = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_JIRA_TOKEN"); v != "" {
 		cfg.Jira.Token = v
-	}
 	}
 }
 

@@ -70,6 +70,7 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 	fields := "summary,status,issuetype,priority,labels,components,description"
 
 	var all []Issue
+
 	nextPageToken := ""
 
 	for range maxSearchPages {
@@ -93,6 +94,7 @@ func (c *Client) FetchEpicChildren(ctx context.Context, epicKey string) ([]Issue
 		if result.NextPageToken == "" {
 			break
 		}
+
 		nextPageToken = result.NextPageToken
 	}
 
@@ -129,6 +131,7 @@ func (c *Client) PostComment(ctx context.Context, issueKey, body string) error {
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	return checkResponseStatus(resp)
@@ -153,6 +156,7 @@ func (c *Client) get(ctx context.Context, rawURL string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkResponseStatus(resp); err != nil {
@@ -171,27 +175,33 @@ func checkResponseStatus(resp *http.Response) error {
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return ErrUnauthorized
 	}
+
 	if resp.StatusCode == http.StatusNotFound {
 		return ErrNotFound
 	}
+
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return ErrRateLimited
 	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
 		return fmt.Errorf("jira api: status %d: %s", resp.StatusCode, string(errBody))
 	}
+
 	return nil
 }
 
 // setAuth sets the appropriate authentication on the request.
 // Priority: session cookie → Basic Auth (Cloud) → Bearer token (Server/DC).
 func (c *Client) setAuth(req *http.Request) {
-	if c.sessionToken != "" {
+	switch {
+	case c.sessionToken != "":
 		req.AddCookie(&http.Cookie{Name: "tenant.session.token", Value: c.sessionToken})
-	} else if c.email != "" {
+	case c.email != "":
 		req.SetBasicAuth(c.email, c.token)
-	} else {
+	default:
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 }

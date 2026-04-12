@@ -7,7 +7,7 @@ import (
 )
 
 func TestExtractDescription_Nil(t *testing.T) {
-	assert.Equal(t, "", ExtractDescription(nil))
+	assert.Empty(t, ExtractDescription(nil))
 }
 
 func TestExtractDescription_PlainString(t *testing.T) {
@@ -15,7 +15,7 @@ func TestExtractDescription_PlainString(t *testing.T) {
 }
 
 func TestExtractDescription_EmptyString(t *testing.T) {
-	assert.Equal(t, "", ExtractDescription(""))
+	assert.Empty(t, ExtractDescription(""))
 }
 
 func TestExtractDescription_ADFSimple(t *testing.T) {

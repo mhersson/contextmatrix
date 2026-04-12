@@ -194,6 +194,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
 	}
+
 	if input.Jira != nil {
 		cfg.Jira = input.Jira
 	}

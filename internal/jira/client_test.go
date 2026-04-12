@@ -33,11 +33,11 @@ func TestFetchIssue_BasicResponse(t *testing.T) {
 	issue := Issue{
 		Key: "PROJ-42",
 		Fields: IssueFields{
-			Summary:   "Fix login bug",
-			IssueType: NameField{Name: "Epic"},
-			Priority:  &NameField{Name: "High"},
-			Status:    NameField{Name: "In Progress"},
-			Labels:    []string{"backend"},
+			Summary:    "Fix login bug",
+			IssueType:  NameField{Name: "Epic"},
+			Priority:   &NameField{Name: "High"},
+			Status:     NameField{Name: "In Progress"},
+			Labels:     []string{"backend"},
 			Components: []NameField{{Name: "auth-service"}},
 		},
 	}
@@ -51,6 +51,7 @@ func TestFetchIssue_BasicResponse(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "test@example.com", user)
 		assert.Equal(t, "test-token", pass)
+
 		_ = json.NewEncoder(w).Encode(issue)
 	}))
 	defer srv.Close()
@@ -66,6 +67,7 @@ func TestFetchIssue_BasicResponse(t *testing.T) {
 func TestFetchIssue_BearerAuth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Bearer test-pat", r.Header.Get("Authorization"))
+
 		_ = json.NewEncoder(w).Encode(Issue{Key: "PROJ-1"})
 	}))
 	defer srv.Close()
@@ -132,6 +134,7 @@ func TestFetchEpicChildren_BasicResponse(t *testing.T) {
 		assert.Contains(t, r.URL.Path, "/rest/api/3/search/jql")
 		assert.Contains(t, r.URL.RawQuery, "PROJ-42")
 		assert.Contains(t, r.URL.RawQuery, "fields=")
+
 		_ = json.NewEncoder(w).Encode(searchResult{
 			Issues: children,
 		})
@@ -148,11 +151,13 @@ func TestFetchEpicChildren_BasicResponse(t *testing.T) {
 
 func TestFetchEpicChildren_Paginated(t *testing.T) {
 	var callCount atomic.Int32
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := callCount.Add(1)
 		switch n {
 		case 1:
 			assert.NotContains(t, r.URL.RawQuery, "nextPageToken")
+
 			_ = json.NewEncoder(w).Encode(searchResult{
 				Issues: []Issue{
 					{Key: "PROJ-1"},
@@ -162,6 +167,7 @@ func TestFetchEpicChildren_Paginated(t *testing.T) {
 			})
 		case 2:
 			assert.Contains(t, r.URL.RawQuery, "nextPageToken=page2")
+
 			_ = json.NewEncoder(w).Encode(searchResult{
 				Issues: []Issue{
 					{Key: "PROJ-3"},
@@ -199,8 +205,9 @@ func TestPostComment_Success(t *testing.T) {
 		var body struct {
 			Body string `json:"body"`
 		}
+
 		err := json.NewDecoder(r.Body).Decode(&body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		assert.Equal(t, "Task completed", body.Body)
 
 		w.WriteHeader(http.StatusCreated)

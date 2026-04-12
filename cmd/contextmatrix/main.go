@@ -26,8 +26,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
-	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
@@ -201,8 +201,11 @@ func main() {
 	}
 
 	// Start Jira integration if configured
-	var jiraImporter *jira.Importer
-	var jiraWriteBack *jira.WriteBackHandler
+	var (
+		jiraImporter  *jira.Importer
+		jiraWriteBack *jira.WriteBackHandler
+	)
+
 	if (cfg.Jira.Token != "" || cfg.Jira.SessionToken != "") && cfg.Jira.BaseURL != "" {
 		jiraClient := jira.NewClient(cfg.Jira)
 		jiraImporter = jira.NewImporter(jiraClient, svc, store, cfg.Jira)

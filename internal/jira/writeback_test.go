@@ -30,17 +30,20 @@ func setupWriteBackTest(t *testing.T) (*WriteBackHandler, *events.Bus, *service.
 			var body struct {
 				Body string `json:"body"`
 			}
+
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			capture.add(r.URL.Path, body.Body)
 			w.WriteHeader(http.StatusCreated)
+
 			return
 		}
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 
 	boardsDir := t.TempDir()
-	git, err := gitops.NewManager(boardsDir, "")
+	git, err := gitops.NewManager(boardsDir, "", "", "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -76,17 +79,20 @@ type capturedComment struct {
 func (c *commentCapture) add(path, body string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.comments = append(c.comments, capturedComment{Path: path, Body: body})
 }
 
 func (c *commentCapture) get() []capturedComment {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	return append([]capturedComment{}, c.comments...)
 }
 
 func TestWriteBack_PostsCommentOnCardDone(t *testing.T) {
 	handler, _, svc, _, capture := setupWriteBackTest(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -135,6 +141,7 @@ func TestWriteBack_PostsCommentOnCardDone(t *testing.T) {
 
 func TestWriteBack_IgnoresNonJiraCards(t *testing.T) {
 	handler, _, svc, _, capture := setupWriteBackTest(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -171,6 +178,7 @@ func TestWriteBack_IgnoresNonJiraCards(t *testing.T) {
 
 func TestWriteBack_PostsEpicCommentWhenAllDone(t *testing.T) {
 	handler, _, svc, _, capture := setupWriteBackTest(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -227,6 +235,7 @@ func TestWriteBack_PostsEpicCommentWhenAllDone(t *testing.T) {
 
 func TestWriteBack_IgnoresNonDoneTransitions(t *testing.T) {
 	handler, bus, _, _, capture := setupWriteBackTest(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -299,10 +308,12 @@ func TestFormatEpicComment(t *testing.T) {
 // filterJiraComments returns only comments posted to Jira issue comment endpoints.
 func filterJiraComments(comments []capturedComment) []capturedComment {
 	var filtered []capturedComment
+
 	for _, c := range comments {
 		if strings.Contains(c.Path, "/rest/api/3/issue/") {
 			filtered = append(filtered, c)
 		}
 	}
+
 	return filtered
 }

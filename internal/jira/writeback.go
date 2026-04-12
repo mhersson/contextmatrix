@@ -34,9 +34,11 @@ func (h *WriteBackHandler) Start(ctx context.Context) {
 	ch, unsub := h.bus.Subscribe()
 
 	h.wg.Add(1)
+
 	go func() {
 		defer h.wg.Done()
 		defer unsub()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -67,6 +69,7 @@ func (h *WriteBackHandler) handleEvent(ctx context.Context, event events.Event) 
 	card, err := h.store.GetCard(ctx, event.Project, event.CardID)
 	if err != nil {
 		slog.Warn("jira writeback: get card", "card", event.CardID, "error", err)
+
 		return
 	}
 
@@ -108,15 +111,19 @@ func (h *WriteBackHandler) checkEpicCompletion(ctx context.Context, project stri
 	cards, err := h.store.ListCards(ctx, project, storage.CardFilter{})
 	if err != nil {
 		slog.Warn("jira writeback: list cards for epic check", "project", project, "error", err)
+
 		return false, ""
 	}
 
 	jiraCardCount := 0
+
 	for _, c := range cards {
 		if c.Source == nil || c.Source.System != "jira" {
 			continue
 		}
+
 		jiraCardCount++
+
 		if c.State != board.StateDone && c.State != board.StateNotPlanned {
 			return false, ""
 		}
@@ -141,19 +148,24 @@ func (h *WriteBackHandler) formatEpicComment(ctx context.Context, project string
 		return "ContextMatrix: All tasks completed"
 	}
 
-	var doneCount, notPlannedCount int
-	var lines []string
+	var (
+		doneCount, notPlannedCount int
+		lines                      []string
+	)
 
 	for _, c := range cards {
 		if c.Source == nil || c.Source.System != "jira" {
 			continue
 		}
+
 		switch c.State {
 		case board.StateDone:
 			doneCount++
+
 			lines = append(lines, fmt.Sprintf("- %s (done)", c.Title))
 		case board.StateNotPlanned:
 			notPlannedCount++
+
 			lines = append(lines, fmt.Sprintf("- %s (not planned)", c.Title))
 		}
 	}
@@ -161,9 +173,11 @@ func (h *WriteBackHandler) formatEpicComment(ctx context.Context, project string
 	var buf strings.Builder
 	buf.WriteString("ContextMatrix: All tasks completed\n\n")
 	fmt.Fprintf(&buf, "%d tasks completed", doneCount)
+
 	if notPlannedCount > 0 {
 		fmt.Fprintf(&buf, ", %d not planned", notPlannedCount)
 	}
+
 	buf.WriteString(".\n\n")
 	buf.WriteString(strings.Join(lines, "\n"))
 

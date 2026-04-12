@@ -26,7 +26,7 @@ func setupTestImporter(t *testing.T, handler http.Handler) (*Importer, *httptest
 
 	boardsDir := t.TempDir()
 
-	git, err := gitops.NewManager(boardsDir, "")
+	git, err := gitops.NewManager(boardsDir, "", "", "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -163,6 +163,7 @@ func TestImportEpic_CreatesProjectAndCards(t *testing.T) {
 	for _, c := range cards {
 		cardIDs[c.ID] = true
 	}
+
 	assert.True(t, cardIDs["PROJ-43"], "expected card with ID PROJ-43")
 	assert.True(t, cardIDs["PROJ-44"], "expected card with ID PROJ-44")
 }
@@ -263,8 +264,8 @@ func TestImportEpic_ReimportWithSelectedKeys(t *testing.T) {
 		SelectedKeys: []string{"PROJ-44"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 1, result2.CardsImported) // PROJ-44 newly imported
-	assert.Equal(t, 1, result2.Skipped)       // PROJ-43 not selected
+	assert.Equal(t, 1, result2.CardsImported)                   // PROJ-44 newly imported
+	assert.Equal(t, 1, result2.Skipped)                         // PROJ-43 not selected
 	assert.Equal(t, result1.Project.Name, result2.Project.Name) // same project reused
 
 	// Both cards must exist in the project with no duplicates.
@@ -276,6 +277,7 @@ func TestImportEpic_ReimportWithSelectedKeys(t *testing.T) {
 	for _, c := range cards {
 		cardIDs[c.ID] = true
 	}
+
 	assert.True(t, cardIDs["PROJ-43"], "expected PROJ-43 card")
 	assert.True(t, cardIDs["PROJ-44"], "expected PROJ-44 card")
 }
@@ -366,7 +368,6 @@ func TestIsDoneStatus(t *testing.T) {
 	assert.False(t, isDoneStatus("In Review"))
 	assert.False(t, isDoneStatus(""))
 }
-
 
 func TestImportEpic_SelectedKeys(t *testing.T) {
 	// Three children: PROJ-43 (To Do), PROJ-44 (To Do), PROJ-45 (Done).
@@ -463,7 +464,7 @@ func TestImportEpic_SelectedKeys(t *testing.T) {
 
 		cards, err := imp.store.ListCards(context.Background(), "done-selected", storage.CardFilter{})
 		require.NoError(t, err)
-		assert.Len(t, cards, 0)
+		assert.Empty(t, cards)
 	})
 }
 
@@ -504,6 +505,7 @@ func TestPreviewEpic_AlreadyImported(t *testing.T) {
 		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
 		require.NoError(t, err)
 		require.Len(t, preview.Children, 3)
+
 		for _, child := range preview.Children {
 			assert.False(t, child.AlreadyImported, "expected AlreadyImported=false for %s", child.Key)
 		}
@@ -523,8 +525,10 @@ func TestPreviewEpic_AlreadyImported(t *testing.T) {
 		differentMux.HandleFunc("GET /rest/api/3/search/jql", func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(searchResult{})
 		})
+
 		otherSrv := httptest.NewServer(differentMux)
 		defer otherSrv.Close()
+
 		otherClient := &Client{
 			httpClient: otherSrv.Client(),
 			baseURL:    otherSrv.URL,
@@ -539,6 +543,7 @@ func TestPreviewEpic_AlreadyImported(t *testing.T) {
 		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
 		require.NoError(t, err)
 		require.Len(t, preview.Children, 3)
+
 		for _, child := range preview.Children {
 			assert.False(t, child.AlreadyImported, "expected AlreadyImported=false for %s", child.Key)
 		}
@@ -564,6 +569,7 @@ func TestPreviewEpic_AlreadyImported(t *testing.T) {
 		for _, c := range preview.Children {
 			byKey[c.Key] = c
 		}
+
 		assert.True(t, byKey["PROJ-43"].AlreadyImported, "PROJ-43 was imported, expected AlreadyImported=true")
 		assert.False(t, byKey["PROJ-44"].AlreadyImported, "PROJ-44 was not imported, expected AlreadyImported=false")
 		assert.False(t, byKey["PROJ-45"].AlreadyImported, "PROJ-45 was not imported, expected AlreadyImported=false")
@@ -583,6 +589,7 @@ func TestPreviewEpic_AlreadyImported(t *testing.T) {
 		preview, err := imp.PreviewEpic(context.Background(), "PROJ-42")
 		require.NoError(t, err)
 		require.Len(t, preview.Children, 3)
+
 		for _, child := range preview.Children {
 			assert.True(t, child.AlreadyImported, "expected AlreadyImported=true for %s (all were imported)", child.Key)
 		}

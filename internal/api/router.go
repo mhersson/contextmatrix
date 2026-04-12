@@ -187,6 +187,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Jira routes
 	jh := &jiraHandlers{importer: cfg.JiraImporter, baseURL: cfg.JiraBaseURL}
 	mux.HandleFunc("GET /api/jira/status", jh.status)
+
 	if cfg.JiraImporter != nil {
 		mux.HandleFunc("GET /api/jira/epic/{epicKey}", jh.previewEpic)
 		mux.HandleFunc("POST /api/jira/import-epic", jh.importEpic)

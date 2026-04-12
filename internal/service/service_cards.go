@@ -287,6 +287,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 
 	// Generate card ID (increments NextID)
 	var cardID string
+
 	if input.ID != "" {
 		// Caller-specified ID: validate it is path-safe, check for duplicates,
 		// and advance NextID past the numeric suffix so auto-IDs stay ahead.
@@ -294,6 +295,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		if customID == "" || customID == "." || customID == ".." ||
 			strings.ContainsAny(customID, "/\\") {
 			s.mu.Unlock()
+
 			return nil, fmt.Errorf("%w: %q", storage.ErrInvalidPath, input.ID)
 		}
 
@@ -301,10 +303,13 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		_, dupErr := s.store.GetCard(ctx, project, customID)
 		if dupErr == nil {
 			s.mu.Unlock()
+
 			return nil, fmt.Errorf("%w: card %s already exists", storage.ErrCardExists, customID)
 		}
+
 		if !errors.Is(dupErr, storage.ErrCardNotFound) {
 			s.mu.Unlock()
+
 			return nil, fmt.Errorf("check duplicate card ID: %w", dupErr)
 		}
 

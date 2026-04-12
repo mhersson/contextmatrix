@@ -22,8 +22,10 @@ func MapPriority(jiraPriority string) string {
 	if jiraPriority == "" {
 		return "medium"
 	}
+
 	if p, ok := priorityMap[strings.ToLower(jiraPriority)]; ok {
 		return p
 	}
+
 	return "medium"
 }

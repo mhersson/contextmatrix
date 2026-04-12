@@ -52,7 +52,7 @@ type IssuePreview struct {
 	Summary         string `json:"summary"`
 	Status          string `json:"status"`
 	IssueType       string `json:"issue_type"`
-	Done            bool   `json:"done,omitempty"`            // true if issue is already done in Jira (will be skipped on import)
+	Done            bool   `json:"done,omitempty"`             // true if issue is already done in Jira (will be skipped on import)
 	AlreadyImported bool   `json:"already_imported,omitempty"` // true if a CM card with this Jira key already exists
 }
 
@@ -89,6 +89,7 @@ func (imp *Importer) PreviewEpic(ctx context.Context, epicKey string) (*EpicPrev
 		if importedProject != "" {
 			child.AlreadyImported = imp.isAlreadyImported(ctx, importedProject, children[i].Key)
 		}
+
 		preview.Children = append(preview.Children, child)
 	}
 
@@ -101,13 +102,16 @@ func (imp *Importer) findProjectByEpicKey(ctx context.Context, epicKey string) s
 	projects, err := imp.store.ListProjects(ctx)
 	if err != nil {
 		slog.Warn("jira preview: list projects", "error", err)
+
 		return ""
 	}
+
 	for _, p := range projects {
 		if p.Jira != nil && p.Jira.EpicKey == epicKey {
 			return p.Name
 		}
 	}
+
 	return ""
 }
 
@@ -118,8 +122,10 @@ func (imp *Importer) isAlreadyImported(ctx context.Context, projectName, issueKe
 	if err != nil {
 		slog.Warn("jira preview: check existing card",
 			"project", projectName, "issue_key", issueKey, "error", err)
+
 		return false
 	}
+
 	return len(cards) > 0
 }
 
@@ -164,11 +170,11 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 	} else {
 		// No project yet — create one.
 		project, err = imp.svc.CreateProject(ctx, service.CreateProjectInput{
-			Name:       projectName,
-			Prefix:     prefix,
-			States:     defaultStates(),
-			Types:      defaultTypes(),
-			Priorities: defaultPriorities(),
+			Name:        projectName,
+			Prefix:      prefix,
+			States:      defaultStates(),
+			Types:       defaultTypes(),
+			Priorities:  defaultPriorities(),
 			Transitions: defaultTransitions(),
 			Jira: &board.JiraEpicConfig{
 				EpicKey:    input.EpicKey,
@@ -193,12 +199,14 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		// Skip issues already done in Jira — no point importing completed work.
 		if isDoneStatus(child.Fields.Status.Name) {
 			skipped++
+
 			continue
 		}
 
 		// If a specific set of keys was requested, skip issues not in that set.
 		if len(input.SelectedKeys) > 0 && !containsKey(input.SelectedKeys, child.Key) {
 			skipped++
+
 			continue
 		}
 
@@ -209,11 +217,15 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		if err != nil {
 			slog.Warn("jira import: check existing card",
 				"project", projectName, "external_id", externalID, "error", err)
+
 			skipped++
+
 			continue
 		}
+
 		if len(existing) > 0 {
 			skipped++
+
 			continue
 		}
 
@@ -224,6 +236,7 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		}
 
 		labels := make([]string, 0, len(child.Fields.Labels)+len(child.Fields.Components))
+
 		labels = append(labels, child.Fields.Labels...)
 		for _, comp := range child.Fields.Components {
 			labels = append(labels, comp.Name)
@@ -255,7 +268,9 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 		if err != nil {
 			slog.Warn("jira import: create card",
 				"project", projectName, "issue", externalID, "error", err)
+
 			skipped++
+
 			continue
 		}
 
@@ -270,6 +285,7 @@ func (imp *Importer) ImportEpic(ctx context.Context, input ImportEpicInput) (*Im
 	// Persist the resolved repo to the project config.
 	if resolvedRepo != "" {
 		project.Repo = resolvedRepo
+
 		_, err := imp.svc.UpdateProject(ctx, projectName, service.UpdateProjectInput{
 			Repo:        resolvedRepo,
 			States:      project.States,
@@ -351,6 +367,7 @@ var nonAlphaNum = regexp.MustCompile(`[^a-z0-9]+`)
 func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = nonAlphaNum.ReplaceAllString(s, "-")
+
 	s = strings.Trim(s, "-")
 	if s == "" {
 		s = "jira-import"
@@ -360,6 +377,7 @@ func slugify(s string) string {
 		s = s[:50]
 		s = strings.TrimRight(s, "-")
 	}
+
 	return s
 }
 
@@ -369,6 +387,7 @@ func extractProjectKey(issueKey string) string {
 	if len(parts) > 0 {
 		return strings.ToUpper(parts[0])
 	}
+
 	return issueKey
 }
 
@@ -394,6 +413,7 @@ func containsKey(keys []string, key string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
