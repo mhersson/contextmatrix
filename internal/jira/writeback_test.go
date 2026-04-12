@@ -252,6 +252,50 @@ func TestFormatCardComment(t *testing.T) {
 	assert.Contains(t, comment, "Task completed")
 }
 
+func TestFormatEpicComment(t *testing.T) {
+	handler, _, svc, _, _ := setupWriteBackTest(t)
+	ctx := context.Background()
+
+	_, err := svc.CreateProject(ctx, service.CreateProjectInput{
+		Name:        "test-project",
+		Prefix:      "TP",
+		States:      defaultStates(),
+		Types:       defaultTypes(),
+		Priorities:  defaultPriorities(),
+		Transitions: defaultTransitions(),
+		Jira:        &board.JiraEpicConfig{EpicKey: "PROJ-42", ProjectKey: "PROJ"},
+	})
+	require.NoError(t, err)
+
+	// Create two Jira cards with titles that already include the issue key prefix.
+	card1, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "PROJ-43 First task", Type: "task", Priority: "medium", Vetted: true,
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-43"},
+	})
+	require.NoError(t, err)
+
+	card2, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "PROJ-44 Second task", Type: "task", Priority: "medium", Vetted: true,
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-44"},
+	})
+	require.NoError(t, err)
+
+	// Transition both to done.
+	_, err = svc.TransitionTo(ctx, "test-project", card1.ID, "done")
+	require.NoError(t, err)
+	_, err = svc.TransitionTo(ctx, "test-project", card2.ID, "done")
+	require.NoError(t, err)
+
+	comment := handler.formatEpicComment(ctx, "test-project")
+
+	assert.Contains(t, comment, "All tasks completed")
+	// Lines must use only c.Title — no duplicate "PROJ-43: PROJ-43 Title" pattern.
+	assert.Contains(t, comment, "- PROJ-43 First task (done)")
+	assert.Contains(t, comment, "- PROJ-44 Second task (done)")
+	assert.NotContains(t, comment, "PROJ-43: PROJ-43")
+	assert.NotContains(t, comment, "PROJ-44: PROJ-44")
+}
+
 // filterJiraComments returns only comments posted to Jira issue comment endpoints.
 func filterJiraComments(comments []capturedComment) []capturedComment {
 	var filtered []capturedComment
