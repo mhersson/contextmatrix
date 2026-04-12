@@ -126,8 +126,8 @@ func main() {
 
 	// Start GitHub issue syncer if configured
 	var ghSyncer *ghimport.Syncer
-	if cfg.GitHub.Token != "" {
-		syncInterval, _ := cfg.GitHub.SyncIntervalDuration()
+	if cfg.GitHub.IssueImporting.Enabled {
+		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
 		ghClient := ghimport.NewClient(cfg.GitHub.Token)
 		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.BoardsDir, syncInterval)
 		ghSyncer.Start(ctx)

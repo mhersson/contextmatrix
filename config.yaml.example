@@ -123,19 +123,28 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_PUBLIC_URL
   public_url: ""
 
-# GitHub integration for importing issues as cards.
-# When a token is configured and a project has github.import_issues enabled in
-# its .board.yaml, ContextMatrix periodically fetches open issues from GitHub
-# and creates cards in the project's todo column.
+# GitHub integration configuration.
+# A fine-grained PAT (token) is used both for reading branches and for importing
+# issues. The token is always required when any GitHub feature is in use.
 github:
   # GitHub personal access token (fine-grained recommended).
-  # Requires Issues: Read permission on the target repositories.
-  # Leave empty to disable GitHub issue import.
+  # Required when github.issue_importing.enabled is true.
+  # Also used for branch listing even when issue importing is disabled.
   # Env: CONTEXTMATRIX_GITHUB_TOKEN
   token: ""
 
-  # How often to check GitHub for new issues.
-  # Accepts Go duration strings: e.g. "5m", "10m", "15m".
-  # Minimum: 5m. Default: 5m
-  # Env: CONTEXTMATRIX_GITHUB_SYNC_INTERVAL
-  sync_interval: "5m"
+  # Issue importing configuration.
+  # When enabled, ContextMatrix periodically fetches open GitHub issues and
+  # creates cards in projects that have github.import_issues set in .board.yaml.
+  issue_importing:
+    # Enable periodic GitHub issue import.
+    # Requires github.token to be set.
+    # Default: false
+    # Env: CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED
+    enabled: false
+
+    # How often to check GitHub for new issues.
+    # Accepts Go duration strings: e.g. "5m", "10m", "15m".
+    # Minimum: 5m. Default: 5m
+    # Env: CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL
+    sync_interval: "5m"

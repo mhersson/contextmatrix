@@ -29,10 +29,21 @@ type RunnerConfig struct {
 	PublicURL string `yaml:"public_url"` // public URL for MCP endpoint sent to runner containers
 }
 
-// GitHubConfig holds configuration for GitHub issue import.
-type GitHubConfig struct {
-	Token        string `yaml:"token"`
+// IssueImportingConfig holds configuration specific to GitHub issue importing.
+type IssueImportingConfig struct {
+	Enabled      bool   `yaml:"enabled"`
 	SyncInterval string `yaml:"sync_interval"`
+}
+
+// SyncIntervalDuration parses SyncInterval as a time.Duration.
+func (c *IssueImportingConfig) SyncIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(c.SyncInterval)
+}
+
+// GitHubConfig holds configuration for GitHub integration.
+type GitHubConfig struct {
+	Token          string               `yaml:"token"`
+	IssueImporting IssueImportingConfig `yaml:"issue_importing"`
 }
 
 // Config holds the application configuration.
@@ -86,16 +97,19 @@ func (c *Config) Validate() error {
 	if c.GitCloneOnEmpty && c.GitRemoteURL == "" {
 		return fmt.Errorf("git_remote_url is required when git_clone_on_empty is enabled")
 	}
-	if c.GitHub.Token != "" {
-		if c.GitHub.SyncInterval == "" {
-			c.GitHub.SyncInterval = "5m"
+	if c.GitHub.IssueImporting.Enabled {
+		if c.GitHub.Token == "" {
+			return fmt.Errorf("github.token is required when github.issue_importing.enabled is true")
 		}
-		interval, err := time.ParseDuration(c.GitHub.SyncInterval)
+		if c.GitHub.IssueImporting.SyncInterval == "" {
+			c.GitHub.IssueImporting.SyncInterval = "5m"
+		}
+		interval, err := time.ParseDuration(c.GitHub.IssueImporting.SyncInterval)
 		if err != nil {
-			return fmt.Errorf("invalid github.sync_interval %q: %w", c.GitHub.SyncInterval, err)
+			return fmt.Errorf("invalid github.issue_importing.sync_interval %q: %w", c.GitHub.IssueImporting.SyncInterval, err)
 		}
 		if interval < 5*time.Minute {
-			return fmt.Errorf("github.sync_interval must be at least 5m, got %s", c.GitHub.SyncInterval)
+			return fmt.Errorf("github.issue_importing.sync_interval must be at least 5m, got %s", c.GitHub.IssueImporting.SyncInterval)
 		}
 	}
 	if c.Runner.Enabled {
@@ -259,8 +273,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
 		cfg.GitHub.Token = v
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GITHUB_SYNC_INTERVAL"); v != "" {
-		cfg.GitHub.SyncInterval = v
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED"); v != "" {
+		cfg.GitHub.IssueImporting.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
+		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
 }
 
@@ -272,11 +289,6 @@ func (c *Config) HeartbeatDuration() (time.Duration, error) {
 // PullIntervalDuration parses GitPullInterval as a time.Duration.
 func (c *Config) PullIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.GitPullInterval)
-}
-
-// SyncIntervalDuration parses SyncInterval as a time.Duration.
-func (c *GitHubConfig) SyncIntervalDuration() (time.Duration, error) {
-	return time.ParseDuration(c.SyncInterval)
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.

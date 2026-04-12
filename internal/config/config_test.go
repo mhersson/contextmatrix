@@ -945,4 +945,269 @@ func TestLoad_ExampleFile(t *testing.T) {
 
 	// token_costs section should have at least one entry.
 	assert.NotEmpty(t, cfg.TokenCosts)
+
+	// GitHub issue importing should be disabled by default in the example file.
+	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
+	assert.Equal(t, "5m", cfg.GitHub.IssueImporting.SyncInterval)
+	assert.Equal(t, "", cfg.GitHub.Token)
+}
+
+// ---------- GitHub issue importing config tests ----------
+
+func TestLoad_GitHubIssueImporting_Enabled(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  token: "ghp_test_token"
+  issue_importing:
+    enabled: true
+    sync_interval: "10m"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "ghp_test_token", cfg.GitHub.Token)
+	assert.True(t, cfg.GitHub.IssueImporting.Enabled)
+	assert.Equal(t, "10m", cfg.GitHub.IssueImporting.SyncInterval)
+}
+
+func TestLoad_GitHubIssueImporting_Disabled(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	// Token set but issue importing explicitly disabled — should still load cleanly.
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  token: "ghp_test_token"
+  issue_importing:
+    enabled: false
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "ghp_test_token", cfg.GitHub.Token)
+	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
+}
+
+func TestLoad_GitHubIssueImporting_DefaultSyncInterval(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	// No sync_interval specified — should default to "5m" during Validate.
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  token: "ghp_test_token"
+  issue_importing:
+    enabled: true
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "5m", cfg.GitHub.IssueImporting.SyncInterval)
+	d, err := cfg.GitHub.IssueImporting.SyncIntervalDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 5*time.Minute, d)
+}
+
+func TestLoad_GitHubIssueImporting_NoTokenNoError_WhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	// issue_importing disabled and no token — should not error.
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "", cfg.GitHub.Token)
+	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
+}
+
+func TestValidate_GitHubIssueImporting_EnabledWithoutToken(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			Token: "",
+			IssueImporting: IssueImportingConfig{
+				Enabled:      true,
+				SyncInterval: "5m",
+			},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.token is required when github.issue_importing.enabled is true")
+}
+
+func TestValidate_GitHubIssueImporting_InvalidSyncInterval(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			Token: "ghp_test",
+			IssueImporting: IssueImportingConfig{
+				Enabled:      true,
+				SyncInterval: "notaduration",
+			},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid github.issue_importing.sync_interval")
+}
+
+func TestValidate_GitHubIssueImporting_SyncIntervalTooShort(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			Token: "ghp_test",
+			IssueImporting: IssueImportingConfig{
+				Enabled:      true,
+				SyncInterval: "1m",
+			},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.issue_importing.sync_interval must be at least 5m")
+}
+
+func TestValidate_GitHubIssueImporting_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			Token: "ghp_test",
+			IssueImporting: IssueImportingConfig{
+				Enabled:      true,
+				SyncInterval: "5m",
+			},
+		},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidate_GitHubIssueImporting_TokenWithoutEnabled_NoError(t *testing.T) {
+	// Token present but issue importing disabled — valid (token used for branches).
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			Token: "ghp_test",
+			IssueImporting: IssueImportingConfig{
+				Enabled: false,
+			},
+		},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}
+
+func TestLoad_GitHubIssueImporting_EnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_GITHUB_TOKEN", "ghp_env_token")
+	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", "true")
+	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL", "15m")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "ghp_env_token", cfg.GitHub.Token)
+	assert.True(t, cfg.GitHub.IssueImporting.Enabled)
+	assert.Equal(t, "15m", cfg.GitHub.IssueImporting.SyncInterval)
+}
+
+func TestLoad_GitHubIssueImporting_EnvEnabled1(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_GITHUB_TOKEN", "ghp_env_token")
+	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", "1")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GitHub.IssueImporting.Enabled)
+}
+
+func TestLoad_GitHubIssueImporting_EnvDisabled(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	// Start with enabled=true in YAML, override to false via env.
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  token: "ghp_test"
+  issue_importing:
+    enabled: true
+    sync_interval: "5m"
+`)
+
+	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", "false")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
+}
+
+func TestDefaults_GitHubIssueImporting(t *testing.T) {
+	cfg := defaults()
+
+	assert.Equal(t, "", cfg.GitHub.Token)
+	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
+	assert.Equal(t, "", cfg.GitHub.IssueImporting.SyncInterval)
+}
+
+func TestSyncIntervalDuration(t *testing.T) {
+	tests := []struct {
+		name      string
+		interval  string
+		expected  time.Duration
+		expectErr bool
+	}{
+		{name: "5 minutes", interval: "5m", expected: 5 * time.Minute},
+		{name: "15 minutes", interval: "15m", expected: 15 * time.Minute},
+		{name: "1 hour", interval: "1h", expected: time.Hour},
+		{name: "invalid", interval: "notaduration", expectErr: true},
+		{name: "empty", interval: "", expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &IssueImportingConfig{SyncInterval: tt.interval}
+			d, err := c.SyncIntervalDuration()
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, d)
+			}
+		})
+	}
 }
