@@ -56,9 +56,10 @@ func (h *jiraHandlers) previewEpic(w http.ResponseWriter, r *http.Request) {
 
 // importEpicRequest is the JSON body for POST /api/jira/import-epic.
 type importEpicRequest struct {
-	EpicKey string `json:"epic_key"`
-	Name    string `json:"name,omitempty"`
-	Prefix  string `json:"prefix,omitempty"`
+	EpicKey      string   `json:"epic_key"`
+	Name         string   `json:"name,omitempty"`
+	Prefix       string   `json:"prefix,omitempty"`
+	SelectedKeys []string `json:"selected_keys,omitempty"`
 }
 
 // importEpic handles POST /api/jira/import-epic.
@@ -90,9 +91,10 @@ func (h *jiraHandlers) importEpic(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	result, err := h.importer.ImportEpic(ctx, jira.ImportEpicInput{
-		EpicKey: req.EpicKey,
-		Name:    req.Name,
-		Prefix:  req.Prefix,
+		EpicKey:      req.EpicKey,
+		Name:         req.Name,
+		Prefix:       req.Prefix,
+		SelectedKeys: req.SelectedKeys,
 	})
 	if err != nil {
 		handleJiraError(w, r, err)
