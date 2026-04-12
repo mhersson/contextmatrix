@@ -213,6 +213,98 @@ func TestPushPull_BareRemote(t *testing.T) {
 	assert.NoError(t, err, "world.txt should exist after pull")
 }
 
+// TestPull_AutoReloadsGoGit verifies that after Pull, go-git sees the new
+// commits without the caller having to call ReloadRepo explicitly.
+func TestPull_AutoReloadsGoGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	ctx := context.Background()
+
+	// Create a bare remote and two working copies.
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir, "")
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
+	require.NoError(t, mgr.CommitFile("init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote("origin", "file://"+bareDir))
+	require.NoError(t, mgr.Push(ctx))
+
+	// Clone and push a new commit from a second working copy.
+	cloneDir := t.TempDir()
+	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{URL: "file://" + bareDir})
+	require.NoError(t, err)
+	cloneMgr, err := NewManager(cloneDir, "")
+	require.NoError(t, err)
+	cloneMgr.SetAuthor("Clone User", "clone@example.com")
+	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "new.txt"), []byte("new"), 0o644))
+	require.NoError(t, cloneMgr.CommitFile("new.txt", "remote commit"))
+	require.NoError(t, cloneMgr.Push(ctx))
+
+	// Pull in the original repo.
+	require.NoError(t, mgr.Pull(ctx))
+
+	// go-git should see the remote commit without explicit ReloadRepo.
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "remote commit", strings.TrimSpace(msg),
+		"go-git should see remote commit after Pull auto-reload")
+
+	// go-git operations should still work after the auto-reload.
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "post-pull.txt"), []byte("post"), 0o644))
+	require.NoError(t, mgr.CommitFile("post-pull.txt", "post-pull commit"))
+
+	msg, err = mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "post-pull commit", strings.TrimSpace(msg))
+}
+
+// TestPush_AutoReloadsGoGit verifies that after Push, go-git's in-memory
+// state is refreshed so subsequent go-git operations see correct refs.
+func TestPush_AutoReloadsGoGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	ctx := context.Background()
+
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir, "")
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
+	require.NoError(t, mgr.CommitFile("init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote("origin", "file://"+bareDir))
+	require.NoError(t, mgr.Push(ctx))
+
+	// After push, go-git should still work correctly.
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "initial commit", strings.TrimSpace(msg),
+		"go-git should see correct HEAD after Push auto-reload")
+
+	// Subsequent commits and pushes should work.
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "second.txt"), []byte("second"), 0o644))
+	require.NoError(t, mgr.CommitFile("second.txt", "second commit"))
+	require.NoError(t, mgr.Push(ctx))
+
+	msg, err = mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "second commit", strings.TrimSpace(msg))
+}
+
 func TestAddRemote(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "")

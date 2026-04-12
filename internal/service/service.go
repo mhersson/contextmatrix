@@ -27,7 +27,9 @@ const (
 	maxActivityLogEntries = 50
 
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
-	// The autonomous prompt halts at 2, but a misbehaving agent could keep incrementing.
+	// The autonomous skill halts at 3 cycles (initial review + 2 rejections).
+	// This server-side cap is higher to allow manual overrides while still
+	// preventing runaway agents.
 	maxReviewAttempts = 5
 
 	// Field length limits to prevent abuse.
@@ -656,9 +658,15 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", cardID, "created")
 		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
-			// Rollback: remove the orphaned card file
+			// Rollback: remove the orphaned card file and restore NextID so
+			// the sequence has no gap on the next creation attempt.
 			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
 				slog.Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
+			}
+			cfg.NextID--
+			if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
+				slog.Error("failed to rollback NextID after git error",
+					"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
 			}
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
@@ -765,6 +773,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
+	// Source is immutable after creation — not exposed on UpdateCardInput by
+	// design. Reject if a future refactor accidentally adds it. Defense-in-depth:
+	// the loaded card already carries the original Source, so we only need to
+	// ensure nobody overwrites it.
+
 	// Update mutable fields
 	card.Title = input.Title
 	card.Type = input.Type
@@ -854,7 +867,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
-			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
+			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
 
@@ -1026,7 +1039,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(id, ""); err != nil {
-			slog.Warn("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
+			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
 
@@ -1239,7 +1252,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// called after complete_task).
 	if card.AssignedAgent == "" {
 		if err := s.flushDeferredCommit(id, input.AgentID); err != nil {
-			slog.Warn("flush deferred commit on post-release usage report", "card_id", id, "error", err)
+			slog.Error("flush deferred commit on post-release usage report", "card_id", id, "error", err)
 		}
 	}
 
@@ -1537,7 +1550,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 
 	// Flush any remaining deferred commits (release is the end of a work session)
 	if err := s.flushDeferredCommit(id, agentID); err != nil {
-		slog.Warn("flush deferred commit on release", "card_id", id, "error", err)
+		slog.Error("flush deferred commit on release", "card_id", id, "error", err)
 	}
 
 	// Publish event
@@ -1613,6 +1626,11 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 }
 
 // processStalled finds and handles all stalled cards.
+// Design note: FindStalled runs without writeMu, then markCardStalled acquires
+// it per card. A heartbeat or release between the two could change the card, so
+// markCardStalled re-reads and re-validates before acting. This is an accepted
+// trade-off — holding writeMu across the entire loop would block all mutations
+// during stalled-card processing, which is worse for throughput.
 func (s *CardService) processStalled(ctx context.Context) error {
 	stalled, err := s.lock.FindStalled(ctx)
 	if err != nil {
@@ -1673,7 +1691,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 
 	// Flush any deferred commits since card is now in a final state
 	if err := s.flushDeferredCommit(card.ID, previousAgent); err != nil {
-		slog.Warn("flush deferred commit after stall", "card_id", card.ID, "error", err)
+		slog.Error("flush deferred commit after stall", "card_id", card.ID, "error", err)
 	}
 
 	// Publish event
@@ -1890,16 +1908,21 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 }
 
 // TransitionTo walks the shortest path of state transitions to reach targetState.
-// Each intermediate transition goes through PatchCard (git commit + event per step).
+// Each step validates, persists, commits, and publishes an event atomically under
+// writeMu so no intermediate state is visible to concurrent operations.
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	if card.State == targetState {
+		s.enrichDependenciesMet(ctx, card)
 		return card, nil
 	}
 
@@ -1915,13 +1938,67 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	}
 
 	for _, state := range path {
-		next := state
-		card, err = s.PatchCard(ctx, project, cardID, PatchCardInput{State: &next})
-		if err != nil {
-			return nil, fmt.Errorf("transition to %s: %w", state, err)
+		oldState := card.State
+
+		if err := validator.ValidateTransition(cfg, oldState, state); err != nil {
+			return nil, fmt.Errorf("validate transition: %w", err)
 		}
+
+		if state == board.StateInProgress {
+			met, blockers := s.checkDependencies(ctx, project, card.DependsOn)
+			if !met {
+				return nil, dependencyError(state, blockers)
+			}
+		}
+
+		card.State = state
+		card.Updated = time.Now()
+
+		// Release agent claim when card moves to not_planned.
+		if card.State == board.StateNotPlanned {
+			card.AssignedAgent = ""
+			card.LastHeartbeat = nil
+		}
+
+		// Clear runner_status on terminal states.
+		if card.State == board.StateDone || card.State == board.StateNotPlanned {
+			card.RunnerStatus = ""
+		}
+
+		if err := validator.ValidateCard(cfg, card); err != nil {
+			return nil, fmt.Errorf("validate card: %w", err)
+		}
+
+		if err := s.store.UpdateCard(ctx, project, card); err != nil {
+			return nil, fmt.Errorf("update card: %w", err)
+		}
+
+		if err := s.commitCardChange(project, cardID, "", "transitioned to "+state); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
+
+		// Flush deferred commits when reaching not_planned or review.
+		if card.State == board.StateNotPlanned || card.State == board.StateReview {
+			if err := s.flushDeferredCommit(cardID, ""); err != nil {
+				slog.Error("flush deferred commit after transition",
+					"card_id", cardID, "state", card.State, "error", err)
+			}
+		}
+
+		s.bus.Publish(events.Event{
+			Type:      events.CardStateChanged,
+			Project:   project,
+			CardID:    cardID,
+			Timestamp: card.Updated,
+			Data: map[string]any{
+				"old_state": oldState,
+				"new_state": state,
+			},
+		})
 	}
 
+	s.maybeTransitionParent(ctx, card)
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
 
@@ -2013,8 +2090,9 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 	case board.StateInProgress:
 		if parent.State == board.StateTodo {
 			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
-				slog.Warn("parent auto-transition: todo→in_progress",
+				slog.Error("parent auto-transition failed: todo→in_progress",
 					"parent_id", parent.ID,
+					"child_id", child.ID,
 					"error", err,
 				)
 			}
@@ -2074,7 +2152,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 
 	// Flush deferred commits for the parent card
 	if err := s.flushDeferredCommit(parent.ID, ""); err != nil {
-		slog.Warn("flush deferred commit for parent auto-transition",
+		slog.Error("flush deferred commit for parent auto-transition",
 			"parent_id", parent.ID, "error", err)
 	}
 
@@ -2241,6 +2319,9 @@ var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 // ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
 var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 
+// ErrSourceImmutable is returned when an update attempts to change a card's source after creation.
+var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
+
 // ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
 var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
 
@@ -2343,7 +2424,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	// running) happen during active work and should continue to defer.
 	if status == "failed" || status == "killed" || status == "completed" {
 		if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
-			slog.Warn("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+			slog.Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
 		}
 	}
 

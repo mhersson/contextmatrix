@@ -68,6 +68,7 @@ export function RunnerConsoleHeader({
         className="px-2 py-0.5 rounded text-xs transition-opacity opacity-70 hover:opacity-100"
         style={{ color: 'var(--grey2)', border: '1px solid var(--bg3)' }}
         title="Clear logs"
+        aria-label="Clear logs"
       >
         Clear
       </button>

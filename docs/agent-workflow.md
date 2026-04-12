@@ -289,8 +289,9 @@ which phase to resume from.
   `report_push` tool returns a hard error if the branch name is `main` or
   `master`.
 - **Maximum review cycles** — the orchestrator checks the card's
-  `review_attempts` field before each review cycle. After 2 failed reviews it
-  prints `AUTONOMOUS_HALTED` and requires human intervention.
+  `review_attempts` field before each review cycle. After 2 rejections (on the
+  3rd review cycle) it prints `AUTONOMOUS_HALTED` and requires human
+  intervention.
 - **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
   the parent card every 5 minutes and uses `check_agent_health` to detect and
   respawn stalled sub-agents.

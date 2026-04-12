@@ -23,8 +23,8 @@ store or git layer directly.
 - **Store** (`storage.FilesystemStore`): reads/writes `.md` files and
   `.board.yaml` to disk. Maintains an in-memory index. No knowledge of git,
   events, or locking.
-- **GitManager** (`gitops.Manager`): stages and commits files. Takes a file path
-  and commit message. No knowledge of cards or events.
+- **GitManager** (`gitops.Manager`): stages and commits files, handles push/pull
+  with remote repositories. No knowledge of cards or events.
 - **Lock Manager** (`lock.Manager`): enforces claim/release/heartbeat rules.
   Reads cards via the store to check ownership but does not write — it returns
   modified card data to the caller (the service layer).

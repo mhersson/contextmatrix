@@ -39,6 +39,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
           value={filter.type ?? ''}
           onChange={(e) => update('type', e.target.value)}
           className={selectClass}
+          aria-label="Filter by type"
         >
           <option value="">All types</option>
           {config.types.map((t) => (
@@ -52,6 +53,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
           value={filter.priority ?? ''}
           onChange={(e) => update('priority', e.target.value)}
           className={selectClass}
+          aria-label="Filter by priority"
         >
           <option value="">All priorities</option>
           {config.priorities.map((p) => (
@@ -65,6 +67,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
           value={filter.label ?? ''}
           onChange={(e) => update('label', e.target.value)}
           className={selectClass}
+          aria-label="Filter by label"
         >
           <option value="">All labels</option>
           {labels.map((l) => (
@@ -78,6 +81,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
           value={filter.agent ?? ''}
           onChange={(e) => update('agent', e.target.value)}
           className={selectClass}
+          aria-label="Filter by agent"
         >
           <option value="">All agents</option>
           {agents.map((a) => (
@@ -91,6 +95,7 @@ export const FilterBar = forwardRef<HTMLDivElement, FilterBarProps>(
           <button
             onClick={() => onFilterChange({})}
             className="col-span-2 sm:col-span-1 px-2 py-1 text-sm text-[var(--grey1)] hover:text-[var(--red)] transition-colors"
+            aria-label="Clear all filters"
           >
             Clear
           </button>

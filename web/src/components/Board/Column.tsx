@@ -106,13 +106,14 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               onClick={() => onToggleCollapse(state)}
               className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
               title="Collapse column"
+              aria-label={`Collapse ${formatStateName(state)} column`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
           )}
-          <h2 className="text-sm font-medium text-[var(--grey2)]">
+          <h2 className="text-sm font-medium text-[var(--grey2)]" aria-label={`${formatStateName(state)} column`}>
             {formatStateName(state)}
           </h2>
         </div>
@@ -122,6 +123,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               onClick={handleBulkToggle}
               className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
               title={allCollapsed ? 'Expand all cards' : 'Collapse all cards'}
+              aria-label={allCollapsed ? 'Expand all cards' : 'Collapse all cards'}
             >
               {allCollapsed ? (
                 /* Double chevron down — expand all */
@@ -143,6 +145,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               onClick={() => onCreateCard(state)}
               className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--green)] hover:bg-[var(--bg2)] transition-colors"
               title="New card"
+              aria-label={`Create new card in ${formatStateName(state)}`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
