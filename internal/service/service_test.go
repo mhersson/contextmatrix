@@ -4831,3 +4831,236 @@ func TestUpdateCard_VettedField(t *testing.T) {
 		assert.True(t, updated.Vetted)
 	})
 }
+
+// TestSourceImmutability_UpdateCard verifies that the source field cannot be
+// changed through UpdateCard. The UpdateCardInput struct does not expose Source,
+// so the loaded card's Source is preserved through the full update.
+func TestSourceImmutability_UpdateCard(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with a source.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Imported Issue",
+		Type:     "bug",
+		Priority: "high",
+		Source: &board.Source{
+			System:      "jira",
+			ExternalID:  "PROJ-42",
+			ExternalURL: "https://jira.example.com/PROJ-42",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, card.Source)
+
+	// Full update (PUT semantics) — Source is not in UpdateCardInput, so it must
+	// be preserved from the original card.
+	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:    "Renamed Issue",
+		Type:     "bug",
+		State:    "todo",
+		Priority: "medium",
+		Body:     "new body",
+	})
+	require.NoError(t, err)
+
+	// Source must be unchanged.
+	require.NotNil(t, updated.Source)
+	assert.Equal(t, "jira", updated.Source.System)
+	assert.Equal(t, "PROJ-42", updated.Source.ExternalID)
+	assert.Equal(t, "https://jira.example.com/PROJ-42", updated.Source.ExternalURL)
+}
+
+// TestSourceImmutability_PatchCard verifies that the source field cannot be
+// changed through PatchCard. The PatchCardInput struct does not expose Source,
+// so the loaded card's Source is preserved through partial updates.
+func TestSourceImmutability_PatchCard(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with a source.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "GitHub Issue",
+		Type:     "task",
+		Priority: "medium",
+		Source: &board.Source{
+			System:      "github",
+			ExternalID:  "123",
+			ExternalURL: "https://github.com/org/repo/issues/123",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, card.Source)
+
+	// Patch title — Source must remain unchanged.
+	newTitle := "Renamed GitHub Issue"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Title: &newTitle,
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, patched.Source)
+	assert.Equal(t, "github", patched.Source.System)
+	assert.Equal(t, "123", patched.Source.ExternalID)
+	assert.Equal(t, "https://github.com/org/repo/issues/123", patched.Source.ExternalURL)
+}
+
+// TestParentAutoTransition_ClaimWorkflow verifies that when a subtask transitions
+// to in_progress (the state change that happens as part of the claim workflow),
+// the parent card automatically transitions from todo to in_progress.
+func TestParentAutoTransition_ClaimWorkflow(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create parent card.
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Epic Task",
+		Type:     "task",
+		Priority: "high",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "todo", parent.State)
+
+	// Create subtask.
+	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Subtask 1",
+		Type:     "task",
+		Priority: "medium",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+
+	// Wire up parent's subtask list.
+	_, err = svc.UpdateCard(ctx, "test-project", parent.ID, UpdateCardInput{
+		Title:    parent.Title,
+		Type:     parent.Type,
+		State:    parent.State,
+		Priority: parent.Priority,
+		Subtasks: []string{subtask.ID},
+	})
+	require.NoError(t, err)
+
+	// Transition subtask to in_progress (simulates the claim workflow).
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	// Parent should have auto-transitioned to in_progress.
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "in_progress", updatedParent.State)
+}
+
+// TestDuplicateSubtaskGuard_Integration verifies the dedup guard: creating a
+// subtask with the same title as an existing non-terminal subtask returns the
+// existing card instead of creating a duplicate.
+func TestDuplicateSubtaskGuard_Integration(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create parent.
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Parent",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Create first subtask with title "Foo".
+	first, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Foo",
+		Type:     "task",
+		Priority: "medium",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+
+	// Try creating another subtask with the same title.
+	second, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Foo",
+		Type:     "task",
+		Priority: "high",
+		Parent:   parent.ID,
+	})
+	require.NoError(t, err)
+
+	// Should return the existing card, not a new one.
+	assert.Equal(t, first.ID, second.ID, "duplicate subtask must return existing card")
+}
+
+// TestActivityLogCapping_Integration verifies that the activity log is capped
+// at 50 entries, keeping the most recent ones.
+func TestActivityLogCapping_Integration(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Log Cap Test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Add 55 log entries with sequential messages.
+	for i := 1; i <= 55; i++ {
+		err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+			Agent:   "agent-1",
+			Action:  "progress",
+			Message: fmt.Sprintf("Entry %d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	// Verify capped at 50.
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Len(t, updated.ActivityLog, 50)
+
+	// Most recent entries are kept: first entry should be "Entry 6" (entries 1-5 dropped).
+	assert.Equal(t, "Entry 6", updated.ActivityLog[0].Message)
+	// Last entry should be "Entry 55".
+	assert.Equal(t, "Entry 55", updated.ActivityLog[49].Message)
+}
+
+// TestBranchNameImmutability_UpdateCard verifies that a card's branch_name is
+// not regenerated when feature_branch=true is set again via UpdateCard, proving
+// the branch name is immutable after first generation.
+func TestBranchNameImmutability_UpdateCard(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with feature_branch=true → branch name generated.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:         "Original Title",
+		Type:          "task",
+		Priority:      "medium",
+		FeatureBranch: true,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, card.BranchName)
+	originalBranch := card.BranchName
+
+	// Full update with a different title but feature_branch still true.
+	// Branch name must NOT be regenerated from the new title.
+	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:         "Completely Different Title",
+		Type:          "task",
+		State:         "todo",
+		Priority:      "medium",
+		FeatureBranch: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, originalBranch, updated.BranchName, "branch name must not change after first generation")
+}

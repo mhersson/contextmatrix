@@ -13,6 +13,52 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
+// atomicWriteFile writes data to a file atomically by writing to a temporary
+// file in the same directory, syncing to disk, then renaming over the target.
+// This prevents partial writes from being visible to readers.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	// Clean up the temp file on any failure path.
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+
+	success = true
+	return nil
+}
+
 // validatePathComponent rejects path components that could cause directory
 // traversal (e.g. "..", "/", or names containing path separators).
 func validatePathComponent(component string) error {
@@ -331,7 +377,7 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 		}
 		card, err := board.ParseCard(data)
 		if err != nil {
-			slog.Warn("skipping corrupt card file", "path", path, "error", err)
+			slog.Error("skipping corrupt card file", "path", path, "error", err)
 			continue
 		}
 		cards = append(cards, card)
@@ -397,7 +443,7 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		return fmt.Errorf("create tasks directory: %w", err)
 	}
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+	if err := atomicWriteFile(filePath, data, 0o644); err != nil {
 		return fmt.Errorf("write card file: %w", err)
 	}
 
@@ -426,7 +472,7 @@ func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *bo
 		return fmt.Errorf("serialize card: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+	if err := atomicWriteFile(filePath, data, 0o644); err != nil {
 		return fmt.Errorf("write card file: %w", err)
 	}
 

@@ -70,6 +70,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       onClick={(e) => { e.stopPropagation(); onToggleCollapse(card.id); }}
       className="w-4 h-4 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg3)] transition-colors flex-shrink-0"
       title={isCollapsed ? 'Expand card' : 'Collapse card'}
+      aria-label={isCollapsed ? 'Expand card' : 'Collapse card'}
     >
       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -182,6 +183,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
           className="w-2 h-2 rounded-full"
           style={{ backgroundColor: priorityColors[card.priority] || 'var(--grey1)' }}
           title={card.priority}
+          aria-label={`Priority: ${card.priority}`}
         />
 
         {/* Parent ID badge */}

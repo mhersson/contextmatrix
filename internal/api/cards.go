@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -105,10 +106,38 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		vettedFilter = &b
 	}
 
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	typ := strings.TrimSpace(r.URL.Query().Get("type"))
+	priority := strings.TrimSpace(r.URL.Query().Get("priority"))
+
+	// Validate enum filter values against the project config.
+	if state != "" || typ != "" || priority != "" {
+		cfg, err := h.svc.GetProject(r.Context(), projectName)
+		if err != nil {
+			handleServiceError(w, err)
+			return
+		}
+		if state != "" && !slices.Contains(cfg.States, state) {
+			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+				"invalid state filter: "+state, "")
+			return
+		}
+		if typ != "" && !slices.Contains(cfg.Types, typ) && typ != "subtask" {
+			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+				"invalid type filter: "+typ, "")
+			return
+		}
+		if priority != "" && !slices.Contains(cfg.Priorities, priority) {
+			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+				"invalid priority filter: "+priority, "")
+			return
+		}
+	}
+
 	filter := storage.CardFilter{
-		State:         r.URL.Query().Get("state"),
-		Type:          r.URL.Query().Get("type"),
-		Priority:      r.URL.Query().Get("priority"),
+		State:         state,
+		Type:          typ,
+		Priority:      priority,
 		AssignedAgent: r.URL.Query().Get("agent"),
 		Label:         r.URL.Query().Get("label"),
 		Parent:        r.URL.Query().Get("parent"),

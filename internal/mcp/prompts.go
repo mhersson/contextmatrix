@@ -16,6 +16,12 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+// defaultModel is the fallback model family for most skill prompts.
+const defaultModel = "sonnet"
+
+// defaultReviewModel is the fallback model family for review-task prompts.
+const defaultReviewModel = "opus"
+
 // workflowPreamble is prepended to every skill prompt to enforce card lifecycle
 // discipline regardless of which skill is active.
 const workflowPreamble = `## ContextMatrix Workflow Rules
@@ -444,7 +450,7 @@ func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 		getSkillArgs := fmt.Sprintf("skill_name='execute-task', card_id='%s'", cardID)
 		model := result.Model
 		if model == "" {
-			model = "sonnet"
+			model = defaultModel
 		}
 		text := buildDelegationPrompt(model, "execute-task", getSkillArgs)
 		return &mcp.GetPromptResult{
@@ -546,7 +552,7 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		getSkillArgs := fmt.Sprintf("skill_name='review-task', card_id='%s'", cardID)
 		model := result.Model
 		if model == "" {
-			model = "opus"
+			model = defaultReviewModel
 		}
 
 		// Always use the HITL review prompt — even for autonomous cards.
@@ -574,7 +580,7 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 		getSkillArgs := fmt.Sprintf("skill_name='document-task', card_id='%s'", cardID)
 		model := result.Model
 		if model == "" {
-			model = "sonnet"
+			model = defaultModel
 		}
 		text := buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs)
 		return &mcp.GetPromptResult{

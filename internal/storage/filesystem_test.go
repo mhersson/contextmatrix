@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -734,6 +735,89 @@ func TestFilesystemStore_DeleteProject_PathTraversal(t *testing.T) {
 	// arbitrary names reaching the filesystem.
 	err = store.DeleteProject(context.Background(), "../../escape")
 	assert.ErrorIs(t, err, ErrProjectNotFound)
+}
+
+func TestAtomicWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+
+	t.Run("writes file with correct content and permissions", func(t *testing.T) {
+		data := []byte("hello world")
+		err := atomicWriteFile(path, data, 0o644)
+		require.NoError(t, err)
+
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, data, got)
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	})
+
+	t.Run("overwrites existing file atomically", func(t *testing.T) {
+		original := []byte("original content")
+		err := atomicWriteFile(path, original, 0o644)
+		require.NoError(t, err)
+
+		updated := []byte("updated content that is longer than original")
+		err = atomicWriteFile(path, updated, 0o644)
+		require.NoError(t, err)
+
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, updated, got)
+	})
+
+	t.Run("no temp files left on success", func(t *testing.T) {
+		err := atomicWriteFile(path, []byte("clean"), 0o644)
+		require.NoError(t, err)
+
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			assert.False(t, strings.HasPrefix(e.Name(), ".tmp-"),
+				"temp file %s should not remain after successful write", e.Name())
+		}
+	})
+
+	t.Run("fails on non-existent directory", func(t *testing.T) {
+		badPath := filepath.Join(dir, "nonexistent", "file.txt")
+		err := atomicWriteFile(badPath, []byte("data"), 0o644)
+		assert.Error(t, err)
+	})
+
+	t.Run("concurrent writes produce valid content", func(t *testing.T) {
+		target := filepath.Join(dir, "concurrent.txt")
+		const goroutines = 20
+		const iterations = 50
+
+		var wg sync.WaitGroup
+		for g := range goroutines {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				content := []byte(strings.Repeat(string(rune('A'+id%26)), 1024))
+				for range iterations {
+					_ = atomicWriteFile(target, content, 0o644)
+				}
+			}(g)
+		}
+		wg.Wait()
+
+		// After all writes complete, the file must contain content from
+		// exactly one writer (no partial/mixed writes).
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		assert.Len(t, got, 1024, "file should be exactly 1024 bytes")
+
+		// Every byte should be the same character (from a single write).
+		first := got[0]
+		for i, b := range got {
+			assert.Equal(t, first, b,
+				"byte %d differs: expected %c, got %c (partial write detected)", i, first, b)
+		}
+	})
 }
 
 func TestFilesystemStore_LoadIndex_SkipsSymlinks(t *testing.T) {

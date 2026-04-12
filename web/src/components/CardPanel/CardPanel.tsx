@@ -19,6 +19,17 @@ const MOBILE_BREAKPOINT = 1024;
 
 const DEFAULT_EDITOR_HEIGHT = 250;
 
+/** Shallow equality check for string arrays (used for label comparison). */
+function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  const aa = a ?? [];
+  const bb = b ?? [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i] !== bb[i]) return false;
+  }
+  return true;
+}
+
 /** True when the panel occupies the full viewport width. */
 function isMobileLayout(): boolean {
   return window.innerWidth <= MOBILE_BREAKPOINT;
@@ -182,7 +193,7 @@ export function CardPanel({
     editedCard.state !== card.state ||
     editedCard.priority !== card.priority ||
     editedCard.body !== card.body ||
-    JSON.stringify(editedCard.labels) !== JSON.stringify(card.labels) ||
+    !arraysEqual(editedCard.labels, card.labels) ||
     (editedCard.autonomous ?? false) !== (card.autonomous ?? false) ||
     (editedCard.feature_branch ?? false) !== (card.feature_branch ?? false) ||
     (editedCard.create_pr ?? false) !== (card.create_pr ?? false) ||

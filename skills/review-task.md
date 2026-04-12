@@ -86,6 +86,10 @@ Include the failing test output in your review findings.
 - Are there performance implications?
 - Is there technical debt introduced that should be noted?
 
+### Actual file changes
+
+Verify file changes against git diff. Run `git diff` to see what was actually modified. Do NOT guess or infer file changes from card descriptions or progress notes — agents sometimes claim files were changed that were not. Every file you list in your findings must appear in the actual diff.
+
 ## Step 3: Present findings
 
 Structure your assessment with these sections:
@@ -182,11 +186,6 @@ summary: <one-line summary>
 - **Be fair.** Acknowledge what was done well before listing concerns. Criticize
   the work, not the agent.
 - **Be actionable.** Every concern should include what should be done about it.
-- **Verify file changes against git diff.** When listing files changed, run
-  `git diff` to see what was actually modified. Do NOT guess or infer file
-  changes from card descriptions or progress notes — agents sometimes claim
-  files were changed that were not. Every file you list in your findings must
-  appear in the actual diff.
 - **Always use MCP tools.** For all ContextMatrix board interactions, use the
   provided MCP tools (`claim_card`, `heartbeat`, `report_usage`, etc.). Never
   use curl, wget, or direct HTTP API calls — the MCP tools are the only

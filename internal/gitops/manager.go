@@ -225,6 +225,10 @@ func (m *Manager) Pull(ctx context.Context) error {
 		return fmt.Errorf("pull: %w", err)
 	}
 
+	if err := m.reloadRepo(); err != nil {
+		return fmt.Errorf("reload after pull: %w", err)
+	}
+
 	return nil
 }
 
@@ -243,6 +247,10 @@ func (m *Manager) Push(ctx context.Context) error {
 
 	if err := m.runGit(ctx, "push", "--set-upstream", "origin", "HEAD"); err != nil {
 		return fmt.Errorf("push: %w", err)
+	}
+
+	if err := m.reloadRepo(); err != nil {
+		return fmt.Errorf("reload after push: %w", err)
 	}
 
 	return nil
@@ -283,6 +291,12 @@ func (m *Manager) ReloadRepo() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.reloadRepo()
+}
+
+// reloadRepo is the lock-free implementation of ReloadRepo.
+// Must be called with mu held.
+func (m *Manager) reloadRepo() error {
 	repo, err := git.PlainOpen(m.repoPath)
 	if err != nil {
 		return fmt.Errorf("reload repository: %w", err)

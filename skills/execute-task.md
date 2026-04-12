@@ -95,28 +95,17 @@ Gotchas, decisions made, alternatives considered and rejected.
 
 Follow the git workflow based on the card context:
 
-### Feature Branch Mode
-
-If the parent card has a `branch_name` set (visible in `get_task_context`
-response under `parent.branch_name`):
-
-1. Create or switch to the feature branch: `git checkout -b <branch_name>` (or
-   `git checkout <branch_name>` if it already exists).
-2. Use conventional commit messages: `type(scope): summary` + blank line +
-   bullet-point body of changes. **No card IDs in commit messages** — they are
-   internal to ContextMatrix and meaningless to external repo users.
-3. **NEVER push to main or master.** If you find yourself on main, switch to
-   the feature branch before committing.
-
 ### Autonomous Mode
 
 If the parent card shows `autonomous: true`:
 
-- Commit and push to the feature branch automatically.
-- Call `report_push(card_id=<parent_card_id>, branch=<branch_name>)` after
-  pushing.
-- Do **NOT** create a PR — the orchestrator creates the PR after review
-  approval.
+- Commit to the current branch. The orchestrator has already created and
+  checked out the feature branch — do **not** create or switch branches.
+- Use conventional commit messages: `type(scope): summary` + blank line +
+  bullet-point body of changes. **No card IDs in commit messages** — they are
+  internal to ContextMatrix and meaningless to external repo users.
+- Do **NOT** push — the orchestrator handles pushing and PR creation after
+  review.
 - **NEVER push to main or master.** This is non-negotiable.
 
 ### HITL Mode (No Autonomous)
@@ -132,9 +121,9 @@ At the end of your work, if the parent card does not have `autonomous: true`:
   If on a feature branch, follow up with: "Want me to push and create a PR?"
   Never push without explicit human approval.
 
-### No Feature Branch
+### No Feature Branch (HITL only)
 
-If no `branch_name` is set on the parent card:
+If no `branch_name` is set on the parent card and the card is not autonomous:
 
 - **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
 - **If invoked directly**: commit your changes on the current branch.

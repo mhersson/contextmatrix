@@ -55,6 +55,16 @@ If `Complexity: standard`, follow the full pipeline below.
 Call `claim_card(card_id, agent_id)` before determining the starting point.
 Hold this claim through the entire lifecycle.
 
+## Step 1: Create feature branch
+
+If the card has a `branch_name` set, create and switch to the feature branch
+now — before planning or spawning any sub-agents:
+
+`git checkout -b <branch_name>` (or `git checkout <branch_name>` if it already
+exists).
+
+If no `branch_name` is set, skip this step.
+
 ## Determine Starting Point
 
 Based on the card's current state and body content:
@@ -186,11 +196,14 @@ Based on the card's current state and body content:
 ## Phase 6: Finalization
 
 19. Call `report_usage` one final time with your remaining token consumption.
-20. If `create_pr` is enabled and the card has a `branch_name`, create a PR
-    using `gh pr create` with a body referencing the card title and summarizing
-    the work. If the card has a `base_branch` field, pass `--base <base_branch>`
-    to `gh pr create` so the PR targets the correct branch. Call
-    `report_push(card_id, branch, pr_url)` with the PR URL.
+20. If the card has a `branch_name`:
+    a. Push the feature branch: `git push -u origin <branch_name>`.
+    b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
+       referencing the card title and summarizing the work. If the card has a
+       `base_branch` field, pass `--base <base_branch>` to `gh pr create` so
+       the PR targets the correct branch.
+    c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
+       was created) or just the branch name.
 21. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
 22. Release the card claim:
@@ -219,9 +232,11 @@ Based on the card's current state and body content:
 
 ## Git Workflow
 
-- `feature_branch` enabled: sub-agents create/checkout branch, commit, push.
-  Orchestrator creates PR in Phase 6.
-- `feature_branch` not enabled: sub-agents commit locally only. Never push.
+- `feature_branch` enabled: orchestrator creates and checks out the feature
+  branch in Step 1. Sub-agents commit to the current branch — no branch
+  checkout or push. Orchestrator pushes and creates PR in Phase 6.
+- `feature_branch` not enabled: sub-agents commit to the current branch only.
+  Never push.
 
 ## Rules
 
