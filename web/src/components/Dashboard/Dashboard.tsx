@@ -7,11 +7,12 @@ import { CostTable } from './CostTable';
 
 interface DashboardProps {
   project: string;
+  epicKey?: string;
 }
 
 const REFRESH_INTERVAL = 30000;
 
-export function Dashboard({ project }: DashboardProps) {
+export function Dashboard({ project, epicKey }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +78,10 @@ export function Dashboard({ project }: DashboardProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-[var(--bg3)]">
-        <h1 className="text-lg font-medium text-[var(--fg)]">{project}</h1>
+        <h1 className="text-lg font-medium text-[var(--fg)]">
+          {epicKey && <><span className="text-[var(--grey1)]">{epicKey}</span>{' '}</>}
+          {project}
+        </h1>
         <p className="text-xs text-[var(--grey1)]">Cost overview</p>
       </div>
       <div className="p-6 space-y-6 overflow-y-auto flex-1">

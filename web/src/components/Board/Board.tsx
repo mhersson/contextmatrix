@@ -179,7 +179,10 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
       {/* Board header */}
       <div className="px-4 py-3 border-b border-[var(--bg3)] flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-medium text-[var(--fg)]">{config.name}</h1>
+          <h1 className="text-lg font-medium text-[var(--fg)]">
+            {config.jira?.epic_key && <><span className="text-[var(--grey1)]">{config.jira.epic_key}</span>{' '}</>}
+            {config.name}
+          </h1>
           <p className="text-xs text-[var(--grey1)]">
             {hasFilter
               ? `${filteredCards.length} of ${cards.length} cards`

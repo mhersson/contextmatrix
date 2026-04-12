@@ -74,17 +74,20 @@ export function AllProjectsDashboard() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {projectNames.map((name) => {
-          const data = summaries.get(name);
+        {projects.map((p) => {
+          const data = summaries.get(p.name);
           const total = data ? Object.values(data.state_counts).reduce((a, b) => a + b, 0) : 0;
           return (
             <Link
-              key={name}
-              to={`/projects/${name}/dashboard`}
+              key={p.name}
+              to={`/projects/${p.name}/dashboard`}
               className="rounded-lg p-3 transition-colors hover:brightness-110"
               style={{ backgroundColor: 'var(--bg1)' }}
             >
-              <div className="text-sm font-medium" style={{ color: 'var(--aqua)' }}>{name}</div>
+              <div className="text-sm font-medium" style={{ color: 'var(--aqua)' }}>
+                {p.jira?.epic_key && <><span style={{ color: 'var(--grey1)' }}>{p.jira.epic_key}</span>{' '}</>}
+                {p.name}
+              </div>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-lg font-bold" style={{ color: 'var(--fg)' }}>{total}</span>
                 <span className="text-xs" style={{ color: 'var(--grey0)' }}>cards</span>

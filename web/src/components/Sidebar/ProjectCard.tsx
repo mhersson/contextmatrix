@@ -2,11 +2,12 @@ import type { DashboardData } from '../../types';
 
 interface ProjectCardProps {
   name: string;
+  epicKey?: string;
   summary?: DashboardData;
   isActive: boolean;
 }
 
-export function ProjectCard({ name, summary, isActive }: ProjectCardProps) {
+export function ProjectCard({ name, epicKey, summary, isActive }: ProjectCardProps) {
   const activeAgentCount = summary?.active_agents.length ?? 0;
   const inProgressCount = summary?.state_counts?.in_progress ?? 0;
 
@@ -21,6 +22,7 @@ export function ProjectCard({ name, summary, isActive }: ProjectCardProps) {
             className="text-sm font-medium truncate"
             style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
           >
+            {epicKey && <><span style={{ color: 'var(--grey1)' }}>{epicKey}</span>{' '}</>}
             {name}
           </span>
           {inProgressCount > 0 && (

@@ -113,7 +113,7 @@ export function Sidebar({ onNewProject, onJiraImport, jiraConfigured, mobileOpen
             >
               {({ isActive }) => (
                 <div aria-current={isActive ? 'page' : undefined}>
-                  <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
+                  <ProjectCard name={p.name} epicKey={p.jira?.epic_key} summary={summaries.get(p.name)} isActive={isActive} />
                 </div>
               )}
             </NavLink>
