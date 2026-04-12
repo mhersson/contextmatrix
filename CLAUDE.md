@@ -95,6 +95,13 @@ details.
 Frontend conventions and Everforest palette: see `web/CLAUDE.md` (auto-loaded
 when working in `web/`).
 
+### Skills (`skills/`)
+
+- Skills are agent instructions, not documentation. Keep them tight: clear
+  instructions only, no explanatory commentary or rationale.
+- Every sentence should be actionable — if it doesn't tell the agent what to do,
+  remove it.
+
 ## Key domain rules (summary)
 
 Full details with examples: `docs/data-model.md`.
