@@ -942,6 +942,21 @@ func formatCardBrief(c *board.Card) string {
 	if c.AssignedAgent != "" {
 		fmt.Fprintf(&b, "- Agent: %s\n", c.AssignedAgent)
 	}
+	if c.Autonomous {
+		fmt.Fprintf(&b, "- Autonomous: true\n")
+	}
+	if c.FeatureBranch {
+		fmt.Fprintf(&b, "- Feature Branch: enabled\n")
+	}
+	if c.BranchName != "" {
+		fmt.Fprintf(&b, "- Branch: %s\n", c.BranchName)
+	}
+	if c.CreatePR {
+		fmt.Fprintf(&b, "- Create PR: enabled\n")
+	}
+	if c.BaseBranch != "" {
+		fmt.Fprintf(&b, "- Base Branch: %s\n", c.BaseBranch)
+	}
 	return b.String()
 }
 
