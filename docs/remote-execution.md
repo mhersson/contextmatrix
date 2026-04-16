@@ -382,7 +382,22 @@ container_timeout: "2h" # Force-kill after this duration
 # The runner must be installed on a machine with a browser
 # for initial `claude login` OAuth flow. Auth tokens are
 # mounted into containers at runtime.
+
+# GitHub App credentials
+github_app:
+  app_id: 0
+  installation_id: 0
+  private_key_path: ""
+  # For GHEC-DR or GHES: set to the enterprise API base URL.
+  # Must match github.api_base_url (or its derived value) in ContextMatrix config.
+  # api_base_url: "https://api.acme.ghe.com"  # Env: CMR_GITHUB_API_BASE_URL
 ```
+
+When using GitHub Enterprise, both sides must target the same host: set
+`github.host` (or `github.api_base_url`) in ContextMatrix and
+`github_app.api_base_url` in the runner to the same enterprise API endpoint.
+The runner entrypoint derives the git host automatically from the repo URL sent
+in the trigger payload, so no additional git configuration is needed.
 
 ### Per-Project (`.board.yaml`)
 

@@ -1211,3 +1211,143 @@ func TestSyncIntervalDuration(t *testing.T) {
 		})
 	}
 }
+
+// ---------- GitHubConfig Host and APIBaseURL field tests ----------
+
+func TestLoad_GitHubHostAndAPIBaseURL_YAMLLoading(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  host: "acme.ghe.com"
+  api_base_url: "https://api.acme.ghe.com"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "acme.ghe.com", cfg.GitHub.Host)
+	assert.Equal(t, "https://api.acme.ghe.com", cfg.GitHub.APIBaseURL)
+}
+
+func TestLoad_GitHubHostAndAPIBaseURL_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "", cfg.GitHub.Host)
+	assert.Equal(t, "", cfg.GitHub.APIBaseURL)
+}
+
+func TestLoad_GitHubHostAndAPIBaseURL_EnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_GITHUB_HOST", "enterprise.example.com")
+	t.Setenv("CONTEXTMATRIX_GITHUB_API_BASE_URL", "https://api.enterprise.example.com")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "enterprise.example.com", cfg.GitHub.Host)
+	assert.Equal(t, "https://api.enterprise.example.com", cfg.GitHub.APIBaseURL)
+}
+
+func TestLoad_GitHubHostEnvOverridesYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+github:
+  host: "yaml-host.example.com"
+  api_base_url: "https://yaml-api.example.com"
+`)
+
+	t.Setenv("CONTEXTMATRIX_GITHUB_HOST", "env-host.example.com")
+	t.Setenv("CONTEXTMATRIX_GITHUB_API_BASE_URL", "https://env-api.example.com")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "env-host.example.com", cfg.GitHub.Host)
+	assert.Equal(t, "https://env-api.example.com", cfg.GitHub.APIBaseURL)
+}
+
+// ---------- ResolvedAPIBaseURL tests ----------
+
+func TestResolvedAPIBaseURL_DefaultWhenEmpty(t *testing.T) {
+	gh := GitHubConfig{}
+	assert.Equal(t, "https://api.github.com", gh.ResolvedAPIBaseURL())
+}
+
+func TestResolvedAPIBaseURL_HostDerivedWhenAPIBaseURLEmpty(t *testing.T) {
+	gh := GitHubConfig{Host: "acme.ghe.com"}
+	assert.Equal(t, "https://api.acme.ghe.com", gh.ResolvedAPIBaseURL())
+}
+
+func TestResolvedAPIBaseURL_APIBaseURLTakesPrecedence(t *testing.T) {
+	gh := GitHubConfig{
+		Host:       "acme.ghe.com",
+		APIBaseURL: "https://custom-api.acme.ghe.com",
+	}
+	assert.Equal(t, "https://custom-api.acme.ghe.com", gh.ResolvedAPIBaseURL())
+}
+
+func TestResolvedAPIBaseURL_APIBaseURLTrimmed(t *testing.T) {
+	gh := GitHubConfig{APIBaseURL: "  https://api.example.com  "}
+	assert.Equal(t, "https://api.example.com", gh.ResolvedAPIBaseURL())
+}
+
+func TestResolvedAPIBaseURL_APIBaseURLSetWithoutHost(t *testing.T) {
+	gh := GitHubConfig{APIBaseURL: "https://api.custom.com"}
+	assert.Equal(t, "https://api.custom.com", gh.ResolvedAPIBaseURL())
+}
+
+func TestResolvedAPIBaseURL_HostGitHubCom(t *testing.T) {
+	// Host set to github.com explicitly — should still derive correctly.
+	gh := GitHubConfig{Host: "github.com"}
+	assert.Equal(t, "https://api.github.com", gh.ResolvedAPIBaseURL())
+}
+
+// ---------- AllowedHosts tests ----------
+
+func TestAllowedHosts_EmptyHost(t *testing.T) {
+	gh := GitHubConfig{}
+	assert.Equal(t, []string{"github.com"}, gh.AllowedHosts())
+}
+
+func TestAllowedHosts_DefaultGitHubComHost(t *testing.T) {
+	gh := GitHubConfig{Host: "github.com"}
+	assert.Equal(t, []string{"github.com"}, gh.AllowedHosts())
+}
+
+func TestAllowedHosts_CustomHost(t *testing.T) {
+	gh := GitHubConfig{Host: "acme.ghe.com"}
+	hosts := gh.AllowedHosts()
+	assert.Equal(t, []string{"github.com", "acme.ghe.com"}, hosts)
+}
+
+func TestAllowedHosts_CustomHostNotDuplicated(t *testing.T) {
+	gh := GitHubConfig{Host: "acme.ghe.com"}
+	hosts := gh.AllowedHosts()
+	assert.Len(t, hosts, 2)
+}
+
+func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
+	cfg := defaults()
+	assert.Equal(t, "", cfg.GitHub.Host)
+	assert.Equal(t, "", cfg.GitHub.APIBaseURL)
+}

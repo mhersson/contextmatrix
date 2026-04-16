@@ -404,6 +404,28 @@ github:
   sync_interval: "5m" # Minimum 5m
 ```
 
+### GitHub Enterprise
+
+For GitHub Enterprise Cloud with Data Residency (GHEC-DR) or GitHub Enterprise
+Server (GHES), set `host` and optionally `api_base_url`:
+
+```yaml
+github:
+  token: "ghp_..."
+  host: acme.ghe.com                       # enterprise hostname
+  # api_base_url is derived as https://api.<host> when omitted
+  # api_base_url: https://api.acme.ghe.com # set only for non-standard API paths
+```
+
+`host` controls which repository URLs are accepted (both `github.com` and the
+enterprise host are allowed simultaneously). The API base URL is derived as
+`https://api.<host>` unless you override it explicitly.
+
+When using the runner with a GitHub Enterprise App, also set
+`github_app.api_base_url` in the runner's `config.yaml` to the same enterprise
+API endpoint. See the [runner README](https://github.com/mhersson/contextmatrix-runner)
+and [`docs/remote-execution.md`](docs/remote-execution.md) for details.
+
 ```yaml
 # .board.yaml (per-project)
 github:
@@ -604,6 +626,8 @@ curl http://localhost:8080/healthz
 | `runner.api_key`       | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
 | `runner.public_url`    | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
 | `github.token`         | `""`                    | GitHub fine-grained PAT with `Issues: Read` permission (empty = disabled)                     |
+| `github.host`          | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                              |
+| `github.api_base_url`  | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)               |
 | `github.sync_interval` | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
 
 Token cost configuration:
@@ -635,6 +659,8 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 - `CONTEXTMATRIX_GITHUB_TOKEN`
+- `CONTEXTMATRIX_GITHUB_HOST`
+- `CONTEXTMATRIX_GITHUB_API_BASE_URL`
 - `CONTEXTMATRIX_GITHUB_SYNC_INTERVAL`
 
 ## Security

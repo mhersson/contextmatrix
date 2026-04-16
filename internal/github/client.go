@@ -21,9 +21,8 @@ var ErrRateLimited = errors.New("github: rate limit exceeded")
 const (
 	defaultBaseURL  = "https://api.github.com"
 	perPage         = 100
-	maxPages        = 10           // safety limit to avoid unbounded pagination
-	maxResponseBody = 10 << 20     // 10 MB limit on successful response bodies
-	allowedAPIHost  = "api.github.com"
+	maxPages        = 10       // safety limit to avoid unbounded pagination
+	maxResponseBody = 10 << 20 // 10 MB limit on successful response bodies
 )
 
 // Issue represents a GitHub issue (subset of fields).
@@ -49,11 +48,24 @@ type Client struct {
 }
 
 // NewClient creates a new GitHub API client with the given token.
+// It uses the default GitHub API base URL (https://api.github.com).
 func NewClient(token string) *Client {
+	return NewClientWithBaseURL(token, "")
+}
+
+// NewClientWithBaseURL creates a new GitHub API client with the given token and
+// base URL. The base URL is trimmed of any trailing slash. If baseURL is empty,
+// it defaults to https://api.github.com. Use this constructor when targeting
+// GitHub Enterprise Server instances that expose the API at a custom host.
+func NewClientWithBaseURL(token, baseURL string) *Client {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	return &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		token:      token,
-		baseURL:    defaultBaseURL,
+		baseURL:    baseURL,
 	}
 }
 
@@ -186,7 +198,7 @@ func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, 
 		names = append(names, b.Name)
 	}
 
-	next := parseLinkNext(resp.Header.Get("Link"))
+	next := c.parseLinkNext(resp.Header.Get("Link"))
 
 	// Check if rate limit is now exhausted. The current page's data is valid;
 	// remaining=0 means the *next* request would be rate-limited.
@@ -235,7 +247,7 @@ func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string,
 		return nil, "", false, fmt.Errorf("decode response: %w", err)
 	}
 
-	next := parseLinkNext(resp.Header.Get("Link"))
+	next := c.parseLinkNext(resp.Header.Get("Link"))
 
 	// Check if rate limit is now exhausted. The current page's data is valid;
 	// remaining=0 means the *next* request would be rate-limited.
@@ -253,8 +265,9 @@ func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string,
 var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
 // parseLinkNext extracts the "next" URL from a Link header.
-// Returns empty string if absent or if the URL points to a non-GitHub host.
-func parseLinkNext(header string) string {
+// Returns empty string if absent or if the URL host does not match the host
+// of c.baseURL — preventing SSRF via manipulated Link headers.
+func (c *Client) parseLinkNext(header string) string {
 	if header == "" {
 		return ""
 	}
@@ -263,10 +276,14 @@ func parseLinkNext(header string) string {
 		return ""
 	}
 
-	// Validate that the next URL points to the expected GitHub API host
-	// to prevent SSRF via manipulated Link headers.
-	u, err := url.Parse(m[1])
-	if err != nil || u.Host != allowedAPIHost {
+	// Validate that the next URL points to the same host as the configured
+	// base URL to prevent SSRF via manipulated Link headers.
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return ""
+	}
+	next, err := url.Parse(m[1])
+	if err != nil || next.Host != base.Host {
 		return ""
 	}
 

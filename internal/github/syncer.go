@@ -15,12 +15,13 @@ import (
 
 // Syncer periodically fetches open GitHub issues and creates cards for them.
 type Syncer struct {
-	svc       *service.CardService
-	store     *storage.FilesystemStore
-	client    *Client
-	boardsDir string
-	interval  time.Duration
-	wg        sync.WaitGroup
+	svc          *service.CardService
+	store        *storage.FilesystemStore
+	client       *Client
+	boardsDir    string
+	interval     time.Duration
+	allowedHosts []string
+	wg           sync.WaitGroup
 }
 
 // NewSyncer creates a new GitHub issue syncer.
@@ -30,13 +31,15 @@ func NewSyncer(
 	client *Client,
 	boardsDir string,
 	interval time.Duration,
+	allowedHosts []string,
 ) *Syncer {
 	return &Syncer{
-		svc:       svc,
-		store:     store,
-		client:    client,
-		boardsDir: boardsDir,
-		interval:  interval,
+		svc:          svc,
+		store:        store,
+		client:       client,
+		boardsDir:    boardsDir,
+		interval:     interval,
+		allowedHosts: allowedHosts,
 	}
 }
 
@@ -97,7 +100,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 			continue
 		}
 
-		owner, repo := resolveOwnerRepo(&cfg)
+		owner, repo := resolveOwnerRepo(&cfg, s.allowedHosts)
 		if owner == "" || repo == "" {
 			slog.Debug("github sync: skipping project, no GitHub repo resolved",
 				"project", cfg.Name)
@@ -198,7 +201,7 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 // resolveOwnerRepo determines the GitHub owner/repo for a project.
 // Uses explicit GitHub config if set, otherwise parses the project's repo URL.
 // Returns empty strings if GitHub config is nil (import not enabled).
-func resolveOwnerRepo(cfg *board.ProjectConfig) (owner, repo string) {
+func resolveOwnerRepo(cfg *board.ProjectConfig, allowedHosts []string) (owner, repo string) {
 	if cfg.GitHub == nil {
 		return "", ""
 	}
@@ -208,7 +211,7 @@ func resolveOwnerRepo(cfg *board.ProjectConfig) (owner, repo string) {
 	}
 
 	if cfg.Repo != "" {
-		owner, repo, ok := ParseGitHubRepo(cfg.Repo)
+		owner, repo, _, ok := ParseGitHubRepo(cfg.Repo, allowedHosts)
 		if ok {
 			return owner, repo
 		}

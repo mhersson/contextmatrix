@@ -149,7 +149,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
               type="text"
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
-              placeholder="git@github.com:org/repo.git"
+              placeholder="git@github.com:org/repo.git (or acme.ghe.com)"
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={{
                 backgroundColor: 'var(--bg2)',

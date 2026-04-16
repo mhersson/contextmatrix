@@ -128,8 +128,8 @@ func main() {
 	var ghSyncer *ghimport.Syncer
 	if cfg.GitHub.IssueImporting.Enabled {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
-		ghClient := ghimport.NewClient(cfg.GitHub.Token)
-		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.BoardsDir, syncInterval)
+		ghClient := ghimport.NewClientWithBaseURL(cfg.GitHub.Token, cfg.GitHub.ResolvedAPIBaseURL())
+		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.BoardsDir, syncInterval, cfg.GitHub.AllowedHosts())
 		ghSyncer.Start(ctx)
 		slog.Info("github issue sync enabled", "interval", syncInterval)
 	}
@@ -143,15 +143,17 @@ func main() {
 
 	// Create router with all API routes
 	mux := api.NewRouter(api.RouterConfig{
-		Service:     svc,
-		Bus:         bus,
-		CORSOrigin:  cfg.CORSOrigin,
-		Syncer:      syncer,
-		Runner:      runnerClient,
-		RunnerCfg:   cfg.Runner,
-		MCPAPIKey:   cfg.MCPAPIKey,
-		Port:        cfg.Port,
-		GitHubToken: cfg.GitHub.Token,
+		Service:            svc,
+		Bus:                bus,
+		CORSOrigin:         cfg.CORSOrigin,
+		Syncer:             syncer,
+		Runner:             runnerClient,
+		RunnerCfg:          cfg.Runner,
+		MCPAPIKey:          cfg.MCPAPIKey,
+		Port:               cfg.Port,
+		GitHubToken:        cfg.GitHub.Token,
+		GitHubAPIBaseURL:   cfg.GitHub.ResolvedAPIBaseURL(),
+		GitHubAllowedHosts: cfg.GitHub.AllowedHosts(),
 	})
 
 	// Create MCP server and register on the mux

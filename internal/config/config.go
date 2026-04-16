@@ -43,7 +43,31 @@ func (c *IssueImportingConfig) SyncIntervalDuration() (time.Duration, error) {
 // GitHubConfig holds configuration for GitHub integration.
 type GitHubConfig struct {
 	Token          string               `yaml:"token"`
+	Host           string               `yaml:"host"`
+	APIBaseURL     string               `yaml:"api_base_url"`
 	IssueImporting IssueImportingConfig `yaml:"issue_importing"`
+}
+
+// ResolvedAPIBaseURL returns the effective GitHub API base URL.
+// Precedence: APIBaseURL (trimmed) > "https://api." + Host > "https://api.github.com".
+func (g *GitHubConfig) ResolvedAPIBaseURL() string {
+	if v := strings.TrimSpace(g.APIBaseURL); v != "" {
+		return v
+	}
+	if g.Host != "" {
+		return "https://api." + g.Host
+	}
+	return "https://api.github.com"
+}
+
+// AllowedHosts returns the list of GitHub hostnames that are permitted.
+// When Host is empty or "github.com", only ["github.com"] is returned.
+// For any other Host value, ["github.com", Host] is returned.
+func (g *GitHubConfig) AllowedHosts() []string {
+	if g.Host == "" || g.Host == "github.com" {
+		return []string{"github.com"}
+	}
+	return []string{"github.com", g.Host}
 }
 
 // Config holds the application configuration.
@@ -272,6 +296,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
 		cfg.GitHub.Token = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
+		cfg.GitHub.Host = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_API_BASE_URL"); v != "" {
+		cfg.GitHub.APIBaseURL = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED"); v != "" {
 		cfg.GitHub.IssueImporting.Enabled = v == "true" || v == "1"

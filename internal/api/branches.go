@@ -16,9 +16,11 @@ type BranchFetcher interface {
 
 // branchHandlers contains handlers for the branch listing endpoint.
 type branchHandlers struct {
-	svc            *service.CardService
-	githubToken    string
-	newBranchClient func(token string) BranchFetcher
+	svc              *service.CardService
+	githubToken      string
+	githubAPIBaseURL string
+	allowedHosts     []string
+	newBranchClient  func(token, baseURL string) BranchFetcher
 }
 
 // listBranches handles GET /api/projects/{project}/branches.
@@ -42,14 +44,14 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner, repo, ok := github.ParseGitHubRepo(project.Repo)
+	owner, repo, _, ok := github.ParseGitHubRepo(project.Repo, h.allowedHosts)
 	if !ok {
 		writeError(w, http.StatusNotFound, "NO_GITHUB_REPO",
 			"project does not have a GitHub repository URL", "")
 		return
 	}
 
-	client := h.newBranchClient(h.githubToken)
+	client := h.newBranchClient(h.githubToken, h.githubAPIBaseURL)
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
 		slog.Error("failed to fetch branches", "project", projectName, "error", err)
@@ -62,6 +64,6 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // defaultBranchClient creates a real GitHub API client.
-func defaultBranchClient(token string) BranchFetcher {
-	return github.NewClient(token)
+func defaultBranchClient(token, baseURL string) BranchFetcher {
+	return github.NewClientWithBaseURL(token, baseURL)
 }

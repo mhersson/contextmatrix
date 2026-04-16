@@ -133,6 +133,20 @@ github:
   # Env: CONTEXTMATRIX_GITHUB_TOKEN
   token: ""
 
+  # GitHub Enterprise Cloud with Data Residency (GHEC-DR) or GitHub Enterprise
+  # Server hostname. Leave empty for standard github.com.
+  # Example: acme.ghe.com
+  # Env: CONTEXTMATRIX_GITHUB_HOST
+  # host: acme.ghe.com
+
+  # GitHub API base URL. When left empty, derived from host:
+  #   host empty     → https://api.github.com
+  #   host set       → https://api.<host>
+  # Set explicitly only when your enterprise instance uses a non-standard URL.
+  # Example: https://api.acme.ghe.com
+  # Env: CONTEXTMATRIX_GITHUB_API_BASE_URL
+  # api_base_url: https://api.acme.ghe.com
+
   # Issue importing configuration.
   # When enabled, ContextMatrix periodically fetches open GitHub issues and
   # creates cards in projects that have github.import_issues set in .board.yaml.

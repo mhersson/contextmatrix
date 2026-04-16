@@ -159,7 +159,8 @@ func TestListBranches_Success(t *testing.T) {
 	bh := &branchHandlers{
 		svc:             svc,
 		githubToken:     "test-token",
-		newBranchClient: func(_ string) BranchFetcher { return mock },
+		allowedHosts:    []string{"github.com"},
+		newBranchClient: func(_, _ string) BranchFetcher { return mock },
 	}
 
 	mux := http.NewServeMux()
@@ -187,7 +188,8 @@ func TestListBranches_FetchError(t *testing.T) {
 	bh := &branchHandlers{
 		svc:             svc,
 		githubToken:     "test-token",
-		newBranchClient: func(_ string) BranchFetcher { return mock },
+		allowedHosts:    []string{"github.com"},
+		newBranchClient: func(_, _ string) BranchFetcher { return mock },
 	}
 
 	mux := http.NewServeMux()

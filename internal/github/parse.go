@@ -5,33 +5,49 @@ import (
 	"strings"
 )
 
-// ParseGitHubRepo extracts owner and repo from a GitHub URL.
+// ParseGitHubRepo extracts owner, repo, and matched host from a GitHub URL.
 // Supported formats:
-//   - git@github.com:owner/repo.git
-//   - https://github.com/owner/repo.git
-//   - https://github.com/owner/repo
+//   - git@<host>:owner/repo.git
+//   - https://<host>/owner/repo.git
+//   - https://<host>/owner/repo
+//   - ssh://<host>/owner/repo.git
 //
-// Returns empty strings and false if the URL is not a GitHub URL or cannot be parsed.
-func ParseGitHubRepo(rawURL string) (owner, repo string, ok bool) {
-	// SSH format: git@github.com:owner/repo.git
-	if path, ok := strings.CutPrefix(rawURL, "git@github.com:"); ok {
-		path = strings.TrimSuffix(path, ".git")
-		return splitOwnerRepo(path)
+// allowedHosts is the list of permitted hostnames (e.g. ["github.com", "acme.ghe.com"]).
+// Returns empty strings and false if the URL does not match any allowed host or cannot be parsed.
+func ParseGitHubRepo(rawURL string, allowedHosts []string) (owner, repo, host string, ok bool) {
+	// SSH SCP format: git@<host>:owner/repo.git
+	for _, h := range allowedHosts {
+		prefix := "git@" + h + ":"
+		if path, matched := strings.CutPrefix(rawURL, prefix); matched {
+			path = strings.TrimSuffix(path, ".git")
+			o, r, valid := splitOwnerRepo(path)
+			if valid {
+				return o, r, h, true
+			}
+			return "", "", "", false
+		}
 	}
 
-	// HTTPS format
+	// HTTPS / SSH URL format
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 
-	if u.Hostname() != "github.com" {
-		return "", "", false
+	hostname := u.Hostname()
+	for _, h := range allowedHosts {
+		if hostname == h {
+			path := strings.TrimPrefix(u.Path, "/")
+			path = strings.TrimSuffix(path, ".git")
+			o, r, valid := splitOwnerRepo(path)
+			if valid {
+				return o, r, h, true
+			}
+			return "", "", "", false
+		}
 	}
 
-	path := strings.TrimPrefix(u.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-	return splitOwnerRepo(path)
+	return "", "", "", false
 }
 
 func splitOwnerRepo(path string) (owner, repo string, ok bool) {

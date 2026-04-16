@@ -52,15 +52,17 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service     *service.CardService
-	Bus         *events.Bus
-	CORSOrigin  string
-	Syncer      Syncer
-	Runner      *runner.Client
-	RunnerCfg   config.RunnerConfig
-	MCPAPIKey   string
-	Port        int
-	GitHubToken string
+	Service              *service.CardService
+	Bus                  *events.Bus
+	CORSOrigin           string
+	Syncer               Syncer
+	Runner               *runner.Client
+	RunnerCfg            config.RunnerConfig
+	MCPAPIKey            string
+	Port                 int
+	GitHubToken          string
+	GitHubAPIBaseURL     string
+	GitHubAllowedHosts   []string
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -75,7 +77,13 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
-	bh := &branchHandlers{svc: cfg.Service, githubToken: cfg.GitHubToken, newBranchClient: defaultBranchClient}
+	bh := &branchHandlers{
+		svc:              cfg.Service,
+		githubToken:      cfg.GitHubToken,
+		githubAPIBaseURL: cfg.GitHubAPIBaseURL,
+		allowedHosts:     cfg.GitHubAllowedHosts,
+		newBranchClient:  defaultBranchClient,
+	}
 
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)

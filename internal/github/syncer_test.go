@@ -21,11 +21,14 @@ import (
 )
 
 func TestResolveOwnerRepo(t *testing.T) {
+	defaultHosts := []string{"github.com"}
+
 	tests := []struct {
-		name      string
-		cfg       *board.ProjectConfig
-		wantOwner string
-		wantRepo  string
+		name         string
+		cfg          *board.ProjectConfig
+		allowedHosts []string
+		wantOwner    string
+		wantRepo     string
 	}{
 		{
 			name: "explicit config",
@@ -34,8 +37,9 @@ func TestResolveOwnerRepo(t *testing.T) {
 					ImportIssues: true, Owner: "explicit-org", Repo: "explicit-repo",
 				},
 			},
-			wantOwner: "explicit-org",
-			wantRepo:  "explicit-repo",
+			allowedHosts: defaultHosts,
+			wantOwner:    "explicit-org",
+			wantRepo:     "explicit-repo",
 		},
 		{
 			name: "from SSH repo URL",
@@ -43,8 +47,9 @@ func TestResolveOwnerRepo(t *testing.T) {
 				Repo:   "git@github.com:myorg/myrepo.git",
 				GitHub: &board.GitHubImportConfig{ImportIssues: true},
 			},
-			wantOwner: "myorg",
-			wantRepo:  "myrepo",
+			allowedHosts: defaultHosts,
+			wantOwner:    "myorg",
+			wantRepo:     "myrepo",
 		},
 		{
 			name: "non-GitHub URL",
@@ -52,10 +57,12 @@ func TestResolveOwnerRepo(t *testing.T) {
 				Repo:   "git@gitlab.com:myorg/myrepo.git",
 				GitHub: &board.GitHubImportConfig{ImportIssues: true},
 			},
+			allowedHosts: defaultHosts,
 		},
 		{
-			name: "nil GitHub config",
-			cfg:  &board.ProjectConfig{Repo: "git@github.com:myorg/myrepo.git"},
+			name:         "nil GitHub config",
+			cfg:          &board.ProjectConfig{Repo: "git@github.com:myorg/myrepo.git"},
+			allowedHosts: defaultHosts,
 		},
 		{
 			name: "partial explicit falls back to URL",
@@ -65,14 +72,15 @@ func TestResolveOwnerRepo(t *testing.T) {
 					ImportIssues: true, Owner: "partial-org",
 				},
 			},
-			wantOwner: "url-org",
-			wantRepo:  "url-repo",
+			allowedHosts: defaultHosts,
+			wantOwner:    "url-org",
+			wantRepo:     "url-repo",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			owner, repo := resolveOwnerRepo(tt.cfg)
+			owner, repo := resolveOwnerRepo(tt.cfg, tt.allowedHosts)
 			assert.Equal(t, tt.wantOwner, owner)
 			assert.Equal(t, tt.wantRepo, repo)
 		})
@@ -138,7 +146,7 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
 	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute)
+	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
@@ -178,7 +186,7 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
 	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute)
+	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
@@ -223,7 +231,7 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
 	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute)
+	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))

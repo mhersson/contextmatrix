@@ -272,6 +272,9 @@ func TestFetchBranches_EmptyRepo(t *testing.T) {
 }
 
 func TestParseLinkNext(t *testing.T) {
+	// parseLinkNext is now a method; use a client with the default base URL.
+	c := NewClient("test-token")
+
 	tests := []struct {
 		name   string
 		header string
@@ -301,7 +304,111 @@ func TestParseLinkNext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, parseLinkNext(tt.header))
+			assert.Equal(t, tt.want, c.parseLinkNext(tt.header))
 		})
 	}
+}
+
+func TestNewClientWithBaseURL(t *testing.T) {
+	// Verify that NewClientWithBaseURL causes the client to hit the given base URL.
+	var requestPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		_ = json.NewEncoder(w).Encode([]Issue{})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL("test-token", srv.URL)
+	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "/repos/o/r/issues", requestPath)
+	assert.Equal(t, srv.URL, client.baseURL)
+}
+
+func TestNewClientWithBaseURL_TrailingSlashTrimmed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		_ = json.NewEncoder(w).Encode([]Issue{})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL("test-token", srv.URL+"/")
+	// baseURL should have trailing slash removed.
+	assert.Equal(t, srv.URL, client.baseURL)
+	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	require.NoError(t, err)
+}
+
+func TestNewClientWithBaseURL_EmptyFallsToDefault(t *testing.T) {
+	client := NewClientWithBaseURL("test-token", "")
+	assert.Equal(t, defaultBaseURL, client.baseURL)
+}
+
+func TestNewClient_DelegatesToNewClientWithBaseURL(t *testing.T) {
+	client := NewClient("my-token")
+	assert.Equal(t, defaultBaseURL, client.baseURL)
+	assert.Equal(t, "my-token", client.token)
+}
+
+func TestParseLinkNext_WithCustomHost(t *testing.T) {
+	// A client with a custom enterprise base URL should accept Link headers
+	// pointing at that same host, and reject others.
+	c := NewClientWithBaseURL("tok", "https://github.example.corp/api/v3")
+
+	// Same host: accepted.
+	got := c.parseLinkNext(`<https://github.example.corp/api/v3/repos/o/r/issues?page=2>; rel="next"`)
+	assert.Equal(t, "https://github.example.corp/api/v3/repos/o/r/issues?page=2", got)
+
+	// Different host: rejected (SSRF protection).
+	got = c.parseLinkNext(`<https://evil.com/steal>; rel="next"`)
+	assert.Equal(t, "", got)
+
+	// Default github.com host: rejected when enterprise URL is configured.
+	got = c.parseLinkNext(`<https://api.github.com/repos/o/r/issues?page=2>; rel="next"`)
+	assert.Equal(t, "", got)
+}
+
+func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
+	// End-to-end: pagination follows Link headers that match the custom base URL host.
+	page1 := []Issue{{Number: 1, Title: "Issue One"}}
+	page2 := []Issue{{Number: 2, Title: "Issue Two"}}
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		if r.URL.Query().Get("page") == "2" {
+			_ = json.NewEncoder(w).Encode(page2)
+		} else {
+			// Link header points at same host — SSRF check must pass.
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues?page=2>; rel="next"`, srv.URL))
+			_ = json.NewEncoder(w).Encode(page1)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL("test-token", srv.URL)
+	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+	assert.Equal(t, "Issue One", result[0].Title)
+	assert.Equal(t, "Issue Two", result[1].Title)
+}
+
+func TestParseLinkNext_SSRFRejectedWithCustomBaseURL(t *testing.T) {
+	// Even with a custom base URL, Link headers pointing at a different host must be rejected.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		// Adversarial Link header pointing at a different host.
+		w.Header().Set("Link", `<https://evil.com/steal?token=x>; rel="next"`)
+		_ = json.NewEncoder(w).Encode([]Issue{{Number: 1, Title: "Only issue"}})
+	}))
+	defer srv.Close()
+
+	client := NewClientWithBaseURL("test-token", srv.URL)
+	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	require.NoError(t, err)
+	// Only one page returned — the evil next URL was rejected.
+	require.Len(t, result, 1)
+	assert.Equal(t, "Only issue", result[0].Title)
 }
