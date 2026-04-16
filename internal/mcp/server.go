@@ -36,7 +36,9 @@ func NewServer(svc *service.CardService, skillsDir string) *mcp.Server {
 func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return server },
-		nil,
+		// DisableLocalhostProtection allows requests with non-localhost Host
+		// headers (e.g. host.docker.internal) when running behind Docker Desktop.
+		&mcp.StreamableHTTPOptions{DisableLocalhostProtection: true},
 	)
 	// Wrap with write-deadline clearing for GET requests. The MCP Streamable HTTP
 	// transport uses a long-lived SSE stream on GET /mcp. Like the SSE endpoint,
