@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -37,6 +38,8 @@ type Syncer struct {
 	interval time.Duration
 	autoPull bool
 	autoPush bool
+	authMode string
+	token    string
 
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
@@ -49,6 +52,9 @@ type Syncer struct {
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
 // configured or the git binary is not found — sync is silently disabled.
+// authMode and token configure PAT authentication for shell git operations:
+// use "ssh" (or "") to preserve the default environment, or "pat" to inject
+// an Authorization Bearer header via GIT_CONFIG_* env vars.
 func NewSyncer(
 	git *gitops.Manager,
 	store *storage.FilesystemStore,
@@ -58,6 +64,8 @@ func NewSyncer(
 	autoPull bool,
 	autoPush bool,
 	interval time.Duration,
+	authMode string,
+	token string,
 ) *Syncer {
 	if !git.HasRemote() {
 		slog.Info("git sync disabled: no remote configured")
@@ -78,6 +86,8 @@ func NewSyncer(
 		interval: interval,
 		autoPull: autoPull,
 		autoPush: autoPush,
+		authMode: authMode,
+		token:    token,
 		pushCh:   make(chan struct{}, 1),
 	}
 }
@@ -180,7 +190,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	}
 
 	// Fetch from origin.
-	if _, err := runGit(ctx, s.repoPath, "fetch", "origin"); err != nil {
+	if _, err := runGit(ctx, s.repoPath, gitops.GitAuthEnv(s.authMode, s.token), "fetch", "origin"); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
 		return fmt.Errorf("git fetch: %w", err)
@@ -208,10 +218,11 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	// Rebase local commits on top of remote. --autostash stashes any
 	// uncommitted changes before the rebase and restores them after, so a
 	// dirty worktree does not block the sync.
-	if _, err := runGit(ctx, s.repoPath, "rebase", "--autostash", remote); err != nil {
+	authEnv := gitops.GitAuthEnv(s.authMode, s.token)
+	if _, err := runGit(ctx, s.repoPath, authEnv, "rebase", "--autostash", remote); err != nil {
 		// Rebase conflict — abort and report.
 		slog.Error("git sync: rebase conflict, aborting", "error", err)
-		_, _ = runGit(ctx, s.repoPath, "rebase", "--abort")
+		_, _ = runGit(ctx, s.repoPath, nil, "rebase", "--abort")
 		conflictErr := fmt.Errorf("rebase conflict: %w", err)
 		s.setError(conflictErr)
 
@@ -326,7 +337,8 @@ func (s *Syncer) pushListener(ctx context.Context) {
 // isBehind checks if the local branch is behind the remote tracking ref.
 func (s *Syncer) isBehind(ctx context.Context, local, remote string) (bool, error) {
 	// Count commits that exist in remote but not in local.
-	out, err := runGit(ctx, s.repoPath, "rev-list", "--count", local+".."+remote)
+	// rev-list is a local operation (no network), so auth env is not needed.
+	out, err := runGit(ctx, s.repoPath, nil, "rev-list", "--count", local+".."+remote)
 	if err != nil {
 		return false, err
 	}
@@ -380,9 +392,15 @@ func (s *Syncer) publishCompleted(trigger string, changesPulled bool, duration t
 }
 
 // runGit executes a git command in the given directory and returns its output.
-func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+// authEnv contains additional environment variables to inject (e.g.
+// GIT_CONFIG_* entries for PAT auth). Pass nil to inherit the caller's env.
+func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+
+	if len(authEnv) > 0 {
+		cmd.Env = append(os.Environ(), authEnv...)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

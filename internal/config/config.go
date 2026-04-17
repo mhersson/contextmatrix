@@ -81,6 +81,7 @@ type Config struct {
 	GitDeferredCommit   bool                 `yaml:"git_deferred_commit"`
 	GitCloneOnEmpty     bool                 `yaml:"git_clone_on_empty"`
 	GitRemoteURL        string               `yaml:"git_remote_url"`
+	GitAuthMode         string               `yaml:"git_auth_mode"`
 	HeartbeatTimeout    string               `yaml:"heartbeat_timeout"`
 	CORSOrigin          string               `yaml:"cors_origin"`
 	SkillsDir           string               `yaml:"skills_dir"`
@@ -99,6 +100,7 @@ func defaults() *Config {
 		GitAutoPush:      false,
 		GitAutoPull:      false,
 		GitPullInterval:  "60s",
+		GitAuthMode:      "ssh",
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
@@ -120,6 +122,23 @@ func (c *Config) Validate() error {
 	}
 	if c.GitCloneOnEmpty && c.GitRemoteURL == "" {
 		return fmt.Errorf("git_remote_url is required when git_clone_on_empty is enabled")
+	}
+	if c.GitAuthMode == "" {
+		c.GitAuthMode = "ssh"
+	}
+	switch c.GitAuthMode {
+	case "ssh", "pat":
+		// valid
+	default:
+		return fmt.Errorf("invalid git_auth_mode %q: must be \"ssh\" or \"pat\"", c.GitAuthMode)
+	}
+	if c.GitAuthMode == "pat" {
+		if c.GitHub.Token == "" {
+			return fmt.Errorf("github.token is required when git_auth_mode is \"pat\"")
+		}
+		if !strings.HasPrefix(c.GitRemoteURL, "https://") {
+			return fmt.Errorf("git_remote_url must start with https:// when git_auth_mode is \"pat\" (got %q)", c.GitRemoteURL)
+		}
 	}
 	if c.GitHub.IssueImporting.Enabled {
 		if c.GitHub.Token == "" {
@@ -269,6 +288,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_REMOTE_URL"); v != "" {
 		cfg.GitRemoteURL = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
+		cfg.GitAuthMode = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v

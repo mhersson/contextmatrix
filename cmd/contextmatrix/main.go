@@ -45,6 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("config loaded", "path", *configPath)
+	slog.Info("boards git auth", "mode", cfg.GitAuthMode)
 
 	// Parse heartbeat timeout
 	heartbeatTimeout, err := cfg.HeartbeatDuration()
@@ -59,7 +60,7 @@ func main() {
 	if cfg.GitCloneOnEmpty {
 		cloneURL = cfg.GitRemoteURL
 	}
-	git, err := gitops.NewManager(cfg.BoardsDir, cloneURL)
+	git, err := gitops.NewManager(cfg.BoardsDir, cloneURL, cfg.GitAuthMode, cfg.GitHub.Token)
 	if err != nil {
 		slog.Error("failed to create git manager", "error", err)
 		os.Exit(1)
@@ -107,7 +108,7 @@ func main() {
 	if git.HasRemote() {
 		pullInterval, _ := cfg.PullIntervalDuration()
 		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.BoardsDir,
-			cfg.GitAutoPull, cfg.GitAutoPush, pullInterval)
+			cfg.GitAutoPull, cfg.GitAutoPush, pullInterval, cfg.GitAuthMode, cfg.GitHub.Token)
 		if syncer != nil {
 			if err := syncer.PullOnStartup(ctx); err != nil {
 				slog.Warn("initial pull failed", "error", err)

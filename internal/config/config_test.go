@@ -1351,3 +1351,184 @@ func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
 	assert.Equal(t, "", cfg.GitHub.Host)
 	assert.Equal(t, "", cfg.GitHub.APIBaseURL)
 }
+
+// ---------- GitAuthMode tests ----------
+
+func TestDefaults_GitAuthMode(t *testing.T) {
+	cfg := defaults()
+	assert.Equal(t, "ssh", cfg.GitAuthMode)
+}
+
+func TestLoad_GitAuthMode_DefaultIsSSH(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `boards_dir: `+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "ssh", cfg.GitAuthMode)
+}
+
+func TestLoad_GitAuthMode_EnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_remote_url: "https://github.com/user/boards.git"
+github:
+  token: "ghp_test_pat_token"
+`)
+
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE", "pat")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "pat", cfg.GitAuthMode)
+}
+
+func TestValidate_GitAuthMode_UnknownValueRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "typo", mode: "SSH"},
+		{name: "kebab", mode: "ssh-key"},
+		{name: "empty via explicit set", mode: "token"},
+		{name: "garbage", mode: "ftp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				BoardsDir:        "/some/path",
+				HeartbeatTimeout: "30m",
+				GitAuthMode:      tt.mode,
+			}
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid git_auth_mode")
+		})
+	}
+}
+
+func TestValidate_GitAuthMode_PATMissingToken(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitAuthMode:      "pat",
+		GitRemoteURL:     "https://github.com/user/boards.git",
+		GitHub:           GitHubConfig{Token: ""},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.token is required when git_auth_mode is \"pat\"")
+}
+
+func TestValidate_GitAuthMode_PATWithSSHURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "ssh scheme", url: "ssh://git@github.com/user/boards.git"},
+		{name: "scp-style", url: "git@github.com:user/boards.git"},
+		{name: "empty URL", url: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				BoardsDir:        "/some/path",
+				HeartbeatTimeout: "30m",
+				GitAuthMode:      "pat",
+				GitRemoteURL:     tt.url,
+				GitHub:           GitHubConfig{Token: "ghp_test_token"},
+			}
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "git_remote_url must start with https://")
+		})
+	}
+}
+
+func TestValidate_GitAuthMode_PATWithHTTPSURLAndToken(t *testing.T) {
+	cfg := &Config{
+		BoardsDir:        "/some/path",
+		HeartbeatTimeout: "30m",
+		GitAuthMode:      "pat",
+		GitRemoteURL:     "https://github.com/user/boards.git",
+		GitHub:           GitHubConfig{Token: "ghp_test_valid_token"},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidate_GitAuthMode_SSHIsValidWithAnyRemote(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "scp-style", url: "git@github.com:user/boards.git"},
+		{name: "ssh scheme", url: "ssh://git@github.com/user/boards.git"},
+		{name: "https", url: "https://github.com/user/boards.git"},
+		{name: "empty", url: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				BoardsDir:        "/some/path",
+				HeartbeatTimeout: "30m",
+				GitAuthMode:      "ssh",
+				GitRemoteURL:     tt.url,
+			}
+			err := cfg.Validate()
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestLoad_GitAuthMode_YAMLField(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_auth_mode: "ssh"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "ssh", cfg.GitAuthMode)
+}
+
+func TestLoad_GitAuthMode_PATFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards_dir: `+boardsDir+`
+git_remote_url: "https://github.com/user/boards.git"
+git_auth_mode: "pat"
+github:
+  token: "ghp_yaml_pat_token"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "pat", cfg.GitAuthMode)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.GitRemoteURL)
+}
+
+func TestLoad_GitAuthMode_ExampleFileHasSSHDefault(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	cfg, err := Load(examplePath)
+	require.NoError(t, err, "config.yaml.example must parse and validate without error")
+	assert.Equal(t, "ssh", cfg.GitAuthMode)
+}

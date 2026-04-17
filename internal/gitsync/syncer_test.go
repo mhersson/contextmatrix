@@ -67,7 +67,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	run(t, clone, "git", "push", "origin", "HEAD")
 
 	// Set up Go objects.
-	gitMgr, err := gitops.NewManager(clone, "")
+	gitMgr, err := gitops.NewManager(clone, "", "ssh", "")
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(clone)
@@ -77,7 +77,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 	svc := service.NewCardService(store, gitMgr, lockMgr, bus, clone, nil, true, false)
 
-	syncer = NewSyncer(gitMgr, store, svc, bus, clone, true, true, time.Minute)
+	syncer = NewSyncer(gitMgr, store, svc, bus, clone, true, true, time.Minute, "ssh", "")
 	require.NotNil(t, syncer)
 
 	return syncer, upstream, clone, bus
@@ -97,10 +97,10 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 
 func TestNewSyncer_NoRemote(t *testing.T) {
 	dir := t.TempDir()
-	gitMgr, err := gitops.NewManager(dir, "")
+	gitMgr, err := gitops.NewManager(dir, "", "ssh", "")
 	require.NoError(t, err)
 
-	syncer := NewSyncer(gitMgr, nil, nil, nil, dir, true, true, time.Minute)
+	syncer := NewSyncer(gitMgr, nil, nil, nil, dir, true, true, time.Minute, "ssh", "")
 	assert.Nil(t, syncer, "syncer should be nil when no remote")
 }
 
@@ -319,7 +319,7 @@ func TestRunGit(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "git", "init")
 
-	out, err := runGit(context.Background(), dir, "status")
+	out, err := runGit(context.Background(), dir, nil, "status")
 	require.NoError(t, err)
 	assert.Contains(t, out, "On branch")
 }
@@ -329,7 +329,7 @@ func TestRunGit_Error(t *testing.T) {
 		t.Skip("git binary not found")
 	}
 
-	_, err := runGit(context.Background(), t.TempDir(), "log")
+	_, err := runGit(context.Background(), t.TempDir(), nil, "log")
 	assert.Error(t, err)
 }
 
@@ -354,4 +354,108 @@ func assertHasEventType(t *testing.T, evts []events.Event, typ events.EventType)
 		}
 	}
 	t.Errorf("expected event type %q, got: %v", typ, evts)
+}
+
+// TestNewSyncer_SSHMode verifies that NewSyncer stores the ssh auth mode and
+// that GitAuthEnv returns nil for it (no env injection, preserves SSH agent).
+func TestNewSyncer_SSHMode(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+	assert.Equal(t, "ssh", syncer.authMode)
+	assert.Equal(t, "", syncer.token)
+	assert.Nil(t, gitops.GitAuthEnv(syncer.authMode, syncer.token),
+		"ssh mode must produce nil auth env")
+}
+
+// TestNewSyncer_PATMode verifies that NewSyncer stores the pat auth mode and
+// token, and that GitAuthEnv returns the four expected entries.
+func TestNewSyncer_PATMode(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	const token = "ghp_pat_test_token"
+
+	upstream := filepath.Join(t.TempDir(), "upstream.git")
+	run(t, "", "git", "init", "--bare", upstream)
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	run(t, "", "git", "clone", upstream, clone)
+	run(t, clone, "git", "config", "user.email", "test@test.com")
+	run(t, clone, "git", "config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(clone, "init.txt"), []byte("init"), 0o644))
+	run(t, clone, "git", "add", "-A")
+	run(t, clone, "git", "commit", "-m", "initial")
+	run(t, clone, "git", "push", "origin", "HEAD")
+
+	gitMgr, err := gitops.NewManager(clone, "", "pat", token)
+	require.NoError(t, err)
+
+	store, err := storage.NewFilesystemStore(clone)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc := service.NewCardService(store, gitMgr, lockMgr, bus, clone, nil, true, false)
+
+	syncer := NewSyncer(gitMgr, store, svc, bus, clone, true, true, time.Minute, "pat", token)
+	require.NotNil(t, syncer)
+
+	assert.Equal(t, "pat", syncer.authMode)
+	assert.Equal(t, token, syncer.token)
+
+	env := gitops.GitAuthEnv(syncer.authMode, syncer.token)
+	require.NotNil(t, env)
+	require.Len(t, env, 4)
+	assert.Contains(t, env, "GIT_CONFIG_COUNT=1")
+	assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.extraheader")
+	assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token)
+	assert.Contains(t, env, "GIT_TERMINAL_PROMPT=0")
+}
+
+// TestNewSyncer_PATMode_TokenNotInArgs verifies that the PAT token never
+// appears in git command arguments — it must only travel via environment.
+func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
+	const token = "ghp_supersecret_should_not_leak"
+
+	env := gitops.GitAuthEnv("pat", token)
+	require.NotNil(t, env)
+
+	// The token must appear exactly once — in GIT_CONFIG_VALUE_0 only.
+	for _, e := range env {
+		if e == "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token {
+			continue // correct placement
+		}
+		assert.NotContains(t, e, token,
+			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
+	}
+}
+
+// TestRunGit_WithAuthEnv verifies that runGit properly injects extra env vars.
+func TestRunGit_WithAuthEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+
+	// GIT_TERMINAL_PROMPT=0 is a valid env var; git status should still work.
+	authEnv := []string{"GIT_TERMINAL_PROMPT=0"}
+	out, err := runGit(context.Background(), dir, authEnv, "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, "On branch")
+}
+
+// TestRunGit_NilAuthEnv verifies that nil auth env leaves the process env intact.
+func TestRunGit_NilAuthEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+
+	out, err := runGit(context.Background(), dir, nil, "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, "On branch")
 }

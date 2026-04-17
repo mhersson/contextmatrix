@@ -616,6 +616,8 @@ curl http://localhost:8080/healthz
 | `git_auto_push`        | `false`                 | Auto-push after each commit                                                                   |
 | `git_auto_pull`        | `false`                 | Pull from remote on startup and at `git_pull_interval`                                        |
 | `git_pull_interval`    | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string)                        |
+| `git_remote_url`       | `""`                    | Remote URL for the boards repo (SSH or HTTPS); required for clone-on-empty and PAT mode       |
+| `git_auth_mode`        | `"ssh"`                 | Auth mode for boards git ops: `ssh` (deploy key) or `pat` (GitHub fine-grained PAT)          |
 | `heartbeat_timeout`    | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
 | `cors_origin`          | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
 | `skills_dir`           | `./skills`              | Path to skill file markdown directory                                                         |
@@ -625,7 +627,7 @@ curl http://localhost:8080/healthz
 | `runner.url`           | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
 | `runner.api_key`       | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
 | `runner.public_url`    | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
-| `github.token`         | `""`                    | GitHub fine-grained PAT with `Issues: Read` permission (empty = disabled)                     |
+| `github.token`         | `""`                    | GitHub fine-grained PAT; used for issue import and for boards git auth in PAT mode            |
 | `github.host`          | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                              |
 | `github.api_base_url`  | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)               |
 | `github.sync_interval` | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
@@ -650,6 +652,8 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_GIT_AUTO_PUSH`
 - `CONTEXTMATRIX_GIT_AUTO_PULL`
 - `CONTEXTMATRIX_GIT_PULL_INTERVAL`
+- `CONTEXTMATRIX_GIT_REMOTE_URL`
+- `CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE`
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
 - `CONTEXTMATRIX_SKILLS_DIR`

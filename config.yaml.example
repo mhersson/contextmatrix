@@ -65,9 +65,41 @@ git_clone_on_empty: false
 
 # Remote URL for the boards repository. Used for clone-on-empty and as
 # the default origin remote when no remote is configured.
-# Example: git@github.com:user/boards.git
+# Example (SSH):   git@github.com:user/boards.git
+# Example (HTTPS): https://github.com/user/boards.git
 # Env: CONTEXTMATRIX_GIT_REMOTE_URL
 git_remote_url: ""
+
+# Authentication mode for git operations on the boards repository.
+# Allowed values: "ssh" (default) | "pat"
+#
+#   ssh — Use an SSH deploy key already configured in the git environment
+#          (e.g. ~/.ssh/id_rsa). No additional configuration required beyond
+#          the key being present and trusted by the remote host.
+#
+#   pat — Inject a GitHub fine-grained Personal Access Token via the
+#          GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0 env
+#          variables (http.extraheader=Authorization: Bearer <token>).
+#          The token is NEVER embedded in git_remote_url, keeping it out of
+#          process argument lists and git config files on disk.
+#
+#          Required PAT permissions:
+#            boards repository : contents:write   (clone, pull, push)
+#            project repos     : issues:read      (GitHub issue import)
+#
+#          When pat is selected:
+#            • github.token must be non-empty
+#            • git_remote_url must start with https://
+#
+# Default: ssh
+# Env: CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE
+git_auth_mode: "ssh"
+
+# PAT example (uncomment and set git_auth_mode: pat to activate):
+# git_remote_url: "https://github.com/your-org/boards.git"
+# git_auth_mode: "pat"
+# github:
+#   token: ""   # set via CONTEXTMATRIX_GITHUB_TOKEN env var — never hard-code
 
 # How long an agent can go without sending a heartbeat before the card is
 # automatically moved to the "stalled" state and the agent claim is released.

@@ -119,7 +119,7 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	git, err := gitops.NewManager(boardsDir, "")
+	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
 	require.NoError(t, err)
 
 	bus := events.NewBus()

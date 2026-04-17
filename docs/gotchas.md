@@ -53,3 +53,9 @@
   from spamming logs. The endpoint still responds normally — only the log line
   is suppressed. If you expect to see probe traffic in logs for debugging, hit
   any other path or check the endpoint directly with `curl`.
+- **PAT mode requires specific permissions:** when `git_auth_mode: pat`, the
+  fine-grained PAT must have `Contents: Read and write` on the boards repo **and**
+  `Issues: Read-only` on each project repo referenced in `.board.yaml` that has
+  `github.import_issues: true`. Additionally, `git_remote_url` must start with
+  `https://` — SSH URLs are rejected at startup when PAT mode is active. PAT mode
+  only works with GitHub (github.com or GHEC/GHES); use SSH for other git hosts.

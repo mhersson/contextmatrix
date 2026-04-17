@@ -32,6 +32,8 @@ type Manager struct {
 	repo     *git.Repository
 	repoPath string
 	author   object.Signature
+	authMode string
+	token    string
 	mu       sync.Mutex
 }
 
@@ -39,7 +41,10 @@ type Manager struct {
 // The repoPath should be the boards directory (cfg.BoardsDir).
 // If cloneURL is non-empty and no repository exists at repoPath, it will
 // be cloned from the given URL instead of initialized as empty.
-func NewManager(repoPath string, cloneURL string) (*Manager, error) {
+// authMode and token configure PAT authentication for shell git operations:
+// use "ssh" (or "") to preserve the default environment, or "pat" to inject
+// an Authorization Bearer header via GIT_CONFIG_* env vars.
+func NewManager(repoPath string, cloneURL string, authMode string, token string) (*Manager, error) {
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -55,8 +60,8 @@ func NewManager(repoPath string, cloneURL string) (*Manager, error) {
 		}
 
 		if cloneURL != "" {
-			// Clone from remote
-			repo, err = cloneRepo(absPath, cloneURL)
+			// Clone from remote with the configured auth env.
+			repo, err = cloneRepo(absPath, cloneURL, GitAuthEnv(authMode, token))
 		} else {
 			// Initialize new empty repository
 			slog.Info("initializing new git repository", "path", absPath)
@@ -71,6 +76,8 @@ func NewManager(repoPath string, cloneURL string) (*Manager, error) {
 		repo:     repo,
 		repoPath: absPath,
 		author:   DefaultAuthor,
+		authMode: authMode,
+		token:    token,
 	}
 
 	// If a remote URL is provided but the repo was opened (not cloned),
@@ -86,13 +93,18 @@ func NewManager(repoPath string, cloneURL string) (*Manager, error) {
 
 // cloneRepo clones a git repository from the given URL into the target directory
 // using shell git (consistent with push/pull operations).
-func cloneRepo(targetDir, url string) (*git.Repository, error) {
+// authEnv contains additional environment variables (e.g. GIT_CONFIG_* for PAT
+// auth) to pass to the git subprocess; nil preserves the default environment.
+func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error) {
 	slog.Info("cloning boards repository", "url", url, "target", targetDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "clone", url, targetDir)
+	if len(authEnv) > 0 {
+		cmd.Env = append(os.Environ(), authEnv...)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -308,9 +320,15 @@ func (m *Manager) reloadRepo() error {
 // runGit executes a git command in the repository directory.
 // Must be called without mu held (or from a context that already holds it,
 // as this method does not re-acquire the lock).
+// Auth environment variables (e.g. GIT_CONFIG_* for PAT) are appended
+// automatically based on the Manager's configured authMode and token.
 func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
+
+	if env := GitAuthEnv(m.authMode, m.token); len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

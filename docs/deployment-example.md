@@ -109,16 +109,18 @@ writers.
 - **Clone-on-empty** — if the PVC is empty on startup, ContextMatrix
   automatically clones the boards repo from the configured remote URL. No manual
   initialization needed.
-- **SSH deploy key** — mount a deploy key for boards repo git operations (push
-  to remote). Mount at a path accessible to the container user and set
-  `GIT_SSH_COMMAND` to use it.
+- **Git auth** — two modes supported; see variants below.
 - **Configuration** — all settings can be set via `CONTEXTMATRIX_*` environment
   variables. See `config.yaml.example` for the full list.
 - **Security context** — the image runs as `nobody`. Use
   `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and
   `/home/nobody`.
 
-### Example deployment snippet
+### Example deployment snippet — SSH deploy key (default)
+
+Use this variant for any git host (GitHub, GitLab, Gitea, etc.). Mount a deploy
+key with write access to the boards repo. The SSH key file must be readable by
+the `nobody` user (mode `0400`).
 
 ```yaml
 apiVersion: apps/v1
@@ -139,7 +141,7 @@ spec:
           env:
             - name: CONTEXTMATRIX_BOARDS_DIR
               value: /data/boards
-            - name: CONTEXTMATRIX_BOARDS_REMOTE_URL
+            - name: CONTEXTMATRIX_GIT_REMOTE_URL
               value: git@github.com:org/boards.git
             - name: CONTEXTMATRIX_MCP_API_KEY
               valueFrom:
@@ -161,6 +163,64 @@ spec:
             secretName: boards-deploy-key
             defaultMode: 0400
 ```
+
+### Example deployment snippet — GitHub fine-grained PAT
+
+Use this variant when the boards repo is on GitHub and you want a single
+credential that covers both boards sync and GitHub issue import. The PAT is
+passed via the environment — it is never embedded in the remote URL or exposed
+in process argument lists.
+
+**Required PAT permissions:**
+- `boards` repo: `Contents: Read and write`
+- each project repo referenced in `.board.yaml`: `Issues: Read-only`
+
+**Note:** the remote URL must use HTTPS, not SSH.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contextmatrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: contextmatrix
+          image: contextmatrix:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONTEXTMATRIX_BOARDS_DIR
+              value: /data/boards
+            - name: CONTEXTMATRIX_GIT_REMOTE_URL
+              value: https://github.com/org/boards.git
+            - name: CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE
+              value: pat
+            - name: CONTEXTMATRIX_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: contextmatrix-secrets
+                  key: github-token
+            - name: CONTEXTMATRIX_MCP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: contextmatrix-secrets
+                  key: mcp-api-key
+          volumeMounts:
+            - name: boards
+              mountPath: /data/boards
+      volumes:
+        - name: boards
+          persistentVolumeClaim:
+            claimName: contextmatrix-boards
+```
+
+No SSH key volume is needed. The same `github-token` secret value is used for
+both boards git operations and issue import.
 
 ## Runner on a Separate Host
 
@@ -220,12 +280,13 @@ ports:
 
 Before first deployment, generate these:
 
-| Secret                  | Purpose                                | Notes                                                         |
-| ----------------------- | -------------------------------------- | ------------------------------------------------------------- |
-| **MCP API key**         | Bearer token for MCP endpoint          | Random string, set in config                                  |
-| **Runner API key**      | HMAC-SHA256 webhook signing            | Shared between CM and runner, min 32 chars, never transmitted |
-| **Boards SSH key**      | Git push to boards remote              | Deploy key with write access                                  |
-| **GitHub App** (runner) | Clone repos, push branches, create PRs | Short-lived tokens (1h expiry)                                |
+| Secret                    | Purpose                                | Notes                                                                                                   |
+| ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **MCP API key**           | Bearer token for MCP endpoint          | Random string, set in config                                                                            |
+| **Runner API key**        | HMAC-SHA256 webhook signing            | Shared between CM and runner, min 32 chars, never transmitted                                           |
+| **Boards SSH key**        | Git push to boards remote (SSH mode)   | Deploy key with write access; not needed in PAT mode                                                    |
+| **GitHub fine-grained PAT** | Boards git auth + issue import (PAT mode) | Requires `contents:write` on boards repo and `issues:read` on project repos; max 1-year expiry, rotate annually |
+| **GitHub App** (runner)   | Clone repos, push branches, create PRs | Short-lived tokens (1h expiry)                                                                          |
 
 ## Security Model
 
