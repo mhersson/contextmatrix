@@ -58,7 +58,7 @@ boards:
   # Automatically create a git commit in the boards repository after every card
   # mutation. Disable only if you manage commits yourself.
   # Default: true
-  # Env: CONTEXTMATRIX_GIT_AUTO_COMMIT (true/false/1/0)
+  # Env: CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT (true/false/1/0)
   git_auto_commit: true
 
   # Defer git commits: instead of committing after every write, accumulate changes
@@ -66,39 +66,39 @@ boards:
   # not_planned). Reduces commit noise for tasks with many intermediate updates.
   # Has no effect unless git_auto_commit is also true.
   # Default: false
-  # Env: CONTEXTMATRIX_GIT_DEFERRED_COMMIT (true/false/1/0)
+  # Env: CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT (true/false/1/0)
   git_deferred_commit: false
 
   # Push commits to the remote after each commit. Requires the boards repository
   # to have a configured remote and credentials (e.g. SSH key).
   # Default: false
-  # Env: CONTEXTMATRIX_GIT_AUTO_PUSH (true/false/1/0)
+  # Env: CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH (true/false/1/0)
   git_auto_push: false
 
   # Pull from the remote on startup and at the interval defined by
   # git_pull_interval. Useful for sharing a board across multiple machines.
   # Default: false
-  # Env: CONTEXTMATRIX_GIT_AUTO_PULL (true/false/1/0)
+  # Env: CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL (true/false/1/0)
   git_auto_pull: false
 
   # How often to pull from the remote when git_auto_pull is enabled.
   # Accepts Go duration strings: e.g. "30s", "5m", "1h".
   # Default: 60s
-  # Env: CONTEXTMATRIX_GIT_PULL_INTERVAL
+  # Env: CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL
   git_pull_interval: "60s"
 
   # Clone the boards repository from a remote URL if boards.dir is empty
   # (no existing git repository). Useful for container deployments where
   # persistent storage starts empty. Requires boards.git_remote_url to be set.
   # Default: false
-  # Env: CONTEXTMATRIX_GIT_CLONE_ON_EMPTY (true/false/1/0)
+  # Env: CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY (true/false/1/0)
   git_clone_on_empty: false
 
   # Remote URL for the boards repository. Used for clone-on-empty and as
   # the default origin remote when no remote is configured.
   # Example (SSH):   git@github.com:user/boards.git
   # Example (HTTPS): https://github.com/user/boards.git
-  # Env: CONTEXTMATRIX_GIT_REMOTE_URL
+  # Env: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
   git_remote_url: ""
 
   # Authentication mode for git operations on the boards repository.

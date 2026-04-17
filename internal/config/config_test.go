@@ -141,8 +141,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_COMMIT true",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT true",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT",
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -150,8 +150,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_COMMIT 1",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT 1",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT",
 			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -159,8 +159,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_COMMIT false",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT false",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT",
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -168,8 +168,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PUSH true",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PUSH",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH true",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH",
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -177,8 +177,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PUSH 1",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PUSH",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH 1",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH",
 			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -186,8 +186,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PUSH false",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PUSH",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH false",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH",
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -195,8 +195,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PULL true",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL true",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL",
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -204,8 +204,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PULL 1",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL 1",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL",
 			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -213,8 +213,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_AUTO_PULL false",
-			envKey:   "CONTEXTMATRIX_GIT_AUTO_PULL",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL false",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL",
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -222,8 +222,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_PULL_INTERVAL",
-			envKey:   "CONTEXTMATRIX_GIT_PULL_INTERVAL",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL",
 			envValue: "120s",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -231,8 +231,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT true",
-			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT true",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT",
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -240,8 +240,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT 1",
-			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT 1",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT",
 			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -249,8 +249,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_DEFERRED_COMMIT false",
-			envKey:   "CONTEXTMATRIX_GIT_DEFERRED_COMMIT",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT false",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT",
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -258,8 +258,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_CLONE_ON_EMPTY false",
-			envKey:   "CONTEXTMATRIX_GIT_CLONE_ON_EMPTY",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY false",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY",
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -267,8 +267,8 @@ cors_origin: "http://localhost:5173"
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_GIT_REMOTE_URL",
-			envKey:   "CONTEXTMATRIX_GIT_REMOTE_URL",
+			name:     "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
+			envKey:   "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
 			envValue: "git@github.com:user/boards.git",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
@@ -884,8 +884,8 @@ func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
 
 	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
 
-	t.Setenv("CONTEXTMATRIX_GIT_CLONE_ON_EMPTY", "true")
-	t.Setenv("CONTEXTMATRIX_GIT_REMOTE_URL", "git@github.com:user/boards.git")
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", "true")
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL", "git@github.com:user/boards.git")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)

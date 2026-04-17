@@ -649,12 +649,13 @@ All config fields can be overridden with environment variables:
 
 - `CONTEXTMATRIX_PORT`
 - `CONTEXTMATRIX_BOARDS_DIR`
-- `CONTEXTMATRIX_GIT_AUTO_COMMIT`
-- `CONTEXTMATRIX_GIT_DEFERRED_COMMIT`
-- `CONTEXTMATRIX_GIT_AUTO_PUSH`
-- `CONTEXTMATRIX_GIT_AUTO_PULL`
-- `CONTEXTMATRIX_GIT_PULL_INTERVAL`
-- `CONTEXTMATRIX_GIT_REMOTE_URL`
+- `CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT`
+- `CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT`
+- `CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH`
+- `CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL`
+- `CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL`
+- `CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY`
+- `CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL`
 - `CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE`
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
@@ -714,46 +715,6 @@ cd web && npm install && npm run dev
 # Build binary with embedded frontend
 make build
 ```
-
-## Upgrading
-
-### Migrating config.yaml to the `boards:` section
-
-The boards-related config keys have moved from the top level into a `boards:`
-section. This is a **breaking change** — the server will not start with the old
-flat key format. Update your `config.yaml` as follows:
-
-**Before:**
-
-```yaml
-boards_dir: ~/boards/contextmatrix
-git_auto_commit: true
-git_deferred_commit: false
-git_auto_push: false
-git_auto_pull: false
-git_pull_interval: "60s"
-git_clone_on_empty: false
-git_remote_url: ""
-git_auth_mode: "ssh"
-```
-
-**After:**
-
-```yaml
-boards:
-  dir: ~/boards/contextmatrix
-  git_auto_commit: true
-  git_deferred_commit: false
-  git_auto_push: false
-  git_auto_pull: false
-  git_pull_interval: "60s"
-  git_clone_on_empty: false
-  git_remote_url: ""
-  git_auth_mode: "ssh"
-```
-
-All `CONTEXTMATRIX_*` environment variables are **unchanged** — deployments that
-configure ContextMatrix via env vars do not need to change anything.
 
 ## Troubleshooting
 

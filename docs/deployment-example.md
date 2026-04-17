@@ -141,7 +141,7 @@ spec:
           env:
             - name: CONTEXTMATRIX_BOARDS_DIR
               value: /data/boards
-            - name: CONTEXTMATRIX_GIT_REMOTE_URL
+            - name: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
               value: git@github.com:org/boards.git
             - name: CONTEXTMATRIX_MCP_API_KEY
               valueFrom:
@@ -196,7 +196,7 @@ spec:
           env:
             - name: CONTEXTMATRIX_BOARDS_DIR
               value: /data/boards
-            - name: CONTEXTMATRIX_GIT_REMOTE_URL
+            - name: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
               value: https://github.com/org/boards.git
             - name: CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE
               value: pat

@@ -275,25 +275,25 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
 		cfg.Boards.Dir = v
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_COMMIT"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT"); v != "" {
 		cfg.Boards.GitAutoCommit = v == "true" || v == "1"
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PUSH"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH"); v != "" {
 		cfg.Boards.GitAutoPush = v == "true" || v == "1"
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PULL"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL"); v != "" {
 		cfg.Boards.GitAutoPull = v == "true" || v == "1"
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_PULL_INTERVAL"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL"); v != "" {
 		cfg.Boards.GitPullInterval = v
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_DEFERRED_COMMIT"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT"); v != "" {
 		cfg.Boards.GitDeferredCommit = v == "true" || v == "1"
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_CLONE_ON_EMPTY"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY"); v != "" {
 		cfg.Boards.GitCloneOnEmpty = v == "true" || v == "1"
 	}
-	if v := os.Getenv("CONTEXTMATRIX_GIT_REMOTE_URL"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
 		cfg.Boards.GitRemoteURL = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
