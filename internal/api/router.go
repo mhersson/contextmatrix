@@ -41,6 +41,8 @@ const (
 	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
 	ErrCodeInvalidSignature   = "INVALID_SIGNATURE"
 	ErrCodeCardNotVetted      = "CARD_NOT_VETTED"
+	ErrCodeAlreadyAutonomous  = "ALREADY_AUTONOMOUS"
+	ErrCodeContentTooLarge    = "CONTENT_TOO_LARGE"
 )
 
 // APIError is the standard error response format.
@@ -131,6 +133,8 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	rh := &runnerHandlers{svc: cfg.Service, runner: cfg.Runner, runnerCfg: cfg.RunnerCfg, mcpAPIKey: cfg.MCPAPIKey, port: cfg.Port}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {

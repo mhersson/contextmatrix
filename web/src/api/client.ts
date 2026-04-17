@@ -215,8 +215,33 @@ class APIClient {
   }
 
   // Runner
-  async runCard(project: string, id: string): Promise<Card> {
+  async runCard(
+    project: string,
+    id: string,
+    opts?: { interactive?: boolean }
+  ): Promise<Card> {
     return this.request<Card>(`/projects/${project}/cards/${id}/run`, {
+      method: 'POST',
+      body: opts?.interactive ? JSON.stringify({ interactive: true }) : undefined,
+    });
+  }
+
+  async sendCardMessage(
+    project: string,
+    id: string,
+    content: string
+  ): Promise<{ ok: boolean; message_id: string }> {
+    return this.request<{ ok: boolean; message_id: string }>(
+      `/projects/${project}/cards/${id}/message`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    );
+  }
+
+  async promoteCardToAutonomous(project: string, id: string): Promise<Card> {
+    return this.request<Card>(`/projects/${project}/cards/${id}/promote`, {
       method: 'POST',
     });
   }

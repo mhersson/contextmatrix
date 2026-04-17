@@ -153,7 +153,7 @@ interference on touch devices.
 ### LogEntry type (`types/index.ts`)
 
 ```typescript
-export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system';
+export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system' | 'user';
 
 export interface LogEntry {
   ts: string;        // ISO timestamp (matches Go json:"ts" tag)
@@ -175,6 +175,7 @@ The `project` field sent by the runner is not included in the frontend
 | `tool_call` | `--aqua` |
 | `stderr` | `--yellow` |
 | `system` | `--green` |
+| `user` | `--blue` |
 
 Timestamps use `--grey1`. Card ID badges use a deterministic colour hash over
 `--blue`, `--purple`, `--aqua`, `--orange`, `--yellow`.

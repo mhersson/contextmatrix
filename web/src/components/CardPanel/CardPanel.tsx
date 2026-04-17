@@ -7,6 +7,7 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
+import { CardChat } from './CardChat';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // Approximate height in px of the panel content above the editor on mobile
@@ -55,7 +56,7 @@ interface CardPanelProps {
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
   onPromptAgentId: () => string | null;
-  onRunCard: () => Promise<void>;
+  onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
 
@@ -289,7 +290,7 @@ export function CardPanel({
             canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
             onClaim={handleClaim}
             onRelease={handleRelease}
-            canRun={!!card.autonomous && card.state === 'todo' && (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed') && config.remote_execution?.enabled !== false}
+            canRun={config.remote_execution?.enabled !== false && card.state === 'todo' && (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed')}
             canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
             onRun={onRunCard}
             onStop={onStopCard}
@@ -331,6 +332,8 @@ export function CardPanel({
           />
 
           <CardPanelActivity activityLog={card.activity_log} />
+
+          {card.runner_status === 'running' && <CardChat card={card} />}
         </div>
       </div>
     </>

@@ -11,7 +11,7 @@ interface CardPanelAgentProps {
   onRelease: () => void;
   canRun: boolean;
   canStop: boolean;
-  onRun: () => Promise<void>;
+  onRun: (interactive: boolean) => Promise<void>;
   onStop: () => Promise<void>;
 }
 
@@ -28,10 +28,11 @@ export function CardPanelAgent({
 }: CardPanelAgentProps) {
   const [runLoading, setRunLoading] = useState(false);
   const [stopLoading, setStopLoading] = useState(false);
+  const [interactive, setInteractive] = useState(!card.autonomous);
 
   const handleRun = async () => {
     setRunLoading(true);
-    try { await onRun(); } finally { setRunLoading(false); }
+    try { await onRun(interactive); } finally { setRunLoading(false); }
   };
 
   const handleStop = async () => {
@@ -78,14 +79,28 @@ export function CardPanelAgent({
             </button>
           )}
           {canRun && (
-            <button
-              type="button"
-              onClick={handleRun}
-              disabled={runLoading}
-              className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
-            >
-              {runLoading ? 'Starting...' : 'Run Now'}
-            </button>
+            <div className="flex items-center gap-2">
+              <label
+                className="flex items-center gap-1.5 cursor-pointer"
+                title="Start the task in interactive HITL mode. Leave unchecked to run the workflow unattended (autonomous mode)."
+              >
+                <input
+                  type="checkbox"
+                  checked={interactive}
+                  onChange={(e) => setInteractive(e.target.checked)}
+                  className="rounded border-[var(--bg3)] bg-[var(--bg2)] text-[var(--green)] focus:ring-[var(--green)]"
+                />
+                <span className="text-sm text-[var(--fg)]">Interactive</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleRun}
+                disabled={runLoading}
+                className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
+              >
+                {runLoading ? 'Starting...' : 'Run Now'}
+              </button>
+            </div>
           )}
           {canStop && (
             <button

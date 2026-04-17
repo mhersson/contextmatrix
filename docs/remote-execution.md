@@ -9,24 +9,35 @@ Code.
 
 ```text
                                    HMAC-signed webhooks
-                      ┌──────────────────────────────────────────┐
-                      │                                          ▼
-  ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────┐
-  │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-     │
-  │  (Run Now)   │─────────│  (REST API)       │───►│ runner             │
-  │  (Console)   │◄────────│  (SSE proxy)      │◄───│  Docker containers │
-  └──────────────┘         │  POST /mcp        │◄───│  (Claude Code)     │
-                           │  (MCP tools)      │    │                    │
-                           └───────────────────┘    └────────────────────┘
-                                  ▲                         │
-                                  │    MCP (Bearer auth)    │
-                                  └─────────────────────────┘
+                      ┌──────────────────────────────────────────────────┐
+                      │                                                  ▼
+  ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────────┐
+  │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-runner   │
+  │  (Run Now)   │─────────│  (REST API)       │───►│  /trigger              │
+  │  (Console)   │◄────────│  (SSE proxy)      │◄───│  /kill  /stop-all      │
+  │  (Chat input)│─────────│  POST /message    │───►│  /message              │
+  │  (Promote)   │─────────│  POST /promote    │───►│  /promote              │
+  └──────────────┘         │  POST /mcp        │◄───│  Docker containers     │
+                           │  (MCP tools)      │◄───│  (Claude Code)         │
+                           └───────────────────┘    └────────────────────────┘
+                                  ▲                            │
+                                  │      MCP (Bearer auth)     │
+                                  └────────────────────────────┘
 ```
 
-**Live log streaming** adds a second data path: the runner exposes a
-`GET /logs` SSE endpoint, and ContextMatrix proxies it as
-`GET /api/runner/logs`. The web UI opens an `EventSource` to the proxy only
-while the Runner Console panel is open — no background streaming.
+**Message paths:**
+
+- **Run Now / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to runner.
+- **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies as
+  `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
+  Console panel is open.
+- **Chat input** (interactive mode only) — Web UI sends
+  `POST /api/runner/message` to CM, which forwards to the runner's `/message`
+  endpoint. The runner writes the message to the container's stdin and echoes it
+  as a `user` log entry.
+- **Promote to autonomous** — Web UI sends `POST /api/runner/promote` to CM,
+  which forwards to the runner's `/promote` endpoint. The runner emits a
+  `system` log entry and injects a canned autonomous-mode prompt into stdin.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -73,7 +84,8 @@ Sent when a user clicks "Run Now" on an autonomous card.
   "mcp_url": "http://contextmatrix:8080/mcp",
   "mcp_api_key": "optional-bearer-token",
   "runner_image": "optional/custom-image:latest",
-  "base_branch": "develop"
+  "base_branch": "develop",
+  "interactive": false
 }
 ```
 
@@ -81,6 +93,17 @@ Sent when a user clicks "Run Now" on an autonomous card.
 should clone using `-b <base_branch>` and instruct Claude Code to open PRs
 against that branch instead of the repository default. See the runner card
 CTXRUN-019 for the implementation on the runner side.
+
+`interactive` defaults to `false`. When `true`, the runner sets the
+`CM_INTERACTIVE=1` container environment variable and launches Claude Code with
+`--input-format stream-json --output-format stream-json`. The container
+entrypoint uses an initial prompt that instructs the agent to await the user's
+first message before taking action. See [Interactive Mode](#interactive-mode)
+for details.
+
+**Note:** when `interactive: true`, `feature_branch` and `create_pr` are **not**
+auto-enabled at run time. They are enabled later only if the user invokes
+"Switch to Autonomous" (see [`POST {runner_url}/promote`](#post-runner_urlpromote)).
 
 #### POST {runner_url}/kill
 
@@ -102,6 +125,61 @@ Sent when a user clicks "Stop All" in the header.
   "project": "my-project"
 }
 ```
+
+#### POST {runner_url}/message
+
+Sent when a user submits a chat message while a container is running in
+interactive mode. HMAC-signed identically to trigger/kill.
+
+```json
+{
+  "card_id": "PROJ-042",
+  "project": "my-project",
+  "message_id": "msg-uuid-1234",
+  "content": "Please focus on the authentication module first."
+}
+```
+
+The runner:
+
+1. Looks up the running container for `card_id` / `project`.
+2. Writes the following newline-terminated JSON to the container's stdin:
+   ```json
+   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"<content>"}]}}
+   ```
+3. Emits a broadcaster `LogEntry` of type `user` (see [LogEntry types](#logentry-types))
+   so the browser sees the message echoed in the console.
+
+**Error responses:**
+
+| Status | Condition |
+|--------|-----------|
+| 404 | Container not tracked (card not running) |
+| 409 | Container is not in interactive mode |
+| 413 | `content` exceeds 8 KiB |
+
+#### POST {runner_url}/promote
+
+Sent when a user clicks "Switch to Autonomous" while a container is running in
+interactive mode. HMAC-signed identically to trigger/kill.
+
+```json
+{
+  "card_id": "PROJ-042",
+  "project": "my-project"
+}
+```
+
+The runner:
+
+1. Looks up the running container for `card_id` / `project`.
+2. Emits a `system` `LogEntry` with content `"promoted to autonomous mode"`.
+3. Writes a canned stream-json user message to the container's stdin instructing
+   Claude Code to complete the workflow autonomously: create a feature branch,
+   commit, push, and open a PR.
+
+**Error responses:** same as `/message` (404, 409, 413 not applicable for
+promote).
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -138,6 +216,8 @@ Omit to receive entries from all projects.
 
 `type` values:
 
+<a name="logentry-types"></a>
+
 | type | Source | Meaning |
 |---|---|---|
 | `text` | Claude Code stdout | Parsed assistant text block |
@@ -145,6 +225,7 @@ Omit to receive entries from all projects.
 | `tool_call` | Claude Code stdout | Non-MCP tool call (name only) |
 | `stderr` | Container stderr | Raw stderr line from the container |
 | `system` | Runner lifecycle | Container lifecycle events (started, completed, failed, canceled) |
+| `user` | Chat input | User message submitted via the chat input |
 
 **Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
 prevent proxy and browser timeouts.
@@ -255,6 +336,8 @@ Optional but recommended. When `mcp_api_key` is set in ContextMatrix config:
   - Click "Stop" (kill a running container)
   - Click "Stop All" (kill all containers for a project)
   - Set `autonomous`, `feature_branch`, `create_pr` flags
+  - Send chat messages to an interactive container
+  - Promote an interactive container to autonomous mode
 - Agents inside containers cannot escalate themselves to autonomous mode
 
 ### Per-Project Kill Switch
@@ -284,6 +367,45 @@ authoritative for whether the "Run Now" button should be enabled.
 Set `runner.enabled: false` in `config.yaml` to disable remote execution
 entirely. The "Run Now" button will not appear in the UI, and trigger endpoints
 return 503.
+
+## Interactive Mode
+
+When `interactive: true` is included in the `/trigger` payload, the runner
+starts the container in Human-in-the-Loop (HITL) mode.
+
+### Container Environment
+
+The runner sets `CM_INTERACTIVE=1` in the container's environment. The
+`entrypoint.sh` script branches on this variable:
+
+- **`CM_INTERACTIVE` unset or `0`** — normal autonomous mode: Claude Code is
+  invoked with `--output-format stream-json` and the workflow proceeds
+  automatically.
+- **`CM_INTERACTIVE=1`** — interactive mode: Claude Code is invoked with
+  `--input-format stream-json --output-format stream-json`. The initial prompt
+  instructs the agent to introduce itself, describe the card it has claimed, and
+  then **await the user's first message** before taking any action.
+
+### Message Flow
+
+```
+Web UI (chat input) → CM POST /api/runner/message
+                     → Runner POST /message
+                     → container stdin (stream-json user message)
+                     → Runner LogEntry{type: "user"}  (echoed to browser)
+
+Web UI (promote btn) → CM POST /api/runner/promote
+                      → Runner POST /promote
+                      → container stdin (canned autonomous-mode prompt)
+                      → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
+```
+
+### Deferred Flags
+
+When `interactive: true`, the `feature_branch` and `create_pr` flags are **not**
+set on the container at launch. The runner only enables them when it receives a
+`/promote` request, at which point the canned prompt instructs Claude Code to
+create a feature branch, commit, push, and open a PR before completing the task.
 
 ## Log Streaming Architecture
 
@@ -431,3 +553,9 @@ Runner status is cleared when a card transitions to `done` or `not_planned`.
 | Stop All                     | All cards in project | Kills all containers for the project                   |
 | `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
 | Per-project `enabled: false` | Single project       | Hides Run Now for that project                         |
+
+## See Also
+
+The runner-side implementation of the interactive protocol (HITL endpoints,
+`CM_INTERACTIVE` entrypoint branching, stdin injection) is tracked in
+**CTXRUN-026** in the contextmatrix-runner board.

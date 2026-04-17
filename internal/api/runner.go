@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -52,12 +55,18 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate card is eligible for remote execution.
-	if !card.Autonomous {
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
-			"card must have autonomous mode enabled", "")
-		return
+	// Parse optional JSON body for interactive flag.
+	var runBody struct {
+		Interactive bool `json:"interactive"`
 	}
+	if r.Body != nil && r.ContentLength != 0 {
+		// Tolerate empty body — only parse when there's content.
+		if decodeErr := json.NewDecoder(r.Body).Decode(&runBody); decodeErr != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
+			return
+		}
+	}
+
 	if card.State != board.StateTodo {
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition,
 			"card must be in todo state to run", fmt.Sprintf("current state: %s", card.State))
@@ -76,9 +85,9 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-enable feature_branch and create_pr for runner-executed cards.
-	// Changes inside a disposable container are lost without a remote branch.
-	if !card.FeatureBranch {
+	// Auto-enable feature_branch and create_pr only for autonomous non-interactive runs.
+	// Interactive sessions defer that decision to promoteCard.
+	if !runBody.Interactive && card.Autonomous && !card.FeatureBranch {
 		fb := true
 		pr := true
 		if _, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
@@ -107,12 +116,13 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// Build trigger payload.
 	mcpURL := fmt.Sprintf("%s/mcp", h.runnerCfg.PublicURL)
 	payload := runner.TriggerPayload{
-		CardID:     id,
-		Project:    project,
-		RepoURL:    projectCfg.Repo,
-		MCPURL:     mcpURL,
-		MCPAPIKey:  h.mcpAPIKey,
-		BaseBranch: card.BaseBranch,
+		CardID:      id,
+		Project:     project,
+		RepoURL:     projectCfg.Repo,
+		MCPURL:      mcpURL,
+		MCPAPIKey:   h.mcpAPIKey,
+		BaseBranch:  card.BaseBranch,
+		Interactive: runBody.Interactive,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
@@ -133,6 +143,164 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, card)
+}
+
+// maxMessageContentSize is the maximum allowed byte length for a human message.
+const maxMessageContentSize = 8192
+
+// messageResponse is the response body for the message endpoint.
+type messageResponse struct {
+	OK        bool   `json:"ok"`
+	MessageID string `json:"message_id"`
+}
+
+// messageCard handles POST /api/projects/{project}/cards/{id}/message — send a human message.
+func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
+	if isNonHumanAgent(r) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can send messages", "")
+		return
+	}
+
+	project := r.PathValue("project")
+	id := strings.ToUpper(r.PathValue("id"))
+
+	if h.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+		return
+	}
+
+	card, err := h.svc.GetCard(r.Context(), project, id)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	if card.RunnerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
+			"card is not currently running",
+			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+		return
+	}
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
+		return
+	}
+
+	if body.Content == "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "content must not be empty", "")
+		return
+	}
+	if len(body.Content) > maxMessageContentSize {
+		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge,
+			fmt.Sprintf("content exceeds %d bytes", maxMessageContentSize), "")
+		return
+	}
+
+	messageID := uuid.New().String()
+	if err := h.runner.Message(r.Context(), runner.MessagePayload{
+		CardID:    id,
+		Project:   project,
+		MessageID: messageID,
+		Content:   body.Content,
+	}); err != nil {
+		slog.Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to send message to runner", "")
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, messageResponse{OK: true, MessageID: messageID})
+}
+
+// promoteCard handles POST /api/projects/{project}/cards/{id}/promote — promote to autonomous.
+func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
+	if isNonHumanAgent(r) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can promote cards", "")
+		return
+	}
+
+	project := r.PathValue("project")
+	id := strings.ToUpper(r.PathValue("id"))
+
+	if h.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+		return
+	}
+
+	card, err := h.svc.GetCard(r.Context(), project, id)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	if card.RunnerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
+			"card is not currently running",
+			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+		return
+	}
+
+	if card.Autonomous {
+		writeError(w, http.StatusConflict, ErrCodeAlreadyAutonomous, "card is already autonomous", "")
+		return
+	}
+
+	// Patch the card to enable autonomous mode with feature branch and PR.
+	autoTrue := true
+	fbTrue := true
+	prTrue := true
+	updatedCard, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
+		Autonomous:    &autoTrue,
+		FeatureBranch: &fbTrue,
+		CreatePR:      &prTrue,
+	})
+	if patchErr != nil {
+		handleServiceError(w, patchErr)
+		return
+	}
+
+	// Send promote webhook to runner.
+	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
+		CardID:  id,
+		Project: project,
+	}); err != nil {
+		slog.Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
+		// Revert the patched flags.
+		autoFalse := false
+		fbFalse := false
+		prFalse := false
+		if _, revertErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
+			Autonomous:    &autoFalse,
+			FeatureBranch: &fbFalse,
+			CreatePR:      &prFalse,
+		}); revertErr != nil {
+			slog.Error("failed to revert card flags after promote webhook failure",
+				"card_id", id, "project", project, "error", revertErr)
+		}
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to promote runner task", "")
+		return
+	}
+
+	// Add activity log entry.
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		agentID = "human"
+	}
+	logErr := h.svc.AddLogEntry(r.Context(), project, id, board.ActivityEntry{
+		Agent:     agentID,
+		Timestamp: time.Now().UTC(),
+		Action:    "promoted",
+		Message:   "promoted to autonomous",
+	})
+	if logErr != nil {
+		slog.Error("failed to add promote log entry", "card_id", id, "project", project, "error", logErr)
+		// Non-fatal — the promote succeeded, just log the error.
+	}
+
+	writeJSON(w, http.StatusAccepted, updatedCard)
 }
 
 // stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".

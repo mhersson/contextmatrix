@@ -30,6 +30,8 @@ POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
+POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
+POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
 GET    /api/runner/logs?project=                      # SSE log stream proxy (runner must be enabled)
@@ -233,11 +235,57 @@ protocol, HMAC signing details, and runner configuration.
 
 ### POST /api/projects/{project}/cards/{id}/run
 
-Trigger remote execution for an autonomous card. Human-only (rejects
-`X-Agent-ID` without `human:` prefix). Requires card to be in `todo` state with
-`autonomous: true` and runner enabled globally + per-project.
+Trigger remote execution for a card. Human-only (rejects `X-Agent-ID` without
+`human:` prefix). Requires card to be in `todo` state and runner enabled
+globally + per-project. The `autonomous` flag is **not** required.
+
+Accepts an optional JSON body:
+
+```json
+{ "interactive": true }
+```
+
+When `interactive` is `true`, the container starts in Human-in-the-Loop (HITL)
+mode — Claude Code waits for the user's first message before taking action.
+When `interactive` is `false` (or the body is omitted) and `autonomous: true`,
+`feature_branch` and `create_pr` are automatically enabled on the card.
 
 Returns the updated card with `runner_status: "queued"`.
+
+### POST /api/projects/{project}/cards/{id}/message
+
+Send a chat message to a container running in interactive mode. Human-only.
+Requires `runner_status: "running"`.
+
+```json
+{ "content": "Please focus on the authentication module first." }
+```
+
+- 422 if `content` is empty
+- 413 `CONTENT_TOO_LARGE` if `content` exceeds 8 KiB
+- 409 `RUNNER_NOT_RUNNING` if the card is not running
+
+Returns 202 with:
+
+```json
+{ "ok": true, "message_id": "uuid-v4-string" }
+```
+
+### POST /api/projects/{project}/cards/{id}/promote
+
+Promote an interactive session to autonomous mode. Human-only. Requires
+`runner_status: "running"` and `autonomous: false`.
+
+Patches the card to set `autonomous`, `feature_branch`, and `create_pr` to
+`true`, then sends a `/promote` webhook to the runner. The runner injects a
+canned prompt into the container's stdin instructing Claude Code to finish
+the workflow, create a feature branch, and open a PR.
+
+- 409 `RUNNER_NOT_RUNNING` if the card is not running
+- 409 `ALREADY_AUTONOMOUS` if the card is already autonomous
+- 502 `RUNNER_ERROR` if the runner webhook fails (card flags are reverted)
+
+Returns 202 with the updated card.
 
 ### POST /api/projects/{project}/cards/{id}/stop
 
@@ -272,7 +320,7 @@ Omit to receive all projects.
 }
 ```
 
-`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`.
+`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`, `user`.
 
 Keepalive comments (`: keepalive`) are forwarded every 15 seconds. The
 connection is closed when the browser disconnects, which in turn cancels the

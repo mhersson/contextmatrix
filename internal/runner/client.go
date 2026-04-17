@@ -30,10 +30,25 @@ type TriggerPayload struct {
 	MCPAPIKey   string `json:"mcp_api_key,omitempty"`
 	RunnerImage string `json:"runner_image,omitempty"`
 	BaseBranch  string `json:"base_branch,omitempty"`
+	Interactive bool   `json:"interactive,omitempty"`
 }
 
 // KillPayload is sent to the runner to stop a specific task.
 type KillPayload struct {
+	CardID  string `json:"card_id"`
+	Project string `json:"project"`
+}
+
+// MessagePayload is sent to the runner to deliver a human message to a running task.
+type MessagePayload struct {
+	CardID    string `json:"card_id"`
+	Project   string `json:"project"`
+	Content   string `json:"content"`
+	MessageID string `json:"message_id"`
+}
+
+// PromotePayload is sent to the runner to promote a task from interactive pause to completion.
+type PromotePayload struct {
 	CardID  string `json:"card_id"`
 	Project string `json:"project"`
 }
@@ -79,6 +94,16 @@ func (c *Client) Kill(ctx context.Context, p KillPayload) error {
 // StopAll sends a stop-all webhook to stop all tasks.
 func (c *Client) StopAll(ctx context.Context, p StopAllPayload) error {
 	return c.send(ctx, c.baseURL+"/stop-all", p)
+}
+
+// Message sends a human message to a running interactive task.
+func (c *Client) Message(ctx context.Context, p MessagePayload) error {
+	return c.send(ctx, c.baseURL+"/message", p)
+}
+
+// Promote sends a promote webhook to signal that an interactive task may proceed.
+func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
+	return c.send(ctx, c.baseURL+"/promote", p)
 }
 
 // send marshals payload, signs it, and POSTs to url with retries.

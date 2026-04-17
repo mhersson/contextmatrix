@@ -95,10 +95,10 @@ export function useCardActions({
     [selectedProject, showToast]
   );
 
-  const handleRunCard = useCallback(async () => {
+  const handleRunCard = useCallback(async (interactive: boolean) => {
     if (!selectedCard) return;
     try {
-      const updated = await api.runCard(selectedProject, selectedCard.id);
+      const updated = await api.runCard(selectedProject, selectedCard.id, { interactive });
       updateCardLocally(selectedCard.id, {
         runner_status: updated.runner_status,
         assigned_agent: updated.assigned_agent,
