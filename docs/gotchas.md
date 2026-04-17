@@ -3,17 +3,18 @@
 - **YAML frontmatter parsing:** use `bytes.SplitN(content, []byte("---"), 3)` to
   split. Element 0 is empty (before first `---`), element 1 is YAML, element 2
   is body. Handle `\r\n` line endings.
-- **Deferred git commits (`git_deferred_commit`):** When
-  `git_deferred_commit: true` in `config.yaml`, agent mutations (heartbeats, log
-  entries, intermediate updates) are batched and committed in a single flush at
-  release/complete time instead of per-operation. This reduces git churn during
-  long agent work sessions. However, two categories of mutation **always commit
-  immediately**, even when deferred mode is on: (1) card creation — both the
-  card file and `.board.yaml` are committed together so the new card survives a
-  `git pull` on another machine; (2) human edits to unclaimed cards via the REST
-  API — the PUT/PATCH handlers set `ImmediateCommit: true` when
-  `card.AssignedAgent == ""`, triggering an immediate commit. MCP tool callers
-  (agents) never set this flag, so their commits continue to defer normally.
+- **Deferred git commits (`boards.git_deferred_commit`):** When
+  `boards.git_deferred_commit: true` in `config.yaml`, agent mutations
+  (heartbeats, log entries, intermediate updates) are batched and committed in a
+  single flush at release/complete time instead of per-operation. This reduces
+  git churn during long agent work sessions. However, two categories of mutation
+  **always commit immediately**, even when deferred mode is on: (1) card
+  creation — both the card file and `.board.yaml` are committed together so the
+  new card survives a `git pull` on another machine; (2) human edits to
+  unclaimed cards via the REST API — the PUT/PATCH handlers set
+  `ImmediateCommit: true` when `card.AssignedAgent == ""`, triggering an
+  immediate commit. MCP tool callers (agents) never set this flag, so their
+  commits continue to defer normally.
 - **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
   is an absolute deadline measured from when request headers are read — it is
   NOT reset by intermediate writes (keepalive comments, partial event data, etc.).
@@ -53,9 +54,10 @@
   from spamming logs. The endpoint still responds normally — only the log line
   is suppressed. If you expect to see probe traffic in logs for debugging, hit
   any other path or check the endpoint directly with `curl`.
-- **PAT mode requires specific permissions:** when `git_auth_mode: pat`, the
-  fine-grained PAT must have `Contents: Read and write` on the boards repo **and**
-  `Issues: Read-only` on each project repo referenced in `.board.yaml` that has
-  `github.import_issues: true`. Additionally, `git_remote_url` must start with
-  `https://` — SSH URLs are rejected at startup when PAT mode is active. PAT mode
-  only works with GitHub (github.com or GHEC/GHES); use SSH for other git hosts.
+- **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
+  the fine-grained PAT must have `Contents: Read and write` on the boards repo
+  **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`
+  that has `github.import_issues: true`. Additionally, `boards.git_remote_url`
+  must start with `https://` — SSH URLs are rejected at startup when PAT mode is
+  active. PAT mode only works with GitHub (github.com or GHEC/GHES); use SSH for
+  other git hosts.

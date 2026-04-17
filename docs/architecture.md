@@ -56,7 +56,7 @@ to `CommitFiles()` are relative to that directory (e.g.,
 ```text
 ~/code/contextmatrix/           # source code repo
   cmd/, internal/, web/, skills/
-  config.yaml                   # boards_dir: ~/boards/contextmatrix
+  config.yaml                   # boards.dir: ~/boards/contextmatrix
 
 ~/boards/contextmatrix/         # boards repo (separate git repo)
   project-alpha/
@@ -68,7 +68,7 @@ to `CommitFiles()` are relative to that directory (e.g.,
 If the boards directory does not exist or is not a git repo on startup, the
 server creates it and runs `git init`.
 
-`boards_dir` in `config.yaml` should point outside the source tree — an absolute
+`boards.dir` in `config.yaml` should point outside the source tree — an absolute
 path or a path like `~/boards/contextmatrix`, not `./boards`.
 
 ## File layout

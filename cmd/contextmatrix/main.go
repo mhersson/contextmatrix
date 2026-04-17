@@ -45,7 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("config loaded", "path", *configPath)
-	slog.Info("boards git auth", "mode", cfg.GitAuthMode)
+	slog.Info("boards git auth", "mode", cfg.Boards.GitAuthMode)
 
 	// Parse heartbeat timeout
 	heartbeatTimeout, err := cfg.HeartbeatDuration()
@@ -57,23 +57,23 @@ func main() {
 	// Initialize git manager (boards directory IS the git repo).
 	// Must run before storage so clone-on-empty can populate the directory.
 	cloneURL := ""
-	if cfg.GitCloneOnEmpty {
-		cloneURL = cfg.GitRemoteURL
+	if cfg.Boards.GitCloneOnEmpty {
+		cloneURL = cfg.Boards.GitRemoteURL
 	}
-	git, err := gitops.NewManager(cfg.BoardsDir, cloneURL, cfg.GitAuthMode, cfg.GitHub.Token)
+	git, err := gitops.NewManager(cfg.Boards.Dir, cloneURL, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
 	if err != nil {
 		slog.Error("failed to create git manager", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("git manager initialized", "repo_path", cfg.BoardsDir)
+	slog.Info("git manager initialized", "repo_path", cfg.Boards.Dir)
 
 	// Initialize storage
-	store, err := storage.NewFilesystemStore(cfg.BoardsDir)
+	store, err := storage.NewFilesystemStore(cfg.Boards.Dir)
 	if err != nil {
 		slog.Error("failed to create storage", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("storage initialized", "boards_dir", cfg.BoardsDir)
+	slog.Info("storage initialized", "boards_dir", cfg.Boards.Dir)
 
 	// Initialize event bus
 	bus := events.NewBus()
@@ -93,7 +93,7 @@ func main() {
 	}
 
 	// Initialize card service
-	svc := service.NewCardService(store, git, lockMgr, bus, cfg.BoardsDir, tokenCosts, cfg.GitAutoCommit, cfg.GitDeferredCommit)
+	svc := service.NewCardService(store, git, lockMgr, bus, cfg.Boards.Dir, tokenCosts, cfg.Boards.GitAutoCommit, cfg.Boards.GitDeferredCommit)
 	slog.Info("card service initialized")
 
 	// Create context for background tasks
@@ -107,19 +107,19 @@ func main() {
 	var syncer *gitsync.Syncer
 	if git.HasRemote() {
 		pullInterval, _ := cfg.PullIntervalDuration()
-		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.BoardsDir,
-			cfg.GitAutoPull, cfg.GitAutoPush, pullInterval, cfg.GitAuthMode, cfg.GitHub.Token)
+		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.Boards.Dir,
+			cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
 		if syncer != nil {
 			if err := syncer.PullOnStartup(ctx); err != nil {
 				slog.Warn("initial pull failed", "error", err)
 			}
-			if cfg.GitAutoPush {
+			if cfg.Boards.GitAutoPush {
 				svc.SetOnCommit(syncer.NotifyCommit)
 			}
 			syncer.Start(ctx)
 			slog.Info("git sync initialized",
-				"auto_pull", cfg.GitAutoPull,
-				"auto_push", cfg.GitAutoPush,
+				"auto_pull", cfg.Boards.GitAutoPull,
+				"auto_push", cfg.Boards.GitAutoPush,
 				"pull_interval", pullInterval,
 			)
 		}
@@ -130,7 +130,7 @@ func main() {
 	if cfg.GitHub.IssueImporting.Enabled {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
 		ghClient := ghimport.NewClientWithBaseURL(cfg.GitHub.Token, cfg.GitHub.ResolvedAPIBaseURL())
-		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.BoardsDir, syncInterval, cfg.GitHub.AllowedHosts())
+		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
 		ghSyncer.Start(ctx)
 		slog.Info("github issue sync enabled", "interval", syncInterval)
 	}

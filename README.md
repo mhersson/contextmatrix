@@ -53,7 +53,7 @@ make install-config
 mkdir -p ~/boards/contextmatrix
 cd ~/boards/contextmatrix && git init
 
-# Edit boards_dir in ~/.config/contextmatrix/config.yaml, then run
+# Edit boards.dir in ~/.config/contextmatrix/config.yaml, then run
 ./contextmatrix
 ```
 
@@ -164,7 +164,7 @@ scripts/install.sh --force
 - `skills/` — the agent skill files from the repo's `skills/` directory (always
   refreshed)
 
-After a fresh install, edit `boards_dir` in
+After a fresh install, edit `boards.dir` in
 `~/.config/contextmatrix/config.yaml` before starting the server. The
 `skills_dir` defaults to the `skills/` directory next to the config file, so no
 manual path update is needed.
@@ -412,7 +412,7 @@ Server (GHES), set `host` and optionally `api_base_url`:
 ```yaml
 github:
   token: "ghp_..."
-  host: acme.ghe.com                       # enterprise hostname
+  host: acme.ghe.com # enterprise hostname
   # api_base_url is derived as https://api.<host> when omitted
   # api_base_url: https://api.acme.ghe.com # set only for non-standard API paths
 ```
@@ -423,8 +423,9 @@ enterprise host are allowed simultaneously). The API base URL is derived as
 
 When using the runner with a GitHub Enterprise App, also set
 `github_app.api_base_url` in the runner's `config.yaml` to the same enterprise
-API endpoint. See the [runner README](https://github.com/mhersson/contextmatrix-runner)
-and [`docs/remote-execution.md`](docs/remote-execution.md) for details.
+API endpoint. See the
+[runner README](https://github.com/mhersson/contextmatrix-runner) and
+[`docs/remote-execution.md`](docs/remote-execution.md) for details.
 
 ```yaml
 # .board.yaml (per-project)
@@ -607,30 +608,31 @@ curl http://localhost:8080/healthz
 
 ### config.yaml
 
-| Field                  | Default                 | Description                                                                                   |
-| ---------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
-| `port`                 | `8080`                  | HTTP server port                                                                              |
-| `boards_dir`           | ---                     | Path to boards git repo (required)                                                            |
-| `git_auto_commit`      | `true`                  | Auto-commit card mutations to git                                                             |
-| `git_deferred_commit`  | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
-| `git_auto_push`        | `false`                 | Auto-push after each commit                                                                   |
-| `git_auto_pull`        | `false`                 | Pull from remote on startup and at `git_pull_interval`                                        |
-| `git_pull_interval`    | `"60s"`                 | How often to pull when `git_auto_pull` is enabled (Go duration string)                        |
-| `git_remote_url`       | `""`                    | Remote URL for the boards repo (SSH or HTTPS); required for clone-on-empty and PAT mode       |
-| `git_auth_mode`        | `"ssh"`                 | Auth mode for boards git ops: `ssh` (deploy key) or `pat` (GitHub fine-grained PAT)          |
-| `heartbeat_timeout`    | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
-| `cors_origin`          | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
-| `skills_dir`           | `./skills`              | Path to skill file markdown directory                                                         |
-| `token_costs`          | ---                     | Per-model token cost rates (see example below)                                                |
-| `mcp_api_key`          | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
-| `runner.enabled`       | `false`                 | Enable remote execution integration                                                           |
-| `runner.url`           | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
-| `runner.api_key`       | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
-| `runner.public_url`    | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
-| `github.token`         | `""`                    | GitHub fine-grained PAT; used for issue import and for boards git auth in PAT mode            |
-| `github.host`          | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                              |
-| `github.api_base_url`  | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)               |
-| `github.sync_interval` | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
+| Field                        | Default                 | Description                                                                                   |
+| ---------------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `port`                       | `8080`                  | HTTP server port                                                                              |
+| `heartbeat_timeout`          | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
+| `cors_origin`                | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
+| `skills_dir`                 | `./skills`              | Path to skill file markdown directory                                                         |
+| `token_costs`                | ---                     | Per-model token cost rates (see example below)                                                |
+| `mcp_api_key`                | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
+| `boards.dir`                 | ---                     | Path to boards git repo (required)                                                            |
+| `boards.git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                                             |
+| `boards.git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
+| `boards.git_auto_push`       | `false`                 | Auto-push after each commit                                                                   |
+| `boards.git_auto_pull`       | `false`                 | Pull from remote on startup and at `boards.git_pull_interval`                                 |
+| `boards.git_pull_interval`   | `"60s"`                 | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                 |
+| `boards.git_remote_url`      | `""`                    | Remote URL for the boards repo (SSH or HTTPS); required for clone-on-empty and PAT mode       |
+| `boards.git_clone_on_empty`  | `false`                 | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup       |
+| `boards.git_auth_mode`       | `"ssh"`                 | Auth mode for boards git ops: `ssh` (deploy key) or `pat` (GitHub fine-grained PAT)           |
+| `runner.enabled`             | `false`                 | Enable remote execution integration                                                           |
+| `runner.url`                 | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
+| `runner.api_key`             | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
+| `runner.public_url`          | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
+| `github.token`               | `""`                    | GitHub fine-grained PAT; used for issue import and for boards git auth in PAT mode            |
+| `github.host`                | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
+| `github.api_base_url`        | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
+| `github.sync_interval`       | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
 
 Token cost configuration:
 
@@ -713,6 +715,46 @@ cd web && npm install && npm run dev
 make build
 ```
 
+## Upgrading
+
+### Migrating config.yaml to the `boards:` section
+
+The boards-related config keys have moved from the top level into a `boards:`
+section. This is a **breaking change** — the server will not start with the old
+flat key format. Update your `config.yaml` as follows:
+
+**Before:**
+
+```yaml
+boards_dir: ~/boards/contextmatrix
+git_auto_commit: true
+git_deferred_commit: false
+git_auto_push: false
+git_auto_pull: false
+git_pull_interval: "60s"
+git_clone_on_empty: false
+git_remote_url: ""
+git_auth_mode: "ssh"
+```
+
+**After:**
+
+```yaml
+boards:
+  dir: ~/boards/contextmatrix
+  git_auto_commit: true
+  git_deferred_commit: false
+  git_auto_push: false
+  git_auto_pull: false
+  git_pull_interval: "60s"
+  git_clone_on_empty: false
+  git_remote_url: ""
+  git_auth_mode: "ssh"
+```
+
+All `CONTEXTMATRIX_*` environment variables are **unchanged** — deployments that
+configure ContextMatrix via env vars do not need to change anything.
+
 ## Troubleshooting
 
 ### Config file not found
@@ -723,7 +765,7 @@ config directory (`~/.config/contextmatrix/config.yaml`). Run
 
 ### Boards directory errors
 
-The `boards_dir` path must point to an initialized git repository:
+The `boards.dir` path must point to an initialized git repository:
 
 ```bash
 mkdir -p ~/boards/contextmatrix

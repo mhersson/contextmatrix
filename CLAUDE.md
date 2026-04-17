@@ -155,7 +155,7 @@ cd ~/boards/contextmatrix && git init
 # Create a new project board
 mkdir -p project-alpha/tasks project-alpha/templates
 # create project-alpha/.board.yaml (see format above)
-# update config.yaml: boards_dir: ~/boards/contextmatrix
+# update config.yaml: boards.dir: ~/boards/contextmatrix
 
 # Claude Code MCP config (~/claude.json or project .claude/claude.json)
 # {
@@ -201,7 +201,7 @@ scripts/install.sh --force
 ```
 
 On a fresh install the script creates `~/.config/contextmatrix/config.yaml`
-from the template. Edit `boards_dir` (and any other fields) before starting the
+from the template. Edit `boards.dir` (and any other fields) before starting the
 server. Skills are always refreshed from the repo's `skills/` directory even
 without `--update-skills` — that flag simply skips the config.yaml step
 entirely.

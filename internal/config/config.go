@@ -70,37 +70,44 @@ func (g *GitHubConfig) AllowedHosts() []string {
 	return []string{"github.com", g.Host}
 }
 
+// BoardsConfig holds all configuration related to the boards git repository.
+type BoardsConfig struct {
+	Dir               string `yaml:"dir"`
+	GitAutoCommit     bool   `yaml:"git_auto_commit"`
+	GitDeferredCommit bool   `yaml:"git_deferred_commit"`
+	GitAutoPush       bool   `yaml:"git_auto_push"`
+	GitAutoPull       bool   `yaml:"git_auto_pull"`
+	GitPullInterval   string `yaml:"git_pull_interval"`
+	GitCloneOnEmpty   bool   `yaml:"git_clone_on_empty"`
+	GitRemoteURL      string `yaml:"git_remote_url"`
+	GitAuthMode       string `yaml:"git_auth_mode"`
+}
+
 // Config holds the application configuration.
 type Config struct {
-	Port                int                  `yaml:"port"`
-	BoardsDir           string               `yaml:"boards_dir"`
-	GitAutoCommit       bool                 `yaml:"git_auto_commit"`
-	GitAutoPush         bool                 `yaml:"git_auto_push"`
-	GitAutoPull         bool                 `yaml:"git_auto_pull"`
-	GitPullInterval     string               `yaml:"git_pull_interval"`
-	GitDeferredCommit   bool                 `yaml:"git_deferred_commit"`
-	GitCloneOnEmpty     bool                 `yaml:"git_clone_on_empty"`
-	GitRemoteURL        string               `yaml:"git_remote_url"`
-	GitAuthMode         string               `yaml:"git_auth_mode"`
-	HeartbeatTimeout    string               `yaml:"heartbeat_timeout"`
-	CORSOrigin          string               `yaml:"cors_origin"`
-	SkillsDir           string               `yaml:"skills_dir"`
-	TokenCosts          map[string]ModelCost `yaml:"token_costs"`
-	MCPAPIKey           string               `yaml:"mcp_api_key"`
-	Runner              RunnerConfig         `yaml:"runner"`
-	GitHub              GitHubConfig         `yaml:"github"`
+	Port             int                  `yaml:"port"`
+	Boards           BoardsConfig         `yaml:"boards"`
+	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
+	CORSOrigin       string               `yaml:"cors_origin"`
+	SkillsDir        string               `yaml:"skills_dir"`
+	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
+	MCPAPIKey        string               `yaml:"mcp_api_key"`
+	Runner           RunnerConfig         `yaml:"runner"`
+	GitHub           GitHubConfig         `yaml:"github"`
 }
 
 // defaults returns a Config with default values.
 func defaults() *Config {
 	return &Config{
-		Port:             8080,
-		BoardsDir:        "", // No default — must be configured
-		GitAutoCommit:    true,
-		GitAutoPush:      false,
-		GitAutoPull:      false,
-		GitPullInterval:  "60s",
-		GitAuthMode:      "ssh",
+		Port: 8080,
+		Boards: BoardsConfig{
+			Dir:             "", // No default — must be configured
+			GitAutoCommit:   true,
+			GitAutoPush:     false,
+			GitAutoPull:     false,
+			GitPullInterval: "60s",
+			GitAuthMode:     "ssh",
+		},
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
@@ -109,35 +116,35 @@ func defaults() *Config {
 
 // Validate checks that required configuration fields are set.
 func (c *Config) Validate() error {
-	if c.BoardsDir == "" {
-		return fmt.Errorf("boards_dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	if c.Boards.Dir == "" {
+		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
 	}
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
-	if c.GitPullInterval != "" {
-		if _, err := time.ParseDuration(c.GitPullInterval); err != nil {
-			return fmt.Errorf("invalid git_pull_interval %q: %w", c.GitPullInterval, err)
+	if c.Boards.GitPullInterval != "" {
+		if _, err := time.ParseDuration(c.Boards.GitPullInterval); err != nil {
+			return fmt.Errorf("invalid boards.git_pull_interval %q: %w", c.Boards.GitPullInterval, err)
 		}
 	}
-	if c.GitCloneOnEmpty && c.GitRemoteURL == "" {
-		return fmt.Errorf("git_remote_url is required when git_clone_on_empty is enabled")
+	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
+		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
-	if c.GitAuthMode == "" {
-		c.GitAuthMode = "ssh"
+	if c.Boards.GitAuthMode == "" {
+		c.Boards.GitAuthMode = "ssh"
 	}
-	switch c.GitAuthMode {
+	switch c.Boards.GitAuthMode {
 	case "ssh", "pat":
 		// valid
 	default:
-		return fmt.Errorf("invalid git_auth_mode %q: must be \"ssh\" or \"pat\"", c.GitAuthMode)
+		return fmt.Errorf("invalid boards.git_auth_mode %q: must be \"ssh\" or \"pat\"", c.Boards.GitAuthMode)
 	}
-	if c.GitAuthMode == "pat" {
+	if c.Boards.GitAuthMode == "pat" {
 		if c.GitHub.Token == "" {
-			return fmt.Errorf("github.token is required when git_auth_mode is \"pat\"")
+			return fmt.Errorf("github.token is required when boards.git_auth_mode is \"pat\"")
 		}
-		if !strings.HasPrefix(c.GitRemoteURL, "https://") {
-			return fmt.Errorf("git_remote_url must start with https:// when git_auth_mode is \"pat\" (got %q)", c.GitRemoteURL)
+		if !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
+			return fmt.Errorf("boards.git_remote_url must start with https:// when boards.git_auth_mode is \"pat\" (got %q)", c.Boards.GitRemoteURL)
 		}
 	}
 	if c.GitHub.IssueImporting.Enabled {
@@ -237,11 +244,11 @@ func Load(path string) (*Config, error) {
 
 // resolvePaths expands tildes and derives default paths relative to the config file location.
 func resolvePaths(cfg *Config, configPath string) error {
-	boardsDir, err := expandTilde(cfg.BoardsDir)
+	boardsDir, err := expandTilde(cfg.Boards.Dir)
 	if err != nil {
 		return err
 	}
-	cfg.BoardsDir = boardsDir
+	cfg.Boards.Dir = boardsDir
 
 	skillsDir, err := expandTilde(cfg.SkillsDir)
 	if err != nil {
@@ -266,31 +273,31 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
-		cfg.BoardsDir = v
+		cfg.Boards.Dir = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_COMMIT"); v != "" {
-		cfg.GitAutoCommit = v == "true" || v == "1"
+		cfg.Boards.GitAutoCommit = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PUSH"); v != "" {
-		cfg.GitAutoPush = v == "true" || v == "1"
+		cfg.Boards.GitAutoPush = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_AUTO_PULL"); v != "" {
-		cfg.GitAutoPull = v == "true" || v == "1"
+		cfg.Boards.GitAutoPull = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_PULL_INTERVAL"); v != "" {
-		cfg.GitPullInterval = v
+		cfg.Boards.GitPullInterval = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_DEFERRED_COMMIT"); v != "" {
-		cfg.GitDeferredCommit = v == "true" || v == "1"
+		cfg.Boards.GitDeferredCommit = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_CLONE_ON_EMPTY"); v != "" {
-		cfg.GitCloneOnEmpty = v == "true" || v == "1"
+		cfg.Boards.GitCloneOnEmpty = v == "true" || v == "1"
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GIT_REMOTE_URL"); v != "" {
-		cfg.GitRemoteURL = v
+		cfg.Boards.GitRemoteURL = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
-		cfg.GitAuthMode = v
+		cfg.Boards.GitAuthMode = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v
@@ -338,9 +345,9 @@ func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
 }
 
-// PullIntervalDuration parses GitPullInterval as a time.Duration.
+// PullIntervalDuration parses Boards.GitPullInterval as a time.Duration.
 func (c *Config) PullIntervalDuration() (time.Duration, error) {
-	return time.ParseDuration(c.GitPullInterval)
+	return time.ParseDuration(c.Boards.GitPullInterval)
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.

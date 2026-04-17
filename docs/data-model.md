@@ -36,7 +36,7 @@
 5. **Every mutation auto-commits (with optional deferral).** The service layer
    writes the file, then commits via `GitManager`. Commit message format:
    `[contextmatrix] CARD-ID: description` or
-   `[agent:AGENT-ID] CARD-ID: description`. When `git_deferred_commit: true` in
+   `[agent:AGENT-ID] CARD-ID: description`. When `boards.git_deferred_commit: true` in
    `config.yaml`, agent mutations during a work session are batched and flushed
    as a single commit at claim release/completion. Card creation and human edits
    to unclaimed cards are always committed immediately regardless of this
