@@ -160,12 +160,24 @@ runner:
   public_url: ""
 
 # GitHub integration configuration.
-# A fine-grained PAT (token) is used both for reading branches and for importing
-# issues. The token is always required when any GitHub feature is in use.
+# A fine-grained PAT (token) is used for reading branches, importing issues,
+# and — when boards.git_auth_mode is "pat" — authenticating the boards repo.
+# The token is always required when any GitHub feature is in use.
 github:
   # GitHub personal access token (fine-grained recommended).
-  # Required when github.issue_importing.enabled is true.
-  # Also used for branch listing even when issue importing is disabled.
+  #
+  # One token covers all three GitHub-touching features:
+  #   • boards repo auth — when boards.git_auth_mode is "pat", this token is
+  #     injected via git's http.extraheader to clone/pull/push the boards repo
+  #     (see boards.git_auth_mode above for required PAT permissions).
+  #   • issue importing — required when github.issue_importing.enabled is true.
+  #   • branch listing  — used by the web UI's branch picker even when issue
+  #     importing is disabled.
+  #
+  # SECURITY: always supply this via the CONTEXTMATRIX_GITHUB_TOKEN env var —
+  # never hard-code it in this file. Inline tokens get committed to config
+  # repos, leak through backups, and end up in shell history. The YAML field
+  # is retained only for local development/testing against a throwaway token.
   # Env: CONTEXTMATRIX_GITHUB_TOKEN
   token: ""
 
