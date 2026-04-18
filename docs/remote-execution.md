@@ -185,14 +185,16 @@ interactive mode. HMAC-signed identically to trigger/kill.
 
 The runner performs a two-step operation in strict order:
 
-1. **Flip the autonomous flag server-side (fail closed):** Calls
-   `POST {contextmatrix_url}/api/projects/{project}/cards/{id}/promote` to flip
-   the card's `autonomous` flag in ContextMatrix before touching stdin. If this
-   call fails (network error or non-2xx response), the runner returns 502 and
+1. **Verify the autonomous flag (fail closed):** Calls
+   `GET {contextmatrix_url}/api/projects/{project}/cards/{id}` and checks that
+   `autonomous == true`. CM already flipped the flag before sending this
+   webhook, so the GET is a read-only confirmation. If the call fails (network
+   error, non-2xx) or `autonomous` is not `true`, the runner returns 502 and
    does **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
-   `"promoted to autonomous mode"`, then writes a stream-json user message to the
-   container's stdin:
+   `"promoted to autonomous mode"`, then writes a stream-json user message to
+   the container's stdin:
+
    > "Autonomous mode has been enabled (card flag flipped). Check the card with
    > `get_card` at your next gate and continue on the autonomous branch. Do not
    > wait for further user input."
@@ -202,11 +204,11 @@ The runner performs a two-step operation in strict order:
 
 **Error responses:**
 
-| Status | Condition                                          |
-| ------ | -------------------------------------------------- |
-| 404    | No container tracked for this card                 |
-| 409    | Container is not in interactive mode               |
-| 502    | ContextMatrix promote API call failed (fail closed)|
+| Status | Condition                                            |
+| ------ | ---------------------------------------------------- |
+| 404    | No container tracked for this card                   |
+| 409    | Container is not in interactive mode                 |
+| 502    | ContextMatrix card verification failed (fail closed) |
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -414,9 +416,10 @@ The runner sets `CM_INTERACTIVE=1` in the container's environment. The
   the writer with the tracker, the runner writes a priming stream-json user
   message (built via `streammsg.BuildUserMessage`) directly into the container's
   stdin. The priming message instructs Claude to call
-  `get_skill(skill_name='create-plan', ...)` immediately, so plan drafting starts
-  without waiting for user input. The user provides approval at the skill's built-in
-  gates (plan approval, subtask execution decision, review) via the chat input.
+  `get_skill(skill_name='create-plan', ...)` immediately, so plan drafting
+  starts without waiting for user input. The user provides approval at the
+  skill's built-in gates (plan approval, subtask execution decision, review) via
+  the chat input.
 
 ### Message Flow
 
@@ -429,7 +432,7 @@ Web UI (chat input) → CM POST /api/runner/message
 Web UI (promote btn) → CM POST /api/runner/promote
                       → CM flips card autonomous=true (git commit + SSE event)
                       → Runner POST /promote
-                      → Runner POST /api/.../promote (flip flag; 502+stop if fails)
+                      → Runner GET /api/.../cards/{id} (verify autonomous==true; 502+stop if fails)
                       → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
 ```

@@ -244,6 +244,29 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Idempotency guard: if the card is already autonomous, skip the outbound webhook.
+	// This prevents infinite recursion when a runner that verifies promotion by re-POSTing
+	// to this endpoint triggers a second outbound webhook, which the runner would then
+	// re-verify again, and so on.
+	if card.Autonomous {
+		slog.Debug("promote short-circuit: card already autonomous, skipping runner webhook",
+			"card_id", id, "project", project)
+		fbTrue := true
+		prTrue := true
+		if !card.FeatureBranch || !card.CreatePR {
+			card, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
+				FeatureBranch: &fbTrue,
+				CreatePR:      &prTrue,
+			})
+			if err != nil {
+				handleServiceError(w, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, card)
+		return
+	}
+
 	// Extract agent identity from header.
 	agentID := r.Header.Get("X-Agent-ID")
 	if agentID == "" {

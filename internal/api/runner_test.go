@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1364,12 +1365,12 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	// Idempotent: already-autonomous card succeeds (200) and still calls the runner webhook.
+	// Guard: already-autonomous card short-circuits before calling the runner webhook.
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should remain autonomous")
-	assert.Equal(t, 1, promoteCalled, "promote webhook should still be called for idempotent promote")
+	assert.Equal(t, 0, promoteCalled, "idempotency guard must skip runner webhook when card is already autonomous")
 
 	// No extra log entry added (idempotent).
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -1663,4 +1664,94 @@ func TestRunCard_Interactive(t *testing.T) {
 		// Exactly one trigger webhook should have fired.
 		assert.Equal(t, 1, triggerCount, "runner should be triggered exactly once")
 	})
+}
+
+// TestPromoteCard_RecursionGuard verifies that when the runner's /promote handler
+// calls back into CM's /promote endpoint (simulating the original infinite-recursion
+// bug), the idempotency guard on CM's side short-circuits on the second call and
+// does NOT forward the webhook again.
+//
+// Without the guard this test would spin up goroutines indefinitely until the
+// 2-second client deadline fires; with the guard the top-level call returns 200
+// and the fake runner receives exactly one POST /promote.
+func TestPromoteCard_RecursionGuard(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a non-autonomous card in the "running" state (ready to be promoted).
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Interactive task for recursion test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session")
+	require.NoError(t, err)
+
+	// cmURL is set after the CM server starts; the fake runner closure captures the pointer.
+	var cmURL atomic.Value
+
+	// promoteCallCount tracks how many times the fake runner's /promote handler fires.
+	var promoteCallCount atomic.Int32
+
+	// Fake runner: when it receives POST /promote, it calls back into CM's /promote
+	// endpoint synchronously — this reproduces the original buggy runner behaviour.
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			count := promoteCallCount.Add(1)
+
+			// Only call back on the first invocation to avoid spinning up a truly
+			// unbounded number of goroutines in the "without guard" scenario.
+			// One callback is enough to demonstrate the recursion.
+			if count == 1 {
+				base, _ := cmURL.Load().(string)
+				if base != "" {
+					callbackURL := base + "/api/projects/test-project/cards/" + card.ID + "/promote"
+					// Use a short per-call timeout so the test fails fast if the guard is absent.
+					callbackClient := &http.Client{Timeout: 500 * time.Millisecond}
+					cbReq, _ := http.NewRequest("POST", callbackURL, nil)
+					// No X-Agent-ID → treated as human (no agent prefix guard needed here).
+					cbResp, cbErr := callbackClient.Do(cbReq)
+					if cbErr == nil && cbResp != nil {
+						_ = cbResp.Body.Close()
+					}
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer fakeRunner.Close()
+
+	runnerClient := runner.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{
+			Enabled:   true,
+			URL:       fakeRunner.URL,
+			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			PublicURL: "http://localhost:8080",
+		},
+	})
+	cmServer := httptest.NewServer(router)
+	defer cmServer.Close()
+	cmURL.Store(cmServer.URL)
+
+	// Issue the top-level promote with a 2-second deadline.
+	// Without the guard the fake runner's callback will call CM again → CM calls the
+	// runner again → the fan-out continues until the 2-second deadline fires.
+	// With the guard CM sees autonomous==true on the callback and short-circuits.
+	topLevelClient := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequest("POST",
+		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+
+	resp, err := topLevelClient.Do(req)
+	require.NoError(t, err, "top-level promote must not time out (guard must short-circuit the callback)")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "top-level promote must return 200")
+
+	// The fake runner must have been called exactly once — the callback from the runner
+	// must NOT have triggered a second outbound webhook from CM.
+	assert.Equal(t, int32(1), promoteCallCount.Load(),
+		"fake runner must receive exactly one POST /promote; guard must block the recursive call")
 }
