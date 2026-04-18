@@ -81,11 +81,19 @@ throughout all components. Do not hardcode hex values in components.
 
 ## CardPanel active-session layout
 
-When `card.runner_status === 'running'`, `CardPanel` switches from its normal
-single-scroll body to a **split layout** that gives the Session Chat maximum
-vertical space.
+The split layout and session chat are **HITL-only**. Both are gated on a
+derived boolean:
 
-### Split-body structure
+```ts
+const isHITLRunning = card.runner_status === 'running' && !card.autonomous;
+```
+
+When `isHITLRunning` is true, `CardPanel` switches from its normal
+single-scroll body to a **split layout** that gives the Session Chat maximum
+vertical space. When false (autonomous run, idle, or any other state),
+the single-body layout is used and `CardChat` renders nothing.
+
+### Split-body structure (HITL runs only)
 
 ```
 <div data-testid="body-split">          flex flex-col flex-1 min-h-0
@@ -93,8 +101,16 @@ vertical space.
   <div data-testid="body-chat-region">  flex-1 min-h-0 — CardChat fills remaining height
 ```
 
-When not running, the original single-scroll wrapper (`data-testid="body-single"`) is
-used — no split, no regression.
+Autonomous runs (`card.autonomous === true`) always use the single-scroll
+wrapper (`data-testid="body-single"`) even while `runner_status === 'running'`,
+because their chat region would otherwise be empty.
+
+`CardChat` returns null (renders nothing) when
+`card.runner_status !== 'running' || card.autonomous`. This hides the log
+panel, the textarea, the Send button, and the "Switch to Autonomous" button
+together. When a HITL→Auto promotion occurs mid-run, `card.autonomous` flips
+to `true`, the component re-renders, and the entire chat UI disappears
+immediately.
 
 `CardChat` root is `flex flex-col h-full`; its log container is
 `flex-1 min-h-[60px]` (not `max-h-[200px]`), so it expands to fill the chat
@@ -109,12 +125,21 @@ the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
 styling.
 
 **Auto-collapse behaviour:** a `useEffect` in `CardPanel` tracks
-`card.runner_status` via `useRef` (previous value) and fires only on
-transitions:
+`isHITLRunning` via `prevIsHITLRunningRef` (previous value) and fires only on
+transitions of that boolean:
 
-- `* → 'running'`: sets both `descriptionCollapsed` and `automationCollapsed`
-  to `true`.
-- `'running' → *`: resets both to `false`.
+- `false → true` (entering HITL-running): sets both `descriptionCollapsed` and
+  `automationCollapsed` to `true`.
+- `true → false` (leaving HITL-running, including a HITL→Auto promotion
+  mid-run): resets both to `false`.
+
+Auto-mode entry and exit never trigger a collapse because `isHITLRunning`
+stays false throughout.
+
+Initial state is set via `useState(initialIsHITLRunning)` — mounting into an
+already-running HITL session starts collapsed without waiting for a transition.
+The `useEffect` only fires on changes, so the initial mount value is handled
+by `useState` directly.
 
 Tracking via ref (not just the current value) ensures that manual re-expands
 during an active session survive re-renders while the card stays `running`.

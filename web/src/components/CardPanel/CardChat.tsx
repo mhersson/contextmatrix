@@ -40,7 +40,7 @@ export function CardChat({ card }: CardChatProps) {
     el.scrollTop = el.scrollHeight;
   }, [cardLogs]);
 
-  if (card.runner_status !== 'running') {
+  if (card.runner_status !== 'running' || card.autonomous) {
     return null;
   }
 

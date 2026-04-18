@@ -123,23 +123,23 @@ describe('CardPanel — collapsible Automation section', () => {
   });
 });
 
-describe('CardPanel — auto-collapse on runner_status transitions', () => {
+describe('CardPanel — auto-collapse on HITL runner_status transitions', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
-  it('transitions to running collapses both Description and Automation', async () => {
+  it('transitions to HITL running collapses both Description and Automation', async () => {
     const { rerender } = renderWithTheme(
-      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
     // Both sections visible initially
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
 
-    // Transition to running
+    // Transition to HITL running (running AND NOT autonomous)
     await act(async () => {
       rerender(
-        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false } })} />,
       );
     });
 
@@ -149,15 +149,15 @@ describe('CardPanel — auto-collapse on runner_status transitions', () => {
     });
   });
 
-  it('after auto-collapse, clicking a chevron expands and subsequent re-renders while still running do NOT re-collapse', async () => {
+  it('after auto-collapse, clicking a chevron expands and subsequent re-renders while still in HITL running do NOT re-collapse', async () => {
     const { rerender } = renderWithTheme(
-      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
 
-    // Transition to running — auto-collapses both
+    // Transition to HITL running — auto-collapses both
     await act(async () => {
       rerender(
-        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false } })} />,
       );
     });
 
@@ -169,25 +169,25 @@ describe('CardPanel — auto-collapse on runner_status transitions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
 
-    // Another re-render while still running — should NOT re-collapse
+    // Another re-render while still HITL running — should NOT re-collapse
     await act(async () => {
       rerender(
-        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', title: 'updated title' } })} />,
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, title: 'updated title' } })} />,
       );
     });
 
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
   });
 
-  it('transitions out of running expands both sections', async () => {
+  it('transitions out of HITL running expands both sections', async () => {
     const { rerender } = renderWithTheme(
-      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
 
-    // Transition to running
+    // Transition to HITL running
     await act(async () => {
       rerender(
-        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false } })} />,
       );
     });
 
@@ -198,7 +198,7 @@ describe('CardPanel — auto-collapse on runner_status transitions', () => {
     // Transition out of running
     await act(async () => {
       rerender(
-        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'failed' } })} />,
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'failed', autonomous: false } })} />,
       );
     });
 
@@ -209,14 +209,14 @@ describe('CardPanel — auto-collapse on runner_status transitions', () => {
   });
 });
 
-describe('CardPanel — split layout when runner is active', () => {
+describe('CardPanel — split layout when HITL runner is active', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
-  it('renders split layout (top-section + chat-region as siblings) when runner_status is "running"', () => {
+  it('renders split layout when runner_status is "running" and autonomous is false', () => {
     renderWithTheme(
-      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', state: 'in_progress' } })} />,
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, state: 'in_progress' } })} />,
     );
     expect(screen.getByTestId('body-split')).toBeInTheDocument();
     expect(screen.getByTestId('body-top-section')).toBeInTheDocument();
@@ -230,6 +230,16 @@ describe('CardPanel — split layout when runner is active', () => {
     expect(split.children[1]).toBe(chat);
   });
 
+  it('renders single-scroll layout when runner_status is "running" and autonomous is true', () => {
+    renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: true, state: 'in_progress' } })} />,
+    );
+    expect(screen.getByTestId('body-single')).toBeInTheDocument();
+    expect(screen.queryByTestId('body-split')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('body-top-section')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('body-chat-region')).not.toBeInTheDocument();
+  });
+
   it('renders single-scroll layout when runner_status is not "running"', () => {
     renderWithTheme(<CardPanel {...makeProps()} />);
     expect(screen.getByTestId('body-single')).toBeInTheDocument();
@@ -238,17 +248,53 @@ describe('CardPanel — split layout when runner is active', () => {
     expect(screen.queryByTestId('body-chat-region')).not.toBeInTheDocument();
   });
 
-  it('chat region contains the CardChat mock when runner_status is "running"', () => {
+  it('chat region contains the CardChat mock when runner_status is "running" and autonomous is false', () => {
     renderWithTheme(
-      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', state: 'in_progress' } })} />,
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, state: 'in_progress' } })} />,
     );
     const chatRegion = screen.getByTestId('body-chat-region');
     expect(chatRegion.querySelector('[data-testid="card-chat-mock"]')).not.toBeNull();
   });
 
+  it('chat region is absent when runner_status is "running" and autonomous is true', () => {
+    renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: true, state: 'in_progress' } })} />,
+    );
+    expect(screen.queryByTestId('card-chat-mock')).not.toBeInTheDocument();
+  });
+
   it('chat region is absent when runner_status is not "running"', () => {
     renderWithTheme(<CardPanel {...makeProps()} />);
     expect(screen.queryByTestId('card-chat-mock')).not.toBeInTheDocument();
+  });
+
+  it('promoting mid-run (autonomous false→true) switches layout from split to single and expands Description and Automation', async () => {
+    const { rerender } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, state: 'in_progress' } })} />,
+    );
+
+    // Initially in HITL running — split layout, sections collapsed
+    expect(screen.getByTestId('body-split')).toBeInTheDocument();
+    // Auto-collapsed on mount since it starts in HITL-running state
+    // (both Description and Automation should be collapsed)
+    expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Autonomous mode' })).not.toBeInTheDocument();
+
+    // Promote to autonomous mid-run
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: true, state: 'in_progress' } })} />,
+      );
+    });
+
+    await waitFor(() => {
+      // Layout switches to single-body
+      expect(screen.getByTestId('body-single')).toBeInTheDocument();
+      expect(screen.queryByTestId('body-split')).not.toBeInTheDocument();
+      // Description and Automation are expanded
+      expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+    });
   });
 });
 

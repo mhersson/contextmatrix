@@ -61,6 +61,31 @@ describe('CardChat — visibility gate', () => {
     render(<CardChat card={runningCard} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
   });
+
+  it('returns null when runner_status is "running" AND autonomous is true', () => {
+    const { container } = render(<CardChat card={autonomousCard} />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
+  });
+
+  it('renders normally when runner_status is "running" AND autonomous is false', () => {
+    render(<CardChat card={runningCard} />);
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
+  });
+
+  it('chat UI disappears when autonomous flips from false to true (simulates promote)', () => {
+    const { container, rerender } = render(<CardChat card={runningCard} />);
+    // Initially visible
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
+    // Simulate HITL→Auto promotion: re-render with autonomous=true
+    rerender(<CardChat card={autonomousCard} />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+  });
 });
 
 describe('CardChat — layout classes', () => {

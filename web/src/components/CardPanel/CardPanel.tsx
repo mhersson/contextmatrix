@@ -78,9 +78,13 @@ export function CardPanel({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
-  const [descriptionCollapsed, setDescriptionCollapsed] = useState(false);
-  const [automationCollapsed, setAutomationCollapsed] = useState(false);
-  const prevRunnerStatusRef = useRef<string | undefined>(card.runner_status);
+  // Initialize collapsed state based on whether we start in HITL-running mode.
+  const initialIsHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+  const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
+  const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
+  // Tracks previous "HITL running" state: running AND not autonomous.
+  // Promotion mid-run (HITL → auto) is a true→false transition → sections expand.
+  const prevIsHITLRunningRef = useRef<boolean>(initialIsHITLRunning);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState(false);
@@ -94,23 +98,25 @@ export function CardPanel({
     setEditedCard(card);
   }, [card]);
 
-  // Auto-collapse Description and Automation when runner transitions into 'running'.
-  // Use a ref for previous status so we only react to transitions, not every re-render,
-  // which would overwrite any manual re-expand the user makes during an active session.
+  // Auto-collapse Description and Automation when entering HITL running mode
+  // (runner_status === 'running' AND NOT autonomous).
+  // Expand both when leaving HITL running mode (including promotion mid-run).
+  // Use a ref for previous HITL-running state so we only react to transitions,
+  // not every re-render, which would overwrite any manual re-expand the user makes.
   useEffect(() => {
-    const prev = prevRunnerStatusRef.current;
-    const current = card.runner_status;
-    if (prev !== current) {
-      if (current === 'running') {
+    const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+    const prev = prevIsHITLRunningRef.current;
+    if (prev !== isHITLRunning) {
+      if (isHITLRunning) {
         setDescriptionCollapsed(true);
         setAutomationCollapsed(true);
-      } else if (prev === 'running') {
+      } else {
         setDescriptionCollapsed(false);
         setAutomationCollapsed(false);
       }
-      prevRunnerStatusRef.current = current;
+      prevIsHITLRunningRef.current = isHITLRunning;
     }
-  }, [card.runner_status]);
+  }, [card.runner_status, card.autonomous]);
 
   useEffect(() => {
     if (!config.remote_execution?.enabled) return;
@@ -291,6 +297,10 @@ export function CardPanel({
     card.state === 'todo' &&
     (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
 
+  // Split layout only for HITL sessions (running AND not autonomous).
+  // Autonomous runs use the single-body layout — the chat region is unused there.
+  const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
@@ -309,7 +319,7 @@ export function CardPanel({
           onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
         />
 
-        {card.runner_status === 'running' ? (
+        {isHITLRunning ? (
           <div className="flex flex-col flex-1 min-h-0" data-testid="body-split">
             {/* Top scroll region — capped so chat always gets at least half the panel */}
             <div className="overflow-y-auto overflow-x-hidden p-4 space-y-4 max-h-[50%] min-h-0" data-testid="body-top-section">
