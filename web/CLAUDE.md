@@ -79,6 +79,51 @@ throughout all components. Do not hardcode hex values in components.
 - Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
   active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
 
+## CardPanel active-session layout
+
+When `card.runner_status === 'running'`, `CardPanel` switches from its normal
+single-scroll body to a **split layout** that gives the Session Chat maximum
+vertical space.
+
+### Split-body structure
+
+```
+<div data-testid="body-split">          flex flex-col flex-1 min-h-0
+  <div data-testid="body-top-section">  overflow-y-auto max-h-[50%] — Agent, Description, Metadata, Activity
+  <div data-testid="body-chat-region">  flex-1 min-h-0 — CardChat fills remaining height
+```
+
+When not running, the original single-scroll wrapper (`data-testid="body-single"`) is
+used — no split, no regression.
+
+`CardChat` root is `flex flex-col h-full`; its log container is
+`flex-1 min-h-[60px]` (not `max-h-[200px]`), so it expands to fill the chat
+region. The input row and action buttons stay pinned at their natural height
+below the log.
+
+### Collapsible Description and Automation sections
+
+Both sections have a chevron toggle button beside their label. The chevron uses
+the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
+`M5 15l7-7 7 7` expanded) with `text-[var(--grey1)] hover:text-[var(--fg)]`
+styling.
+
+**Auto-collapse behaviour:** a `useEffect` in `CardPanel` tracks
+`card.runner_status` via `useRef` (previous value) and fires only on
+transitions:
+
+- `* → 'running'`: sets both `descriptionCollapsed` and `automationCollapsed`
+  to `true`.
+- `'running' → *`: resets both to `false`.
+
+Tracking via ref (not just the current value) ensures that manual re-expands
+during an active session survive re-renders while the card stays `running`.
+
+`CardPanelMetadata` receives `automationCollapsed: boolean` and
+`onToggleAutomation: () => void` props; it owns the Automation label + chevron
+row and wraps `<AutomationCheckboxes>` on those props. The internal Automation
+label inside `AutomationCheckboxes` was removed to avoid duplication.
+
 ## Runner Console
 
 The Runner Console is a live log panel that streams output from

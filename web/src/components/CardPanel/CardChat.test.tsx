@@ -63,6 +63,29 @@ describe('CardChat — visibility gate', () => {
   });
 });
 
+describe('CardChat — layout classes', () => {
+  it('log container uses flex-1 (not max-h-[200px]) when session is active', () => {
+    const { container } = render(<CardChat card={runningCard} />);
+    // Find the log container by its bg-dim class (unique to the log div)
+    const logContainer = container.querySelector('.bg-\\[var\\(--bg-dim\\)\\]');
+    expect(logContainer).not.toBeNull();
+    expect(logContainer!.className).toContain('flex-1');
+    expect(logContainer!.className).not.toContain('max-h-[200px]');
+  });
+
+  it('root container uses h-full so it fills flex parent', () => {
+    const { container } = render(<CardChat card={runningCard} />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain('h-full');
+  });
+
+  it('chat input textarea and Send button are rendered and accessible', () => {
+    render(<CardChat card={runningCard} />);
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
+  });
+});
+
 describe('CardChat — Enter-to-send', () => {
   it('Enter sends message and clears textarea', async () => {
     render(<CardChat card={runningCard} />);

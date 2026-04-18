@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { CardPanel } from './CardPanel';
 import type { Card, ProjectConfig } from '../../types';
 
@@ -21,6 +21,11 @@ vi.mock('../../api/client', () => ({
   api: {
     fetchBranches: vi.fn().mockResolvedValue([]),
   },
+}));
+
+// CardChat uses EventSource (SSE) which is not available in jsdom
+vi.mock('./CardChat', () => ({
+  CardChat: () => <div data-testid="card-chat-mock" />,
 }));
 
 const baseCard: Card = {
@@ -69,6 +74,183 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
 function renderWithTheme(ui: React.ReactElement) {
   return render(ui);
 }
+
+describe('CardPanel — collapsible Description section', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('Description editor is visible by default', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+  });
+
+  it('clicking the Description chevron hides the MDEditor', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse description' }));
+    expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+  });
+
+  it('clicking the Description chevron again shows the MDEditor', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse description' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
+    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+  });
+});
+
+describe('CardPanel — collapsible Automation section', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('Automation checkboxes are visible by default', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+  });
+
+  it('clicking the Automation chevron hides the AutomationCheckboxes', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse automation' }));
+    expect(screen.queryByRole('checkbox', { name: 'Autonomous mode' })).not.toBeInTheDocument();
+  });
+
+  it('clicking the Automation chevron again shows the AutomationCheckboxes', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse automation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand automation' }));
+    expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+  });
+});
+
+describe('CardPanel — auto-collapse on runner_status transitions', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('transitions to running collapses both Description and Automation', async () => {
+    const { rerender } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+    );
+    // Both sections visible initially
+    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+
+    // Transition to running
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: 'Autonomous mode' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('after auto-collapse, clicking a chevron expands and subsequent re-renders while still running do NOT re-collapse', async () => {
+    const { rerender } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+    );
+
+    // Transition to running — auto-collapses both
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+    });
+
+    // Manually expand Description
+    fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
+    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+
+    // Another re-render while still running — should NOT re-collapse
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', title: 'updated title' } })} />,
+      );
+    });
+
+    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+  });
+
+  it('transitions out of running expands both sections', async () => {
+    const { rerender } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined } })} />,
+    );
+
+    // Transition to running
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running' } })} />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+    });
+
+    // Transition out of running
+    await act(async () => {
+      rerender(
+        <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'failed' } })} />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+    });
+  });
+});
+
+describe('CardPanel — split layout when runner is active', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('renders split layout (top-section + chat-region as siblings) when runner_status is "running"', () => {
+    renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', state: 'in_progress' } })} />,
+    );
+    expect(screen.getByTestId('body-split')).toBeInTheDocument();
+    expect(screen.getByTestId('body-top-section')).toBeInTheDocument();
+    expect(screen.getByTestId('body-chat-region')).toBeInTheDocument();
+    // They must be siblings (both children of body-split)
+    const split = screen.getByTestId('body-split');
+    const top = screen.getByTestId('body-top-section');
+    const chat = screen.getByTestId('body-chat-region');
+    expect(split.children).toHaveLength(2);
+    expect(split.children[0]).toBe(top);
+    expect(split.children[1]).toBe(chat);
+  });
+
+  it('renders single-scroll layout when runner_status is not "running"', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    expect(screen.getByTestId('body-single')).toBeInTheDocument();
+    expect(screen.queryByTestId('body-split')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('body-top-section')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('body-chat-region')).not.toBeInTheDocument();
+  });
+
+  it('chat region contains the CardChat mock when runner_status is "running"', () => {
+    renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', state: 'in_progress' } })} />,
+    );
+    const chatRegion = screen.getByTestId('body-chat-region');
+    expect(chatRegion.querySelector('[data-testid="card-chat-mock"]')).not.toBeNull();
+  });
+
+  it('chat region is absent when runner_status is not "running"', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    expect(screen.queryByTestId('card-chat-mock')).not.toBeInTheDocument();
+  });
+});
 
 describe('CardPanel — Run Now save-before-run ordering', () => {
   beforeEach(() => {

@@ -40,7 +40,6 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
 
   return (
     <div>
-      <label className="block text-xs text-[var(--grey1)] mb-2">Automation</label>
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-2 flex-1">
           <label className="flex items-center gap-2 cursor-pointer">

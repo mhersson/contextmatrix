@@ -78,6 +78,9 @@ export function CardPanel({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+  const [descriptionCollapsed, setDescriptionCollapsed] = useState(false);
+  const [automationCollapsed, setAutomationCollapsed] = useState(false);
+  const prevRunnerStatusRef = useRef<string | undefined>(card.runner_status);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState(false);
@@ -90,6 +93,24 @@ export function CardPanel({
   useEffect(() => {
     setEditedCard(card);
   }, [card]);
+
+  // Auto-collapse Description and Automation when runner transitions into 'running'.
+  // Use a ref for previous status so we only react to transitions, not every re-render,
+  // which would overwrite any manual re-expand the user makes during an active session.
+  useEffect(() => {
+    const prev = prevRunnerStatusRef.current;
+    const current = card.runner_status;
+    if (prev !== current) {
+      if (current === 'running') {
+        setDescriptionCollapsed(true);
+        setAutomationCollapsed(true);
+      } else if (prev === 'running') {
+        setDescriptionCollapsed(false);
+        setAutomationCollapsed(false);
+      }
+      prevRunnerStatusRef.current = current;
+    }
+  }, [card.runner_status]);
 
   useEffect(() => {
     if (!config.remote_execution?.enabled) return;
@@ -288,63 +309,159 @@ export function CardPanel({
           onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
         />
 
-        <div className="p-4 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
-          <CardPanelAgent
-            card={card}
-            canClaim={!card.assigned_agent}
-            canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
-            onClaim={handleClaim}
-            onRelease={handleRelease}
-            canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
-            onStop={onStopCard}
-          />
+        {card.runner_status === 'running' ? (
+          <div className="flex flex-col flex-1 min-h-0" data-testid="body-split">
+            {/* Top scroll region — capped so chat always gets at least half the panel */}
+            <div className="overflow-y-auto overflow-x-hidden p-4 space-y-4 max-h-[50%] min-h-0" data-testid="body-top-section">
+              <CardPanelAgent
+                card={card}
+                canClaim={!card.assigned_agent}
+                canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
+                onClaim={handleClaim}
+                onRelease={handleRelease}
+                canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
+                onStop={onStopCard}
+              />
 
-          <div ref={editorContainerRef} data-color-mode={theme}>
-            <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
-            <MDEditor
-              value={editedCard.body}
-              onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
-              preview="edit"
-              height={editorHeight}
-              visibleDragbar={false}
-            />
+              <div ref={editorContainerRef} data-color-mode={theme}>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="text-xs text-[var(--grey1)]">Description</label>
+                  <button
+                    onClick={() => setDescriptionCollapsed((v) => !v)}
+                    className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+                    aria-label={descriptionCollapsed ? 'Expand description' : 'Collapse description'}
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d={descriptionCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+                    </svg>
+                  </button>
+                </div>
+                {!descriptionCollapsed && (
+                  <MDEditor
+                    value={editedCard.body}
+                    onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
+                    preview="edit"
+                    height={editorHeight}
+                    visibleDragbar={false}
+                  />
+                )}
+              </div>
+
+              <CardPanelMetadata
+                card={card}
+                editedLabels={editedCard.labels}
+                onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
+                onSubtaskClick={onSubtaskClick}
+                editedAutonomous={editedCard.autonomous ?? false}
+                editedFeatureBranch={editedCard.feature_branch ?? false}
+                editedCreatePR={editedCard.create_pr ?? false}
+                onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
+                onFeatureBranchChange={(v) => setEditedCard((prev) => ({
+                  ...prev,
+                  feature_branch: v,
+                  create_pr: v ? prev.create_pr : false,
+                }))}
+                onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
+                editedVetted={editedCard.vetted ?? false}
+                onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
+                baseBranch={editedCard.base_branch}
+                onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
+                branches={branches}
+                branchesLoading={branchesLoading}
+                branchesError={branchesError}
+                canRun={canRun}
+                onRun={async () => {
+                  if (isDirty) {
+                    await handleSave();
+                  }
+                  await onRunCard(!(editedCard.autonomous ?? false));
+                }}
+                automationCollapsed={automationCollapsed}
+                onToggleAutomation={() => setAutomationCollapsed((v) => !v)}
+              />
+
+              <CardPanelActivity activityLog={card.activity_log} />
+            </div>
+
+            {/* Bottom chat region — fills remaining height */}
+            <div className="flex-1 min-h-0 flex flex-col p-4 pt-0" data-testid="body-chat-region">
+              <CardChat card={card} />
+            </div>
           </div>
+        ) : (
+          <div className="p-4 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0" data-testid="body-single">
+            <CardPanelAgent
+              card={card}
+              canClaim={!card.assigned_agent}
+              canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
+              onClaim={handleClaim}
+              onRelease={handleRelease}
+              canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
+              onStop={onStopCard}
+            />
 
-          <CardPanelMetadata
-            card={card}
-            editedLabels={editedCard.labels}
-            onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
-            onSubtaskClick={onSubtaskClick}
-            editedAutonomous={editedCard.autonomous ?? false}
-            editedFeatureBranch={editedCard.feature_branch ?? false}
-            editedCreatePR={editedCard.create_pr ?? false}
-            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
-            onFeatureBranchChange={(v) => setEditedCard((prev) => ({
-              ...prev,
-              feature_branch: v,
-              create_pr: v ? prev.create_pr : false,
-            }))}
-            onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
-            editedVetted={editedCard.vetted ?? false}
-            onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
-            baseBranch={editedCard.base_branch}
-            onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
-            branches={branches}
-            branchesLoading={branchesLoading}
-            branchesError={branchesError}
-            canRun={canRun}
-            onRun={async () => {
-              if (isDirty) {
-                await handleSave();
-              }
-              await onRunCard(!(editedCard.autonomous ?? false));
-            }}
-          />
+            <div ref={editorContainerRef} data-color-mode={theme}>
+              <div className="flex items-center gap-1 mb-1">
+                <label className="text-xs text-[var(--grey1)]">Description</label>
+                <button
+                  onClick={() => setDescriptionCollapsed((v) => !v)}
+                  className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+                  aria-label={descriptionCollapsed ? 'Expand description' : 'Collapse description'}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d={descriptionCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+                  </svg>
+                </button>
+              </div>
+              {!descriptionCollapsed && (
+                <MDEditor
+                  value={editedCard.body}
+                  onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
+                  preview="edit"
+                  height={editorHeight}
+                  visibleDragbar={false}
+                />
+              )}
+            </div>
 
-          <CardPanelActivity activityLog={card.activity_log} />
+            <CardPanelMetadata
+              card={card}
+              editedLabels={editedCard.labels}
+              onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
+              onSubtaskClick={onSubtaskClick}
+              editedAutonomous={editedCard.autonomous ?? false}
+              editedFeatureBranch={editedCard.feature_branch ?? false}
+              editedCreatePR={editedCard.create_pr ?? false}
+              onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
+              onFeatureBranchChange={(v) => setEditedCard((prev) => ({
+                ...prev,
+                feature_branch: v,
+                create_pr: v ? prev.create_pr : false,
+              }))}
+              onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
+              editedVetted={editedCard.vetted ?? false}
+              onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
+              baseBranch={editedCard.base_branch}
+              onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
+              branches={branches}
+              branchesLoading={branchesLoading}
+              branchesError={branchesError}
+              canRun={canRun}
+              onRun={async () => {
+                if (isDirty) {
+                  await handleSave();
+                }
+                await onRunCard(!(editedCard.autonomous ?? false));
+              }}
+              automationCollapsed={automationCollapsed}
+              onToggleAutomation={() => setAutomationCollapsed((v) => !v)}
+            />
 
-          {card.runner_status === 'running' && <CardChat card={card} />}
-        </div>
+            <CardPanelActivity activityLog={card.activity_log} />
+          </div>
+        )}
       </div>
     </>
   );

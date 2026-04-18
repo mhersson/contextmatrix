@@ -23,6 +23,8 @@ interface CardPanelMetadataProps {
   branchesError?: boolean;
   canRun?: boolean;
   onRun?: () => void | Promise<void>;
+  automationCollapsed?: boolean;
+  onToggleAutomation?: () => void;
 }
 
 export function CardPanelMetadata({
@@ -45,6 +47,8 @@ export function CardPanelMetadata({
   branchesError,
   canRun,
   onRun,
+  automationCollapsed = false,
+  onToggleAutomation,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
@@ -187,24 +191,43 @@ export function CardPanelMetadata({
 
       {/* Automation — only for parent/standalone cards */}
       {!card.parent && (
-        <AutomationCheckboxes
-          autonomous={editedAutonomous}
-          featureBranch={editedFeatureBranch}
-          createPR={editedCreatePR}
-          onAutonomousChange={onAutonomousChange}
-          onFeatureBranchChange={onFeatureBranchChange}
-          onCreatePRChange={onCreatePRChange}
-          branchName={card.branch_name}
-          prUrl={card.pr_url}
-          reviewAttempts={card.review_attempts}
-          baseBranch={baseBranch}
-          onBaseBranchChange={onBaseBranchChange}
-          branches={branches}
-          branchesLoading={branchesLoading}
-          branchesError={branchesError}
-          canRun={canRun}
-          onRun={onRun}
-        />
+        <div>
+          <div className="flex items-center gap-1 mb-2">
+            <label className="text-xs text-[var(--grey1)]">Automation</label>
+            {onToggleAutomation && (
+              <button
+                onClick={onToggleAutomation}
+                className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+                aria-label={automationCollapsed ? 'Expand automation' : 'Collapse automation'}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d={automationCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+                </svg>
+              </button>
+            )}
+          </div>
+          {!automationCollapsed && (
+            <AutomationCheckboxes
+              autonomous={editedAutonomous}
+              featureBranch={editedFeatureBranch}
+              createPR={editedCreatePR}
+              onAutonomousChange={onAutonomousChange}
+              onFeatureBranchChange={onFeatureBranchChange}
+              onCreatePRChange={onCreatePRChange}
+              branchName={card.branch_name}
+              prUrl={card.pr_url}
+              reviewAttempts={card.review_attempts}
+              baseBranch={baseBranch}
+              onBaseBranchChange={onBaseBranchChange}
+              branches={branches}
+              branchesLoading={branchesLoading}
+              branchesError={branchesError}
+              canRun={canRun}
+              onRun={onRun}
+            />
+          )}
+        </div>
       )}
 
       {/* External Import */}

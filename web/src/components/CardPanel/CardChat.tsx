@@ -94,13 +94,13 @@ export function CardChat({ card }: CardChatProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col h-full gap-2">
       <label className="block text-xs text-[var(--grey1)]">Session Chat</label>
 
-      {/* Log list */}
+      {/* Log list — fills remaining height when chat panel is active */}
       <div
         ref={logContainerRef}
-        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] overflow-y-auto max-h-[200px] min-h-[60px] font-mono"
+        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] overflow-y-auto flex-1 min-h-[60px] font-mono"
         onScroll={handleScroll}
       >
         {cardLogs.length === 0 ? (
