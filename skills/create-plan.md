@@ -242,12 +242,16 @@ sub-agent with the returned `model` as described below.
 7. After the user approves, ask the user: **"Want me to commit these
    changes?"** Do NOT offer to commit earlier — all changes (code + docs) are
    committed together so the user sees the complete picture first. If the user
-   approves the commit and the parent card has a feature branch, follow up
-   with: **"Want me to push and create a PR?"** If they approve, push to the
-   feature branch and create a PR. Call
-   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-8. **Done** — After committing, re-claim the parent card for final lifecycle
-   steps: `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+   approves the commit and the parent card has a feature branch, ask:
+   **"Want me to push and create a PR?"**
+   - **User approves push:** push to the feature branch, create a PR, and call
+     `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+   - **User declines push:** skip push and PR — no `report_push` call.
+   Only proceed to step 8 after the push/PR question is fully resolved
+   (approved and done, or declined).
+8. **Done** — After commit AND PR (or the user declining PR), re-claim the
+   parent card for final lifecycle steps:
+   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
    Call `report_usage` one final time to capture any remaining orchestrator
    token consumption:
    - `card_id`: the parent card ID
