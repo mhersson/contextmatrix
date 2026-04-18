@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -387,6 +388,160 @@ func TestSubscribeBeforeStart(t *testing.T) {
 
 	got := drainN(ch, len(events), 5*time.Second)
 	assert.Len(t, got, len(events))
+}
+
+// TestSubscribeSnapshotLiveOrdering reproduces the interleave/duplicate race in
+// Subscribe. The bug: Subscribe releases m.mu after registering the subscriber
+// but before the snapshot goroutine writes to the channel. The pump goroutine
+// can immediately acquire m.mu and fan out live events, so a live event arrives
+// on the channel before the snapshot events.
+//
+// Setup:
+//   - A high-frequency SSE server streams events with Seq >= snapshotSize+1.
+//   - The buffer is pre-populated with snapshotSize events (Seq 1..snapshotSize)
+//     via direct m.Append calls, so a non-empty snapshot exists before Subscribe.
+//   - Subscribe is called while the pump is actively fanning out live events.
+//   - The channel is drained for a bounded duration.
+//
+// The test runs the scenario in a loop to make the race reproducible. It fails
+// on the current implementation and must pass after the fix (subtask 2).
+func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
+	const (
+		snapshotSize = 200
+		iterations   = 25
+		drainTimeout = 200 * time.Millisecond
+	)
+
+	for iter := range iterations {
+		t.Run(fmt.Sprintf("iter%d", iter), func(t *testing.T) {
+			const cardID = "ORDER-001"
+
+			// liveSeq tracks the next Seq to send from the SSE server.
+			// Starts above snapshotSize so snapshot events are distinguishable.
+			var liveSeq atomic.Uint64
+			liveSeq.Store(uint64(snapshotSize + 1))
+
+			// Build an SSE server that streams events continuously at full speed
+			// until the client disconnects. Each event gets a monotonically
+			// increasing Seq value above snapshotSize.
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				flusher, ok := w.(http.Flusher)
+				if !ok {
+					http.Error(w, "streaming not supported", http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				flusher.Flush()
+
+				for r.Context().Err() == nil {
+					seq := liveSeq.Add(1)
+					payload, err := json.Marshal(sseJSONPayload{
+						Seq:  seq,
+						Type: "log",
+					})
+					if err != nil {
+						return
+					}
+					if _, err = fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+						return
+					}
+					flusher.Flush()
+				}
+			}))
+
+			m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+			defer stopThenClose(m, cardID, srv)
+
+			// Start the session so the pump goroutine connects and begins
+			// fanning out live events from the SSE server.
+			require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+			// Wait for the pump to connect and begin fanning out (evidenced by at
+			// least one live event being processed — liveSeq advances beyond its
+			// initial value once the server starts sending).
+			require.Eventually(t, func() bool {
+				return liveSeq.Load() > uint64(snapshotSize+2)
+			}, 2*time.Second, time.Millisecond)
+
+			// Pre-populate the buffer with snapshotSize events (Seq 1..snapshotSize).
+			// These represent events that arrived before the current Subscribe call.
+			for i := range snapshotSize {
+				m.Append(cardID, Event{
+					Seq:       uint64(i + 1),
+					Timestamp: time.Now(),
+					Type:      "log",
+					Payload:   fmt.Appendf(nil, "snap-%d", i+1),
+				})
+			}
+
+			// Subscribe while the pump is actively sending live events (Seq > snapshotSize).
+			// This is the window where the race can occur.
+			ch, unsub := m.Subscribe(cardID)
+			defer unsub()
+
+			// Drain the channel for drainTimeout. Collect all events that arrive.
+			var received []Event
+			deadline := time.After(drainTimeout)
+		drain:
+			for {
+				select {
+				case evt, ok := <-ch:
+					if !ok {
+						break drain
+					}
+					received = append(received, evt)
+				case <-deadline:
+					break drain
+				}
+			}
+
+			// Skip marker / terminal events for ordering checks.
+			isMarker := func(e Event) bool {
+				return e.Type == EventTypeDropped || e.Type == EventTypeTerminal
+			}
+
+			// Assertion 1: Seq values must be strictly non-decreasing (ignoring markers).
+			// Any violation means a live event arrived before snapshot events.
+			var prevSeq uint64
+			var seenLive bool
+			for _, evt := range received {
+				if isMarker(evt) {
+					continue
+				}
+				isLive := evt.Seq > snapshotSize
+				if isLive {
+					seenLive = true
+				}
+				// Once we have seen a live event, no snapshot event should appear.
+				if seenLive && !isLive {
+					t.Errorf("iter %d: snapshot event (Seq=%d) arrived after live event on subscriber channel — ordering violated",
+						iter, evt.Seq)
+					break
+				}
+				// Seq must be non-decreasing within each segment.
+				if evt.Seq < prevSeq {
+					t.Errorf("iter %d: Seq decreased: got %d after %d",
+						iter, evt.Seq, prevSeq)
+					break
+				}
+				prevSeq = evt.Seq
+			}
+
+			// Assertion 2: No duplicate Seq values on the channel (ignoring markers).
+			seen := make(map[uint64]int)
+			for i, evt := range received {
+				if isMarker(evt) {
+					continue
+				}
+				if first, dup := seen[evt.Seq]; dup {
+					t.Errorf("iter %d: duplicate Seq=%d at positions %d and %d",
+						iter, evt.Seq, first, i)
+				}
+				seen[evt.Seq] = i
+			}
+		})
+	}
 }
 
 // TestBackoffDuration spot-checks the exponential back-off helper.

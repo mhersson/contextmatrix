@@ -65,6 +65,16 @@
   events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
   Never open more than one `EventSource` per distinct URL; use the subscriber
   API for additional consumers of the same stream.
+- **`sessionlog.Manager` fan-out invariants:** `readUpstream` appends to the
+  ring buffer and fans out to subscribers under a single `m.mu` lock.  These two
+  operations must stay under the same lock — separating them reintroduces the
+  duplicate-delivery race where an event lands in the snapshot AND in
+  `sub.pending` for the same subscriber.  The primed-flag protocol (`sub.primed`,
+  `sub.pending`) is what enforces snapshot-before-live ordering: the pump stages
+  live events in `sub.pending` while `sub.primed` is false; the snapshot goroutine
+  in `Subscribe` flips `primed = true` (under `m.mu`) only after draining both
+  the snapshot slice and `sub.pending` into the subscriber's channel.  Do not
+  bypass this gate.
 - **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
   the fine-grained PAT must have `Contents: Read and write` on the boards repo
   **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`

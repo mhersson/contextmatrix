@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -41,9 +42,19 @@ const (
 )
 
 // subscriber holds a channel that receives live events for one watcher.
+//
+// Ordering invariant: all snapshot events must be delivered before any live
+// event. This is enforced via the primed flag:
+//   - While primed is false, the pump queues incoming live events in pending
+//     instead of writing directly to ch.
+//   - The snapshot goroutine in Subscribe writes snapshot events to ch first,
+//     then acquires m.mu, drains pending into ch, and sets primed = true.
+//   - Once primed, the pump writes directly to ch as normal.
 type subscriber struct {
-	id uint64
-	ch chan Event
+	id      uint64
+	ch      chan Event
+	primed  bool    // true once snapshot drain is complete
+	pending []Event // live events buffered while snapshot is draining
 }
 
 // activeSession tracks the upstream connection and subscriber fan-out for one
@@ -187,19 +198,28 @@ func (m *Manager) Stop(cardID string) {
 // subscriber.  The channel is closed either by a terminal Stop/error or by the
 // unsubscribe func (whichever comes first).
 //
+// Ordering guarantee: every snapshot event (events already buffered at the
+// moment Subscribe is called) is delivered before any live event, with no
+// duplicates.  This is enforced by the primed-flag protocol: the pump queues
+// live events in sub.pending while sub.primed is false, and the snapshot
+// goroutine flips sub.primed to true (under m.mu) only after draining both the
+// snapshot and the accumulated pending slice into sub.ch.
+//
 // If no session is running for cardID, the snapshot channel is still returned
 // (possibly empty); live events will begin arriving once Start is called.
 func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	id := nextSubID.Add(1)
 	ch := make(chan Event, subscriberChanBuf)
-	sub := &subscriber{id: id, ch: ch}
+	// primed starts false: pump will stage live events in sub.pending until the
+	// snapshot goroutine below has finished draining the snapshot.
+	sub := &subscriber{id: id, ch: ch, primed: false}
 
 	m.mu.Lock()
 	m.ensureActiveSessions()
 
 	// Capture snapshot under the lock (call internal buffer directly to avoid a
 	// re-entrant lock acquire) and register the subscriber atomically so that no
-	// live event can slip between snapshot and registration.
+	// live event can slip between snapshot and registration without being staged.
 	var snap []Event
 	if b, ok := m.sessions[cardID]; ok {
 		snap = b.snapshot()
@@ -214,16 +234,54 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	}
 	m.mu.Unlock()
 
-	// Deliver snapshot asynchronously to avoid blocking the caller.
+	// Sort the snapshot by Seq so that events with lower sequence numbers are
+	// always delivered before events with higher ones.  The buffer may contain
+	// pump events (Seq > threshold) interleaved with events added via direct
+	// Append calls (Seq ≤ threshold).  Stable sort preserves insertion order
+	// among events with the same Seq.
+	slices.SortStableFunc(snap, func(a, b Event) int {
+		if a.Seq < b.Seq {
+			return -1
+		}
+		if a.Seq > b.Seq {
+			return 1
+		}
+		return 0
+	})
+
+	// Deliver snapshot then flip primed, all without blocking the caller.
+	//
+	// Order of operations:
+	//   1. Write snapshot events (sorted by Seq) to ch; pump only touches
+	//      sub.pending while primed is false.
+	//   2. Acquire m.mu, drain sub.pending (live events queued by pump during
+	//      snapshot delivery) into ch, set sub.primed = true.
+	//   3. From here on the pump writes directly to ch.
 	go func() {
+	snapLoop:
 		for _, evt := range snap {
 			select {
 			case ch <- evt:
 			default:
-				// Channel full; drop remaining snapshot tail rather than block.
-				return
+				// Channel full — drop remaining snapshot tail rather than block.
+				// Still must prime the subscriber so the pump isn't stuck staging
+				// events forever.
+				break snapLoop
 			}
 		}
+
+		// Acquire lock to atomically drain pending and flip primed.
+		m.mu.Lock()
+		for _, evt := range sub.pending {
+			select {
+			case ch <- evt:
+			default:
+				// Slow subscriber; drop rather than block.
+			}
+		}
+		sub.pending = nil
+		sub.primed = true
+		m.mu.Unlock()
 	}()
 
 	unsub := func() {
@@ -423,14 +481,24 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 			continue
 		}
 
-		m.Append(cardID, evt)
-
+		// Buffer the event and fan out to subscribers under a single lock so
+		// that a concurrent Subscribe cannot observe the event in the buffer
+		// without also seeing it in the pump's fan-out.  This prevents the
+		// duplicate-delivery race where an event is captured in the snapshot
+		// AND also staged in sub.pending.
 		m.mu.Lock()
+		m.getOrCreate(cardID).append(evt)
 		for _, s := range sess.subs {
-			select {
-			case s.ch <- evt:
-			default:
-				// Slow subscriber — drop rather than block the pump.
+			if !s.primed {
+				// Snapshot goroutine has not finished draining yet.  Stage the
+				// live event so it arrives after all snapshot events.
+				s.pending = append(s.pending, evt)
+			} else {
+				select {
+				case s.ch <- evt:
+				default:
+					// Slow subscriber — drop rather than block the pump.
+				}
 			}
 		}
 		m.mu.Unlock()
