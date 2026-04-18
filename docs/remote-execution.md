@@ -392,8 +392,10 @@ The runner sets `CM_INTERACTIVE=1` in the container's environment. The
   automatically.
 - **`CM_INTERACTIVE=1`** — interactive mode: Claude Code is invoked with
   `--input-format stream-json --output-format stream-json`. The initial prompt
-  instructs the agent to introduce itself, describe the card it has claimed, and
-  then **await the user's first message** before taking any action.
+  instructs the agent to auto-invoke the `create-plan` skill immediately —
+  plan drafting starts without waiting for user input. The user provides
+  approval at the skill's built-in gates (plan approval, subtask execution
+  decision, review) via the chat input.
 
 ### Message Flow
 
