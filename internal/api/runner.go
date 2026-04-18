@@ -85,9 +85,9 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-enable feature_branch and create_pr only for autonomous non-interactive runs.
-	// Interactive sessions defer that decision to promoteCard.
-	if !runBody.Interactive && card.Autonomous && !card.FeatureBranch {
+	// Auto-enable feature_branch and create_pr for all "Run now" triggers —
+	// both autonomous and HITL (interactive) runs get a feature branch and PR.
+	if !card.FeatureBranch {
 		fb := true
 		pr := true
 		if _, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{

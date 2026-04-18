@@ -247,8 +247,9 @@ Accepts an optional JSON body:
 
 When `interactive` is `true`, the container starts in Human-in-the-Loop (HITL)
 mode — Claude Code waits for the user's first message before taking action.
-When `interactive` is `false` (or the body is omitted) and `autonomous: true`,
-`feature_branch` and `create_pr` are automatically enabled on the card.
+
+Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
+enabled on the card for all "Run Now" triggers (both autonomous and HITL).
 
 Returns the updated card with `runner_status: "queued"`.
 

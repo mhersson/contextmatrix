@@ -101,9 +101,10 @@ entrypoint uses an initial prompt that instructs the agent to await the user's
 first message before taking action. See [Interactive Mode](#interactive-mode)
 for details.
 
-**Note:** when `interactive: true`, `feature_branch` and `create_pr` are **not**
-auto-enabled at run time. They are enabled later only if the user invokes
-"Switch to Autonomous" (see [`POST {runner_url}/promote`](#post-runner_urlpromote)).
+**Note:** `feature_branch` and `create_pr` are auto-enabled on the card for
+**all** "Run Now" triggers — both autonomous and HITL runs. This ensures a
+feature branch and PR are always created regardless of the execution mode chosen
+at launch.
 
 #### POST {runner_url}/kill
 
@@ -400,12 +401,12 @@ Web UI (promote btn) → CM POST /api/runner/promote
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
 ```
 
-### Deferred Flags
+### Feature Branch Flags
 
-When `interactive: true`, the `feature_branch` and `create_pr` flags are **not**
-set on the container at launch. The runner only enables them when it receives a
-`/promote` request, at which point the canned prompt instructs Claude Code to
-create a feature branch, commit, push, and open a PR before completing the task.
+`feature_branch` and `create_pr` are auto-enabled on the card whenever "Run Now"
+is triggered — for both autonomous and HITL runs. The `/promote` endpoint
+additionally sets `autonomous: true` when the user switches a running interactive
+session to autonomous mode.
 
 ## Log Streaming Architecture
 

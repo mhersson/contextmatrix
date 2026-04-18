@@ -193,11 +193,11 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	// Non-autonomous card should NOT have feature_branch/create_pr auto-enabled.
+	// Any "Run now" trigger (including non-autonomous) should auto-enable feature_branch/create_pr.
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.False(t, updated.FeatureBranch, "non-autonomous card should not auto-enable feature_branch")
-	assert.False(t, updated.CreatePR, "non-autonomous card should not auto-enable create_pr")
+	assert.True(t, updated.FeatureBranch, "run now should auto-enable feature_branch")
+	assert.True(t, updated.CreatePR, "run now should auto-enable create_pr")
 	assert.False(t, receivedPayload.Interactive, "Interactive should be false")
 }
 
@@ -1497,11 +1497,11 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
-		// Non-autonomous card should NOT have feature_branch/create_pr auto-enabled.
+		// HITL run should auto-enable feature_branch/create_pr just like autonomous runs.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, updated.FeatureBranch, "feature_branch should not be auto-enabled for interactive non-autonomous")
-		assert.False(t, updated.CreatePR, "create_pr should not be auto-enabled for interactive non-autonomous")
+		assert.True(t, updated.FeatureBranch, "HITL run should auto-enable feature_branch")
+		assert.True(t, updated.CreatePR, "HITL run should auto-enable create_pr")
 	})
 
 	t.Run("autonomous with empty body auto-enables feature_branch and create_pr", func(t *testing.T) {
@@ -1545,7 +1545,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		assert.True(t, updated.CreatePR, "autonomous card should auto-enable create_pr")
 	})
 
-	t.Run("autonomous with interactive body does NOT auto-enable feature_branch/create_pr", func(t *testing.T) {
+	t.Run("autonomous with interactive body auto-enables feature_branch/create_pr", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 		defer cleanup()
 
@@ -1581,10 +1581,58 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
-		// Autonomous+interactive should NOT auto-enable feature_branch/create_pr.
+		// Autonomous+interactive should auto-enable feature_branch/create_pr like all Run now triggers.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, updated.FeatureBranch, "autonomous+interactive should not auto-enable feature_branch")
-		assert.False(t, updated.CreatePR, "autonomous+interactive should not auto-enable create_pr")
+		assert.True(t, updated.FeatureBranch, "autonomous+interactive should auto-enable feature_branch")
+		assert.True(t, updated.CreatePR, "autonomous+interactive should auto-enable create_pr")
+	})
+
+	t.Run("HITL run on card with feature_branch already true does not redundantly patch", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		var triggerCount int
+		var receivedPayload runner.TriggerPayload
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			triggerCount++
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		defer mockRunner.Close()
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		// Create a card that already has feature_branch=true.
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Already feature branched", Type: "task", Priority: "medium",
+			FeatureBranch: true,
+		})
+		require.NoError(t, err)
+
+		body := strings.NewReader(`{"interactive":true}`)
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
+		// Patch is skipped when feature_branch is already true — flags preserved as-is.
+		updated, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, updated.FeatureBranch, "feature_branch should remain true")
+		assert.False(t, updated.CreatePR, "create_pr stays false — patch was skipped since feature_branch was already set")
+		// Exactly one trigger webhook should have fired.
+		assert.Equal(t, 1, triggerCount, "runner should be triggered exactly once")
 	})
 }
