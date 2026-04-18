@@ -109,6 +109,15 @@ create subtasks directly.
 
 # After subtasks are created — Execution (orchestrator)
 
+### Autonomous-mode handling
+
+At every user-prompt gate below, if the parent card has `autonomous: true`,
+skip the prompt and proceed per the corresponding run-autonomous phase. Check
+the card's `autonomous` flag via `get_card` if you are unsure.
+
+**Start-execution gate:** If `autonomous: true`, skip the prompt below and
+proceed directly to step 0.
+
 **STOP.** Ask the user: **"Subtasks created. Want me to start execution?"**
 
 If **no**: tell the user they can run
@@ -231,18 +240,43 @@ sub-agent with the returned `model` as described below.
 6. Wait for the review sub-agent to complete. Parse its structured output:
    - **`REVIEW_FINDINGS`**: the sub-agent has written its findings to the card
      body and released the card. Call `get_card(card_id=<parent_id>)` to read
-     the `## Review Findings` section from the card body. Present the findings
-     to the user and ask: **"Do you approve this work, or should it be sent back
-     for revision?"**
+     the `## Review Findings` section from the card body.
+
+   **Review approval gate:** If `autonomous: true`, skip the "Do you approve
+   this work" prompt. Instead, branch on the `recommendation` field in
+   `REVIEW_FINDINGS`:
+   - `approve` or `approve_with_notes`: proceed to step 7 finalization.
+   - `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
+     returned count is >= 3, print:
+     ```
+     AUTONOMOUS_HALTED
+     card_id: <parent_id>
+     reason: 3 review cycles completed without approval
+     action_required: human review
+     ```
+     and stop. Otherwise, follow the rejection loop below.
+
+   If not autonomous, present the findings to the user and ask:
+   **"Do you approve this work, or should it be sent back for revision?"**
    - Based on the user's response, proceed:
      - **User approves** (says "approve", "looks good", etc.): proceed to
        committing and finalization.
      - **User rejects** (says "reject", "send back", "needs work", etc.): handle
        the rejection loop (see below).
-7. After the user approves, ask the user: **"Want me to commit these
-   changes?"** Do NOT offer to commit earlier — all changes (code + docs) are
-   committed together so the user sees the complete picture first. If the user
-   approves the commit and the parent card has a feature branch, ask:
+7. **Commit/push/PR gate:** If `autonomous: true`, skip both the "Want me to
+   commit" and "Want me to push and create a PR" prompts. Instead:
+   - Auto-commit using conventional commit style (no card IDs in commit
+     messages). All changes (code + docs) go in a single commit.
+   - Push the feature branch: `git push -u origin <branch_name>`.
+   - Create a PR using `gh pr create`. If the card has a `base_branch` field,
+     pass `--base <base_branch>` so the PR targets the correct branch.
+   - Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+   - Proceed directly to step 8.
+
+   If not autonomous, ask the user: **"Want me to commit these changes?"**
+   Do NOT offer to commit earlier — all changes (code + docs) are committed
+   together so the user sees the complete picture first. If the user approves
+   the commit and the parent card has a feature branch, ask:
    **"Want me to push and create a PR?"**
    - **User approves push:** push to the feature branch, create a PR, and call
      `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.

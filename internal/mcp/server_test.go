@@ -2609,3 +2609,41 @@ func TestClaimCard_WithoutProject(t *testing.T) {
 	assert.Equal(t, "agent-1", got.AssignedAgent)
 	assert.Equal(t, "in_progress", got.State)
 }
+
+// TestCreatePlanSkill_AutonomousGates verifies that skills/create-plan.md
+// contains the autonomous-mode conditional branches at all three user-prompt
+// gates: start-execution, review-approval, and commit/push/PR. This is a
+// regression guard — if the autonomous branches are removed from the skill
+// file, this test will fail.
+func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
+	// Read the real skill file directly. The working directory for go test is
+	// the package directory (internal/mcp), so ../../skills reaches the repo root.
+	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "skills/create-plan.md must be readable")
+	content := string(data)
+
+	// Gate 1: start-execution gate — autonomous skips the "Want me to start execution?" prompt.
+	assert.Contains(t, content, "autonomous: true",
+		"create-plan.md must reference autonomous: true")
+	assert.Regexp(t, `(?i)autonomous.*true.*start|start.*execution.*autonomous.*true|autonomous.*true.*step 0`,
+		content,
+		"create-plan.md must have autonomous start-execution gate near 'start' or 'step 0'")
+
+	// Gate 2: review approval gate — autonomous skips "Do you approve this work" prompt.
+	assert.Regexp(t, `(?i)autonomous.*true.*review|review.*approval.*autonomous.*true`,
+		content,
+		"create-plan.md must have autonomous review-approval gate")
+	assert.Contains(t, content, "AUTONOMOUS_HALTED",
+		"create-plan.md must emit AUTONOMOUS_HALTED when review cycles are exhausted")
+	assert.Contains(t, content, "increment_review_attempts",
+		"create-plan.md must call increment_review_attempts in the autonomous review gate")
+
+	// Gate 3: commit/push/PR gate — autonomous skips both "Want me to commit" and push prompts.
+	assert.Regexp(t, `(?i)autonomous.*true.*commit|commit.*autonomous.*true`,
+		content,
+		"create-plan.md must have autonomous commit gate")
+	assert.Regexp(t, `(?i)autonomous.*true.*push|push.*autonomous.*true`,
+		content,
+		"create-plan.md must have autonomous push gate")
+}
