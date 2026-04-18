@@ -2329,6 +2329,9 @@ func validateAgentIDFormat(agentID string) error {
 
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
+// ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
+var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
+
 // ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
 var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 
@@ -2480,5 +2483,68 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		Data:      map[string]any{"runner_status": status},
 	})
 
+	return card, nil
+}
+
+// PromoteToAutonomous sets the Autonomous flag on a card to true and appends
+// an activity log entry. It is idempotent: if the card is already autonomous,
+// it returns the current card unchanged without writing a log entry or commit.
+// Returns ErrCardTerminal if the card is in a terminal state (done/not_planned).
+func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
+	cardID = strings.ToUpper(cardID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Guard: cannot promote a card in a terminal state.
+	if card.State == board.StateDone || card.State == board.StateNotPlanned {
+		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrCardTerminal)
+	}
+
+	// Idempotent: if already autonomous, return current card without side effects.
+	if card.Autonomous {
+		s.enrichDependenciesMet(ctx, card)
+		return card, nil
+	}
+
+	now := time.Now()
+
+	card.Autonomous = true
+	card.Updated = now
+
+	// Append activity log entry (honoring the 50-entry cap).
+	entry := board.ActivityEntry{
+		Agent:     agentID,
+		Timestamp: now,
+		Action:    "promoted",
+		Message:   "Promoted to autonomous mode",
+	}
+	card.ActivityLog = append(card.ActivityLog, entry)
+	if len(card.ActivityLog) > maxActivityLogEntries {
+		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	if err := s.commitCardChange(project, cardID, agentID, "promoted to autonomous"); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardUpdated,
+		Project:   project,
+		CardID:    cardID,
+		Agent:     agentID,
+		Timestamp: now,
+		Data:      map[string]any{"autonomous": true},
+	})
+
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }

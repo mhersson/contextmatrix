@@ -37,8 +37,11 @@ Code.
   endpoint. The runner writes the message to the container's stdin and echoes it
   as a `user` log entry.
 - **Promote to autonomous** — Web UI sends `POST /api/runner/promote` to CM,
-  which forwards to the runner's `/promote` endpoint. The runner emits a
-  `system` log entry and injects a canned autonomous-mode prompt into stdin.
+  which flips the card's `autonomous` flag server-side (git commit + SSE event),
+  then forwards to the runner's `/promote` endpoint. The runner calls the
+  contextmatrix promote API first (fail closed — returns 502 without stdin write
+  on failure), then emits a `system` log entry and injects a canned message into
+  stdin telling the agent to check the card at its next gate.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -180,16 +183,30 @@ interactive mode. HMAC-signed identically to trigger/kill.
 }
 ```
 
-The runner:
+The runner performs a two-step operation in strict order:
 
-1. Looks up the running container for `card_id` / `project`.
-2. Emits a `system` `LogEntry` with content `"promoted to autonomous mode"`.
-3. Writes a canned stream-json user message to the container's stdin instructing
-   Claude Code to complete the workflow autonomously: create a feature branch,
-   commit, push, and open a PR.
+1. **Flip the autonomous flag server-side (fail closed):** Calls
+   `POST {contextmatrix_url}/api/projects/{project}/cards/{id}/promote` to flip
+   the card's `autonomous` flag in ContextMatrix before touching stdin. If this
+   call fails (network error or non-2xx response), the runner returns 502 and
+   does **not** write to stdin — the card remains in interactive mode.
+2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
+   `"promoted to autonomous mode"`, then writes a stream-json user message to the
+   container's stdin:
+   > "Autonomous mode has been enabled (card flag flipped). Check the card with
+   > `get_card` at your next gate and continue on the autonomous branch. Do not
+   > wait for further user input."
 
-**Error responses:** same as `/message` (404, 409, 413 not applicable for
-promote).
+   The agent at its next HITL gate calls `get_card`, sees `autonomous: true`,
+   and skips the gate automatically. No stdin message is written on API failure.
+
+**Error responses:**
+
+| Status | Condition                                          |
+| ------ | -------------------------------------------------- |
+| 404    | No container tracked for this card                 |
+| 409    | Container is not in interactive mode               |
+| 502    | ContextMatrix promote API call failed (fail closed)|
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -410,8 +427,10 @@ Web UI (chat input) → CM POST /api/runner/message
                      → Runner LogEntry{type: "user"}  (echoed to browser)
 
 Web UI (promote btn) → CM POST /api/runner/promote
+                      → CM flips card autonomous=true (git commit + SSE event)
                       → Runner POST /promote
-                      → container stdin (canned autonomous-mode prompt)
+                      → Runner POST /api/.../promote (flip flag; 502+stop if fails)
+                      → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
 ```
 

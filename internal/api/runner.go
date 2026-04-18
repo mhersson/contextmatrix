@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -245,23 +244,31 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if card.Autonomous {
-		writeError(w, http.StatusConflict, ErrCodeAlreadyAutonomous, "card is already autonomous", "")
+	// Extract agent identity from header.
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		agentID = "human"
+	}
+
+	// Flip the autonomous flag (idempotent; errors on terminal state).
+	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
+	if err != nil {
+		handleServiceError(w, err)
 		return
 	}
 
-	// Patch the card to enable autonomous mode with feature branch and PR.
-	autoTrue := true
+	// Also ensure feature_branch and create_pr are enabled for autonomous runs.
 	fbTrue := true
 	prTrue := true
-	updatedCard, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
-		Autonomous:    &autoTrue,
-		FeatureBranch: &fbTrue,
-		CreatePR:      &prTrue,
-	})
-	if patchErr != nil {
-		handleServiceError(w, patchErr)
-		return
+	if !updatedCard.FeatureBranch || !updatedCard.CreatePR {
+		updatedCard, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
+			FeatureBranch: &fbTrue,
+			CreatePR:      &prTrue,
+		})
+		if err != nil {
+			handleServiceError(w, err)
+			return
+		}
 	}
 
 	// Send promote webhook to runner.
@@ -270,39 +277,11 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		Project: project,
 	}); err != nil {
 		slog.Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
-		// Revert the patched flags.
-		autoFalse := false
-		fbFalse := false
-		prFalse := false
-		if _, revertErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
-			Autonomous:    &autoFalse,
-			FeatureBranch: &fbFalse,
-			CreatePR:      &prFalse,
-		}); revertErr != nil {
-			slog.Error("failed to revert card flags after promote webhook failure",
-				"card_id", id, "project", project, "error", revertErr)
-		}
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to promote runner task", "")
 		return
 	}
 
-	// Add activity log entry.
-	agentID := r.Header.Get("X-Agent-ID")
-	if agentID == "" {
-		agentID = "human"
-	}
-	logErr := h.svc.AddLogEntry(r.Context(), project, id, board.ActivityEntry{
-		Agent:     agentID,
-		Timestamp: time.Now().UTC(),
-		Action:    "promoted",
-		Message:   "promoted to autonomous",
-	})
-	if logErr != nil {
-		slog.Error("failed to add promote log entry", "card_id", id, "project", project, "error", logErr)
-		// Non-fatal — the promote succeeded, just log the error.
-	}
-
-	writeJSON(w, http.StatusAccepted, updatedCard)
+	writeJSON(w, http.StatusOK, updatedCard)
 }
 
 // stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".

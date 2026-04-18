@@ -5064,3 +5064,142 @@ func TestBranchNameImmutability_UpdateCard(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalBranch, updated.BranchName, "branch name must not change after first generation")
 }
+
+// --- PromoteToAutonomous tests ---
+
+func TestPromoteToAutonomous(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("sets autonomous flag and appends log entry", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Promote me",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Autonomous)
+
+		updated, err := svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.NoError(t, err)
+		assert.True(t, updated.Autonomous, "autonomous must be set after promote")
+
+		// Verify log entry.
+		require.Len(t, updated.ActivityLog, 1)
+		entry := updated.ActivityLog[0]
+		assert.Equal(t, "promoted", entry.Action)
+		assert.Equal(t, "Promoted to autonomous mode", entry.Message)
+		assert.Equal(t, "human:alice", entry.Agent)
+		assert.False(t, entry.Timestamp.IsZero())
+
+		// Reload from store to confirm persistence.
+		persisted, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, persisted.Autonomous)
+		assert.Len(t, persisted.ActivityLog, 1)
+	})
+
+	t.Run("idempotent: already-autonomous card returns unchanged without extra log entry", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:     "Already autonomous",
+			Type:      "task",
+			Priority:  "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+
+		// Card was created with Autonomous=true, so promote is a no-op.
+		result, err := svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:bob")
+		require.NoError(t, err)
+		assert.True(t, result.Autonomous)
+		// No log entry added — idempotent.
+		assert.Empty(t, result.ActivityLog, "idempotent promote must not add a log entry")
+	})
+
+	t.Run("returns error for done card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Done card", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// Transition to done via in_progress.
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, "in_progress")
+		require.NoError(t, err)
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, "done")
+		require.NoError(t, err)
+
+		_, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrCardTerminal)
+	})
+
+	t.Run("returns error for not_planned card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Not planned card", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, "not_planned")
+		require.NoError(t, err)
+
+		_, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrCardTerminal)
+	})
+
+	t.Run("publishes CardUpdated event", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		// Subscribe to events before promoting.
+		ch, unsub := svc.bus.Subscribe()
+		defer unsub()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Event test card", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// Drain create event.
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("no create event")
+		}
+
+		_, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.NoError(t, err)
+
+		select {
+		case ev := <-ch:
+			assert.Equal(t, events.CardUpdated, ev.Type)
+			assert.Equal(t, card.ID, ev.CardID)
+			assert.Equal(t, "human:alice", ev.Agent)
+			val, ok := ev.Data["autonomous"]
+			require.True(t, ok, "event data must include autonomous key")
+			assert.Equal(t, true, val)
+		case <-time.After(time.Second):
+			t.Fatal("no CardUpdated event after promote")
+		}
+	})
+
+	t.Run("returns ErrCardNotFound for missing card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		_, err := svc.PromoteToAutonomous(ctx, "test-project", "TEST-999", "human:alice")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, storage.ErrCardNotFound)
+	})
+}

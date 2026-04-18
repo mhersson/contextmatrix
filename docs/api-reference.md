@@ -278,18 +278,36 @@ Returns 202 with:
 ### POST /api/projects/{project}/cards/{id}/promote
 
 Promote an interactive session to autonomous mode. Human-only. Requires
-`runner_status: "running"` and `autonomous: false`.
+`runner_status: "running"`.
 
-Patches the card to set `autonomous`, `feature_branch`, and `create_pr` to
-`true`, then sends a `/promote` webhook to the runner. The runner injects a
-canned prompt into the container's stdin instructing Claude Code to finish the
-workflow, create a feature branch, and open a PR.
+The endpoint performs two steps in order:
 
-- 409 `RUNNER_NOT_RUNNING` if the card is not running
-- 409 `ALREADY_AUTONOMOUS` if the card is already autonomous
-- 502 `RUNNER_ERROR` if the runner webhook fails (card flags are reverted)
+1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous`
+   flag to `true`, append an activity log entry (`action=promoted`), commit the
+   change to the boards git repository, and publish a `CardUpdated` SSE event.
+   This step is **idempotent** — if the card is already autonomous, it returns
+   the current card without writing a new log entry or commit.
+2. Sends a `/promote` webhook to the runner. The runner then writes a canned
+   stdin message to the container instructing Claude Code to check the card with
+   `get_card` at its next gate and continue on the autonomous branch.
 
-Returns 202 with the updated card.
+`feature_branch` and `create_pr` are also set to `true` if not already enabled.
+
+**Error responses:**
+
+- 403 `HUMAN_ONLY_FIELD` if the caller is not a human agent
+- 409 `RUNNER_NOT_RUNNING` if `runner_status` is not `"running"`
+- 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
+  `not_planned`) — the flag flip itself is rejected before any webhook is sent
+- 502 `RUNNER_ERROR` if the runner webhook fails — the autonomous flag flip is
+  **not** reverted; the card is permanently promoted
+
+Returns 200 with the updated card.
+
+```bash
+curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promote \
+  -H "X-Agent-ID: human:alice"
+```
 
 ### POST /api/projects/{project}/cards/{id}/stop
 

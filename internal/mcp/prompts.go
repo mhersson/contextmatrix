@@ -174,83 +174,6 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 	return b.String()
 }
 
-// buildCreatePlanDelegationPrompt returns a two-phase delegation prompt for
-// the create-plan workflow. Unlike the generic buildDelegationPrompt, this
-// encodes the two-phase flow explicitly:
-//
-//   - Phase 1 (plan-drafting): spawn a sub-agent that drafts the plan, writes
-//     it to the card body via update_card, and returns a PLAN_DRAFTED structured
-//     output immediately — without asking the user for approval or waiting.
-//   - User approval: the orchestrator (main Claude, always alive) presents the
-//     plan to the user and collects approval directly.
-//   - Phase 2 (subtask-creation): once approved, spawn a second short-lived
-//     sub-agent that reads the plan from the card body and creates the subtasks.
-//
-// This eliminates the idle-wait that kills sub-agents when they wait for user
-// input between drafting and subtask creation.
-func buildCreatePlanDelegationPrompt(cardID, getSkillArgs string) string {
-	var b strings.Builder
-	fmt.Fprintln(&b, "## Planning Workflow")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Planning for card **%s** uses a plan-then-approve flow.\n", cardID)
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Step 0: Claim the card immediately")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Call `claim_card(card_id='%s', agent_id='<your_agent_id>')` before doing\n", cardID)
-	fmt.Fprintln(&b, "anything else.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Plan Drafting — Always Inline")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Run plan drafting **inline** — do not spawn a sub-agent for planning.\n")
-	fmt.Fprintln(&b, "The orchestrator retains the plan context for subtask creation.")
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "1. Call `get_skill(%s, caller_model='<your_model>')` to retrieve the skill prompt.\n", getSkillArgs)
-	fmt.Fprintln(&b, "2. Append `\\n\\nYou are executing **Phase 1: Plan Drafting** only.` to the content.")
-	fmt.Fprintln(&b, "3. Execute the skill content directly (inline). Follow its instructions to draft the plan.")
-	fmt.Fprintln(&b, "4. When you produce the `PLAN_DRAFTED` output, proceed to **User Approval** below.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### User Approval (YOU handle this directly — no sub-agent)")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "5. Present the plan directly from what you just drafted:")
-	fmt.Fprintln(&b, "   > Here is the proposed plan for [card title]:")
-	fmt.Fprintln(&b, "   > [paste the ## Plan section from the card body]")
-	fmt.Fprintln(&b, "   > Does this look good, or would you like adjustments?")
-	fmt.Fprintln(&b, "6. If the user requests changes: call `get_skill` again, append the feedback and")
-	fmt.Fprintln(&b, "   `\\n\\nYou are executing **Phase 1: Plan Drafting** only. The user requested these changes: <feedback>` to the prompt,")
-	fmt.Fprintln(&b, "   and execute inline again. Repeat until the user approves.")
-	fmt.Fprintln(&b, "7. Once the user approves, proceed to Subtask Creation.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### Subtask Creation (inline — you do this directly)")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "8. Read the `## Plan` section from the card body (you already have it from drafting).")
-	fmt.Fprintln(&b, "9. For each subtask in the plan, call `create_card` with:")
-	fmt.Fprintln(&b, "   - `parent`: the parent card ID")
-	fmt.Fprintln(&b, "   - `title`, `body`, `priority`, `depends_on` as specified in the plan")
-	fmt.Fprintln(&b, "10. After all subtasks are created, release the parent card claim: `release_card(card_id)`.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "### After Subtasks Are Created")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "11. Ask the user whether to start executing the subtasks now.")
-	fmt.Fprintln(&b, "    - If **yes**: use `get_ready_tasks` and spawn execute-task sub-agents.")
-	fmt.Fprintln(&b, "      Call `get_skill(skill_name='execute-task', card_id='<subtask_id>')` for each.")
-	fmt.Fprintln(&b, "      Spawn with the returned `model` and `content`. Always spawn as sub-agents")
-	fmt.Fprintln(&b, "      for context isolation and parallel execution.")
-	fmt.Fprintln(&b, "    - If **no**: let the user know they can run `/contextmatrix:execute-task <card_id>` later.")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.")
-	return b.String()
-}
-
 // buildDocumentTaskDelegationPrompt returns a single-phase "fire-and-report"
 // delegation prompt for the document-task workflow. Unlike create-plan's
 // two-phase flow, documentation writing requires no human approval gate:
@@ -390,19 +313,11 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 
 // createPlanPromptHandler returns the handler for create-plan prompt.
 // If the card has autonomous: true, returns a redirect to run-autonomous.
-// Otherwise, Phase 1 drafts the plan, the orchestrator handles user approval,
-// then creates subtasks inline.
+// Otherwise, returns the full create-plan skill content (Agent Configuration
+// stripped) so the invoking agent drives the workflow directly.
 func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
-		// Validate that the skill and card exist; content is not used directly —
-		// the delegation prompt instructs the agent to call get_skill at runtime.
-		if _, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
-			CardID: cardID,
-		}, true); err != nil {
-			return nil, err
-		}
-		getSkillArgs := fmt.Sprintf("skill_name='create-plan', card_id='%s'", cardID)
 
 		// Check if card is autonomous — redirect to run-autonomous.
 		card, _, findErr := findCard(ctx, svc, cardID)
@@ -429,7 +344,13 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 			}, nil
 		}
 
-		text := buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
+		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
+			CardID: cardID,
+		}, true)
+		if err != nil {
+			return nil, err
+		}
+		text := stripAgentConfig(result.Content)
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},

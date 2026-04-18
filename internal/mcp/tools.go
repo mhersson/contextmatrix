@@ -40,6 +40,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerGetSkill(server, svc, skillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
+	registerPromoteToAutonomous(server, svc)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
@@ -1021,5 +1022,35 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, reportPushOutput{Card: card}, nil
+	})
+}
+
+// --- promote_to_autonomous tool ---
+
+type promoteToAutonomousInput struct {
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID  string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID string `json:"agent_id" jsonschema:"required,agent ID performing the promotion"`
+}
+
+func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "promote_to_autonomous",
+		Description: "Promote a card to autonomous mode by flipping its autonomous flag to true. " +
+			"Idempotent: calling on an already-autonomous card is a no-op. " +
+			"Returns an error if the card is in a terminal state (done/not_planned). " +
+			"Appends an activity log entry and fires an SSE event so the UI updates live.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input promoteToAutonomousInput) (*mcp.CallToolResult, *board.Card, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		card, err := svc.PromoteToAutonomous(ctx, project, input.CardID, input.AgentID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("promote card %s to autonomous: %w", input.CardID, err)
+		}
+
+		return nil, card, nil
 	})
 }

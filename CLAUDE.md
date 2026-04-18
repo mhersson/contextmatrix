@@ -133,6 +133,12 @@ Full details with examples: `docs/data-model.md`.
     in a non-terminal state (`done`/`not_planned` excepted), the existing card
     is returned instead of creating a new one. Prevents re-entry after
     crash/restart from producing orphaned duplicate cards.
+13. **Promote to autonomous:** `POST /api/projects/{project}/cards/{id}/promote`
+    (human-only) flips `autonomous: true`, appends an activity log entry, and
+    commits. Idempotent; rejects terminal cards with 409. The `promote_to_autonomous`
+    MCP tool provides the same operation for agent use. The runner's `/promote`
+    webhook calls this endpoint first (fail-closed) before writing the canned
+    stdin message — promotion without a successful API call is a no-op.
 
 ## Running the project
 

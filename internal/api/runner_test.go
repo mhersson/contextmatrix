@@ -1334,13 +1334,17 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	// Card already autonomous and running.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Already autonomous", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true, FeatureBranch: true, CreatePR: true,
 	})
 	require.NoError(t, err)
 	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "running")
 	require.NoError(t, err)
 
+	var promoteCalled int
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			promoteCalled++
+		}
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1360,10 +1364,19 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeAlreadyAutonomous, apiErr.Code)
+	// Idempotent: already-autonomous card succeeds (200) and still calls the runner webhook.
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var respCard board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
+	assert.True(t, respCard.Autonomous, "card should remain autonomous")
+	assert.Equal(t, 1, promoteCalled, "promote webhook should still be called for idempotent promote")
+
+	// No extra log entry added (idempotent).
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	for _, entry := range updated.ActivityLog {
+		assert.NotEqual(t, "promoted", entry.Action, "idempotent promote must not add a log entry")
+	}
 }
 
 func TestPromoteCard_HappyPath(t *testing.T) {
@@ -1396,7 +1409,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
@@ -1404,16 +1417,31 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	assert.True(t, respCard.CreatePR, "card should have create_pr after promote")
 	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
 
-	// Verify flags are persisted.
+	// Verify flags and log entry are persisted.
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.True(t, updated.Autonomous)
 	assert.True(t, updated.FeatureBranch)
 	assert.True(t, updated.CreatePR)
+
+	// Verify the activity log contains the promote entry with the right agent.
+	var found bool
+	for _, entry := range updated.ActivityLog {
+		if entry.Action == "promoted" {
+			found = true
+			assert.Equal(t, "human:alice", entry.Agent, "promote log agent must match X-Agent-ID")
+			assert.Equal(t, "Promoted to autonomous mode", entry.Message)
+		}
+	}
+	assert.True(t, found, "promote activity log entry must be present")
 }
 
-func TestPromoteCard_WebhookFailure_RevertsFlags(t *testing.T) {
+func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
+	// The new design: PromoteToAutonomous sets the flag first (server-authoritative).
+	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
+	// autonomous flag — the flag flip already committed to git and is the source of truth.
+	// The runner-side handlePromote is responsible for failing closed (no stdin write).
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 	card := newInteractiveRunningCard(t, svc)
@@ -1448,13 +1476,13 @@ func TestPromoteCard_WebhookFailure_RevertsFlags(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
 
-	// Verify flags were reverted.
+	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
+	// delivery problem, not a flag problem). The runner-side handlePromote will see
+	// the flag is now set on the card and can retry or the human can re-promote.
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.False(t, updated.Autonomous, "autonomous flag should be reverted on failure")
-	assert.False(t, updated.FeatureBranch, "feature_branch flag should be reverted on failure")
-	assert.False(t, updated.CreatePR, "create_pr flag should be reverted on failure")
+	assert.True(t, updated.Autonomous, "autonomous flag must remain set after webhook failure")
 }
 
 // --- runCard interactive extensions ---

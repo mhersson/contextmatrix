@@ -8,29 +8,24 @@
 
 ---
 
-You are a planning agent. Your job is to draft a plan and return immediately.
+You are the planning and execution orchestrator for a ContextMatrix card. Drive
+the card from drafting through finalization in a single top-to-bottom flow.
 
 ---
 
-# Plan Drafting
-
-**Your only job in this phase is to draft a plan and return immediately.**
-Do NOT ask the user for approval. Do NOT wait for user input. Do NOT create
-subtasks. Return as soon as the plan is written.
+# Phase 1: Plan Drafting
 
 ## Step 0: Ensure the card is claimed
 
-If the card is not already claimed, call `claim_card(card_id, agent_id)`.
+If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
+Hold this claim through Phase 5.
 
 ## Step 1: Understand the task
 
-Review the card details provided above. If the card body already contains
-requirements or notes, use them as input. If the card body already has a
-`## Plan` section, use it as a starting point and refine it — do not discard
-previous planning work.
-
-The card details above already include the full context. Only call
-`get_task_context` if you need to verify the absolute latest state.
+Review the card details provided above. If the card body already contains a
+`## Plan` section, use it as a starting point — do not discard previous planning
+work. Only call `get_task_context` if you need to verify the absolute latest
+state.
 
 ## Step 2: Draft the plan
 
@@ -87,11 +82,9 @@ Call `report_usage` with:
     model name)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
 
-Do NOT release the card.
+## Step 5: Emit structured output
 
-## Step 5: Return structured output
-
-Print this **exact format** as your final output (the orchestrator parses this):
+Print this **exact format** (the orchestrator parses this):
 
 ```
 PLAN_DRAFTED
@@ -101,37 +94,79 @@ plan_summary: <2-3 sentence summary of the plan — number of subtasks, key them
 subtask_count: <number of subtasks in the plan>
 ```
 
-**Stop here.** Do NOT ask the user anything. Do NOT create subtasks. The
-orchestrator will present the plan to the user, collect approval, and then
-create subtasks directly.
+Proceed immediately to Phase 2 — do NOT stop here.
 
 ---
 
-# After subtasks are created — Execution (orchestrator)
+# Phase 2: Plan Approval Gate
 
-### Autonomous-mode handling
+Call `get_card(card_id=<parent_id>)` to re-read the current card state.
 
-At every user-prompt gate below, if the parent card has `autonomous: true`,
-skip the prompt and proceed per the corresponding run-autonomous phase. Check
-the card's `autonomous` flag via `get_card` if you are unsure.
+**If `autonomous: true`:** skip this phase entirely and proceed to Phase 3.
 
-**Start-execution gate:** If `autonomous: true`, skip the prompt below and
-proceed directly to step 0.
+**If not autonomous (HITL):** present the plan to the user:
 
-**STOP.** Ask the user: **"Subtasks created. Want me to start execution?"**
+> Here is the proposed plan for **<card title>**:
+>
+> <paste the full `## Plan` section from the card body>
+>
+> Does this look good, or would you like adjustments?
 
-If **no**: tell the user they can run
-`/contextmatrix:execute-task <card_id>` for individual tasks or come back
-later. Stop here.
+**While waiting for the user response, call `heartbeat` every 5 minutes and
+`report_usage` after each heartbeat.**
 
-If **yes**: continue below.
+- **User requests adjustments:** return to Phase 1 Step 2 with the feedback
+  incorporated; redraft the plan. Do NOT call `get_skill` again — continue
+  in-place. Repeat until the user approves.
+- **User approves:** proceed to Phase 3.
 
-**Inline execution rule:** Always pass `caller_model='<your_model>'` when
-calling `get_skill` (extract your model family — **opus**, **sonnet**, or
-**haiku** — from your system context). If the response has `inline: true`,
-execute the returned content directly instead of spawning a sub-agent — you
-already match the required model. If `inline` is false or absent, spawn a
-sub-agent with the returned `model` as described below.
+---
+
+# Phase 3: Subtask Creation
+
+For each subtask described in the `## Plan` section:
+
+1. Call `list_cards(project=<project>, parent=<parent_id>)` to fetch any
+   existing subtasks.
+2. For each planned subtask, check whether a non-terminal subtask (any state
+   except `done` or `not_planned`) with the same title already exists
+   (case-insensitive, trimmed). If it exists, skip creation and reuse the
+   existing card's ID.
+3. For each subtask that does NOT already exist, call `create_card` with:
+   - `parent`: the parent card ID
+   - `title`, `body`, `priority`, `depends_on` as specified in the plan
+   - Note: the `type` field is automatically set to `subtask` by the backend
+
+Proceed immediately to Phase 4.
+
+---
+
+# Phase 4: Execution Gate
+
+Call `get_card(card_id=<parent_id>)` to re-read the current card state.
+
+**If `autonomous: true`:** skip this phase entirely and proceed to Phase 5.
+
+**If not autonomous (HITL):** ask the user:
+
+> Subtasks created. Want me to start execution?
+
+**While waiting for the user response, call `heartbeat` every 5 minutes and
+`report_usage` after each heartbeat.**
+
+- **User says no:** tell the user they can run
+  `/contextmatrix:execute-task <card_id>` for individual tasks or come back
+  later. Stop here.
+- **User says yes:** proceed to Phase 5.
+
+---
+
+# Phase 5: Execution (always sub-agents)
+
+Execute-task runs MUST be spawned as sub-agents via the `Agent` tool.
+**Do NOT execute inline even if `get_skill` returns `inline: true`.**
+Context isolation is required so each subtask runs in its own worktree
+and does not bloat the orchestrator's context.
 
 0. Claim the parent card:
    `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
@@ -140,23 +175,20 @@ sub-agent with the returned `model` as described below.
    met (state `todo`, no unfinished deps).
 2. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
-   The response contains `model` (which model to use, e.g. `"sonnet"`) and
-   `content` (the full prompt). **Never pass `include_preamble: false` when
-   spawning sub-agents.** Only omit the preamble for content you execute
-   inline. If `inline` is true, execute directly; otherwise
-   spawn a sub-agent using the **`Agent`** tool with:
+   The response contains `model` (which model to use) and `content` (the full
+   prompt). **Never pass `include_preamble: false`** — sub-agents need the
+   lifecycle preamble. Always spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
    - `prompt`: the `content` from `get_skill`
    - `isolation`: `"worktree"` — **REQUIRED** when spawning multiple agents
      in parallel. Omit only for a single agent.
    Spawn all ready tasks **in parallel** (multiple `Agent` tool calls in one
-   message).
+   message). Do NOT execute inline even if `inline` is true in the response.
 3. **Monitor sub-agents with health checking.** After spawning agents, enter
    a monitoring loop. **Call `heartbeat` on the parent card every 5 minutes
-   during this loop** — idle monitoring is the most
-   common cause of stalled cards. **After each `heartbeat`, also call
-   `report_usage` to record your own token consumption since the last report:**
+   during this loop.** **After each `heartbeat`, also call `report_usage` to
+   record your own token consumption since the last report:**
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier from your system context (e.g., the
@@ -164,8 +196,6 @@ sub-agent with the returned `model` as described below.
      model name)
    - `prompt_tokens` / `completion_tokens`: your estimated token consumption
      since the last report
-   This tracks the orchestrator's own cost against the parent card — it does
-   NOT replace the sub-agents' own `report_usage` calls.
 
    a. Wait 1 minute between checks.
    b. Call `check_agent_health(parent_id=<parent_id>)` to get the health
@@ -187,7 +217,7 @@ sub-agent with the returned `model` as described below.
         `in_progress` or `stalled` with no agent, respawn it.
    d. Call `get_subtask_summary(parent_id=<parent_id>)` to check overall
       progress. When all subtasks are `done`, exit the loop and proceed
-      to documentation.
+      to Phase 6.
    e. Repeat from (a) until all subtasks are done.
 
    ### Respawning a dead agent
@@ -206,10 +236,10 @@ sub-agent with the returned `model` as described below.
       including its body. Extract any existing progress notes or partial work
       from the card body — the previous agent may have written notes there.
    4. Call `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
-      If `inline` is true, execute directly; otherwise spawn a new sub-agent
-      via the `Agent` tool with the returned `model` and the
-      `content` **prepended with the card body from step 3**, so the
-      respawned agent can pick up where the previous one left off:
+      Spawn a new sub-agent via the `Agent` tool with the returned `model` and
+      the `content` **prepended with the card body from step 3**, so the
+      respawned agent can pick up where the previous one left off. Do NOT
+      execute inline even if `inline` is true — context isolation is required:
       - Include the full card body text at the top of the `prompt`
       - Instruct the respawned agent: "The previous agent on this card
         stalled. The card body above contains any progress notes left by the
@@ -221,107 +251,169 @@ sub-agent with the returned `model` as described below.
 4. When all subtasks are done, release your claim on the parent card so the
    documentation agent can claim it:
    `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   Then call
-   `get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   **Always spawn a documentation sub-agent** using the `Agent` tool with `model`
-   from the response, `description` set to `"document-task for <parent_id>"`, and
-   `prompt` set to the returned `content`. Documentation is always a sub-agent for
-   context isolation — ignore the `inline` field. The parent stays in `in_progress`
-   during documentation.
-5. After documentation completes, reclaim the parent and transition to `review`:
-   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   `transition_card(card_id=<parent_id>, new_state='review')`.
-   Call `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
-   - **`inline: true`** — execute the returned `content` directly. Keep your
-     claim. Do NOT release and re-claim.
-   - **`inline: false`** — release the claim first, then spawn a review
-     sub-agent via `Agent` with `model`, `description: "review-task for
-     <parent_id>"`, and `prompt` from the response.
-6. Wait for the review sub-agent to complete. Parse its structured output:
-   - **`REVIEW_FINDINGS`**: the sub-agent has written its findings to the card
-     body and released the card. Call `get_card(card_id=<parent_id>)` to read
-     the `## Review Findings` section from the card body.
 
-   **Review approval gate:** If `autonomous: true`, skip the "Do you approve
-   this work" prompt. Instead, branch on the `recommendation` field in
-   `REVIEW_FINDINGS`:
-   - `approve` or `approve_with_notes`: proceed to step 7 finalization.
-   - `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
-     returned count is >= 3, print:
-     ```
-     AUTONOMOUS_HALTED
-     card_id: <parent_id>
-     reason: 3 review cycles completed without approval
-     action_required: human review
-     ```
-     and stop. Otherwise, follow the rejection loop below.
+---
 
-   If not autonomous, present the findings to the user and ask:
-   **"Do you approve this work, or should it be sent back for revision?"**
-   - Based on the user's response, proceed:
-     - **User approves** (says "approve", "looks good", etc.): proceed to
-       committing and finalization.
-     - **User rejects** (says "reject", "send back", "needs work", etc.): handle
-       the rejection loop (see below).
-7. **Commit/push/PR gate:** If `autonomous: true`, skip both the "Want me to
-   commit" and "Want me to push and create a PR" prompts. Instead:
-   - Auto-commit using conventional commit style (no card IDs in commit
-     messages). All changes (code + docs) go in a single commit.
-   - Push the feature branch: `git push -u origin <branch_name>`.
-   - Create a PR using `gh pr create`. If the card has a `base_branch` field,
-     pass `--base <base_branch>` so the PR targets the correct branch.
-   - Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-   - Proceed directly to step 8.
+# Phase 6: Documentation
 
-   If not autonomous, ask the user: **"Want me to commit these changes?"**
-   Do NOT offer to commit earlier — all changes (code + docs) are committed
-   together so the user sees the complete picture first. If the user approves
-   the commit and the parent card has a feature branch, ask:
-   **"Want me to push and create a PR?"**
-   - **User approves push:** push to the feature branch, create a PR, and call
-     `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-   - **User declines push:** skip push and PR — no `report_push` call.
-   Only proceed to step 8 after the push/PR question is fully resolved
-   (approved and done, or declined).
-8. **Done** — After commit AND PR (or the user declining PR), re-claim the
-   parent card for final lifecycle steps:
-   `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   Call `report_usage` one final time to capture any remaining orchestrator
-   token consumption:
-   - `card_id`: the parent card ID
-   - `agent_id`: your agent ID
-   - `model`: your own model identifier from your system context (e.g., the
-     "You are powered by the model named X" line — do NOT hardcode a specific
-     model name)
-   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
-     since the last report
-   Then transition the parent card to `done`:
-   `transition_card(card_id=<parent_id>, new_state='done')`.
-   Then release the card claim:
-   `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-   **This is mandatory.** Skipping this leaves the card orphaned with an active
-   claim that blocks future work until the heartbeat timeout fires (30 minutes).
+Call
+`get_skill(skill_name='document-task', card_id=<parent_id>, caller_model='<your_model>')`.
+**Always spawn a documentation sub-agent** using the `Agent` tool with `model`
+from the response, `description` set to `"document-task for <parent_id>"`, and
+`prompt` set to the returned `content`. Documentation is always a sub-agent for
+context isolation — ignore the `inline` field. The parent stays in `in_progress`
+during documentation.
 
-### Review rejection loop
+Wait for the documentation sub-agent to produce `DOCS_WRITTEN` structured
+output. Call `heartbeat` every 5 minutes while waiting. After each heartbeat,
+call `report_usage`.
 
-When the user says "reject" / "send back" / "needs work" (after reviewing the
-`## Review Findings` section you presented):
+After `DOCS_WRITTEN` is received: reclaim the parent card:
+`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 
-1. Call `transition_card(card_id=<parent_id>, state='in_progress')` to move
-   the parent back from `review` to `in_progress`.
+---
+
+# Phase 7: Review
+
+Transition the parent card to `review`:
+`transition_card(card_id=<parent_id>, new_state='review')`.
+
+Call `get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
+
+- **`inline: true`** — execute the returned `content` directly. Keep your
+  claim. Do NOT release and re-claim.
+- **`inline: false`** — release the claim first:
+  `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+  Spawn a review sub-agent via `Agent` with `model`,
+  `description: "review-task for <parent_id>"`, and `prompt` from the response.
+
+Wait for `REVIEW_FINDINGS` structured output. Call `heartbeat` every 5 minutes
+while waiting. After each heartbeat, call `report_usage`.
+
+After `REVIEW_FINDINGS` is received: reclaim the parent card:
+`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+
+Call `get_card(card_id=<parent_id>)` to read the `## Review Findings` section
+from the card body.
+
+---
+
+# Phase 8: Review Decision Gate
+
+Call `get_card(card_id=<parent_id>)` to re-read the current card state,
+including the `autonomous` flag.
+
+**If `autonomous: true`:** branch on the `recommendation` field in
+`REVIEW_FINDINGS`:
+- `approve` or `approve_with_notes`: proceed to Phase 9.
+- `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
+  returned count is >= 3, print:
+  ```
+  AUTONOMOUS_HALTED
+  card_id: <parent_id>
+  reason: 3 review cycles completed without approval
+  action_required: human review
+  ```
+  and stop. Otherwise, follow the **Rejection Loop** below.
+
+**If not autonomous (HITL):** present the findings to the user and ask:
+
+> **Review findings for <card title>:**
+>
+> <paste the ## Review Findings section from the card body>
+>
+> Do you approve this work, or should it be sent back for revision?
+
+**While waiting for the user response, call `heartbeat` every 5 minutes and
+`report_usage` after each heartbeat.**
+
+- **User approves** (says "approve", "looks good", etc.): proceed to Phase 9.
+- **User rejects** (says "reject", "send back", "needs work", etc.): follow
+  the **Rejection Loop** below.
+
+---
+
+# Phase 9: Commit/Push/PR Gate
+
+Call `get_card(card_id=<parent_id>)` to re-read the current card state,
+including the `autonomous` flag.
+
+**If `autonomous: true`:**
+- Auto-commit using conventional commit style (no card IDs in commit messages).
+  All changes (code + docs) go in a single commit with a bullet-point body.
+- Push the feature branch: `git push -u origin <branch_name>`.
+- Create a PR using `gh pr create`. If the card has a `base_branch` field,
+  pass `--base <base_branch>` so the PR targets the correct branch.
+- Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+- Proceed directly to Phase 10.
+
+**If not autonomous (HITL):** ask the user:
+
+> Want me to commit these changes?
+
+Do NOT offer to commit earlier — all changes (code + docs) are committed
+together so the user sees the complete picture first.
+
+**While waiting for the user response, call `heartbeat` every 5 minutes and
+`report_usage` after each heartbeat.**
+
+If the user approves the commit and the parent card has a feature branch, ask:
+
+> Want me to push and create a PR?
+
+- **User approves push:** push to the feature branch, create a PR using
+  `gh pr create`. If the card has a `base_branch` field, pass
+  `--base <base_branch>`. Call
+  `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+- **User declines push:** skip push and PR — no `report_push` call.
+
+Only proceed to Phase 10 after the push/PR question is fully resolved
+(approved and done, or declined).
+
+---
+
+# Phase 10: Finalization
+
+Re-claim the parent card for final lifecycle steps:
+`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+
+Call `report_usage` one final time to capture any remaining orchestrator
+token consumption:
+- `card_id`: the parent card ID
+- `agent_id`: your agent ID
+- `model`: your own model identifier from your system context (e.g., the
+  "You are powered by the model named X" line — do NOT hardcode a specific
+  model name)
+- `prompt_tokens` / `completion_tokens`: your estimated token consumption
+  since the last report
+
+Transition the parent card to `done`:
+`transition_card(card_id=<parent_id>, new_state='done')`.
+
+Release the card claim:
+`release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+
+**This is mandatory.** Skipping this leaves the card orphaned with an active
+claim that blocks future work until the heartbeat timeout fires (30 minutes).
+
+---
+
+# Rejection Loop
+
+Triggered from Phase 8 when the review recommends revision. Do NOT call
+`get_skill` again to avoid recursive skill loading.
+
+1. Call `transition_card(card_id=<parent_id>, new_state='in_progress')` to
+   move the parent back from `review` to `in_progress`.
 2. Do **not** touch existing subtasks — they remain in `done` state with
    their work preserved.
-3. Call `get_skill(skill_name='create-plan', card_id=<parent_id>, caller_model='<your_model>')`.
-   If `inline` is true, execute the re-planning directly with the review
-   feedback included. Otherwise, spawn a new planning sub-agent via the
-   `Agent` tool with the returned `model` and `content`. **Include the review
-   feedback** from the `## Review Findings` section in the `Agent` tool
-   `prompt` so the planner knows exactly what needs fixing and creates new
-   subtasks scoped only to the fixes.
-4. After the planning sub-agent finishes and the new fix subtasks are
-   created, resume the execute → document → review cycle from step 1 above.
-5. This loop (plan fix subtasks → execute → document → review) repeats until
-   the user approves.
+3. Return to **Phase 1 Step 2** with the review feedback incorporated as
+   additional requirements. Create new fix subtasks scoped only to the
+   identified issues.
+4. Resume from **Phase 2** (plan approval gate — check autonomous again).
+5. This loop (Phase 1 redraft → Phase 2 approval → Phase 3 create fix
+   subtasks → Phase 4 execution gate → Phase 5 execute → Phase 6 docs →
+   Phase 7 review → Phase 8 decision) repeats until approved.
 
 The parent card's full lifecycle is:
 `todo → in_progress → (docs) → review → (if rejected) in_progress → (docs) → review → … → (if approved) done`

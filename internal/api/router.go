@@ -370,6 +370,8 @@ func handleServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrCardNotVetted):
 		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
 			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
+	case errors.Is(err, service.ErrCardTerminal):
+		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", err.Error())
 	default:
 		slog.Error("unhandled error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
