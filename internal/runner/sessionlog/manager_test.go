@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -542,6 +543,262 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSubscribeSnapshotTailDropOnSlowSubscriber reproduces the silent
+// snapshot-tail-drop bug in Manager.Subscribe.
+//
+// The snapshot-delivery goroutine inside Subscribe writes buffered events to the
+// subscriber channel with a non-blocking send: when the 256-slot channel fills
+// it breaks out of the loop and discards the remaining snapshot tail rather than
+// blocking until the consumer drains the channel.
+//
+// Setup:
+//   - No upstream session is started; the snapshot goroutine runs
+//     unconditionally inside Subscribe, so no pump is needed.
+//   - 1000 events (Seq 1..1000) are pre-populated via m.Append.
+//   - A consumer goroutine sleeps 100µs between reads — slow enough that the
+//     256-slot buffer fills before it can drain, triggering the tail-drop.
+//
+// Assertions:
+//   - Exact set equality: received Seqs == {1..1000} (no gaps, not just matching totals).
+//   - No duplicate Seq values.
+//   - Received events are in non-decreasing Seq order.
+//
+// On current main this test fails reporting missing tail events (roughly
+// Seq 257..1000 depending on timing). Subtask 2 (CTXMAX-305) will make it pass.
+func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
+	const (
+		cardID     = "TAIL-001"
+		numEvents  = 1000
+		readDelay  = 100 * time.Microsecond
+		testTimeout = 2 * time.Second
+	)
+
+	m := NewManager()
+
+	// Pre-populate the buffer with numEvents events (Seq 1..numEvents).
+	for i := range numEvents {
+		m.Append(cardID, Event{
+			Seq:       uint64(i + 1),
+			Timestamp: time.Now(),
+			Type:      "log",
+			Payload:   fmt.Appendf(nil, "msg-%d", i+1),
+		})
+	}
+
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	// Drain in a goroutine that sleeps between reads to simulate a slow consumer.
+	// This ensures the 256-slot channel fills before all events are delivered,
+	// exposing the non-blocking-send tail-drop in the snapshot goroutine.
+	type result struct {
+		events []Event
+	}
+	done := make(chan result, 1)
+	go func() {
+		var collected []Event
+		deadline := time.After(testTimeout)
+		for len(collected) < numEvents {
+			select {
+			case evt, ok := <-ch:
+				if !ok {
+					done <- result{events: collected}
+					return
+				}
+				collected = append(collected, evt)
+				time.Sleep(readDelay)
+			case <-deadline:
+				done <- result{events: collected}
+				return
+			}
+		}
+		done <- result{events: collected}
+	}()
+
+	res := <-done
+	received := res.events
+
+	// Build the expected set {1..numEvents}.
+	wantSeqs := make(map[uint64]struct{}, numEvents)
+	for i := range numEvents {
+		wantSeqs[uint64(i+1)] = struct{}{}
+	}
+
+	// Check non-decreasing order.
+	var prevSeq uint64
+	for _, evt := range received {
+		if evt.Seq < prevSeq {
+			t.Errorf("Seq decreased: got %d after %d (ordering violated)", evt.Seq, prevSeq)
+			break
+		}
+		prevSeq = evt.Seq
+	}
+
+	// Check no duplicates and collect received set.
+	gotSeqs := make(map[uint64]int, len(received))
+	for i, evt := range received {
+		if first, dup := gotSeqs[evt.Seq]; dup {
+			t.Errorf("duplicate Seq=%d at positions %d and %d", evt.Seq, first, i)
+		}
+		gotSeqs[evt.Seq] = i
+	}
+
+	// Check exact set equality: every expected Seq must be present.
+	var missing []uint64
+	for seq := range wantSeqs {
+		if _, ok := gotSeqs[seq]; !ok {
+			missing = append(missing, seq)
+		}
+	}
+	if len(missing) > 0 {
+		// Sort for a deterministic diagnostic message.
+		slices.Sort(missing)
+		t.Errorf("missing tail events (%d total): first few missing Seqs: %v ...",
+			len(missing), missing[:min(len(missing), 10)])
+	}
+
+	// Check no unexpected extra events.
+	var unexpected []uint64
+	for seq := range gotSeqs {
+		if _, ok := wantSeqs[seq]; !ok {
+			unexpected = append(unexpected, seq)
+		}
+	}
+	if len(unexpected) > 0 {
+		slices.Sort(unexpected)
+		t.Errorf("unexpected extra Seq values: %v", unexpected[:min(len(unexpected), 10)])
+	}
+}
+
+// TestSubscribeUnsubUnblocksSnapshot verifies that calling unsub while the
+// snapshot goroutine is blocked (channel full, slow subscriber) causes the
+// goroutine to exit promptly rather than leaking.
+func TestSubscribeUnsubUnblocksSnapshot(t *testing.T) {
+	const (
+		cardID    = "UNSUB-SNAP-001"
+		numEvents = subscriberChanBuf + 200 // more than the channel buffer
+		timeout   = 200 * time.Millisecond
+	)
+
+	m := NewManager()
+
+	// Pre-populate buffer with more events than the channel can hold.
+	for i := range numEvents {
+		m.Append(cardID, Event{
+			Seq:       uint64(i + 1),
+			Timestamp: time.Now(),
+			Type:      "log",
+			Payload:   fmt.Appendf(nil, "msg-%d", i+1),
+		})
+	}
+
+	// Subscribe but do NOT read from ch — the channel will fill up and the
+	// snapshot goroutine will block on the (subscriberChanBuf+1)th event.
+	_, unsub := m.Subscribe(cardID)
+
+	// Grab the subscriber so we can observe snapDone.
+	// The subscriber is in pendingSubs because no session was started.
+	m.mu.Lock()
+	var sub *subscriber
+	if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
+		sub = subs[0]
+	}
+	m.mu.Unlock()
+
+	require.NotNil(t, sub, "expected subscriber in pendingSubs")
+
+	// Call unsub — this should unblock the snapshot goroutine.
+	unsub()
+
+	// Assert that snapDone is closed within the timeout.
+	select {
+	case <-sub.snapDone:
+		// Goroutine exited cleanly.
+	case <-time.After(timeout):
+		t.Errorf("snapshot goroutine did not exit within %v after unsub", timeout)
+	}
+}
+
+// TestSubscribeStopUnblocksSnapshot verifies that calling Stop while the
+// snapshot goroutine is blocked causes the goroutine to exit promptly and the
+// subscriber channel to be closed cleanly (no panic, no hang).
+// Run under -race to catch any residual close-of-send race.
+func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
+	const (
+		cardID    = "STOP-SNAP-001"
+		numEvents = subscriberChanBuf + 200
+		timeout   = 500 * time.Millisecond
+	)
+
+	srv := sseServerInfinite(t)
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+	// Pre-populate buffer with more events than the channel can hold.
+	for i := range numEvents {
+		m.Append(cardID, Event{
+			Seq:       uint64(i + 1),
+			Timestamp: time.Now(),
+			Type:      "log",
+			Payload:   fmt.Appendf(nil, "msg-%d", i+1),
+		})
+	}
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	// Wait until the pump goroutine connects and the session is active.
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_, ok := m.activeSessions[cardID]
+		return ok
+	}, 2*time.Second, 5*time.Millisecond)
+
+	// Subscribe but do NOT read from ch.
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	// Grab the subscriber to observe snapDone.
+	m.mu.Lock()
+	var sub *subscriber
+	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
+		sub = sess.subs[len(sess.subs)-1]
+	}
+	m.mu.Unlock()
+
+	require.NotNil(t, sub, "expected subscriber in active session")
+
+	// Call Stop — this should unblock the snapshot goroutine and then close ch.
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		m.Stop(cardID)
+		srv.Close()
+	}()
+
+	// Assert that snapDone is closed within the timeout (no panic, no hang).
+	select {
+	case <-sub.snapDone:
+	case <-time.After(timeout):
+		t.Errorf("snapshot goroutine did not exit within %v after Stop", timeout)
+	}
+
+	// Assert that ch is eventually closed (receives terminal or is closed).
+	select {
+	case _, ok := <-ch:
+		if ok {
+			// Received the terminal event — drain until closed.
+			for range ch {
+			}
+		}
+		// ok==false means closed directly.
+	case <-time.After(timeout):
+		t.Errorf("subscriber channel not closed within %v after Stop", timeout)
+	}
+
+	<-stopDone
 }
 
 // TestBackoffDuration spot-checks the exponential back-off helper.

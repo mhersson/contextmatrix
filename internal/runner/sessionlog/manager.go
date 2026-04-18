@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -50,11 +51,22 @@ const (
 //   - The snapshot goroutine in Subscribe writes snapshot events to ch first,
 //     then acquires m.mu, drains pending into ch, and sets primed = true.
 //   - Once primed, the pump writes directly to ch as normal.
+//
+// Lifecycle channels:
+//   - done: closed by unsub or Stop/terminal-error to signal the snapshot
+//     goroutine that it should exit early.  Guarded by doneOnce so that both
+//     unsub and Stop can safely close it without a double-close panic.
+//   - snapDone: closed by the snapshot goroutine (via defer) when it exits.
+//     Stop/terminal-error waits on snapDone before sending the terminal event
+//     and closing ch, which eliminates the close-of-in-flight-send panic race.
 type subscriber struct {
-	id      uint64
-	ch      chan Event
-	primed  bool    // true once snapshot drain is complete
-	pending []Event // live events buffered while snapshot is draining
+	id       uint64
+	ch       chan Event
+	primed   bool       // true once snapshot drain is complete
+	pending  []Event    // live events buffered while snapshot is draining
+	done     chan struct{}
+	doneOnce sync.Once
+	snapDone chan struct{}
 }
 
 // activeSession tracks the upstream connection and subscriber fan-out for one
@@ -146,6 +158,37 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 	return nil
 }
 
+// snapDoneTimeout is the maximum time to wait for a snapshot goroutine to exit
+// after its done channel is closed. This is a belt-and-suspenders guard only;
+// in practice the goroutine exits as soon as it sees the done signal.
+const snapDoneTimeout = time.Second
+
+// closeSubscriber signals each subscriber's snapshot goroutine to exit, waits
+// for it to finish (up to snapDoneTimeout), sends a terminal event, then closes
+// the subscriber's channel.
+//
+// Waiting on snapDone before close(ch) eliminates the close-of-in-flight-send
+// panic race: the snapshot goroutine may be mid-send on ch when Stop/terminal-
+// error is triggered, and closing ch concurrently with a send panics.
+func closeSubscriber(subs []*subscriber, terminal Event) {
+	for _, s := range subs {
+		// Signal the snapshot goroutine to exit (idempotent via doneOnce).
+		s.doneOnce.Do(func() { close(s.done) })
+		// Wait for the snapshot goroutine to finish before touching ch.
+		select {
+		case <-s.snapDone:
+		case <-time.After(snapDoneTimeout):
+			// Belt-and-suspenders: should never happen, but don't block forever.
+		}
+		// Now it is safe to send on ch and close it.
+		select {
+		case s.ch <- terminal:
+		default:
+		}
+		close(s.ch)
+	}
+}
+
 // Stop cancels the upstream connection for cardID, sends a terminal event to
 // all subscribers, and clears the buffer.
 //
@@ -181,13 +224,7 @@ func (m *Manager) Stop(cardID string) {
 		Type:      EventTypeTerminal,
 	}
 	allSubs := append(subs, pendingSubs...)
-	for _, s := range allSubs {
-		select {
-		case s.ch <- terminal:
-		default:
-		}
-		close(s.ch)
-	}
+	closeSubscriber(allSubs, terminal)
 
 	m.Clear(cardID)
 }
@@ -205,6 +242,17 @@ func (m *Manager) Stop(cardID string) {
 // goroutine flips sub.primed to true (under m.mu) only after draining both the
 // snapshot and the accumulated pending slice into sub.ch.
 //
+// Full-snapshot delivery: the snapshot goroutine blocks on each channel send
+// rather than dropping events when the channel is full. If the subscriber is
+// slow, the goroutine will block until the subscriber reads from the channel or
+// until cancellation is signalled via the sub.done channel.
+//
+// Cancellation: calling the returned unsub function closes sub.done, which
+// causes the snapshot goroutine to exit promptly. Stop and terminal upstream
+// errors also close sub.done, then wait on sub.snapDone before sending the
+// terminal event and closing the channel — this eliminates any
+// close-of-in-flight-send panic race.
+//
 // If no session is running for cardID, the snapshot channel is still returned
 // (possibly empty); live events will begin arriving once Start is called.
 func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
@@ -212,7 +260,13 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	ch := make(chan Event, subscriberChanBuf)
 	// primed starts false: pump will stage live events in sub.pending until the
 	// snapshot goroutine below has finished draining the snapshot.
-	sub := &subscriber{id: id, ch: ch, primed: false}
+	sub := &subscriber{
+		id:       id,
+		ch:       ch,
+		primed:   false,
+		done:     make(chan struct{}),
+		snapDone: make(chan struct{}),
+	}
 
 	m.mu.Lock()
 	m.ensureActiveSessions()
@@ -252,31 +306,50 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	// Deliver snapshot then flip primed, all without blocking the caller.
 	//
 	// Order of operations:
-	//   1. Write snapshot events (sorted by Seq) to ch; pump only touches
-	//      sub.pending while primed is false.
+	//   1. Write snapshot events (sorted by Seq) to ch, blocking on each send.
+	//      The pump only touches sub.pending while primed is false.
+	//      If sub.done is closed (unsub/Stop called), exit immediately.
 	//   2. Acquire m.mu, drain sub.pending (live events queued by pump during
-	//      snapshot delivery) into ch, set sub.primed = true.
+	//      snapshot delivery) into ch (also blocking with done-select), set
+	//      sub.primed = true.
 	//   3. From here on the pump writes directly to ch.
+	//   4. Always close sub.snapDone on exit so Stop/terminal-error can safely
+	//      close ch after the snapshot goroutine has finished.
 	go func() {
-	snapLoop:
+		defer close(sub.snapDone)
+
 		for _, evt := range snap {
 			select {
 			case ch <- evt:
-			default:
-				// Channel full — drop remaining snapshot tail rather than block.
-				// Still must prime the subscriber so the pump isn't stuck staging
-				// events forever.
-				break snapLoop
+			case <-sub.done:
+				// Cancelled by unsub or Stop — exit before setting primed.
+				// The pump will stop staging events once the subscriber is
+				// removed from sess.subs (done by unsub/Stop before closing done).
+				return
 			}
 		}
 
 		// Acquire lock to atomically drain pending and flip primed.
 		m.mu.Lock()
 		for _, evt := range sub.pending {
+			// We must release the lock before blocking, so use a non-blocking
+			// attempt first; if the channel is full, unlock, block with
+			// cancellation support, then re-acquire.
 			select {
 			case ch <- evt:
+				// Sent without blocking — continue under the lock.
 			default:
-				// Slow subscriber; drop rather than block.
+				m.mu.Unlock()
+				select {
+				case ch <- evt:
+				case <-sub.done:
+					// sub.pending not fully drained; primed stays false.
+					// That is safe: the subscriber is already removed from
+					// sess.subs before done is closed, so the pump won't
+					// stage more events for it.
+					return
+				}
+				m.mu.Lock()
 			}
 		}
 		sub.pending = nil
@@ -286,12 +359,16 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 
 	unsub := func() {
 		m.mu.Lock()
-		defer m.mu.Unlock()
 		// Remove from active session if present.
 		if s, ok := m.activeSessions[cardID]; ok {
 			for i, candidate := range s.subs {
 				if candidate.id == id {
 					s.subs = append(s.subs[:i], s.subs[i+1:]...)
+					m.mu.Unlock()
+					// Signal the snapshot goroutine to exit. Done after
+					// removing from sess.subs so the pump won't stage more
+					// events for this subscriber after done is closed.
+					sub.doneOnce.Do(func() { close(sub.done) })
 					return
 				}
 			}
@@ -301,10 +378,13 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			for i, candidate := range pending {
 				if candidate.id == id {
 					m.pendingSubs[cardID] = append(pending[:i], pending[i+1:]...)
+					m.mu.Unlock()
+					sub.doneOnce.Do(func() { close(sub.done) })
 					return
 				}
 			}
 		}
+		m.mu.Unlock()
 	}
 
 	return ch, unsub
@@ -388,13 +468,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 				Type:      EventTypeTerminal,
 				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
 			}
-			for _, s := range subs {
-				select {
-				case s.ch <- terminal:
-				default:
-				}
-				close(s.ch)
-			}
+			closeSubscriber(subs, terminal)
 			m.Clear(cardID)
 			return
 		}
