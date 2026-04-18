@@ -265,6 +265,11 @@ export function CardPanel({
     }
   };
 
+  const canRun =
+    config.remote_execution?.enabled !== false &&
+    card.state === 'todo' &&
+    (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
+
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
@@ -290,9 +295,7 @@ export function CardPanel({
             canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
             onClaim={handleClaim}
             onRelease={handleRelease}
-            canRun={config.remote_execution?.enabled !== false && card.state === 'todo' && (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed')}
             canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
-            onRun={onRunCard}
             onStop={onStopCard}
           />
 
@@ -329,6 +332,13 @@ export function CardPanel({
             branches={branches}
             branchesLoading={branchesLoading}
             branchesError={branchesError}
+            canRun={canRun}
+            onRun={async () => {
+              if (isDirty) {
+                await handleSave();
+              }
+              await onRunCard(!(editedCard.autonomous ?? false));
+            }}
           />
 
           <CardPanelActivity activityLog={card.activity_log} />

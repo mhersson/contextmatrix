@@ -21,6 +21,8 @@ interface CardPanelMetadataProps {
   branches: string[];
   branchesLoading?: boolean;
   branchesError?: boolean;
+  canRun?: boolean;
+  onRun?: () => void | Promise<void>;
 }
 
 export function CardPanelMetadata({
@@ -41,6 +43,8 @@ export function CardPanelMetadata({
   branches,
   branchesLoading,
   branchesError,
+  canRun,
+  onRun,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
@@ -198,6 +202,8 @@ export function CardPanelMetadata({
           branches={branches}
           branchesLoading={branchesLoading}
           branchesError={branchesError}
+          canRun={canRun}
+          onRun={onRun}
         />
       )}
 

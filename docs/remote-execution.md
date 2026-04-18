@@ -75,7 +75,7 @@ All requests are `POST` with `Content-Type: application/json`.
 
 #### POST {runner_url}/trigger
 
-Sent when a user clicks "Run Now" on an autonomous card.
+Sent when a user clicks "Run Now" on a parent or standalone card.
 
 ```json
 {
