@@ -2647,13 +2647,55 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	// Gate 4 (Phase 9): commit/push/PR gate — autonomous skips both prompts.
 	assert.Contains(t, content, "Phase 9: Commit/Push/PR Gate",
 		"create-plan.md must have Phase 9: Commit/Push/PR Gate")
-	// Phase 9 contains autonomous: true block with commit and push steps.
-	assert.Regexp(t, `(?si)phase 9.*autonomous.*Auto-commit`,
+	// Phase 9 contains autonomous: true reference and commit/push steps.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*autonomous: true`,
 		content,
-		"create-plan.md Phase 9 must have autonomous auto-commit step")
-	assert.Regexp(t, `(?si)phase 9.*autonomous.*Push the feature branch`,
+		"create-plan.md Phase 9 must reference autonomous: true")
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Auto-commit`,
 		content,
-		"create-plan.md Phase 9 must have autonomous push step")
+		"create-plan.md Phase 9 must have auto-commit step")
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Push the feature branch`,
+		content,
+		"create-plan.md Phase 9 must have push step")
+}
+
+// TestCreatePlanSkill_Phase9CMInteractiveBranches verifies that Phase 9 of
+// skills/create-plan.md contains both the CM_INTERACTIVE=1 auto-commit branch
+// for remote HITL and the local-HITL user prompts. This is a regression guard
+// so that accidental removal of either branch is caught.
+func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
+	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "skills/create-plan.md must be readable")
+	content := string(data)
+
+	// CM_INTERACTIVE=1 branch must be present in Phase 9.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1`,
+		content,
+		"create-plan.md Phase 9 must reference CM_INTERACTIVE=1 for remote HITL")
+
+	// Remote HITL path must run printenv to detect context.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv CM_INTERACTIVE`,
+		content,
+		"create-plan.md Phase 9 must use printenv CM_INTERACTIVE to detect context")
+
+	// Remote HITL path must NOT prompt the user.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1.*Do NOT prompt`,
+		content,
+		"create-plan.md Phase 9 remote HITL path must say Do NOT prompt the user")
+
+	// Local HITL path must retain the original "Want me to commit" prompt.
+	assert.Contains(t, content, "Want me to commit these changes?",
+		"create-plan.md Phase 9 must retain local-HITL commit prompt")
+
+	// Local HITL path must retain the original "Want me to push" prompt.
+	assert.Contains(t, content, "Want me to push and create a PR?",
+		"create-plan.md Phase 9 must retain local-HITL push prompt")
+
+	// Local HITL path must be gated on CM_INTERACTIVE being unset or 0.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE.*unset or.*0.*local HITL`,
+		content,
+		"create-plan.md Phase 9 must describe local HITL as CM_INTERACTIVE unset or 0")
 }
 
 // TestCreatePlanSkillIsSelfContained verifies that skills/create-plan.md is a

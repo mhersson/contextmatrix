@@ -338,16 +338,27 @@ including the `autonomous` flag.
 Call `get_card(card_id=<parent_id>)` to re-read the current card state,
 including the `autonomous` flag.
 
-**If `autonomous: true`:**
-- Auto-commit using conventional commit style (no card IDs in commit messages).
-  All changes (code + docs) go in a single commit with a bullet-point body.
-- Push the feature branch: `git push -u origin <branch_name>`.
-- Create a PR using `gh pr create`. If the card has a `base_branch` field,
-  pass `--base <base_branch>` so the PR targets the correct branch.
-- Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-- Proceed directly to Phase 10.
+## Commit procedure
 
-**If not autonomous (HITL):** ask the user:
+Both auto-commit paths (autonomous and remote HITL) follow this procedure:
+
+1. Auto-commit using conventional commit style (no card IDs in commit messages).
+   All changes (code + docs) go in a single commit with a bullet-point body.
+2. Push the feature branch: `git push -u origin <branch_name>`.
+3. Create a PR using `gh pr create`. If the card has a `base_branch` field,
+   pass `--base <base_branch>` so the PR targets the correct branch.
+4. Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+5. Proceed directly to Phase 10.
+
+**If `autonomous: true`:** execute the [Commit procedure](#commit-procedure) above.
+
+**If not autonomous (HITL):** run `printenv CM_INTERACTIVE` to detect context.
+
+**If `CM_INTERACTIVE=1` (remote HITL — running in a disposable container):**
+execute the [Commit procedure](#commit-procedure) above. The container is
+disposable; uncommitted work is lost. Do NOT prompt the user.
+
+**If `CM_INTERACTIVE` is unset or `0` (local HITL):** ask the user:
 
 > Want me to commit these changes?
 

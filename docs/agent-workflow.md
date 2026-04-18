@@ -277,7 +277,7 @@ Phase 5:  Execution              → claim parent, get_ready_tasks, spawn execut
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
 Phase 7:  Review                 → transition to review, inline or sub-agent per inline field
 Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
-Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous auto-commits/pushes/PR, HITL asks
+Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or remote HITL (CM_INTERACTIVE=1) auto-commits/pushes/PR; local HITL asks
 Phase 10: Finalization           → reclaim, report_usage, transition to done, release_card (mandatory)
 ```
 
