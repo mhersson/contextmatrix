@@ -246,9 +246,10 @@ Accepts an optional JSON body:
 ```
 
 When `interactive` is `true`, the container starts in Human-in-the-Loop (HITL)
-mode — Claude Code auto-starts the `create-plan` skill immediately. The user
-provides approval at the skill's built-in gates (plan approval, subtask
-execution decision, review) via the chat input.
+mode — the runner writes a priming stream-json user message to the container's
+stdin after start, which instructs Claude to invoke `get_skill(create-plan)`
+immediately. The user provides approval at the skill's built-in gates (plan
+approval, subtask execution decision, review) via the chat input.
 
 Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
 enabled on the card for all "Run Now" triggers (both autonomous and HITL).

@@ -97,10 +97,11 @@ CTXRUN-019 for the implementation on the runner side.
 
 `interactive` defaults to `false`. When `true`, the runner sets the
 `CM_INTERACTIVE=1` container environment variable and launches Claude Code with
-`--input-format stream-json --output-format stream-json`. The container
-entrypoint uses an initial prompt that instructs the agent to await the user's
-first message before taking action. See [Interactive Mode](#interactive-mode)
-for details.
+`--input-format stream-json --output-format stream-json`. After attaching stdin,
+the runner writes a priming stream-json user message to the container that
+instructs Claude to start the `create-plan` workflow immediately — no human
+input is required to begin. See [Interactive Mode](#interactive-mode) for
+details.
 
 **Note:** `feature_branch` and `create_pr` are auto-enabled on the card for
 **all** "Run Now" triggers — both autonomous and HITL runs. This ensures a
@@ -391,11 +392,14 @@ The runner sets `CM_INTERACTIVE=1` in the container's environment. The
   invoked with `--output-format stream-json` and the workflow proceeds
   automatically.
 - **`CM_INTERACTIVE=1`** — interactive mode: Claude Code is invoked with
-  `--input-format stream-json --output-format stream-json`. The initial prompt
-  instructs the agent to auto-invoke the `create-plan` skill immediately —
-  plan drafting starts without waiting for user input. The user provides
-  approval at the skill's built-in gates (plan approval, subtask execution
-  decision, review) via the chat input.
+  `--input-format stream-json --output-format stream-json` and a minimal
+  system-context hint as the `-p` prompt. After attaching stdin and registering
+  the writer with the tracker, the runner writes a priming stream-json user
+  message (built via `streammsg.BuildUserMessage`) directly into the container's
+  stdin. The priming message instructs Claude to call
+  `get_skill(skill_name='create-plan', ...)` immediately, so plan drafting starts
+  without waiting for user input. The user provides approval at the skill's built-in
+  gates (plan approval, subtask execution decision, review) via the chat input.
 
 ### Message Flow
 
