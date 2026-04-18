@@ -54,6 +54,17 @@
   from spamming logs. The endpoint still responds normally — only the log line
   is suppressed. If you expect to see probe traffic in logs for debugging, hit
   any other path or check the endpoint directly with `curl`.
+- **Firefox per-origin SSE connection limit:** Firefox's connection manager
+  cancels in-flight requests to the same origin with `NS_BINDING_ABORTED` /
+  "connection interrupted while the page was loading" when a new navigation-
+  adjacent fetch pushes the total past its limit. Practically: if the app opens
+  ≥ 3 `EventSource('/api/events')` connections and then a 4th SSE stream opens
+  at the same origin (e.g. `/api/runner/logs` on HITL start), Firefox aborts the
+  earlier three simultaneously. Chrome does not exhibit this behaviour. The fix
+  is to share a single `EventSource` for the whole app via `SSEProvider` and fan
+  events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
+  Never open more than one `EventSource` per distinct URL; use the subscriber
+  API for additional consumers of the same stream.
 - **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
   the fine-grained PAT must have `Contents: Read and write` on the boards repo
   **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`

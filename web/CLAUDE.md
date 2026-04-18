@@ -10,7 +10,14 @@
 - Files: `PascalCase.tsx` for components, `useX.ts` for hooks, `types/index.ts`
   for shared types.
 - Component size limit: ~150 lines. Split if larger.
-- SSE: `EventSource` with exponential backoff reconnect (max 30s).
+- SSE: one shared `EventSource('/api/events')` owned by `SSEProvider`
+  (`web/src/hooks/useSSEBus.tsx`). Consumers call `useSSEBus()` and register
+  handlers via `subscribe(onEvent): () => void` inside a `useEffect`; the return
+  value is the unsubscribe cleanup. Exponential-backoff reconnect (1s → 30s max)
+  lives in the provider. Do not open additional `EventSource('/api/events')`
+  connections — Firefox cancels in-flight SSE requests to the same origin with
+  `NS_BINDING_ABORTED` when too many connections hit concurrently (see
+  `docs/gotchas.md`).
 - `vite.config.ts` must proxy `/api` → `http://localhost:8080` for dev mode.
 - No `localStorage` usage except: theme preference, human agent ID, last
   selected project, collapsed column/card state.

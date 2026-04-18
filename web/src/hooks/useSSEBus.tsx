@@ -1,44 +1,41 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useRef, useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import type { BoardEvent } from '../types';
-
-interface UseSSEOptions {
-  project?: string;
-  onEvent?: (event: BoardEvent) => void;
-}
-
-interface UseSSEResult {
-  connected: boolean;
-  error: string | null;
-}
 
 const MAX_RECONNECT_DELAY = 30000;
 const INITIAL_RECONNECT_DELAY = 1000;
 
-export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
+type Subscriber = (event: BoardEvent) => void;
+
+interface SSEBusContextValue {
+  subscribe: (onEvent: Subscriber) => () => void;
+  connected: boolean;
+  error: string | null;
+}
+
+const SSEBusContext = createContext<SSEBusContextValue | null>(null);
+
+interface SSEProviderProps {
+  children: ReactNode;
+}
+
+export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const subscribersRef = useRef<Set<Subscriber>>(new Set());
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
   const reconnectTimeoutRef = useRef<number | null>(null);
-  const onEventRef = useRef(onEvent);
-  const connectRef = useRef<() => void>(() => {});
   const isMountedRef = useRef(true);
-
-  // Keep onEventRef in sync with onEvent
-  useEffect(() => {
-    onEventRef.current = onEvent;
-  }, [onEvent]);
+  const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const url = project
-      ? `/api/events?project=${encodeURIComponent(project)}`
-      : '/api/events';
-
-    const es = new EventSource(url);
+    const es = new EventSource('/api/events');
     eventSourceRef.current = es;
 
     es.onopen = () => {
@@ -50,7 +47,7 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as BoardEvent;
-        onEventRef.current?.(data);
+        subscribersRef.current.forEach((sub) => sub(data));
       } catch {
         console.error('Failed to parse SSE event:', event.data);
       }
@@ -68,12 +65,12 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
         if (!isMountedRef.current) return;
         reconnectDelayRef.current = Math.min(
           reconnectDelayRef.current * 2,
-          MAX_RECONNECT_DELAY
+          MAX_RECONNECT_DELAY,
         );
         connectRef.current();
       }, delay);
     };
-  }, [project]);
+  }, []);
 
   // Keep connectRef in sync with connect
   useEffect(() => {
@@ -95,5 +92,25 @@ export function useSSE({ project, onEvent }: UseSSEOptions): UseSSEResult {
     };
   }, [connect]);
 
-  return { connected, error };
+  const subscribe = useCallback((onEvent: Subscriber): (() => void) => {
+    subscribersRef.current.add(onEvent);
+    return () => {
+      subscribersRef.current.delete(onEvent);
+    };
+  }, []);
+
+  return (
+    <SSEBusContext.Provider value={{ subscribe, connected, error }}>
+      {children}
+    </SSEBusContext.Provider>
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useSSEBus(): SSEBusContextValue {
+  const ctx = useContext(SSEBusContext);
+  if (!ctx) {
+    throw new Error('useSSEBus must be used inside SSEProvider');
+  }
+  return ctx;
 }
