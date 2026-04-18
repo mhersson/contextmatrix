@@ -27,9 +27,10 @@ Code.
 
 **Message paths:**
 
-- **Run Now / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to runner.
-- **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies as
-  `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
+- **Run Now / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to
+  runner.
+- **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies
+  as `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
   Console panel is open.
 - **Chat input** (interactive mode only) — Web UI sends
   `POST /api/runner/message` to CM, which forwards to the runner's `/message`
@@ -146,18 +147,25 @@ The runner:
 1. Looks up the running container for `card_id` / `project`.
 2. Writes the following newline-terminated JSON to the container's stdin:
    ```json
-   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"<content>"}]}}
+   {
+     "type": "user",
+     "message": {
+       "role": "user",
+       "content": [{ "type": "text", "text": "<content>" }]
+     }
+   }
    ```
-3. Emits a broadcaster `LogEntry` of type `user` (see [LogEntry types](#logentry-types))
-   so the browser sees the message echoed in the console.
+3. Emits a broadcaster `LogEntry` of type `user` (see
+   [LogEntry types](#logentry-types)) so the browser sees the message echoed in
+   the console.
 
 **Error responses:**
 
-| Status | Condition |
-|--------|-----------|
-| 404 | Container not tracked (card not running) |
-| 409 | Container is not in interactive mode |
-| 413 | `content` exceeds 8 KiB |
+| Status | Condition                                |
+| ------ | ---------------------------------------- |
+| 404    | Container not tracked (card not running) |
+| 409    | Container is not in interactive mode     |
+| 413    | `content` exceeds 8 KiB                  |
 
 #### POST {runner_url}/promote
 
@@ -186,8 +194,8 @@ promote).
 
 #### GET {runner_url}/logs
 
-Streams live log entries via Server-Sent Events. Used by the ContextMatrix
-proxy endpoint — not called directly by the browser.
+Streams live log entries via Server-Sent Events. Used by the ContextMatrix proxy
+endpoint — not called directly by the browser.
 
 **Authentication:** HMAC-signed GET request. The body is empty; the signature
 covers `timestamp.""` (timestamp concatenated with empty body).
@@ -219,14 +227,14 @@ Omit to receive entries from all projects.
 
 <a name="logentry-types"></a>
 
-| type | Source | Meaning |
-|---|---|---|
-| `text` | Claude Code stdout | Parsed assistant text block |
-| `thinking` | Claude Code stdout | Parsed assistant thinking block |
-| `tool_call` | Claude Code stdout | Non-MCP tool call (name only) |
-| `stderr` | Container stderr | Raw stderr line from the container |
-| `system` | Runner lifecycle | Container lifecycle events (started, completed, failed, canceled) |
-| `user` | Chat input | User message submitted via the chat input |
+| type        | Source             | Meaning                                                           |
+| ----------- | ------------------ | ----------------------------------------------------------------- |
+| `text`      | Claude Code stdout | Parsed assistant text block                                       |
+| `thinking`  | Claude Code stdout | Parsed assistant thinking block                                   |
+| `tool_call` | Claude Code stdout | Non-MCP tool call (name only)                                     |
+| `stderr`    | Container stderr   | Raw stderr line from the container                                |
+| `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled) |
+| `user`      | Chat input         | User message submitted via the chat input                         |
 
 **Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
 prevent proxy and browser timeouts.
@@ -405,8 +413,8 @@ Web UI (promote btn) → CM POST /api/runner/promote
 
 `feature_branch` and `create_pr` are auto-enabled on the card whenever "Run Now"
 is triggered — for both autonomous and HITL runs. The `/promote` endpoint
-additionally sets `autonomous: true` when the user switches a running interactive
-session to autonomous mode.
+additionally sets `autonomous: true` when the user switches a running
+interactive session to autonomous mode.
 
 ## Log Streaming Architecture
 
@@ -415,9 +423,9 @@ The live log pipeline has three layers:
 ### Runner: `internal/logbroadcast`
 
 `Broadcaster` is a thread-safe fan-out hub. It manages a set of subscribers,
-each with a buffered channel (256 entries). `Publish(LogEntry)` is
-non-blocking: if a subscriber's buffer is full the entry is dropped and a
-warning logged (slow subscriber protection).
+each with a buffered channel (256 entries). `Publish(LogEntry)` is non-blocking:
+if a subscriber's buffer is full the entry is dropped and a warning logged (slow
+subscriber protection).
 
 `Subscribe(project string)` returns a `(<-chan LogEntry, unsubscribe func())`.
 Pass an empty string to receive all projects.
@@ -434,35 +442,100 @@ Sources that call `Publish`:
 
 ### Runner: `GET /logs` SSE Endpoint
 
-`webhook.Handler.handleLogs` subscribes to the broadcaster, then streams
-entries as `data: {json}\n\n` SSE events. It sends `: keepalive\n\n` comments
-every 15 seconds. The write deadline is cleared on the underlying connection to
-allow long-lived connections past the server's `WriteTimeout`.
+`webhook.Handler.handleLogs` subscribes to the broadcaster, then streams entries
+as `data: {json}\n\n` SSE events. It sends `: keepalive\n\n` comments every 15
+seconds. The write deadline is cleared on the underlying connection to allow
+long-lived connections past the server's `WriteTimeout`.
 
-### ContextMatrix: `GET /api/runner/logs` SSE Proxy
+### ContextMatrix: `GET /api/runner/logs` — Two Modes
 
-`api.runnerHandlers.streamRunnerLogs` is a transparent SSE proxy:
+`api.runnerHandlers.streamRunnerLogs` handles both code paths, selected by the
+`card_id` query parameter:
 
-1. Asserts the browser's `http.ResponseWriter` implements `http.Flusher`.
-2. Clears the write deadline via `http.ResponseController`.
-3. Sends SSE headers and flushes immediately (triggers browser `onopen`).
-4. Issues an HMAC-signed `GET {runner_url}/logs?project=` using a dedicated
-   `http.Client` with `Timeout: 0` (no per-request deadline).
-5. Reads upstream body line-by-line with `bufio.Scanner` (1 MB buffer).
-6. Forwards `data:` lines and `: keepalive` comments verbatim, flushing after
-   each.
-7. Checks `r.Context().Done()` between lines; returns immediately on browser
-   disconnect, which causes the upstream `GET /logs` request to be canceled.
+**Card-scoped path** (`?project=P&card_id=X`):
 
-The endpoint is only registered when `runner != nil` (i.e., runner is enabled
-in config). The browser is never exposed to the upstream HMAC credentials.
+1. Delegates to the [Session Log Manager](#session-log-manager).
+2. Calls `manager.Subscribe(cardID)`, which atomically captures a snapshot of
+   all buffered events and registers a live-event channel.
+3. Sends SSE headers and flushes immediately.
+4. Delivers the snapshot events first (replay), then tails the live channel.
+5. On `terminal` event or channel close, ends the response.
+6. On browser disconnect (`r.Context().Done()`), calls the unsubscribe func.
+
+If the session manager is not initialised (runner disabled), returns 204.
+
+**Legacy project-scoped path** (`?project=P`, no `card_id`):
+
+Used by the Runner Console panel (`ProjectShell`). Transparent SSE proxy: issues
+an HMAC-signed `GET {runner_url}/logs?project=`, reads the body line-by-line,
+forwards `data:` lines and `: keepalive` comments verbatim, and cancels the
+upstream request on browser disconnect. Used when no card-level session is
+needed (e.g., watching all project activity from the console).
+
+Both paths clear the write deadline via `http.ResponseController` before
+entering the streaming loop (see `docs/gotchas.md` § SSE and WriteTimeout). The
+endpoint is only registered when `runner != nil`.
+
+### Session Log Manager
+
+`internal/runner/sessionlog.Manager` is the server-side buffering and fan-out
+layer that fixes the reconnect-loses-log-history bug.
+
+#### Responsibilities
+
+- **One upstream connection per card**: on
+  `manager.Start(ctx, cardID, project)`, opens a single long-lived HMAC-signed
+  SSE connection to `{runner_url}/logs?project=P`, parses events, and writes
+  them into the per-card ring buffer. Events for other cards are filtered out
+  before buffering (the runner streams all project events on the same
+  connection).
+- **Snapshot + live fan-out**: `Subscribe(cardID)` returns a
+  `(<-chan Event, unsub)`. The snapshot of all buffered events is delivered
+  first (replay), then live events follow. Multiple browser tabs can subscribe
+  concurrently.
+- **Bounded ring buffer**: each session enforces dual caps — 2000 events OR 1
+  MiB total payload, whichever is reached first. On overflow, the oldest events
+  are dropped and a single synthetic `dropped` marker event is inserted/updated
+  at the front of the buffer.
+- **Lifecycle**: `Start` is called by `CardService.UpdateRunnerStatus` on
+  `→running`. `Stop` is called (fire-and-forget, never fails the status update)
+  on transition to any terminal status (`failed`, `killed`, `completed`). Stop
+  cancels the upstream connection, sends a `terminal` event to all subscribers,
+  and clears the buffer.
+- **Upstream retry**: on read error the pump retries with exponential backoff
+  (250 ms base, 4 s cap, 5 attempts), then marks the session errored and closes.
+- **Session cap**: default 64 concurrent sessions; `Start` returns an error if
+  the cap is reached.
+- **Idle sweeper**: `StartSweeper(ctx)` runs a background goroutine that
+  force-closes sessions running longer than the TTL (default 2 h) without an
+  explicit Stop. Sweeps at TTL/2 intervals.
+
+#### Defaults and configuration knobs
+
+| Knob                   | Default | Option               |
+| ---------------------- | ------- | -------------------- |
+| Per-session event cap  | 2000    | `WithMaxEvents(n)`   |
+| Per-session byte cap   | 1 MiB   | `WithMaxBytes(n)`    |
+| Concurrent session cap | 64      | `WithMaxSessions(n)` |
+| Idle session TTL       | 2 h     | `WithSessionTTL(d)`  |
+
+All defaults are defined as constants in `internal/runner/sessionlog/buffer.go`
+(`DefaultMaxEvents`, `DefaultMaxBytes`) and `manager.go` (`DefaultMaxSessions`,
+`DefaultSessionTTL`). The values used at startup are hardcoded in
+`cmd/contextmatrix/main.go`; they are not exposed in `config.yaml`.
 
 ### Frontend: On-demand connection
 
 The `EventSource` is opened only while the Runner Console panel is visible.
 `useRunnerLogs({ enabled })` connects on `enabled=true` and disconnects on
-`enabled=false` or component unmount. This satisfies the requirement that no
-log traffic flows when the console is closed.
+`enabled=false` or component unmount. This satisfies the requirement that no log
+traffic flows when the console is closed.
+
+When `cardId` is passed, the hook connects to the card-scoped endpoint
+(`?project=P&card_id=X`). The server delivers the buffered snapshot first, so a
+client that reconnects after a gap receives all previous events including any
+pending HITL questions. The client-side ring buffer (`maxEntries`, default 5000)
+still applies on top of the server snapshot.
 
 ## Configuration Reference
 
@@ -500,7 +573,6 @@ docker_base_image: "contextmatrix/runner:latest"
 max_concurrent: 3 # Max simultaneous containers
 container_timeout: "2h" # Force-kill after this duration
 
-
 # Claude Code auth
 # The runner must be installed on a machine with a browser
 # for initial `claude login` OAuth flow. Auth tokens are
@@ -518,9 +590,9 @@ github_app:
 
 When using GitHub Enterprise, both sides must target the same host: set
 `github.host` (or `github.api_base_url`) in ContextMatrix and
-`github_app.api_base_url` in the runner to the same enterprise API endpoint.
-The runner entrypoint derives the git host automatically from the repo URL sent
-in the trigger payload, so no additional git configuration is needed.
+`github_app.api_base_url` in the runner to the same enterprise API endpoint. The
+runner entrypoint derives the git host automatically from the repo URL sent in
+the trigger payload, so no additional git configuration is needed.
 
 ### Per-Project (`.board.yaml`)
 

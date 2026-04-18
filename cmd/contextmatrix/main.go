@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
@@ -142,6 +143,18 @@ func main() {
 		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
 	}
 
+	// Create session log manager and start its idle sweeper.
+	// The manager is always constructed so the card-scoped SSE path is available
+	// even when the runner is disabled (Subscribe returns empty snapshots).
+	sessionMgr := sessionlog.NewManager(
+		sessionlog.WithRunnerConfig(cfg.Runner.URL, cfg.Runner.APIKey),
+		sessionlog.WithMaxSessions(64),
+		sessionlog.WithSessionTTL(2*time.Hour),
+	)
+	sessionMgr.StartSweeper(ctx)
+	svc.SetSessionManager(sessionMgr)
+	slog.Info("session log manager initialized")
+
 	// Create router with all API routes
 	mux := api.NewRouter(api.RouterConfig{
 		Service:            svc,
@@ -155,6 +168,7 @@ func main() {
 		GitHubToken:        cfg.GitHub.Token,
 		GitHubAPIBaseURL:   cfg.GitHub.ResolvedAPIBaseURL(),
 		GitHubAllowedHosts: cfg.GitHub.AllowedHosts(),
+		SessionManager:     sessionMgr,
 	})
 
 	// Create MCP server and register on the mux

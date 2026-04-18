@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -65,6 +66,7 @@ type RouterConfig struct {
 	GitHubToken          string
 	GitHubAPIBaseURL     string
 	GitHubAllowedHosts   []string
+	SessionManager       *sessionlog.Manager // optional; enables card-scoped SSE log path
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -130,7 +132,14 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
 
 	// Runner routes
-	rh := &runnerHandlers{svc: cfg.Service, runner: cfg.Runner, runnerCfg: cfg.RunnerCfg, mcpAPIKey: cfg.MCPAPIKey, port: cfg.Port}
+	rh := &runnerHandlers{
+		svc:            cfg.Service,
+		runner:         cfg.Runner,
+		runnerCfg:      cfg.RunnerCfg,
+		mcpAPIKey:      cfg.MCPAPIKey,
+		port:           cfg.Port,
+		sessionManager: cfg.SessionManager,
+	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)

@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -222,6 +223,11 @@ type CardService struct {
 
 	validator *board.Validator
 
+	// sessionManager is optional; when non-nil it is notified of runner lifecycle
+	// transitions (running → Start, terminal → Stop) so the per-card SSE buffer
+	// stays in sync with actual execution state.
+	sessionManager *sessionlog.Manager
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
@@ -253,6 +259,13 @@ func NewCardService(
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
+}
+
+// SetSessionManager registers the session manager used for runner lifecycle
+// hooks.  Must be called before the server starts accepting requests.
+// Passing nil disables lifecycle notifications.
+func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
+	s.sessionManager = m
 }
 
 // SetOnCommit registers a callback invoked after each successful git commit.
@@ -2386,6 +2399,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
+	prevRunnerStatus := card.RunnerStatus
 	card.RunnerStatus = status
 	card.Updated = time.Now()
 
@@ -2425,6 +2439,23 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	if status == "failed" || status == "killed" || status == "completed" {
 		if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
 			slog.Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+		}
+	}
+
+	// Session lifecycle hooks — only when a manager is wired.
+	if s.sessionManager != nil {
+		switch {
+		case prevRunnerStatus != "running" && status == "running":
+			// Transition INTO running: open the upstream SSE buffer.
+			if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
+				slog.Error("sessionlog: Start failed on runner status update",
+					"card_id", cardID, "project", project, "error", startErr)
+			}
+		case status == "failed" || status == "killed" || status == "completed":
+			// Transition to terminal: drain and clear the buffer.
+			// Fire-and-forget in a goroutine so Stop (which waits for the pump
+			// to exit) does not hold the write lock.
+			go s.sessionManager.Stop(cardID)
 		}
 	}
 

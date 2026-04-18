@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Card } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { useRunnerLogs } from '../../hooks/useRunnerLogs';
@@ -20,12 +20,11 @@ export function CardChat({ card }: CardChatProps) {
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
 
-  const { logs } = useRunnerLogs({ project: card.project, enabled: true });
-
-  const cardLogs = useMemo(
-    () => logs.filter((entry) => entry.card_id === card.id),
-    [logs, card.id],
-  );
+  const { logs: cardLogs } = useRunnerLogs({
+    project: card.project,
+    cardId: card.id,
+    enabled: true,
+  });
 
   // Auto-scroll to bottom unless user has scrolled up
   const handleScroll = () => {

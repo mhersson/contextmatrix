@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -27,11 +28,12 @@ const (
 
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
-	svc       *service.CardService
-	runner    *runner.Client // nil when runner is disabled
-	runnerCfg config.RunnerConfig
-	mcpAPIKey string
-	port      int
+	svc            *service.CardService
+	runner         *runner.Client // nil when runner is disabled
+	runnerCfg      config.RunnerConfig
+	mcpAPIKey      string
+	port           int
+	sessionManager *sessionlog.Manager // nil when session manager is not configured
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
