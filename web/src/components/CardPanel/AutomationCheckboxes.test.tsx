@@ -23,7 +23,7 @@ describe('AutomationCheckboxes — checkboxes', () => {
 });
 
 describe('AutomationCheckboxes — Run Now button visibility', () => {
-  it('renders Run Now button when canRun=true and onRun is provided', () => {
+  it('renders Run HITL button when canRun=true and onRun is provided and autonomous=false', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -31,10 +31,10 @@ describe('AutomationCheckboxes — Run Now button visibility', () => {
         onRun={vi.fn()}
       />,
     );
-    expect(screen.getByRole('button', { name: 'Run Now' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run HITL' })).toBeInTheDocument();
   });
 
-  it('does not render Run Now button when canRun=false', () => {
+  it('does not render run button when canRun=false', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -42,27 +42,30 @@ describe('AutomationCheckboxes — Run Now button visibility', () => {
         onRun={vi.fn()}
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Run Now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
   });
 
-  it('does not render Run Now button when onRun is omitted', () => {
+  it('does not render run button when onRun is omitted', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
         canRun
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Run Now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
   });
 
-  it('does not render Run Now button when both canRun and onRun are omitted', () => {
+  it('does not render run button when both canRun and onRun are omitted', () => {
     render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.queryByRole('button', { name: 'Run Now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
   });
 });
 
-describe('AutomationCheckboxes — HITL/AUTO label', () => {
-  it('shows HITL label when autonomous=false and run controls are present', () => {
+describe('AutomationCheckboxes — Run button label by mode', () => {
+  it('shows Run HITL button when autonomous=false and run controls are present', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -71,10 +74,10 @@ describe('AutomationCheckboxes — HITL/AUTO label', () => {
         onRun={vi.fn()}
       />,
     );
-    expect(screen.getByText('HITL')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run HITL' })).toBeInTheDocument();
   });
 
-  it('shows AUTO label when autonomous=true and run controls are present', () => {
+  it('shows Run Auto button when autonomous=true and run controls are present', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -83,10 +86,10 @@ describe('AutomationCheckboxes — HITL/AUTO label', () => {
         onRun={vi.fn()}
       />,
     );
-    expect(screen.getByText('AUTO')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run Auto' })).toBeInTheDocument();
   });
 
-  it('does not show HITL/AUTO label when canRun=false', () => {
+  it('does not show Run HITL/Run Auto button when canRun=false', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -95,11 +98,11 @@ describe('AutomationCheckboxes — HITL/AUTO label', () => {
         onRun={vi.fn()}
       />,
     );
-    expect(screen.queryByText('HITL')).not.toBeInTheDocument();
-    expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
   });
 
-  it('does not show HITL/AUTO label when onRun is omitted', () => {
+  it('does not show Run HITL/Run Auto button when onRun is omitted', () => {
     render(
       <AutomationCheckboxes
         {...baseProps}
@@ -107,13 +110,28 @@ describe('AutomationCheckboxes — HITL/AUTO label', () => {
         canRun
       />,
     );
-    expect(screen.queryByText('HITL')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
+  });
+
+  it('does not render a standalone AUTO or HITL text label when run controls are visible', () => {
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        autonomous={false}
+        canRun
+        onRun={vi.fn()}
+      />,
+    );
+    // The button text contains 'HITL' as part of 'Run HITL', but there must be
+    // no standalone element whose entire text content is exactly 'AUTO' or 'HITL'.
     expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
+    expect(screen.queryByText('HITL')).not.toBeInTheDocument();
   });
 });
 
 describe('AutomationCheckboxes — Run Now interaction', () => {
-  it('calls onRun when Run Now is clicked', async () => {
+  it('calls onRun when Run HITL is clicked', async () => {
     const onRun = vi.fn().mockResolvedValue(undefined);
     render(
       <AutomationCheckboxes
@@ -123,7 +141,7 @@ describe('AutomationCheckboxes — Run Now interaction', () => {
       />,
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Run Now' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Run HITL' }));
     });
     expect(onRun).toHaveBeenCalledOnce();
   });
@@ -141,13 +159,13 @@ describe('AutomationCheckboxes — Run Now interaction', () => {
       />,
     );
 
-    const button = screen.getByRole('button', { name: 'Run Now' });
+    const button = screen.getByRole('button', { name: 'Run HITL' });
     fireEvent.click(button);
 
     expect(await screen.findByRole('button', { name: 'Starting...' })).toBeDisabled();
 
     await act(async () => { resolve!(); });
-    expect(screen.getByRole('button', { name: 'Run Now' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Run HITL' })).not.toBeDisabled();
   });
 });
 

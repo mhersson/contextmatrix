@@ -351,7 +351,7 @@ describe('CardPanel — Run Now save-before-run ordering', () => {
 
     // Click Run Now
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Run Now' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Run HITL' }));
     });
 
     expect(calls).toEqual(['save', 'run']);
@@ -365,7 +365,7 @@ describe('CardPanel — Run Now save-before-run ordering', () => {
 
     // No changes made — card is clean
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Run Now' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Run HITL' }));
     });
 
     expect(onSave).not.toHaveBeenCalled();

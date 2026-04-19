@@ -78,19 +78,14 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
           </label>
         </div>
         {showRunControls && (
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={handleRun}
-              disabled={runLoading}
-              className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
-            >
-              {runLoading ? 'Starting...' : 'Run Now'}
-            </button>
-            <span className={`text-xs font-medium ${autonomous ? 'text-[var(--green)]' : 'text-[var(--aqua)]'}`}>
-              {autonomous ? 'AUTO' : 'HITL'}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={handleRun}
+            disabled={runLoading}
+            className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50 shrink-0"
+          >
+            {runLoading ? 'Starting...' : autonomous ? 'Run Auto' : 'Run HITL'}
+          </button>
         )}
       </div>
       <div className="mt-3">
