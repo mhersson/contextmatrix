@@ -31,9 +31,11 @@ const subtaskCard: Card = {
 
 const automationProps = {
   editedAutonomous: false,
+  editedUseOpusOrchestrator: false,
   editedFeatureBranch: false,
   editedCreatePR: false,
   onAutonomousChange: vi.fn(),
+  onUseOpusOrchestratorChange: vi.fn(),
   onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
   editedVetted: false,

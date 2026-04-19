@@ -89,9 +89,12 @@ Sent when a user clicks "Run Now" on a parent or standalone card.
   "mcp_api_key": "optional-bearer-token",
   "runner_image": "optional/custom-image:latest",
   "base_branch": "develop",
-  "interactive": false
+  "interactive": false,
+  "model": "claude-sonnet-4-6"
 }
 ```
+
+`model` is always populated by CM from config. When the card's `use_opus_orchestrator` flag is `true`, CM sends `runner.orchestrator_opus_model`; otherwise it sends `runner.orchestrator_sonnet_model`. The runner passes this value to the container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the entrypoint uses as the `--model` argument to Claude Code.
 
 `base_branch` is omitted when not set on the card. When present, the runner
 should clone using `-b <base_branch>` and instruct Claude Code to open PRs
@@ -595,6 +598,8 @@ runner:
   url: "http://localhost:9090" # Runner base URL
   api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
   public_url: "http://cm.lan:8080" # Public URL for MCP endpoint sent to runner containers
+  orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
+  orchestrator_opus_model: "claude-opus-4-7"     # Model sent when use_opus_orchestrator is true
 ```
 
 Environment variable overrides:
@@ -604,6 +609,8 @@ Environment variable overrides:
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
 
 ### Runner (`config.yaml` — reference for runner implementor)
 

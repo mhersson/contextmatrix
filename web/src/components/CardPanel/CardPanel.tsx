@@ -226,6 +226,7 @@ export function CardPanel({
     editedCard.body !== card.body ||
     !arraysEqual(editedCard.labels, card.labels) ||
     (editedCard.autonomous ?? false) !== (card.autonomous ?? false) ||
+    (editedCard.use_opus_orchestrator ?? false) !== (card.use_opus_orchestrator ?? false) ||
     (editedCard.feature_branch ?? false) !== (card.feature_branch ?? false) ||
     (editedCard.create_pr ?? false) !== (card.create_pr ?? false) ||
     (editedCard.vetted ?? false) !== (card.vetted ?? false) ||
@@ -259,6 +260,9 @@ export function CardPanel({
       }
       if ((editedCard.autonomous ?? false) !== (card.autonomous ?? false)) {
         updates.autonomous = editedCard.autonomous ?? false;
+      }
+      if ((editedCard.use_opus_orchestrator ?? false) !== (card.use_opus_orchestrator ?? false)) {
+        updates.use_opus_orchestrator = editedCard.use_opus_orchestrator ?? false;
       }
       if ((editedCard.feature_branch ?? false) !== (card.feature_branch ?? false)) {
         updates.feature_branch = editedCard.feature_branch ?? false;
@@ -347,9 +351,11 @@ export function CardPanel({
         onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
         onSubtaskClick={onSubtaskClick}
         editedAutonomous={editedCard.autonomous ?? false}
+        editedUseOpusOrchestrator={editedCard.use_opus_orchestrator ?? false}
         editedFeatureBranch={editedCard.feature_branch ?? false}
         editedCreatePR={editedCard.create_pr ?? false}
         onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
+        onUseOpusOrchestratorChange={(v) => setEditedCard((prev) => ({ ...prev, use_opus_orchestrator: v }))}
         onFeatureBranchChange={(v) => setEditedCard((prev) => ({
           ...prev,
           feature_branch: v,

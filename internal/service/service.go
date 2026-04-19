@@ -53,10 +53,11 @@ type CreateCardInput struct {
 	Parent        string
 	Body          string
 	Source        *board.Source // Optional, immutable after creation
-	Autonomous    bool
-	FeatureBranch bool
-	CreatePR      bool
-	Vetted        bool
+	Autonomous          bool
+	UseOpusOrchestrator bool
+	FeatureBranch       bool
+	CreatePR            bool
+	Vetted              bool
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -74,11 +75,12 @@ type UpdateCardInput struct {
 	Context         []string
 	Custom          map[string]any
 	Body            string
-	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous      bool
-	FeatureBranch   bool
-	CreatePR        bool
-	Vetted          bool
+	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous          bool
+	UseOpusOrchestrator bool
+	FeatureBranch       bool
+	CreatePR            bool
+	Vetted              bool
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -89,12 +91,13 @@ type PatchCardInput struct {
 	Priority        *string
 	Labels          []string // nil = don't change, empty slice = clear
 	Body            *string
-	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous      *bool
-	FeatureBranch   *bool
-	CreatePR        *bool
-	Vetted          *bool
-	BaseBranch      *string
+	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous          *bool
+	UseOpusOrchestrator *bool
+	FeatureBranch       *bool
+	CreatePR            *bool
+	Vetted              *bool
+	BaseBranch          *string
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -596,13 +599,14 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		Labels:        input.Labels,
 		Parent:        parentID,
 		Source:        input.Source,
-		Autonomous:    input.Autonomous,
-		FeatureBranch: input.FeatureBranch,
-		CreatePR:      input.CreatePR,
-		Vetted:        input.Vetted,
-		Created:       now,
-		Updated:       now,
-		Body:          input.Body,
+		Autonomous:          input.Autonomous,
+		UseOpusOrchestrator: input.UseOpusOrchestrator,
+		FeatureBranch:       input.FeatureBranch,
+		CreatePR:            input.CreatePR,
+		Vetted:              input.Vetted,
+		Created:             now,
+		Updated:             now,
+		Body:                input.Body,
 	}
 
 	// Cards without an external source are implicitly vetted.
@@ -804,6 +808,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	card.Custom = input.Custom
 	card.Body = input.Body
 	card.Autonomous = input.Autonomous
+	card.UseOpusOrchestrator = input.UseOpusOrchestrator
 	card.FeatureBranch = input.FeatureBranch
 	card.Vetted = input.Vetted
 	// BranchName is immutable after first generation — only set when empty.
@@ -984,6 +989,9 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 	if input.Autonomous != nil {
 		card.Autonomous = *input.Autonomous
+	}
+	if input.UseOpusOrchestrator != nil {
+		card.UseOpusOrchestrator = *input.UseOpusOrchestrator
 	}
 	if input.FeatureBranch != nil {
 		card.FeatureBranch = *input.FeatureBranch

@@ -31,6 +31,7 @@ type TriggerPayload struct {
 	RunnerImage string `json:"runner_image,omitempty"`
 	BaseBranch  string `json:"base_branch,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 // KillPayload is sent to the runner to stop a specific task.

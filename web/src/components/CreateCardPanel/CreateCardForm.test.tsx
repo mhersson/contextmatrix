@@ -78,6 +78,8 @@ function ControlledForm({
       setBodyDirty={(v) => { setBodyDirty(v); onBodyDirtyChange?.(v); }}
       autonomous={false}
       setAutonomous={vi.fn()}
+      useOpusOrchestrator={false}
+      setUseOpusOrchestrator={vi.fn()}
       featureBranch={false}
       setFeatureBranch={vi.fn()}
       createPR={false}

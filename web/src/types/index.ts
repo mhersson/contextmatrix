@@ -30,6 +30,7 @@ export interface Card {
   vetted?: boolean;
   custom?: Record<string, unknown>;
   autonomous?: boolean;
+  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
@@ -140,6 +141,7 @@ export interface CreateCardInput {
   body?: string;
   source?: Source;
   autonomous?: boolean;
+  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -166,6 +168,7 @@ export interface PatchCardInput {
   labels?: string[];
   body?: string;
   autonomous?: boolean;
+  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;

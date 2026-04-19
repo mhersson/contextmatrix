@@ -1655,3 +1655,68 @@ func TestValidate_Theme_ValidValues(t *testing.T) {
 		})
 	}
 }
+
+// ---------- OrchestratorModel config tests ----------
+
+func TestLoad_OrchestratorModels_YAMLProvidesBothValues(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+runner:
+  orchestrator_sonnet_model: "claude-sonnet-4-99"
+  orchestrator_opus_model: "claude-opus-4-99"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-sonnet-4-99", cfg.Runner.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-99", cfg.Runner.OrchestratorOpusModel)
+}
+
+func TestLoad_OrchestratorModels_DefaultsApplyWhenYAMLOmits(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-7", cfg.Runner.OrchestratorOpusModel)
+}
+
+func TestLoad_OrchestratorModels_EnvOverridesYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+runner:
+  orchestrator_sonnet_model: "claude-sonnet-4-yaml"
+  orchestrator_opus_model: "claude-opus-4-yaml"
+`)
+
+	t.Setenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-4-env")
+	t.Setenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL", "claude-opus-4-env")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-sonnet-4-env", cfg.Runner.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-env", cfg.Runner.OrchestratorOpusModel)
+}
+
+func TestDefaults_OrchestratorModels(t *testing.T) {
+	cfg := defaults()
+	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-7", cfg.Runner.OrchestratorOpusModel)
+}

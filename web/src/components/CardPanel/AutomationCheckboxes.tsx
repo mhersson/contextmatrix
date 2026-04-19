@@ -4,9 +4,11 @@ const MAX_REVIEW_ATTEMPTS = 2;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
+  useOpusOrchestrator: boolean;
   featureBranch: boolean;
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
+  onUseOpusOrchestratorChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
   branchName?: string;
@@ -22,8 +24,8 @@ interface AutomationCheckboxesProps {
 }
 
 export const AutomationCheckboxes = memo(function AutomationCheckboxes({
-  autonomous, featureBranch, createPR,
-  onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
+  autonomous, useOpusOrchestrator, featureBranch, createPR,
+  onAutonomousChange, onUseOpusOrchestratorChange, onFeatureBranchChange, onCreatePRChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   canRun, onRun,
@@ -51,6 +53,16 @@ export const AutomationCheckboxes = memo(function AutomationCheckboxes({
               className="rounded border-[var(--bg3)] bg-[var(--bg2)] text-[var(--green)] focus:ring-[var(--green)]"
             />
             <span className="text-sm text-[var(--fg)]">Autonomous mode</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              aria-label="Opus as orchestrator"
+              checked={useOpusOrchestrator}
+              onChange={(e) => onUseOpusOrchestratorChange(e.target.checked)}
+              className="rounded border-[var(--bg3)] bg-[var(--bg2)] text-[var(--green)] focus:ring-[var(--green)]"
+            />
+            <span className="text-sm text-[var(--fg)]">Opus as orchestrator</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input

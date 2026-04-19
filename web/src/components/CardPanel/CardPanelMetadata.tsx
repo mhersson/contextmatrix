@@ -9,9 +9,11 @@ interface CardPanelMetadataProps {
   onLabelsChange: (labels: string[]) => void;
   onSubtaskClick: (cardId: string) => void;
   editedAutonomous: boolean;
+  editedUseOpusOrchestrator: boolean;
   editedFeatureBranch: boolean;
   editedCreatePR: boolean;
   onAutonomousChange: (value: boolean) => void;
+  onUseOpusOrchestratorChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
   editedVetted: boolean;
@@ -35,9 +37,11 @@ export function CardPanelMetadata({
   onLabelsChange,
   onSubtaskClick,
   editedAutonomous,
+  editedUseOpusOrchestrator,
   editedFeatureBranch,
   editedCreatePR,
   onAutonomousChange,
+  onUseOpusOrchestratorChange,
   onFeatureBranchChange,
   onCreatePRChange,
   editedVetted,
@@ -232,9 +236,11 @@ export function CardPanelMetadata({
           {!automationCollapsed && (
             <AutomationCheckboxes
               autonomous={editedAutonomous}
+              useOpusOrchestrator={editedUseOpusOrchestrator}
               featureBranch={editedFeatureBranch}
               createPR={editedCreatePR}
               onAutonomousChange={onAutonomousChange}
+              onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
               onFeatureBranchChange={onFeatureBranchChange}
               onCreatePRChange={onCreatePRChange}
               branchName={card.branch_name}

@@ -24,6 +24,8 @@ interface CreateCardFormProps {
   setBodyDirty: (v: boolean) => void;
   autonomous: boolean;
   setAutonomous: (v: boolean) => void;
+  useOpusOrchestrator: boolean;
+  setUseOpusOrchestrator: (v: boolean) => void;
   featureBranch: boolean;
   setFeatureBranch: (v: boolean) => void;
   createPR: boolean;
@@ -39,7 +41,8 @@ export function CreateCardForm({
   title, setTitle, type, setType, priority, setPriority,
   labels, setLabels, parent, setParent, body, setBody,
   config, cards, bodyDirty, setBodyDirty,
-  autonomous, setAutonomous, featureBranch, setFeatureBranch,
+  autonomous, setAutonomous, useOpusOrchestrator, setUseOpusOrchestrator,
+  featureBranch, setFeatureBranch,
   createPR, setCreatePR,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
 }: CreateCardFormProps) {
@@ -203,9 +206,11 @@ export function CreateCardForm({
       {!parent && (
         <AutomationCheckboxes
           autonomous={autonomous}
+          useOpusOrchestrator={useOpusOrchestrator}
           featureBranch={featureBranch}
           createPR={createPR}
           onAutonomousChange={setAutonomous}
+          onUseOpusOrchestratorChange={setUseOpusOrchestrator}
           onFeatureBranchChange={(v) => {
             setFeatureBranch(v);
             if (!v) setCreatePR(false);
