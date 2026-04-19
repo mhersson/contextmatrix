@@ -1,7 +1,7 @@
 .PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install install-config docker-build clean
 
 build: build-frontend
-	go build -o contextmatrix ./cmd/contextmatrix
+	go build -trimpath -ldflags="-s -w" -o contextmatrix ./cmd/contextmatrix
 
 run: build
 	./contextmatrix
