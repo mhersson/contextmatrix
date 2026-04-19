@@ -233,6 +233,7 @@ export function CreateCardForm({
           preview="edit"
           height={200}
           visibleDragbar={false}
+          previewOptions={{ skipHtml: true }}
         />
       </div>
     </div>

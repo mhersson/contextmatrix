@@ -57,7 +57,10 @@
    `source.external_id` field is indexed and queryable via
    `GET /cards?external_id=PROJ-1234`. This provides idempotent imports — check
    if the external ID exists before creating, update if it does. The `source`
-   field is immutable after creation.
+   field is immutable after creation. `source.external_url`, when present, must
+   use an `http` or `https` scheme — any other scheme (e.g. `javascript:`,
+   `data:`, `vbscript:`) is rejected at write time with a 422 validation error
+   (`ErrInvalidExternalURL`).
 
 9. **Human vetting gate for externally-imported cards.** Cards with a `source`
    field (external origin) carry a `vetted` boolean that defaults to `false` on

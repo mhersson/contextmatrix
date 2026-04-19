@@ -4,14 +4,29 @@ import { useState } from 'react';
 import { CreateCardForm } from './CreateCardForm';
 import type { ProjectConfig, Card } from '../../types';
 
-// Mock MDEditor to avoid complex editor DOM setup in tests
+// Mock MDEditor to avoid complex editor DOM setup in tests.
+// Also simulates the preview pane to enable XSS-prevention tests.
 vi.mock('@uiw/react-md-editor', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea
-      data-testid="md-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
+  default: ({
+    value,
+    onChange,
+    previewOptions,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    previewOptions?: { skipHtml?: boolean };
+  }) => (
+    <>
+      <textarea
+        data-testid="md-editor"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {/* Simulate preview pane: render raw HTML unless skipHtml strips it */}
+      {previewOptions?.skipHtml
+        ? <div data-testid="md-preview">{value}</div>
+        : <div data-testid="md-preview" dangerouslySetInnerHTML={{ __html: value }} />}
+    </>
   ),
 }));
 
@@ -187,5 +202,31 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
 
     expect(confirmSpy).toHaveBeenCalledOnce();
     expect(confirmSpy).toHaveBeenCalledWith('Load template for "task"? This will replace the current body.');
+  });
+});
+
+describe('CreateCardForm — MDEditor preview skipHtml XSS prevention', () => {
+  const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
+
+  it('does not render iframe in the preview pane', () => {
+    const { container } = render(
+      <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
+    );
+    expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it('does not render script in the preview pane', () => {
+    const { container } = render(
+      <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
+    );
+    expect(container.querySelector('script')).toBeNull();
+  });
+
+  it('still renders plain text content in the preview pane', () => {
+    render(
+      <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
+    );
+    const preview = screen.getByTestId('md-preview');
+    expect(preview.textContent).toContain('hello');
   });
 });

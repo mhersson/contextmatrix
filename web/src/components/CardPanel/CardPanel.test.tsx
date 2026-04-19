@@ -8,12 +8,26 @@ vi.mock('../../hooks/useTheme', () => ({
 }));
 
 vi.mock('@uiw/react-md-editor', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea
-      data-testid="md-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
+  default: ({
+    value,
+    onChange,
+    previewOptions,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    previewOptions?: { skipHtml?: boolean };
+  }) => (
+    <>
+      <textarea
+        data-testid="md-editor"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {/* Simulate preview pane: render raw HTML unless skipHtml strips it */}
+      {previewOptions?.skipHtml
+        ? <div data-testid="md-preview">{value}</div>
+        : <div data-testid="md-preview" dangerouslySetInnerHTML={{ __html: value }} />}
+    </>
   ),
 }));
 
@@ -330,6 +344,36 @@ describe('CardPanel — split layout when HITL runner is active', () => {
       expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
       expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
     });
+  });
+});
+
+describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
+  const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
+
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('does not render iframe in the preview pane', () => {
+    const { container } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
+    );
+    expect(container.querySelector('iframe')).toBeNull();
+  });
+
+  it('does not render script in the preview pane', () => {
+    const { container } = renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
+    );
+    expect(container.querySelector('script')).toBeNull();
+  });
+
+  it('still renders plain text content in the preview pane', () => {
+    renderWithTheme(
+      <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
+    );
+    const preview = screen.getByTestId('md-preview');
+    expect(preview.textContent).toContain('hello');
   });
 });
 

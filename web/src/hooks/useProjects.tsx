@@ -31,8 +31,23 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    let cancelled = false;
+    api.getProjects()
+      .then((p) => {
+        if (cancelled) return;
+        setProjects(p);
+        setError(null);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(isAPIError(err) ? err.error : 'Failed to load projects');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { subscribe, connected } = useSSEBus();
 

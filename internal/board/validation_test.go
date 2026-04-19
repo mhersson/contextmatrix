@@ -338,6 +338,24 @@ func TestValidateCard(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidPriority)
 	})
+
+	t.Run("malicious source.external_url rejected by ValidateCard", func(t *testing.T) {
+		card := *validCard
+		card.Source = &Source{System: "jira", ExternalURL: "javascript:alert(1)"}
+		err := v.ValidateCard(cfg, &card)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidExternalURL)
+		var ve *ValidationError
+		require.ErrorAs(t, err, &ve)
+		assert.Equal(t, "source.external_url", ve.Field)
+	})
+
+	t.Run("valid https source passes ValidateCard", func(t *testing.T) {
+		card := *validCard
+		card.Source = &Source{System: "github", ExternalURL: "https://github.com/org/repo/issues/1"}
+		err := v.ValidateCard(cfg, &card)
+		assert.NoError(t, err)
+	})
 }
 
 func TestCanTransition(t *testing.T) {
@@ -587,6 +605,47 @@ func TestValidateCard_AutonomousFields(t *testing.T) {
 		err := v.ValidateCard(cfg, card)
 		assert.NoError(t, err)
 	})
+}
+
+func TestValidateSource(t *testing.T) {
+	v := NewValidator()
+
+	tests := []struct {
+		name         string
+		source       *Source
+		wantErr      bool
+		wantSentinel error
+	}{
+		{"nil source", nil, false, nil},
+		{"empty external_url", &Source{System: "jira", ExternalURL: ""}, false, nil},
+		{"https url", &Source{ExternalURL: "https://example.com/x"}, false, nil},
+		{"http url", &Source{ExternalURL: "http://example.com/x"}, false, nil},
+		{"uppercase HTTPS scheme", &Source{ExternalURL: "HTTPS://EXAMPLE.COM"}, false, nil},
+		{"mixed case Https scheme", &Source{ExternalURL: "Https://example.com"}, false, nil},
+		{"javascript scheme", &Source{ExternalURL: "javascript:alert(1)"}, true, ErrInvalidExternalURL},
+		{"data scheme", &Source{ExternalURL: "data:text/html,<h1>hi</h1>"}, true, ErrInvalidExternalURL},
+		{"vbscript scheme", &Source{ExternalURL: "vbscript:msgbox(1)"}, true, ErrInvalidExternalURL},
+		{"no scheme (plain text)", &Source{ExternalURL: "not a url at all"}, true, ErrInvalidExternalURL},
+		{"ftp scheme", &Source{ExternalURL: "ftp://example.com/file"}, true, ErrInvalidExternalURL},
+		{"file scheme", &Source{ExternalURL: "file:///etc/passwd"}, true, ErrInvalidExternalURL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card := &Card{Source: tt.source}
+			err := v.ValidateSource(card)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantSentinel)
+
+				var ve *ValidationError
+				require.ErrorAs(t, err, &ve)
+				assert.Equal(t, "source.external_url", ve.Field)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestValidationError_Message(t *testing.T) {

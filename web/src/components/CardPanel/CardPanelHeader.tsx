@@ -1,6 +1,6 @@
 import type { Card, ProjectConfig } from '../../types';
 import { gitHubIcon } from '../icons';
-import { typeColors } from './utils';
+import { typeColors, isSafeHttpUrl } from './utils';
 
 interface CardPanelHeaderProps {
   card: Card;
@@ -52,7 +52,7 @@ export function CardPanelHeader({
             </svg>
           </button>
           <span className="font-mono text-sm text-[var(--grey1)]">{card.id}</span>
-          {card.source?.system === 'github' && card.source.external_url && (
+          {card.source?.system === 'github' && card.source.external_url && isSafeHttpUrl(card.source.external_url) && (
             <a
               href={card.source.external_url}
               target="_blank"

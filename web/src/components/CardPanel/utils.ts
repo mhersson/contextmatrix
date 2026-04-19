@@ -5,6 +5,15 @@ export const typeColors: Record<string, string> = {
   subtask: 'var(--aqua)',
 };
 
+export function isSafeHttpUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
