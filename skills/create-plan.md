@@ -248,8 +248,37 @@ and does not bloat the orchestrator's context.
    5. Call `add_log(card_id=<id>, action='respawned',
       message='Agent stalled, respawning (attempt N)')`.
 
-4. When all subtasks are done, release your claim on the parent card so the
-   documentation agent can claim it:
+4. When all subtasks are done, ensure their changes are on your active
+   branch before Phase 6.
+
+   **If no sub-agent used worktree isolation** (single-agent case): their
+   changes are already in your working tree, uncommitted. Nothing to
+   aggregate — proceed to step 5. Phase 9 picks them up at squash time.
+
+   **If sub-agents used worktree isolation AND the parent is autonomous:**
+   sub-agents committed directly on the pre-created feature branch — nothing
+   to aggregate, proceed to step 5.
+
+   **If sub-agents used worktree isolation AND the parent is HITL:**
+   sub-agents left changes uncommitted in their worktrees. Aggregate them:
+
+   - **Branch setup:** if the parent card has `branch_name` set or
+     `feature_branch: true`, check out that branch (create it off `main` if
+     it does not exist yet). Otherwise work on the current branch — do
+     **not** create a feature branch just to hold the aggregation.
+   - **For each sub-agent worktree that has modified files:**
+     a. In the worktree: `git add -A && git commit -m "wip(<card_id>): <subtask_title>"`.
+     b. From your working tree: `git cherry-pick <worktree_branch>`.
+   - If a dependent subtask's worktree re-applied an earlier subtask's changes
+     (because worktrees branch off `main`, not off your active branch),
+     cherry-pick only the superset — do not cherry-pick the dependencies
+     separately.
+
+   These WIP commits are intermediate; Phase 9 squashes them into a single
+   conventional commit before any push.
+
+5. Release your claim on the parent card so the documentation agent can
+   claim it:
    `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 
 ---
