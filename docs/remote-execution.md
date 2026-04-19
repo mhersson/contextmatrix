@@ -492,13 +492,20 @@ long-lived connections past the server's `WriteTimeout`.
 
 If the session manager is not initialised (runner disabled), returns 204.
 
-**Legacy project-scoped path** (`?project=P`, no `card_id`):
+**Project-scoped path** (`?project=P`, no `card_id`):
 
-Used by the Runner Console panel (`ProjectShell`). Transparent SSE proxy: issues
-an HMAC-signed `GET {runner_url}/logs?project=`, reads the body line-by-line,
-forwards `data:` lines and `: keepalive` comments verbatim, and cancels the
-upstream request on browser disconnect. Used when no card-level session is
-needed (e.g., watching all project activity from the console).
+Used by the Runner Console panel (`ProjectShell`). Backed by the same Session
+Log Manager as the card-scoped path. On each client connection, calls
+`manager.StartProject(project)` (idempotent) to open a single long-lived
+upstream SSE connection that accepts all events for the project. Calls
+`manager.SubscribeProject(project)`, which replays the buffered snapshot first
+and then tails live events — identical snapshot-before-live ordering guarantee
+as the card-scoped path. Reconnecting clients receive all events buffered since
+the first connect. The session key is namespaced as `"project:<name>"` in the
+shared Manager maps so it cannot collide with card IDs. Cleanup is handled by
+the idle TTL sweeper (2 h default); no explicit stop is needed.
+
+If the session manager is not initialised (runner disabled), returns 204.
 
 Both paths clear the write deadline via `http.ResponseController` before
 entering the streaming loop (see `docs/gotchas.md` § SSE and WriteTimeout). The
@@ -521,10 +528,18 @@ layer that fixes the reconnect-loses-log-history bug.
   `(<-chan Event, unsub)`. The snapshot of all buffered events is delivered
   first (replay), then live events follow. Multiple browser tabs can subscribe
   concurrently.
-- **Bounded ring buffer**: each session enforces dual caps — 2000 events OR 1
-  MiB total payload, whichever is reached first. On overflow, the oldest events
-  are dropped and a single synthetic `dropped` marker event is inserted/updated
-  at the front of the buffer.
+- **Project-scoped sessions**: `StartProject(ctx, project)` / `StopProject(project)` /
+  `SubscribeProject(project)` mirror the card-scoped API but buffer all events
+  for the project (no card-ID filter). The internal session key is
+  `"project:<name>"`, which cannot collide with card IDs in the shared maps.
+  `StartProject` is called by `streamProjectSession` on each client connect
+  (idempotent); cleanup is handled by the idle sweeper. Project-scoped events
+  include a populated `CardID` field on `sessionlog.Event` so the frontend
+  card-ID filter dropdown keeps working.
+- **Bounded ring buffer**: each session (card-scoped or project-scoped) enforces
+  dual caps — 2000 events OR 1 MiB total payload, whichever is reached first.
+  On overflow, the oldest events are dropped and a single synthetic `dropped`
+  marker event is inserted/updated at the front of the buffer.
 - **Lifecycle**: `Start` is called by `CardService.UpdateRunnerStatus` on
   `→running`. `Stop` is called (fire-and-forget, never fails the status update)
   on transition to any terminal status (`failed`, `killed`, `completed`). Stop
@@ -532,8 +547,9 @@ layer that fixes the reconnect-loses-log-history bug.
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
   (250 ms base, 4 s cap, 5 attempts), then marks the session errored and closes.
-- **Session cap**: default 64 concurrent sessions; `Start` returns an error if
-  the cap is reached.
+- **Session cap**: default 64 concurrent sessions (card-scoped and
+  project-scoped combined); `Start`/`StartProject` return an error if the cap is
+  reached.
 - **Idle sweeper**: `StartSweeper(ctx)` runs a background goroutine that
   force-closes sessions running longer than the TTL (default 2 h) without an
   explicit Stop. Sweeps at TTL/2 intervals.

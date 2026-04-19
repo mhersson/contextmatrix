@@ -223,7 +223,7 @@ interference on touch devices.
 
 | File | Role |
 |---|---|
-| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000, cardId? }`. When `cardId` is set, connects to the card-scoped session endpoint (`?project=P&card_id=X`), which replays the server-side snapshot on connect so no events are lost across reconnects. Without `cardId`, uses the legacy project-scoped proxy. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
+| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000, cardId? }`. When `cardId` is set, connects to the card-scoped session endpoint (`?project=P&card_id=X`). Without `cardId`, connects to the project-scoped session endpoint (`?project=P`). Both paths replay the server-side snapshot on connect so no events are lost across reconnects. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
 | `web/src/hooks/useResizeDivider.ts` | Pointer-event-based resize hook. Returns `{ boardPercent, isDragging, handleProps }`. Spread `handleProps` onto the divider element. |
 | `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
 | `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |

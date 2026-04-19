@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
@@ -270,60 +269,106 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
-// TestStreamProjectProxy_LegacyPathUnchanged verifies that the project-only
-// (no card_id) path still proxies the runner stream directly and does NOT send
-// a card_id query parameter to the upstream.
-func TestStreamProjectProxy_LegacyPathUnchanged(t *testing.T) {
-	const apiKey = "proxy-test-key"
-	var (
-		mu           sync.Mutex
-		capturedPath string
-	)
+// TestStreamProjectSession_SnapshotAndLive covers the project-scoped session lifecycle:
+//  1. Spin up a fakeRunnerServer emitting events for two cards (X and Y) in project P.
+//  2. Start the project session via mgr.StartProject.
+//  3. Emit 2-3 events spanning both cards; wait until buffered.
+//  4. Client A connects to /api/runner/logs?project=P (no card_id), drains the snapshot, disconnects.
+//  5. Emit 2-3 more events while no client is attached.
+//  6. Client B connects — asserts it receives ALL buffered events (both pre- and post-disconnect)
+//     BEFORE any live event, in Seq order.
+//  7. mgr.StopProject("P"); assert client B gets a terminal event or channel close.
+//  8. Assert mgr.SnapshotProject("P") is empty after Stop.
+func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
+	const cardX = "PROJ-X01"
+	const cardY = "PROJ-Y01"
+	const project = "proj-p"
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		capturedPath = r.URL.String()
-		mu.Unlock()
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, "data: {\"type\":\"log\",\"card_id\":\"P-001\",\"content\":\"hello\"}\n\n")
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		// Hold until client disconnects.
-		<-r.Context().Done()
-	}))
+	upstreamCh := make(chan sseTestEvent, 32)
+	readyCh := make(chan struct{})
+	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
-	// Session manager present, but card_id absent → legacy proxy path.
-	mgr := sessionlog.NewManager(sessionlog.WithRunnerConfig(upstream.URL, apiKey))
+	mgr := sessionlog.NewManager(
+		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+	)
 
-	rh := &runnerHandlers{
-		runnerCfg:      config.RunnerConfig{URL: upstream.URL, APIKey: apiKey},
-		sessionManager: mgr,
-	}
+	// Start the project session (mirrors what the handler does on first connect).
+	require.NoError(t, mgr.StartProject(context.Background(), project))
 
-	// Expose the handler via a real httptest.Server so the client and handler
-	// run in separate goroutines without sharing the httptest.ResponseRecorder.
+	// Wait for the pump goroutine to connect to the upstream server.
+	<-readyCh
+
+	// Emit events for both cards X and Y.
+	upstreamCh <- sseTestEvent{Seq: 1, Type: "user", Content: "msg-x-1", CardID: cardX}
+	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "msg-y-1", CardID: cardY}
+	upstreamCh <- sseTestEvent{Seq: 3, Type: "tool_call", Content: "msg-x-2", CardID: cardX}
+
+	// Wait until all 3 events are buffered.
+	require.Eventually(t, func() bool {
+		return len(mgr.SnapshotProject(project)) == 3
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Wire the handler and expose it via an httptest server.
+	rh := &runnerHandlers{sessionManager: mgr}
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rh.streamRunnerLogs(w, r)
 	}))
 	defer apiServer.Close()
 
-	ch, cancel := connectSSEClient(t, apiServer.URL+"/api/runner/logs?project=myproject")
-	defer cancel()
+	clientURL := apiServer.URL + fmt.Sprintf("/api/runner/logs?project=%s", project)
 
-	got := drainNStr(ch, 1, 5*time.Second)
-	require.Len(t, got, 1, "legacy proxy must deliver at least one event")
-	assert.Contains(t, got[0], "hello", "legacy proxy must forward upstream events unchanged")
+	// Client A connects, receives the 3 buffered events (snapshot), then disconnects.
+	chA, cancelA := connectSSEClient(t, clientURL)
+	gotA := drainNStr(chA, 3, 5*time.Second)
+	cancelA()
+	require.Len(t, gotA, 3, "client A should receive all 3 snapshot events")
 
-	cancel() // disconnect the browser
+	// Verify the snapshot events carry the correct card IDs.
+	m0 := parseJSONMap(t, gotA[0])
+	assert.Equal(t, "user", m0["type"])
+	assert.Equal(t, cardX, m0["card_id"])
+	assert.Equal(t, "msg-x-1", m0["content"])
 
-	mu.Lock()
-	path := capturedPath
-	mu.Unlock()
-	assert.NotEmpty(t, path)
-	assert.NotContains(t, path, "card_id", "legacy proxy must not forward card_id to upstream")
-	assert.Contains(t, path, "project=myproject")
+	m1 := parseJSONMap(t, gotA[1])
+	assert.Equal(t, cardY, m1["card_id"])
+
+	// Emit 2 more events while no client is attached.
+	upstreamCh <- sseTestEvent{Seq: 4, Type: "text", Content: "msg-y-2", CardID: cardY}
+	upstreamCh <- sseTestEvent{Seq: 5, Type: "text", Content: "msg-x-3", CardID: cardX}
+
+	// Wait until all 5 events are buffered.
+	require.Eventually(t, func() bool {
+		return len(mgr.SnapshotProject(project)) == 5
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Client B connects — should replay the full 5-event snapshot.
+	chB, cancelB := connectSSEClient(t, clientURL)
+	defer cancelB()
+	gotB := drainNStr(chB, 5, 5*time.Second)
+	require.Len(t, gotB, 5, "client B should replay all 5 buffered events")
+
+	// Verify snapshot order: first event must still be the first-emitted.
+	mb0 := parseJSONMap(t, gotB[0])
+	assert.Equal(t, "user", mb0["type"])
+	assert.Equal(t, cardX, mb0["card_id"])
+
+	// Stop the project session.
+	close(upstreamCh)
+	mgr.StopProject(project)
+
+	// Client B should receive a terminal signal (terminal event or channel close).
+	select {
+	case raw, ok := <-chB:
+		if ok {
+			m := parseJSONMap(t, raw)
+			assert.Equal(t, "terminal", m["type"], "expected terminal event type")
+		}
+		// ok==false means the channel was closed, also acceptable.
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for terminal event on client B")
+	}
+
+	// Snapshot must be cleared after StopProject.
+	assert.Empty(t, mgr.SnapshotProject(project), "project snapshot must be cleared after StopProject")
 }

@@ -65,27 +65,33 @@
   events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
   Never open more than one `EventSource` per distinct URL; use the subscriber
   API for additional consumers of the same stream.
-- **`sessionlog.Manager` fan-out invariants:** `readUpstream` appends to the
-  ring buffer and fans out to subscribers under a single `m.mu` lock.  These two
-  operations must stay under the same lock — separating them reintroduces the
-  duplicate-delivery race where an event lands in the snapshot AND in
-  `sub.pending` for the same subscriber.  The primed-flag protocol (`sub.primed`,
-  `sub.pending`) is what enforces snapshot-before-live ordering: the pump stages
-  live events in `sub.pending` while `sub.primed` is false; the snapshot goroutine
-  in `Subscribe` flips `primed = true` (under `m.mu`) only after draining both
-  the snapshot slice and `sub.pending` into the subscriber's channel.  Do not
-  bypass this gate.  Two additional channels on `subscriber` enforce lifecycle
-  safety: `done` (closed by `unsub` or `Stop`/terminal-error) signals the snapshot
-  goroutine to exit early; `snapDone` (closed by the snapshot goroutine via
-  `defer`) signals that it has exited.  `Stop` and the terminal-error path in
-  `readUpstream` call `closeSubscriber`, which closes `done`, waits on `snapDone`
-  (up to 1 s), then sends the terminal event and calls `close(ch)`.  This ordering
-  is mandatory: closing `ch` while the snapshot goroutine is still sending on it
-  panics.  `close(done)` is guarded by `sync.Once` (`doneOnce`) so both `unsub`
-  and `Stop` can call it safely.  The snapshot goroutine blocks on each channel
-  send (`select { case ch <- evt: case <-sub.done: return }`) rather than
-  dropping — slow subscribers receive the full snapshot; they are never silently
-  truncated.
+- **`sessionlog.Manager` fan-out invariants:** `readUpstream` (card-scoped) and
+  `readProjectUpstream` (project-scoped) both append to the ring buffer and fan
+  out to subscribers under a single `m.mu` lock.  These two operations must stay
+  under the same lock — separating them reintroduces the duplicate-delivery race
+  where an event lands in the snapshot AND in `sub.pending` for the same
+  subscriber.  The primed-flag protocol (`sub.primed`, `sub.pending`) is what
+  enforces snapshot-before-live ordering: the pump stages live events in
+  `sub.pending` while `sub.primed` is false; the snapshot goroutine in
+  `Subscribe`/`SubscribeProject` flips `primed = true` (under `m.mu`) only after
+  draining both the snapshot slice and `sub.pending` into the subscriber's
+  channel.  Do not bypass this gate.  Two additional channels on `subscriber`
+  enforce lifecycle safety: `done` (closed by `unsub` or `Stop`/terminal-error)
+  signals the snapshot goroutine to exit early; `snapDone` (closed by the
+  snapshot goroutine via `defer`) signals that it has exited.  `Stop` and the
+  terminal-error path in both pumps call `closeSubscriber`, which closes `done`,
+  waits on `snapDone` (up to 1 s), then sends the terminal event and calls
+  `close(ch)`.  This ordering is mandatory: closing `ch` while the snapshot
+  goroutine is still sending on it panics.  `close(done)` is guarded by
+  `sync.Once` (`doneOnce`) so both `unsub` and `Stop` can call it safely.  The
+  snapshot goroutine blocks on each channel send
+  (`select { case ch <- evt: case <-sub.done: return }`) rather than dropping —
+  slow subscribers receive the full snapshot; they are never silently truncated.
+  Project-scoped sessions use the key `"project:<name>"` in the shared
+  `activeSessions`, `pendingSubs`, and `sessions` maps; this prefix prevents
+  collisions with card IDs.  The only difference from the card-scoped pump is
+  that `readProjectUpstream` does not filter by card ID — it accepts every event
+  and preserves the originating `CardID` field on `sessionlog.Event`.
 - **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
   the fine-grained PAT must have `Contents: Read and write` on the boards repo
   **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`

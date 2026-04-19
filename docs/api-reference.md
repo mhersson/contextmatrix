@@ -34,7 +34,7 @@ POST   /api/projects/{project}/cards/{id}/message     # send chat message to run
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
-GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or legacy proxy; runner must be enabled)
+GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner must be enabled)
 
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
@@ -340,9 +340,12 @@ performed server-side toward the runner.
   the session, including any HITL questions. The session exists from when the
   card enters `running` until a terminal status (`failed`, `killed`,
   `completed`). Returns 204 if the session manager is unavailable.
-- **Legacy proxy** (`?project=P`, no `card_id`): transparent SSE proxy to the
-  runner. Used by the Runner Console panel. No server-side buffering; events
-  received before connecting are lost.
+- **Project-scoped** (`?project=P`, no `card_id`): connects to the server-side
+  session manager for the project. The server first replays all buffered project
+  events (snapshot), then tails live events — identical replay guarantee as the
+  card-scoped path. Used by the Runner Console panel. A reconnecting client
+  receives all events buffered since the console was first opened. Returns 204
+  if the session manager is unavailable.
 
 **Response:** `Content-Type: text/event-stream`. Each event carries a JSON
 `LogEntry`:
@@ -360,8 +363,8 @@ performed server-side toward the runner.
 `type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`, `user`,
 `terminal` (session ended), `dropped` (events were evicted from the buffer).
 
-Keepalive comments (`: keepalive`) are forwarded every 15 seconds in legacy
-proxy mode. The connection is closed when the browser disconnects.
+The connection is closed when the browser disconnects or the session receives a
+terminal event.
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full log streaming
 architecture, `LogEntry` type details, and session manager configuration.

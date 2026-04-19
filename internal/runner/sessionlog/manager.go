@@ -390,6 +390,237 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	return ch, unsub
 }
 
+// projectKey returns the internal map key used to namespace a project-scoped
+// session so it cannot collide with card IDs (e.g. "project:alpha").
+func projectKey(project string) string {
+	return "project:" + project
+}
+
+// StartProject opens a long-lived authenticated SSE connection to the runner's
+// /logs endpoint for the given project.  All events for the project are
+// buffered and fanned out to subscribers, regardless of which card they
+// belong to.
+//
+// StartProject is idempotent: if a project session is already running it
+// returns nil immediately.
+//
+// Snapshot-then-live ordering and cancellation guarantees are identical to
+// Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
+// "project:" so project sessions cannot collide with card IDs in the shared
+// maps.
+func (m *Manager) StartProject(ctx context.Context, project string) error {
+	key := projectKey(project)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureActiveSessions()
+
+	if _, ok := m.activeSessions[key]; ok {
+		return nil
+	}
+
+	if len(m.activeSessions) >= m.maxSessions {
+		return fmt.Errorf("sessionlog: session cap (%d) reached, cannot start project session for %s",
+			m.maxSessions, project)
+	}
+
+	pumpCtx, cancel := context.WithCancel(context.Background())
+	sess := &activeSession{
+		cancel:    cancel,
+		startTime: time.Now(),
+		done:      make(chan struct{}),
+	}
+
+	if pending := m.pendingSubs[key]; len(pending) > 0 {
+		sess.subs = append(sess.subs, pending...)
+		delete(m.pendingSubs, key)
+	}
+
+	m.activeSessions[key] = sess
+
+	go m.runProjectPump(pumpCtx, project, key, sess)
+
+	return nil
+}
+
+// StopProject cancels the upstream connection for the project, sends a
+// terminal event to all subscribers, and clears the project buffer.
+//
+// StopProject is idempotent: if no session is running for the project it
+// returns immediately.
+func (m *Manager) StopProject(project string) {
+	m.Stop(projectKey(project))
+}
+
+// SubscribeProject returns a channel that first delivers a snapshot of all
+// buffered project events and then delivers live events as they arrive.
+// The second return value is an unsubscribe function; calling it removes this
+// subscriber.  The channel is closed either by a terminal StopProject/error or
+// by the unsubscribe func (whichever comes first).
+//
+// Ordering guarantee: every snapshot event (events already buffered at the
+// moment SubscribeProject is called) is delivered before any live event, with
+// no duplicates.  This is the same guarantee as Subscribe — the primed-flag
+// protocol is shared.
+//
+// Cancellation: calling the returned unsub function causes the snapshot
+// goroutine to exit promptly.  StopProject and terminal upstream errors also
+// close the channel cleanly with no panic.
+//
+// If no project session is running, the snapshot channel is still returned
+// (possibly empty); live events will begin arriving once StartProject is called.
+func (m *Manager) SubscribeProject(project string) (<-chan Event, func()) {
+	return m.Subscribe(projectKey(project))
+}
+
+// runProjectPump is the upstream SSE pump goroutine for a project-scoped
+// session.  It is identical to runPump except it uses readProjectUpstream,
+// which accepts all events for the project rather than filtering by card ID.
+func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess *activeSession) {
+	defer close(sess.done)
+
+	attempt := 0
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		err := m.readProjectUpstream(ctx, project, key, sess)
+		if ctx.Err() != nil {
+			return
+		}
+
+		attempt++
+		if attempt >= maxUpstreamRetries {
+			slog.Error("sessionlog: project upstream permanently failed, closing session",
+				"project", project,
+				"error", err,
+				"attempts", attempt,
+			)
+			m.mu.Lock()
+			delete(m.activeSessions, key)
+			subs := sess.subs
+			sess.subs = nil
+			m.mu.Unlock()
+
+			terminal := Event{
+				Seq:       0,
+				Timestamp: time.Now(),
+				Type:      EventTypeTerminal,
+				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
+			}
+			closeSubscriber(subs, terminal)
+			m.Clear(key)
+			return
+		}
+
+		backoff := backoffDuration(attempt)
+		slog.Warn("sessionlog: project upstream error, retrying",
+			"project", project,
+			"error", err,
+			"attempt", attempt,
+			"backoff", backoff,
+		)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+// readProjectUpstream connects to the runner /logs endpoint for the given
+// project and reads SSE frames until the connection closes or ctx is
+// cancelled.
+//
+// Unlike readUpstream (which filters by card ID), this function accepts every
+// event for the project and buffers them under the project key.  This allows
+// SubscribeProject to replay all project events to reconnecting clients.
+func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, sess *activeSession) error {
+	upstreamURL := m.runnerURL + "/logs"
+	if project != "" {
+		upstreamURL += "?project=" + url.QueryEscape(project)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey)
+	req.Header.Set("X-Signature-256", sigHeader)
+	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+
+	resp, err := sseHTTPClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("upstream connect: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1<<20)
+
+	for scanner.Scan() {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if raw == "" {
+			continue
+		}
+
+		evt, evtCardID, ok := parseSSEPayload(raw)
+		if !ok {
+			continue
+		}
+		// Preserve the originating card ID so project-scoped subscribers can
+		// populate the card_id field in SSE frames sent to the browser.
+		evt.CardID = evtCardID
+
+		// Buffer the event under the project key and fan out to all project
+		// subscribers.  No card-ID filter: all project events are accepted.
+		m.mu.Lock()
+		m.getOrCreate(key).append(evt)
+		for _, s := range sess.subs {
+			if !s.primed {
+				s.pending = append(s.pending, evt)
+			} else {
+				select {
+				case s.ch <- evt:
+				default:
+					// Slow subscriber — drop rather than block the pump.
+				}
+			}
+		}
+		m.mu.Unlock()
+	}
+
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("scanner: %w", err)
+	}
+
+	return fmt.Errorf("upstream closed connection")
+}
+
 // StartSweeper launches a background goroutine that periodically scans for
 // sessions that have exceeded sessionTTL and force-closes them.  The goroutine
 // exits when ctx is cancelled.

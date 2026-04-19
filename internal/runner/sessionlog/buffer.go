@@ -27,6 +27,10 @@ type Event struct {
 	Timestamp time.Time
 	Type      string
 	Payload   []byte
+	// CardID is the originating card for project-scoped events. It is empty
+	// for card-scoped events (those sessions already carry the card ID as the
+	// session key).
+	CardID string
 }
 
 // droppedMarkerCount decodes the drop count stored in a dropped-marker event's
@@ -244,6 +248,12 @@ func (m *Manager) Snapshot(cardID string) []Event {
 		return nil
 	}
 	return b.snapshot()
+}
+
+// SnapshotProject returns an ordered, defensive copy of all buffered events
+// for the given project session. Returns nil if no events have been buffered.
+func (m *Manager) SnapshotProject(project string) []Event {
+	return m.Snapshot(projectKey(project))
 }
 
 // Clear removes all buffered events for cardID and frees the underlying buffer.
