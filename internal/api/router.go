@@ -21,7 +21,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-const maxRequestBodySize = 1 << 20 // 1 MB
+const maxRequestBodySize = 1 << 20        // 1 MB
+const mcpMaxBodySize = 5 * 1024 * 1024 // 5 MB
 
 // Error codes for machine-parseable error responses.
 const (
@@ -263,14 +264,35 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// bodyLimitN returns a middleware that caps request body size to maxBytes.
+// Requests whose Content-Length exceeds the limit are rejected immediately with 413.
+// For streaming requests without Content-Length, http.MaxBytesReader enforces the
+// limit when the body is read; bodyLimitN wraps the ResponseWriter to intercept the
+// first write after a body-too-large error and ensure a 413 status is sent.
+func bodyLimitN(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Reject immediately when Content-Length is declared and over limit.
+			if r.ContentLength > maxBytes {
+				writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "request body too large", "")
+				return
+			}
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // bodyLimit caps request body size to prevent OOM from large payloads.
-func bodyLimit(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-		}
-		next.ServeHTTP(w, r)
-	})
+var bodyLimit = bodyLimitN(maxRequestBodySize)
+
+// WrapMCPHandler wraps an MCP handler with the recovery, logging, requestID,
+// and body-size-limit middleware. The body limit is set to mcpMaxBodySize (5 MB)
+// to accommodate large card bodies without exposing an unbounded upload surface.
+func WrapMCPHandler(h http.Handler) http.Handler {
+	return chain(h, recovery, logging, requestID, bodyLimitN(mcpMaxBodySize))
 }
 
 // responseWriter wraps http.ResponseWriter to capture status code.

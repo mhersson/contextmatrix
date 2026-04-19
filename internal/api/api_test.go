@@ -2630,3 +2630,51 @@ func TestListCards_VettedFilter(t *testing.T) {
 		assert.Len(t, cards, 2)
 	})
 }
+
+// TestWrapMCPHandler_PanicRecovery verifies that a panicking handler wrapped
+// via WrapMCPHandler returns HTTP 500 and does not crash the process.
+func TestWrapMCPHandler_PanicRecovery(t *testing.T) {
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("boom")
+	})
+
+	wrapped := WrapMCPHandler(panicHandler)
+	server := httptest.NewServer(wrapped)
+	defer server.Close()
+
+	resp, err := http.Post(server.URL+"/mcp", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
+}
+
+// TestWrapMCPHandler_BodyLimit verifies that a POST to a WrapMCPHandler-wrapped
+// endpoint with a 20 MB body is rejected with HTTP 413 Payload Too Large.
+func TestWrapMCPHandler_BodyLimit(t *testing.T) {
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	wrapped := WrapMCPHandler(okHandler)
+	server := httptest.NewServer(wrapped)
+	defer server.Close()
+
+	// 20 MB body — well over the 5 MB MCP limit.
+	const twentyMB = 20 * 1024 * 1024
+	bigBody := bytes.Repeat([]byte("x"), twentyMB)
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp", bytes.NewReader(bigBody))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
