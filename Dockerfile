@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS frontend
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS frontend
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
