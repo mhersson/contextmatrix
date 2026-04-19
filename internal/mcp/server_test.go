@@ -2647,10 +2647,11 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	// Gate 4 (Phase 9): commit/push/PR gate — autonomous skips both prompts.
 	assert.Contains(t, content, "Phase 9: Commit/Push/PR Gate",
 		"create-plan.md must have Phase 9: Commit/Push/PR Gate")
-	// Phase 9 contains autonomous: true reference and commit/push steps.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*autonomous: true`,
+	// Phase 9 must distinguish the autonomous mode and wire it to the
+	// auto-commit path (no user prompt).
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Autonomous`,
 		content,
-		"create-plan.md Phase 9 must reference autonomous: true")
+		"create-plan.md Phase 9 must reference the Autonomous mode")
 	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Auto-commit`,
 		content,
 		"create-plan.md Phase 9 must have auto-commit step")
@@ -2669,20 +2670,22 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 	require.NoError(t, err, "skills/create-plan.md must be readable")
 	content := string(data)
 
-	// CM_INTERACTIVE=1 branch must be present in Phase 9.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1`,
+	// Remote HITL branch must be present in Phase 9.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Remote HITL`,
 		content,
-		"create-plan.md Phase 9 must reference CM_INTERACTIVE=1 for remote HITL")
+		"create-plan.md Phase 9 must reference Remote HITL")
 
 	// Remote HITL path must run printenv to detect context.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv CM_INTERACTIVE`,
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv\s+CM_INTERACTIVE`,
 		content,
 		"create-plan.md Phase 9 must use printenv CM_INTERACTIVE to detect context")
 
-	// Remote HITL path must NOT prompt the user.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1.*Do NOT prompt`,
+	// Auto-commit path (autonomous + remote HITL) must forbid prompting. The
+	// "do not prompt" rule must appear after the Remote HITL branch reference
+	// so the agent cannot miss it on the way through.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Remote HITL.*Do\s+not\s+prompt\s+the\s+user`,
 		content,
-		"create-plan.md Phase 9 remote HITL path must say Do NOT prompt the user")
+		"create-plan.md Phase 9 auto-commit path must forbid prompting the user")
 
 	// Local HITL path must retain the original "Want me to commit" prompt.
 	assert.Contains(t, content, "Want me to commit these changes?",
@@ -2786,7 +2789,7 @@ func TestCreatePlanSkillIsSelfContained(t *testing.T) {
 	// skill MUST explicitly forbid inline even if get_skill returns inline:true.
 	assert.Contains(t, content, "Phase 5: Execution (always sub-agents)",
 		"Phase 5 heading must declare (always sub-agents) discipline")
-	assert.Regexp(t, `(?s)Phase 5: Execution \(always sub-agents\).*?Do NOT execute inline.*?Phase 6`,
+	assert.Regexp(t, `(?s)Phase 5: Execution \(always sub-agents\).*?Do NOT\s+execute\s+inline.*?Phase 6`,
 		content,
 		"Phase 5 must forbid inline execution even if inline:true is returned")
 }
