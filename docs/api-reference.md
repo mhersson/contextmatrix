@@ -106,9 +106,10 @@ to apply.
 { "theme": "everforest" }
 ```
 
-`theme` is one of `"everforest"` (default) or `"radix"`. The frontend maps
-`"radix"` to `data-palette="radix"` on `<html>`; `"everforest"` removes the
-attribute.
+`theme` is one of `"everforest"` (default), `"everforest-hard"`, `"radix"`, or
+`"catppuccin"`. The frontend sets `data-palette` on `<html>` to match the
+theme value; `"everforest"` removes the attribute (it is the default CSS
+block).
 
 ```bash
 curl http://localhost:8080/api/app/config

@@ -4,7 +4,9 @@ import { createElement } from 'react';
 import { api } from '../api/client';
 
 type Theme = 'dark' | 'light';
-type Palette = 'everforest' | 'radix';
+type Palette = 'everforest' | 'everforest-hard' | 'radix' | 'catppuccin';
+
+const VALID_PALETTES: readonly Palette[] = ['everforest', 'everforest-hard', 'radix', 'catppuccin'];
 
 const STORAGE_KEY = 'theme';
 
@@ -25,10 +27,10 @@ function applyTheme(theme: Theme) {
 }
 
 function applyPalette(palette: Palette) {
-  if (palette === 'radix') {
-    document.documentElement.setAttribute('data-palette', 'radix');
-  } else {
+  if (palette === 'everforest') {
     document.documentElement.removeAttribute('data-palette');
+  } else {
+    document.documentElement.setAttribute('data-palette', palette);
   }
 }
 
@@ -56,7 +58,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     api.getAppConfig().then((config) => {
-      const p: Palette = config.theme === 'radix' ? 'radix' : 'everforest';
+      const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
+        ? (config.theme as Palette)
+        : 'everforest';
       setPalette(p);
       applyPalette(p);
     }).catch(() => {

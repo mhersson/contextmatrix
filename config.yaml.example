@@ -32,7 +32,11 @@ heartbeat_timeout: "30m"
 cors_origin: "http://localhost:5173"
 
 # UI color palette theme.
-# Allowed values: "everforest" | "radix"
+# Allowed values: "everforest" | "everforest-hard" | "radix" | "catppuccin"
+#   everforest      — warm, muted, medium-contrast (default)
+#   everforest-hard — same hues, darker backgrounds for higher contrast
+#   radix           — cool slate-grey base with Radix accent scales (step 11)
+#   catppuccin      — pastel palette (Mocha in dark mode, Latte in light mode)
 # Default: everforest
 # Env: CONTEXTMATRIX_THEME
 theme: "everforest"

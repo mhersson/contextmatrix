@@ -188,10 +188,10 @@ func (c *Config) Validate() error {
 		c.Theme = "everforest"
 	}
 	switch c.Theme {
-	case "everforest", "radix":
+	case "everforest", "everforest-hard", "radix", "catppuccin":
 		// valid
 	default:
-		return fmt.Errorf("invalid theme %q: must be \"everforest\" or \"radix\"", c.Theme)
+		return fmt.Errorf("invalid theme %q: must be one of \"everforest\", \"everforest-hard\", \"radix\", \"catppuccin\"", c.Theme)
 	}
 	return nil
 }

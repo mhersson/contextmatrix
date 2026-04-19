@@ -102,14 +102,14 @@
   --grey1: #b0b4ba;   /* slate11 — secondary text, timestamps */
   --grey2: #b0b4ba;   /* slate11 — tertiary text, labels */
 
-  /* Accent colors — step 10 from each dark scale */
-  --red:    #ec6142;  /* tomato10 */
-  --orange: #ff801f;  /* orange10 */
-  --yellow: #ffd60a;  /* amber10 */
-  --green:  #53b365;  /* grass10 */
-  --aqua:   #0eb39e;  /* teal10 */
-  --blue:   #3b9eff;  /* blue10 */
-  --purple: #b658c4;  /* plum10 */
+  /* Accent colors — step 11 from each dark scale (low-contrast text step) */
+  --red:    #ff977d;  /* tomato11 */
+  --orange: #ffa057;  /* orange11 */
+  --yellow: #ffca16;  /* amber11 */
+  --green:  #71d083;  /* grass11 */
+  --aqua:   #0ac7b4;  /* teal11 */
+  --blue:   #70b8ff;  /* blue11 */
+  --purple: #d864d8;  /* plum11 */
 }
 
 /* Radix Colors Light palette */
@@ -137,14 +137,154 @@
   --grey1: #687076;   /* slate11 — secondary text, timestamps */
   --grey2: #687076;   /* slate11 — tertiary text, labels */
 
-  /* Accent colors — step 10 from each light scale */
-  --red:    #db4324;  /* tomato10 */
-  --orange: #ef5f00;  /* orange10 */
-  --yellow: #ffba18;  /* amber10 */
-  --green:  #3d9a50;  /* grass10 */
-  --aqua:   #0d9b8a;  /* teal10 */
-  --blue:   #0588f0;  /* blue10 */
-  --purple: #a144af;  /* plum10 */
+  /* Accent colors — step 11 from each light scale (low-contrast text step) */
+  --red:    #ca3214;  /* tomato11 */
+  --orange: #bd4b00;  /* orange11 */
+  --yellow: #ab6400;  /* amber11 */
+  --green:  #2a7e3b;  /* grass11 */
+  --aqua:   #008573;  /* teal11 */
+  --blue:   #0d74ce;  /* blue11 */
+  --purple: #953ea3;  /* plum11 */
+}
+
+/* Everforest Hard Dark palette — darker backgrounds than Medium for higher contrast */
+[data-palette="everforest-hard"] {
+  /* Backgrounds */
+  --bg-dim: #1e2326;
+  --bg0:    #272e33;
+  --bg1:    #2e383c;
+  --bg2:    #374145;
+  --bg3:    #414b50;
+  --bg4:    #495156;
+  --bg5:    #4f5b58;
+
+  /* Semantic backgrounds */
+  --bg-visual: #4f3e44;
+  --bg-red:    #4c3743;
+  --bg-yellow: #45443c;
+  --bg-green:  #3c4841;
+  --bg-blue:   #384b55;
+  --bg-purple: #463d49;
+
+  /* Foreground */
+  --fg:    #d3c6aa;
+  --grey0: #7a8478;
+  --grey1: #859289;
+  --grey2: #9da9a0;
+
+  /* Accent colors — same as Everforest Medium */
+  --red:    #e67e80;
+  --orange: #e69875;
+  --yellow: #dbbc7f;
+  --green:  #a7c080;
+  --aqua:   #83c092;
+  --blue:   #7fbbb3;
+  --purple: #d699b6;
+}
+
+/* Everforest Hard Light palette — lighter backgrounds than Medium for higher contrast */
+[data-palette="everforest-hard"][data-theme="light"] {
+  /* Backgrounds */
+  --bg-dim: #f2efdf;
+  --bg0:    #fffbef;
+  --bg1:    #f8f5e4;
+  --bg2:    #f2efdf;
+  --bg3:    #edeada;
+  --bg4:    #e8e5d5;
+  --bg5:    #bec5b2;
+
+  /* Semantic backgrounds */
+  --bg-visual: #f0f2d4;
+  --bg-red:    #fbe3da;
+  --bg-yellow: #faedcd;
+  --bg-green:  #f3f5d9;
+  --bg-blue:   #ecf5ed;
+  --bg-purple: #fce5d9;
+
+  /* Foreground */
+  --fg:    #5c6a72;
+  --grey0: #a6b0a0;
+  --grey1: #939f91;
+  --grey2: #829181;
+
+  /* Accent colors — same as Everforest Medium light */
+  --red:    #f85552;
+  --orange: #f57d26;
+  --yellow: #dfa000;
+  --green:  #8da101;
+  --aqua:   #35a77c;
+  --blue:   #3a94c5;
+  --purple: #df69ba;
+}
+
+/* Catppuccin Mocha — dark palette with high contrast pastels */
+[data-palette="catppuccin"] {
+  /* Backgrounds — Mantle/Base/Surface/Overlay scale */
+  --bg-dim: #181825;   /* mantle — deepest background */
+  --bg0:    #1e1e2e;   /* base — default background */
+  --bg1:    #313244;   /* surface0 — raised surfaces: cards, panels */
+  --bg2:    #45475a;   /* surface1 — popups, modals, dropdowns */
+  --bg3:    #585b70;   /* surface2 — borders, dividers */
+  --bg4:    #6c7086;   /* overlay0 — subtle UI elements, disabled states */
+  --bg5:    #7f849c;   /* overlay1 — hover states on muted elements */
+
+  /* Semantic backgrounds — darkened tints of accents */
+  --bg-visual: #382a45;
+  --bg-red:    #3a2432;
+  --bg-yellow: #3d362a;
+  --bg-green:  #24352e;
+  --bg-blue:   #253346;
+  --bg-purple: #322440;
+
+  /* Foreground — Text and Subtext scale */
+  --fg:    #cdd6f4;   /* text — primary */
+  --grey0: #9399b2;   /* overlay2 — muted/placeholder */
+  --grey1: #a6adc8;   /* subtext0 — secondary */
+  --grey2: #bac2de;   /* subtext1 — tertiary */
+
+  /* Accent colors */
+  --red:    #f38ba8;   /* red */
+  --orange: #fab387;   /* peach */
+  --yellow: #f9e2af;   /* yellow */
+  --green:  #a6e3a1;   /* green */
+  --aqua:   #94e2d5;   /* teal */
+  --blue:   #89b4fa;   /* blue */
+  --purple: #cba6f7;   /* mauve */
+}
+
+/* Catppuccin Latte — light palette */
+[data-palette="catppuccin"][data-theme="light"] {
+  /* Backgrounds */
+  --bg-dim: #dce0e8;   /* crust — deepest/page background */
+  --bg0:    #eff1f5;   /* base — default background */
+  --bg1:    #e6e9ef;   /* mantle — raised surfaces: cards, panels */
+  --bg2:    #ccd0da;   /* surface0 — popups, modals, dropdowns */
+  --bg3:    #bcc0cc;   /* surface1 — borders, dividers */
+  --bg4:    #acb0be;   /* surface2 — subtle UI elements, disabled states */
+  --bg5:    #9ca0b0;   /* overlay0 — hover states on muted elements */
+
+  /* Semantic backgrounds — pale tints of accents */
+  --bg-visual: #e6d9f4;
+  --bg-red:    #f6d5dc;
+  --bg-yellow: #f7ecc9;
+  --bg-green:  #d7ecd0;
+  --bg-blue:   #d6e3fc;
+  --bg-purple: #e6d9f4;
+
+  /* Foreground */
+  --fg:    #4c4f69;   /* text — primary */
+  --grey0: #7c7f93;   /* overlay2 — muted/placeholder */
+  --grey1: #6c6f85;   /* subtext0 — secondary */
+  --grey2: #5c5f77;   /* subtext1 — tertiary */
+
+  /* Accent colors */
+  --red:    #d20f39;   /* red */
+  --orange: #fe640b;   /* peach */
+  --yellow: #df8e1d;   /* yellow */
+  --green:  #40a02b;   /* green */
+  --aqua:   #179299;   /* teal */
+  --blue:   #1e66f5;   /* blue */
+  --purple: #8839ef;   /* mauve */
 }
 
 @media (max-width: 1280px) {

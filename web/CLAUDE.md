@@ -29,14 +29,17 @@
 
 ## Color palettes
 
-The web UI supports two color palettes: **Everforest** (default) and **Radix**.
+The web UI supports four color palettes: **Everforest** (default),
+**Everforest Hard**, **Radix**, and **Catppuccin**.
 
 ### Palette selection
 
-Palette is **server-driven** — set `theme: "everforest"` or `"radix"` in
-`config.yaml` (env: `CONTEXTMATRIX_THEME`). On startup `ThemeProvider` fetches
-`GET /api/app/config` and sets `data-palette="radix"` on `<html>` for Radix;
-the attribute is absent for Everforest. Palette is not stored in localStorage.
+Palette is **server-driven** — set `theme` in `config.yaml` to one of
+`"everforest"`, `"everforest-hard"`, `"radix"`, or `"catppuccin"` (env:
+`CONTEXTMATRIX_THEME`). On startup `ThemeProvider` fetches
+`GET /api/app/config` and sets `data-palette="<theme>"` on `<html>` for every
+palette except Everforest, which is the default CSS block (no attribute).
+Palette is not stored in localStorage.
 
 Dark/light mode is **user-toggleable** (sun/moon button) and orthogonal to
 palette. Dark mode: no `data-theme` attribute. Light mode: `data-theme="light"`.
@@ -87,6 +90,13 @@ Defined in `:root` (dark, default) and `[data-theme="light"]` (light) in
 }
 ```
 
+### Everforest Hard palette
+
+Activated when `data-palette="everforest-hard"` is present on `<html>`. Same
+hues as Everforest Medium, with darker dark-mode backgrounds (e.g. `--bg-dim:
+#1e2326`) and lighter light-mode backgrounds (e.g. `--bg0: #fffbef`) for
+higher text-on-background contrast. Accent colors are unchanged from Medium.
+
 ### Radix palette
 
 Activated when `data-palette="radix"` is present on `<html>`. Defined in two
@@ -116,10 +126,24 @@ Step-to-role mapping (applies to every hue):
 | 6–8 | `--bg3`, `--bg4`, `--bg5` — borders, disabled, hover |
 | 10–11 | `--grey0`, `--grey1`, `--grey2` — muted/secondary text |
 | 12 | `--fg` — primary foreground text |
-| 10 (accent) | `--red`, `--orange`, `--yellow`, `--green`, `--aqua`, `--blue`, `--purple` |
+| 11 (accent) | `--red`, `--orange`, `--yellow`, `--green`, `--aqua`, `--blue`, `--purple` |
+
+Accents use Radix **step 11** (the "low-contrast text" step) rather than step
+10, because accents are used primarily as small text on background steps 1–2
+where step 10 reads as too dim.
 
 Hex values are hardcoded in `index.css`. Do not add `@radix-ui/colors` as an
 npm dependency.
+
+### Catppuccin palette
+
+Activated when `data-palette="catppuccin"` is present on `<html>`. Defined in
+two blocks: `[data-palette="catppuccin"]` uses the **Mocha** flavor (dark) and
+`[data-palette="catppuccin"][data-theme="light"]` uses the **Latte** flavor
+(light). Background hierarchy follows the Catppuccin Crust/Mantle/Base/Surface
+scale; accent assignments are: `--red` = Red, `--orange` = Peach, `--yellow` =
+Yellow, `--green` = Green, `--aqua` = Teal, `--blue` = Blue, `--purple` =
+Mauve.
 
 **Mapping to UI semantics:**
 
