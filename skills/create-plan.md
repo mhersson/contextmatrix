@@ -33,7 +33,7 @@ Break the work into subtasks following these rules:
 
 - Each subtask should be completable by a single agent in roughly **one focused
   session** (~2 hours of work or less)
-- Each subtask should touch at most **2-3 files** — if it touches more, split it
+- Each subtask should touch at most **4-5 files** — if it touches more, split it
   further
 - Subtasks should be **independently verifiable** — each one should produce a
   testable result
