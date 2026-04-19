@@ -51,7 +51,9 @@ store or git layer directly.
   runner SSE stream verbatim).
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
-  `http.ServeMux` as the REST API.
+  `http.ServeMux` as the REST API, wrapped via `api.WrapMCPHandler` which
+  applies the recovery, logging, request-ID, and body-limit (5 MB) middleware
+  chain before the routes are mounted.
 
 ## Git repository scope
 

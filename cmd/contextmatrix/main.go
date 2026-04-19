@@ -178,9 +178,10 @@ func main() {
 	if cfg.MCPAPIKey != "" {
 		slog.Info("MCP authentication enabled")
 	}
-	mux.Handle("POST /mcp", mcpHandler)
-	mux.Handle("GET /mcp", mcpHandler)
-	mux.Handle("DELETE /mcp", mcpHandler)
+	wrappedMCPHandler := api.WrapMCPHandler(mcpHandler)
+	mux.Handle("POST /mcp", wrappedMCPHandler)
+	mux.Handle("GET /mcp", wrappedMCPHandler)
+	mux.Handle("DELETE /mcp", wrappedMCPHandler)
 	slog.Info("MCP server registered", "endpoint", "/mcp")
 
 	// Embed frontend and create SPA handler
