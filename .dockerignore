@@ -7,3 +7,10 @@ boards/
 config.yaml
 contextmatrix
 docs/
+.env
+*.pem
+*.key
+*.log
+.vscode/
+.idea/
+node_modules/
