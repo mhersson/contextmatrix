@@ -34,14 +34,22 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cardCount, setCardCount] = useState(0);
 
-  useEffect(() => {
+  // Reset loading/error on project change (render-time pattern).
+  const [prevProject, setPrevProject] = useState(project);
+  if (project !== prevProject) {
+    setPrevProject(project);
     setLoading(true);
     setError(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     Promise.all([
       api.getProject(project),
       api.getCards(project).then(cards => cards.length),
     ])
       .then(([cfg, count]) => {
+        if (cancelled) return;
         // Normalize transitions: ensure all states have an entry (even if empty)
         // This prevents isDirty from being true immediately after load
         const normalizedTransitions: Record<string, string[]> = { ...cfg.transitions };
@@ -57,9 +65,16 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setTransitions(normalizedTransitions);
         setGitHub(cfg.github ?? emptyGitHub);
         setCardCount(count);
+        setLoading(false);
       })
-      .catch(err => setError(isAPIError(err) ? err.error : 'Failed to load project'))
-      .finally(() => setLoading(false));
+      .catch(err => {
+        if (cancelled) return;
+        setError(isAPIError(err) ? err.error : 'Failed to load project');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [project]);
 
   const isDirty = useMemo(() => {

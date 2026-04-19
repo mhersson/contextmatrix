@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Card, ProjectConfig, CreateCardInput } from '../../types';
 import { CreateCardForm } from './CreateCardForm';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { api } from '../../api/client';
+import { useBranches } from '../../hooks/useBranches';
 
 interface CreateCardPanelProps {
   config: ProjectConfig;
@@ -18,7 +18,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [priority, setPriority] = useState(config.priorities[1] || config.priorities[0] || '');
   const [labels, setLabels] = useState<string[]>([]);
   const [parent, setParent] = useState('');
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(() => config.templates?.[config.types[0]] ?? '');
   const [bodyDirty, setBodyDirty] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -29,35 +29,11 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [featureBranch, setFeatureBranch] = useState(false);
   const [createPR, setCreatePR] = useState(false);
   const [baseBranch, setBaseBranch] = useState('');
-  const [branches, setBranches] = useState<string[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchesError, setBranchesError] = useState(false);
-
-  // Load initial template for default type
-  useEffect(() => {
-    const template = config.templates?.[config.types[0]];
-    if (template) setBody(template);
-  }, [config.templates, config.types]);
-
-  // Fetch branches when autonomous mode is enabled and remote execution is configured
-  useEffect(() => {
-    if (!autonomous || !config.remote_execution?.enabled) return;
-    let cancelled = false;
-    setBranchesLoading(true);
-    setBranchesError(false);
-    api.fetchBranches(config.name).then((data) => {
-      if (!cancelled) {
-        setBranches(data);
-        setBranchesLoading(false);
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setBranchesError(true);
-        setBranchesLoading(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [autonomous, config.name, config.remote_execution?.enabled]);
+  const {
+    branches,
+    loading: branchesLoading,
+    error: branchesError,
+  } = useBranches(config.name, autonomous && !!config.remote_execution?.enabled);
 
   // Escape key handler
   useEffect(() => {

@@ -16,6 +16,15 @@ export function Dashboard({ project }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Reset loading + clear data when project changes (render-time pattern).
+  const [prevProject, setPrevProject] = useState(project);
+  if (project !== prevProject) {
+    setPrevProject(project);
+    setLoading(true);
+    setData(null);
+    setError(null);
+  }
+
   const fetchDashboard = useCallback(async () => {
     try {
       const result = await api.getDashboard(project);
@@ -29,11 +38,23 @@ export function Dashboard({ project }: DashboardProps) {
   }, [project]);
 
   useEffect(() => {
-    setLoading(true);
-    fetchDashboard();
+    let cancelled = false;
+    api.getDashboard(project).then((result) => {
+      if (cancelled) return;
+      setData(result);
+      setError(null);
+      setLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setError('Failed to load dashboard');
+      setLoading(false);
+    });
     const interval = setInterval(fetchDashboard, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchDashboard]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [project, fetchDashboard]);
 
   if (loading && !data) {
     return (

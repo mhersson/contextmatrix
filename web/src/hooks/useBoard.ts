@@ -52,9 +52,43 @@ export function useBoard(
     }
   }, [project, filter]);
 
+  // Reset state on project/filter change (render-time pattern).
+  const [prevProject, setPrevProject] = useState(project);
+  const [prevFilter, setPrevFilter] = useState(filter);
+  if (project !== prevProject || filter !== prevFilter) {
+    setPrevProject(project);
+    setPrevFilter(filter);
+    if (!project) {
+      setConfig(null);
+      setCards([]);
+      setLoading(false);
+      setError(null);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+  }
+
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!project) return;
+    let cancelled = false;
+    Promise.all([
+      api.getProject(project),
+      api.getCards(project, filter),
+    ]).then(([projectConfig, projectCards]) => {
+      if (cancelled) return;
+      setConfig(projectConfig);
+      setCards(projectCards);
+      setLoading(false);
+    }).catch((err) => {
+      if (cancelled) return;
+      setError(isAPIError(err) ? err.error : 'Failed to load board');
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project, filter]);
 
   const onSyncEventRef = useRef(onSyncEvent);
   useEffect(() => {

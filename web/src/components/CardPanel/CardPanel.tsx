@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import type { Card, ProjectConfig, PatchCardInput } from '../../types';
-import { api } from '../../api/client';
 import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
 import { CardChat } from './CardChat';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useBranches } from '../../hooks/useBranches';
 
 // Approximate height in px of the panel content above the editor on mobile
 // (header bar ~57px + title section ~60px + type/priority/state row ~60px +
@@ -83,58 +83,37 @@ export function CardPanel({
   const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
   const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
   const [labelsCollapsed, setLabelsCollapsed] = useState(initialIsHITLRunning);
-  // Tracks previous "HITL running" state: running AND not autonomous.
-  // Promotion mid-run (HITL → auto) is a true→false transition → sections expand.
-  const prevIsHITLRunningRef = useRef<boolean>(initialIsHITLRunning);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchesError, setBranchesError] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number>(
     isMobileLayout() ? computeMobileEditorHeight() : DEFAULT_EDITOR_HEIGHT,
   );
 
   useFocusTrap(panelRef, true);
 
-  useEffect(() => {
+  // Sync prop → local edited state on card identity change (render-time pattern).
+  const [prevCard, setPrevCard] = useState(card);
+  if (card !== prevCard) {
+    setPrevCard(card);
     setEditedCard(card);
-  }, [card]);
+  }
 
-  // Auto-collapse Description and Automation when entering HITL running mode
-  // (runner_status === 'running' AND NOT autonomous).
-  // Expand both when leaving HITL running mode (including promotion mid-run).
-  // Use a ref for previous HITL-running state so we only react to transitions,
-  // not every re-render, which would overwrite any manual re-expand the user makes.
-  useEffect(() => {
-    const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
-    const prev = prevIsHITLRunningRef.current;
-    if (prev !== isHITLRunning) {
-      if (isHITLRunning) {
-        setDescriptionCollapsed(true);
-        setAutomationCollapsed(true);
-        setLabelsCollapsed(true);
-      } else {
-        setDescriptionCollapsed(false);
-        setAutomationCollapsed(false);
-        setLabelsCollapsed(false);
-      }
-      prevIsHITLRunningRef.current = isHITLRunning;
-    }
-  }, [card.runner_status, card.autonomous]);
+  // Auto-collapse Description, Automation, and Labels on entering HITL running
+  // mode (runner_status === 'running' AND NOT autonomous); expand on leaving
+  // (including promotion mid-run). Only fires on transitions of the boolean so
+  // manual re-expands survive re-renders while still running.
+  const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+  const [prevIsHITLRunning, setPrevIsHITLRunning] = useState(initialIsHITLRunning);
+  if (isHITLRunning !== prevIsHITLRunning) {
+    setPrevIsHITLRunning(isHITLRunning);
+    setDescriptionCollapsed(isHITLRunning);
+    setAutomationCollapsed(isHITLRunning);
+    setLabelsCollapsed(isHITLRunning);
+  }
 
-  useEffect(() => {
-    if (!config.remote_execution?.enabled) return;
-    let cancelled = false;
-    setBranchesLoading(true);
-    setBranchesError(false);
-    api.fetchBranches(card.project).then((data) => {
-      if (!cancelled) setBranches(data);
-    }).catch(() => {
-      if (!cancelled) setBranchesError(true);
-    }).finally(() => {
-      if (!cancelled) setBranchesLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [card.project, config.remote_execution?.enabled]);
+  const {
+    branches,
+    loading: branchesLoading,
+    error: branchesError,
+  } = useBranches(card.project, !!config.remote_execution?.enabled);
 
   // Dynamically resize the editor when the visual viewport changes (e.g.
   // on-screen keyboard appearing/disappearing on mobile). On desktop the editor
@@ -305,8 +284,7 @@ export function CardPanel({
     (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
 
   // Split layout only for HITL sessions (running AND not autonomous).
-  // Autonomous runs use the single-body layout — the chat region is unused there.
-  const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+  // `isHITLRunning` is computed once at the top of the component.
 
   const body = (
     <>
