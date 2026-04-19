@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,11 @@ type Syncer struct {
 
 	pushCh chan struct{} // buffered(1), coalesces rapid commits
 	wg     sync.WaitGroup
+
+	// pullHook and pushHook are called instead of pullRebase/pushWithRetry
+	// when set. Used in tests to inject panics or controlled errors.
+	pullHook func(ctx context.Context, trigger string) error
+	pushHook func(ctx context.Context) error
 }
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
@@ -291,12 +297,6 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 
 // periodicPull runs fetch+rebase at the configured interval.
 func (s *Syncer) periodicPull(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("git sync: periodic pull panicked", "error", r)
-		}
-	}()
-
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -306,30 +306,46 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 			slog.Info("git sync: periodic pull stopped")
 			return
 		case <-ticker.C:
-			if err := s.pullRebase(ctx, "periodic"); err != nil {
-				slog.Error("git sync: periodic pull failed", "error", err)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("git sync: periodic pull panicked", "panic", r, "stack", string(debug.Stack()))
+					}
+				}()
+				pull := s.pullHook
+				if pull == nil {
+					pull = s.pullRebase
+				}
+				if err := pull(ctx, "periodic"); err != nil {
+					slog.Error("git sync: periodic pull failed", "error", err)
+				}
+			}()
 		}
 	}
 }
 
 // pushListener waits for commit notifications and pushes.
 func (s *Syncer) pushListener(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("git sync: push listener panicked", "error", r)
-		}
-	}()
-
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("git sync: push listener stopped")
 			return
 		case <-s.pushCh:
-			if err := s.pushWithRetry(ctx); err != nil {
-				slog.Error("git sync: push failed", "error", err)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("git sync: push listener panicked", "panic", r, "stack", string(debug.Stack()))
+					}
+				}()
+				push := s.pushHook
+				if push == nil {
+					push = s.pushWithRetry
+				}
+				if err := push(ctx); err != nil {
+					slog.Error("git sync: push failed", "error", err)
+				}
+			}()
 		}
 	}
 }
