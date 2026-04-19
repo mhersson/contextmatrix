@@ -738,6 +738,24 @@ cd web && npm install && npm run dev
 make build
 ```
 
+### CI
+
+GitHub Actions workflows live in `.github/workflows/`:
+
+- **`build.yaml`** — runs on pull requests and pushes to `main`:
+  - `go-checks`: `go vet`, `go test`, `go test -race -short`, `golangci-lint`.
+  - `frontend-checks` (in `web/`): `npm ci`, `npm run lint`, `npm run test`,
+    `npm run build`, `npm audit --audit-level=high`.
+  - `build`: docker build + push of `:latest` and short-SHA tags. Gated on both
+    check jobs and only runs on push to `main` — PRs validate but do not
+    publish.
+- **`nightly.yaml`** — full race suite (`go test -race ./...`, no `-short`) on a
+  daily cron at 02:00 UTC, with `workflow_dispatch` as an on-demand escape
+  hatch. 60-minute job timeout.
+
+Both workflows run on the self-hosted runner and read the Go toolchain version
+from `go.mod`.
+
 ## Troubleshooting
 
 ### Config file not found

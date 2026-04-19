@@ -1,4 +1,4 @@
-name: Build and Push
+name: CI / Build and Push
 
 on:
   push:
@@ -9,28 +9,86 @@ on:
       - "config.yaml.example"
       - "docs/**"
       - "LICENSE"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "CLAUDE.md"
+      - "config.yaml.example"
+      - "docs/**"
+      - "LICENSE"
 
 jobs:
-  build:
+  go-checks:
     runs-on: self-hosted
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set short SHA
-      run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-    - name: Build image
-      run: |
-        docker build \
-          -t ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }} \
-          -t ${{ vars.REGISTRY }}/contextmatrix:latest \
-          .
+      - name: go vet
+        run: go vet ./...
 
-    - name: Push image
-      run: |
-        docker push ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }}
-        docker push ${{ vars.REGISTRY }}/contextmatrix:latest
+      - name: go test
+        run: go test ./...
 
-    - name: Clean up
-      if: always()
-      run: docker image prune -f
+      - name: go test -race -short
+        run: go test -race -short ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+
+  frontend-checks:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run lint
+        run: npm run lint
+
+      - name: npm run test
+        run: npm run test --if-present
+
+      - name: npm run build
+        run: npm run build
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  build:
+    runs-on: self-hosted
+    needs: [go-checks, frontend-checks]
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Build image
+        run: |
+          docker build \
+            -t ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }} \
+            -t ${{ vars.REGISTRY }}/contextmatrix:latest \
+            .
+
+      - name: Push image
+        run: |
+          docker push ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }}
+          docker push ${{ vars.REGISTRY }}/contextmatrix:latest
+
+      - name: Clean up
+        if: always()
+        run: docker image prune -f
