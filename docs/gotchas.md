@@ -15,6 +15,15 @@
   `ImmediateCommit: true` when `card.AssignedAgent == ""`, triggering an
   immediate commit. MCP tool callers (agents) never set this flag, so their
   commits continue to defer normally.
+- **MCP middleware chain and body limit:** `/mcp` is wrapped via
+  `api.WrapMCPHandler` before being registered on the mux. This applies panic
+  recovery, structured request logging, request-ID propagation, and a **5 MB
+  body-size cap** (`mcpMaxBodySize`). The 5 MB limit is intentionally larger than
+  the 1 MB cap on REST API routes to accommodate large card bodies and activity
+  history in tool call inputs; it is still bounded to prevent unbounded memory
+  growth. Requests with a `Content-Length` exceeding 5 MB are rejected
+  immediately with `413 Payload Too Large` before the body is read. Requests
+  without `Content-Length` are capped during body reads via `http.MaxBytesReader`.
 - **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
   is an absolute deadline measured from when request headers are read — it is
   NOT reset by intermediate writes (keepalive comments, partial event data, etc.).
