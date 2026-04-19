@@ -549,7 +549,21 @@ layer that fixes the reconnect-loses-log-history bug.
   cancels the upstream connection, sends a `terminal` event to all subscribers,
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
-  (250 ms base, 4 s cap, 5 attempts), then marks the session errored and closes.
+  (250 ms base, 4 s cap, 5 attempts). After all retries are exhausted the
+  session is marked permanently failed: all active and pending subscribers
+  receive a `terminal` event and their channels are closed. Any subsequent
+  `Subscribe` call for that card takes a fast path — it receives an immediate
+  `terminal` event without parking — until `Start` is called again (which clears
+  the failure flag).
+- **Slow-subscriber drops**: the fan-out loop is non-blocking. If a subscriber's
+  channel (256-entry buffer) is full, the event is dropped. Each drop:
+  increments `Manager.DroppedEvents()` (an atomic counter, monotonically
+  increasing across all sessions); emits a single `slog.Warn` per fan-out pass
+  (throttled to one per second globally); and sends a synthetic
+  `{type: "dropped", payload: nil}` marker into the subscriber channel. The
+  `nil` payload distinguishes this fan-out drop marker from the ring-buffer
+  eviction marker (which encodes a drop count as an 8-byte little-endian
+  payload). `DroppedEvents()` is available for future Prometheus export.
 - **Session cap**: default 64 concurrent sessions (card-scoped and
   project-scoped combined); `Start`/`StartProject` return an error if the cap is
   reached.

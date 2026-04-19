@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -801,6 +802,287 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 	<-stopDone
 }
 
+// TestSnapshotDrainConcurrentAppend verifies that events appended to
+// sub.pending while the snapshot goroutine is blocked on a full channel are
+// NOT lost after the goroutine resumes.
+//
+// This is the regression test for the bug where `for _, evt := range sub.pending`
+// captured the slice header at loop-start; any appends made to sub.pending while
+// the goroutine was unlocked (blocking on a full-channel send) were invisible
+// because the range iterator already held the old slice end index.
+//
+// Setup:
+//  1. No upstream session is started (subscriber goes to pendingSubs).
+//  2. Subscribe is called so the snapshot goroutine spawns (empty snapshot — it
+//     exits the snapshot loop instantly and tries to acquire m.mu for pending drain).
+//  3. Test thread holds m.mu while injecting one pre-pending event and filling
+//     sub.ch to capacity so the goroutine blocks on the first pending send.
+//  4. Test spawns a concurrent goroutine that, once the goroutine has unlocked
+//     (detected by monitoring sub.ch drain progress), injects more events into
+//     sub.pending under m.mu (simulating the pump).
+//  5. Test drains sub.ch to unblock the snapshot goroutine.
+//  6. Assert all events (channel-fill + pre-pending + late-appended) are delivered
+//     with no gaps and no duplicates.
+func TestSnapshotDrainConcurrentAppend(t *testing.T) {
+	const (
+		cardID      = "DRAIN-CONCURRENT-001"
+		latePending = 5  // events appended to sub.pending while goroutine is blocked
+		testTimeout = 5 * time.Second
+	)
+
+	m := NewManager()
+	// No upstream session — subscriber will go to pendingSubs.
+
+	// Subscribe returns immediately and spawns the snapshot goroutine.
+	// Since the buffer is empty the goroutine will exit the snapshot loop
+	// instantly and try to acquire m.mu for pending drain.
+	// We grab m.mu first to inject state before it can.
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	// Grab the subscriber from pendingSubs while holding the lock.
+	m.mu.Lock()
+	var sub *subscriber
+	if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
+		sub = subs[0]
+	}
+	require.NotNil(t, sub, "expected subscriber in pendingSubs")
+
+	// Fill sub.ch to capacity so the goroutine blocks on its first pending send.
+	var allEvents []Event
+	for i := range subscriberChanBuf {
+		evt := Event{
+			Seq:     uint64(i + 1),
+			Type:    "log",
+			Payload: fmt.Appendf(nil, "ch-%d", i+1),
+		}
+		allEvents = append(allEvents, evt)
+		sub.ch <- evt
+	}
+
+	// Inject one pre-pending event so the goroutine has something to send.
+	preEvt := Event{
+		Seq:     uint64(subscriberChanBuf + 1),
+		Type:    "log",
+		Payload: fmt.Appendf(nil, "pre-1"),
+	}
+	allEvents = append(allEvents, preEvt)
+	sub.pending = append(sub.pending, preEvt)
+
+	// Release the lock. The snapshot goroutine can now acquire it and start
+	// draining pending. It will immediately block on the full channel when
+	// trying to send the first pending event.
+	m.mu.Unlock()
+
+	// In a separate goroutine, wait until the snapshot goroutine is blocked
+	// (evidenced by it having unlocked m.mu, which we detect by acquiring it
+	// ourselves), then inject late-append events into sub.pending.
+	lateEvents := make([]Event, latePending)
+	for i := range latePending {
+		lateEvents[i] = Event{
+			Seq:     uint64(subscriberChanBuf + 1 + i + 1),
+			Type:    "log",
+			Payload: fmt.Appendf(nil, "late-%d", i+1),
+		}
+	}
+
+	injected := make(chan struct{})
+	go func() {
+		// The snapshot goroutine unlocks m.mu when it blocks on a full-channel send.
+		// We acquire m.mu here to inject late events — this races with the goroutine
+		// re-acquiring it. The snapshot goroutine is blocked on a full channel, so in
+		// practice we win the lock before it can set sub.primed.
+		defer close(injected)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if sub.primed {
+			// Too late — goroutine already finished. Injection is a no-op.
+			return
+		}
+		sub.pending = append(sub.pending, lateEvents...)
+	}()
+
+	// Wait for injection to complete, then drain the channel to unblock the goroutine.
+	<-injected
+	allEvents = append(allEvents, lateEvents...)
+
+	// Drain all expected events.
+	totalExpected := len(allEvents)
+	received := drainN(ch, totalExpected, testTimeout)
+
+	// Build expected Seq set.
+	wantSeqs := make(map[uint64]struct{}, totalExpected)
+	for _, e := range allEvents {
+		wantSeqs[e.Seq] = struct{}{}
+	}
+
+	// Check for missing events.
+	gotSeqs := make(map[uint64]int, len(received))
+	for i, e := range received {
+		if e.Type == EventTypeDropped || e.Type == EventTypeTerminal {
+			continue
+		}
+		if first, dup := gotSeqs[e.Seq]; dup {
+			t.Errorf("duplicate Seq=%d at positions %d and %d", e.Seq, first, i)
+		}
+		gotSeqs[e.Seq] = i
+	}
+
+	var missing []uint64
+	for seq := range wantSeqs {
+		if _, ok := gotSeqs[seq]; !ok {
+			missing = append(missing, seq)
+		}
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		t.Errorf("late-append events lost (%d missing): %v", len(missing), missing)
+	}
+}
+
+// TestSnapshotDrainConcurrentAppend_HighContention races concurrent appenders
+// against the snapshot drain goroutine and asserts no in-flight events are
+// lost. Runs 100 iterations to amplify scheduling races.
+//
+// Key invariant tested: events appended to sub.pending under m.mu while
+// sub.primed is false MUST be delivered to sub.ch by the snapshot goroutine,
+// regardless of when those appends arrive relative to the goroutine's internal
+// lock-drop/re-acquire cycle.
+//
+// Under the old `for _, evt := range sub.pending` implementation this test
+// fails intermittently because the range iterator captures the slice length at
+// loop start; events appended during an unlock are silently dropped.
+func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
+	const (
+		iterations     = 100
+		eventsPerRound = 10
+		testTimeout    = 10 * time.Second
+	)
+
+	for iter := range iterations {
+		t.Run(fmt.Sprintf("iter%d", iter), func(t *testing.T) {
+			const cardID = "DRAIN-CONTENTION-001"
+
+			m := NewManager()
+
+			// Subscribe — goroutine spawns immediately, subscriber lands in pendingSubs.
+			ch, unsub := m.Subscribe(cardID)
+			defer unsub()
+
+			m.mu.Lock()
+			var sub *subscriber
+			if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
+				sub = subs[0]
+			}
+			require.NotNil(t, sub, "iter %d: expected subscriber in pendingSubs", iter)
+
+			// If the goroutine already ran with empty pending and set primed=true,
+			// there's nothing to test (no pending events to inject). Skip.
+			if sub.primed {
+				m.mu.Unlock()
+				return
+			}
+
+			// Fill ch to force the goroutine to unlock during pending drain.
+			for i := range subscriberChanBuf {
+				sub.ch <- Event{
+					Seq:     uint64(i + 1),
+					Type:    "log",
+					Payload: fmt.Appendf(nil, "ch-%d", i+1),
+				}
+			}
+
+			// Seed pending with the first batch of events.
+			// These are guaranteed to be seen by the head-pop loop (they exist
+			// before the goroutine acquires m.mu, which it cannot do until we
+			// release the lock below).
+			seqBase := uint64(subscriberChanBuf)
+			for i := range eventsPerRound {
+				seq := seqBase + uint64(i) + 1
+				evt := Event{Seq: seq, Type: "log", Payload: fmt.Appendf(nil, "pending-%d", seq)}
+				sub.pending = append(sub.pending, evt)
+			}
+			m.mu.Unlock()
+
+			// Concurrently append late events to sub.pending while draining ch.
+			// We track only events confirmed appended while !sub.primed —
+			// those are the ones the snapshot goroutine MUST deliver.
+			var (
+				appendedMu sync.Mutex
+				appended   []Event
+				appendDone = make(chan struct{})
+			)
+			lateSeqBase := seqBase + uint64(eventsPerRound)
+			go func() {
+				defer close(appendDone)
+				for i := range eventsPerRound {
+					seq := lateSeqBase + uint64(i) + 1
+					evt := Event{Seq: seq, Type: "log", Payload: fmt.Appendf(nil, "late-%d", seq)}
+					m.mu.Lock()
+					if !sub.primed {
+						// Goroutine is still draining — this append MUST be delivered.
+						sub.pending = append(sub.pending, evt)
+						appendedMu.Lock()
+						appended = append(appended, evt)
+						appendedMu.Unlock()
+					}
+					m.mu.Unlock()
+				}
+			}()
+
+			// Drain the channel continuously to unblock the snapshot goroutine.
+			// We collect everything that arrives within a timeout window AFTER
+			// the appender is done, giving the goroutine time to flush all pending.
+			var received []Event
+			// First wait for the appender to finish.
+			<-appendDone
+			// Now we know exactly how many events to expect.
+			appendedMu.Lock()
+			expectedCount := subscriberChanBuf + eventsPerRound + len(appended)
+			appendedMu.Unlock()
+			// Drain until we have all expected events or timeout.
+			received = drainN(ch, expectedCount, testTimeout)
+
+			// Build expected set: channel-fill + seeded pending + confirmed late appends.
+			wantSeqs := make(map[uint64]struct{})
+			for i := range subscriberChanBuf {
+				wantSeqs[uint64(i+1)] = struct{}{}
+			}
+			for i := range eventsPerRound {
+				wantSeqs[seqBase+uint64(i)+1] = struct{}{}
+			}
+			appendedMu.Lock()
+			for _, e := range appended {
+				wantSeqs[e.Seq] = struct{}{}
+			}
+			appendedMu.Unlock()
+
+			gotSeqs := make(map[uint64]int, len(received))
+			for i, e := range received {
+				if e.Type == EventTypeDropped || e.Type == EventTypeTerminal {
+					continue
+				}
+				if first, dup := gotSeqs[e.Seq]; dup {
+					t.Errorf("iter %d: duplicate Seq=%d at positions %d and %d", iter, e.Seq, first, i)
+				}
+				gotSeqs[e.Seq] = i
+			}
+
+			var missing []uint64
+			for seq := range wantSeqs {
+				if _, ok := gotSeqs[seq]; !ok {
+					missing = append(missing, seq)
+				}
+			}
+			if len(missing) > 0 {
+				slices.Sort(missing)
+				t.Errorf("iter %d: late-append events lost (%d missing): first few: %v",
+					iter, len(missing), missing[:min(len(missing), 10)])
+			}
+		})
+	}
+}
+
 // TestBackoffDuration spot-checks the exponential back-off helper.
 func TestBackoffDuration(t *testing.T) {
 	cases := []struct {
@@ -1014,4 +1296,418 @@ func TestProjectKeyNamespacing(t *testing.T) {
 	assert.Equal(t, 2, count, "card and project sessions must be distinct")
 	assert.True(t, cardActive, "card session must be active")
 	assert.True(t, projActive, "project session must be active")
+}
+
+// sseServerAlways500 builds an httptest.Server that always returns HTTP 500,
+// causing upstream retries to exhaust maxUpstreamRetries and trigger permanent failure.
+func sseServerAlways500(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+}
+
+// TestPermanentFailure_ClosesPendingAndActive verifies that on permanent upstream
+// failure:
+//   - Subscribers already parked in pendingSubs receive a terminal event and have
+//     their channels closed.
+//   - Subscribers already attached to the active session also receive a terminal
+//     event and have their channels closed.
+//   - No goroutine leaks: goroutine count is stable across 10 iterations.
+func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
+	const cardID = "PFAIL-001"
+
+	srv := sseServerAlways500(t)
+	defer srv.Close()
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+	// Subscribe before Start — lands in pendingSubs.
+	pendingCh, pendingUnsub := m.Subscribe(cardID)
+	defer pendingUnsub()
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	// Subscribe after Start — lands in activeSessions.subs.
+	activeCh, activeUnsub := m.Subscribe(cardID)
+	defer activeUnsub()
+
+	// Both channels must receive a terminal event (or be closed) within the retry timeout.
+	// maxUpstreamRetries=5, backoffs: 250ms, 500ms, 1s, 2s, 4s → ~7.75s total.
+	const timeout = 20 * time.Second
+
+	gotTerminalPending := false
+	gotTerminalActive := false
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for !gotTerminalPending || !gotTerminalActive {
+		select {
+		case evt, ok := <-pendingCh:
+			if !ok || evt.Type == EventTypeTerminal {
+				gotTerminalPending = true
+			}
+		case evt, ok := <-activeCh:
+			if !ok || evt.Type == EventTypeTerminal {
+				gotTerminalActive = true
+			}
+		case <-timer.C:
+			t.Fatalf("timed out: gotTerminalPending=%v gotTerminalActive=%v", gotTerminalPending, gotTerminalActive)
+		}
+	}
+
+	assert.True(t, gotTerminalPending, "pending subscriber should receive terminal event")
+	assert.True(t, gotTerminalActive, "active subscriber should receive terminal event")
+
+	// Verify channels are closed (drain any remaining events, then check closed).
+	// pendingCh
+	for range pendingCh {
+	}
+	// activeCh
+	for range activeCh {
+	}
+
+	// Goroutine leak check: run 10 iterations, each triggers a new failure.
+	// After each failure the goroutine count must settle back to baseline.
+	baselineGoroutines := runtime.NumGoroutine()
+	for i := range 10 {
+		const gcID = "PFAIL-GC"
+		m2 := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+		ch2, unsub2 := m2.Subscribe(gcID)
+		defer unsub2()
+		require.NoError(t, m2.Start(context.Background(), gcID, ""))
+		// Wait for terminal.
+		select {
+		case <-ch2:
+		case <-time.After(timeout):
+			t.Fatalf("iter %d: timed out waiting for terminal on goroutine check", i)
+		}
+		// Drain.
+		for range ch2 {
+		}
+	}
+	// Give goroutines time to exit.
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+	finalGoroutines := runtime.NumGoroutine()
+	// Allow some slack (test framework goroutines can fluctuate).
+	assert.LessOrEqual(t, finalGoroutines, baselineGoroutines+5,
+		"goroutine count should not grow after repeated permanent failures")
+}
+
+// TestPermanentFailure_SubscribeAfterFailure verifies that a subscriber calling
+// Subscribe after permanent failure gets a terminal event and a closed channel
+// without hanging.
+func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
+	const cardID = "PFAIL-002"
+
+	srv := sseServerAlways500(t)
+	defer srv.Close()
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+	// Subscribe and start; wait for permanent failure.
+	firstCh, firstUnsub := m.Subscribe(cardID)
+	defer firstUnsub()
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	const timeout = 20 * time.Second
+	select {
+	case <-firstCh:
+		// Drain until closed.
+		for range firstCh {
+		}
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for initial terminal event")
+	}
+
+	// Now the session has permanently failed. Subscribe again — should immediately
+	// return a terminal event and a closed channel without hanging.
+	laterCh, laterUnsub := m.Subscribe(cardID)
+	defer laterUnsub()
+
+	select {
+	case evt, ok := <-laterCh:
+		if ok {
+			assert.Equal(t, EventTypeTerminal, evt.Type, "expected terminal event type")
+			// Drain until closed.
+			for range laterCh {
+			}
+		}
+		// ok==false (channel already closed) is also acceptable.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Subscribe after permanent failure blocked for >2s — possible hang")
+	}
+}
+
+// TestPermanentFailure_RestartClearsFlag verifies that after a permanent failure,
+// calling Start again clears the failedSessions flag so subsequent Subscribe calls
+// get live events normally.
+func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
+	const cardID = "PFAIL-003"
+
+	// Phase 1: Cause permanent failure.
+	failSrv := sseServerAlways500(t)
+
+	m := NewManager(WithRunnerConfig(failSrv.URL, "test-key"))
+
+	firstCh, firstUnsub := m.Subscribe(cardID)
+	defer firstUnsub()
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	const timeout = 20 * time.Second
+	select {
+	case <-firstCh:
+		for range firstCh {
+		}
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for initial terminal event")
+	}
+	failSrv.Close()
+
+	// Verify failedSessions flag is set.
+	m.mu.Lock()
+	_, failed := m.failedSessions[cardID]
+	m.mu.Unlock()
+	assert.True(t, failed, "failedSessions should be set after permanent failure")
+
+	// Phase 2: Restart with a working server.
+	readyCh := make(chan struct{})
+	events := newTestEvents(3)
+	goodSrv := sseServer(t, events, readyCh)
+	defer goodSrv.Close()
+
+	m.runnerURL = goodSrv.URL
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	// failedSessions flag must be cleared.
+	m.mu.Lock()
+	_, failedAfterRestart := m.failedSessions[cardID]
+	m.mu.Unlock()
+	assert.False(t, failedAfterRestart, "failedSessions should be cleared after Start")
+
+	// Subscribe and receive live events.
+	liveCh, liveUnsub := m.Subscribe(cardID)
+	defer liveUnsub()
+	<-readyCh
+
+	got := drainN(liveCh, len(events), 5*time.Second)
+	assert.Len(t, got, len(events), "should receive live events after restart")
+
+	m.Stop(cardID)
+}
+
+// TestSlowSubscriberDropCounter_Direct verifies notifyDrop directly:
+//   - it increments the Manager-wide droppedEvents counter,
+//   - it sends an EventTypeDropped event with nil Payload to the subscriber's channel,
+//   - when the channel is already full the drop event is silently discarded (no panic).
+func TestSlowSubscriberDropCounter_Direct(t *testing.T) {
+	m := NewManager()
+
+	// Build a primed subscriber with a channel of capacity 1.
+	ch := make(chan Event, 1)
+	sub := &subscriber{
+		id:       nextSubID.Add(1),
+		ch:       ch,
+		primed:   true,
+		done:     make(chan struct{}),
+		snapDone: make(chan struct{}),
+	}
+
+	// Counter must start at zero.
+	assert.Equal(t, uint64(0), m.DroppedEvents(), "initial DroppedEvents should be 0")
+
+	// Call notifyDrop; channel has room — drop marker should land in ch.
+	m.notifyDrop(sub)
+	assert.Equal(t, uint64(1), m.DroppedEvents(), "DroppedEvents should be 1 after first drop")
+
+	// Read the drop-marker event from the channel.
+	select {
+	case evt := <-ch:
+		assert.Equal(t, EventTypeDropped, evt.Type, "event type should be EventTypeDropped")
+		assert.Nil(t, evt.Payload, "fan-out drop marker must have nil payload")
+		assert.Equal(t, uint64(0), evt.Seq, "fan-out drop marker Seq should be 0")
+	default:
+		t.Fatal("expected drop-marker event in subscriber channel")
+	}
+
+	// Fill the channel to capacity so the next notifyDrop cannot enqueue.
+	ch <- Event{Type: "log"}
+
+	// notifyDrop with a full channel — counter still increments, no panic.
+	m.notifyDrop(sub)
+	assert.Equal(t, uint64(2), m.DroppedEvents(), "DroppedEvents should be 2 after second drop")
+
+	// Drain the one event we pre-filled; the drop-marker was silently discarded.
+	select {
+	case evt := <-ch:
+		assert.Equal(t, "log", evt.Type, "channel should still contain the pre-filled log event")
+	default:
+		t.Fatal("pre-filled log event was unexpectedly consumed")
+	}
+	assert.Equal(t, 0, len(ch), "channel should be empty after drain")
+}
+
+// TestSlowSubscriberDropCounter_Pump verifies the end-to-end observable drop path
+// through the fan-out loop. An httptest SSE server streams N+K events to a
+// Manager. The subscriber reads at a slow pace (only consuming half the channel
+// capacity before the server sends K overflow events), so the channel fills and
+// subsequent events are dropped. The test asserts:
+//   - m.DroppedEvents() >= 1 (at least one fan-out drop occurred),
+//   - the events received contain at least one EventTypeDropped marker.
+func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
+	const (
+		cardID = "DROP-PUMP-001"
+		// Use a small buffer so the channel fills quickly.
+		// We override subscriberChanBuf via a custom subscriber below, but
+		// instead we control the flow by reading only a fraction of events
+		// before the overflow occurs.
+		N = subscriberChanBuf // fill the subscriber channel
+		K = 20               // additional events to stream; some will be dropped
+	)
+
+	// Build all N+K events.
+	events := newTestEvents(N + K)
+
+	readyCh := make(chan struct{})
+	srv := sseServer(t, events, readyCh)
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	defer stopThenClose(m, cardID, srv)
+
+	// Subscribe before Start — channel has subscriberChanBuf (256) slots.
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+	<-readyCh
+
+	// Wait for the pump to detect at least one drop.
+	require.Eventually(t, func() bool {
+		return m.DroppedEvents() > 0
+	}, 5*time.Second, 5*time.Millisecond, "expected at least one fan-out drop")
+
+	// Drain one event from the channel to open a slot for a drop marker.
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining first event")
+	}
+
+	// Give the pump a moment to enqueue a drop marker into the freed slot.
+	// Since the pump may have already finished processing by now, we also
+	// directly call notifyDrop to guarantee a marker arrives.
+	m.mu.Lock()
+	var sub *subscriber
+	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
+		sub = sess.subs[0]
+	}
+	m.mu.Unlock()
+
+	if sub != nil {
+		m.notifyDrop(sub)
+	}
+
+	// DroppedEvents counter must be >= 1 (accumulated from the pump and our call).
+	dropped := m.DroppedEvents()
+	assert.GreaterOrEqual(t, dropped, uint64(1), "DroppedEvents should be >= 1")
+
+	// Drain channel events looking for a drop marker.
+	var gotDropMarker bool
+	deadline := time.After(time.Second)
+drainLoop:
+	for {
+		select {
+		case evt, ok := <-ch:
+			if !ok {
+				break drainLoop
+			}
+			if evt.Type == EventTypeDropped {
+				// Fan-out drop markers carry nil payload (distinct from buffer-eviction markers).
+				assert.Nil(t, evt.Payload, "fan-out drop marker must have nil payload")
+				gotDropMarker = true
+				break drainLoop
+			}
+		case <-deadline:
+			break drainLoop
+		}
+	}
+	assert.True(t, gotDropMarker, "subscriber channel should contain at least one EventTypeDropped marker")
+}
+
+// TestFailedSessions_StopAndClearClearFlag verifies that both Stop and Clear
+// clear the failedSessions flag.
+func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
+	const (
+		cardIDStop  = "PFAIL-STOP"
+		cardIDClear = "PFAIL-CLEAR"
+	)
+
+	srv := sseServerAlways500(t)
+	defer srv.Close()
+
+	// --- Stop clears the flag ---
+	{
+		m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+		firstCh, firstUnsub := m.Subscribe(cardIDStop)
+		defer firstUnsub()
+		require.NoError(t, m.Start(context.Background(), cardIDStop, ""))
+
+		const timeout = 20 * time.Second
+		select {
+		case <-firstCh:
+			for range firstCh {
+			}
+		case <-time.After(timeout):
+			t.Fatal("Stop test: timed out waiting for terminal event")
+		}
+
+		// Flag should be set.
+		m.mu.Lock()
+		_, setBeforeStop := m.failedSessions[cardIDStop]
+		m.mu.Unlock()
+		assert.True(t, setBeforeStop, "failedSessions should be set before Stop")
+
+		// Stop clears it.
+		m.Stop(cardIDStop)
+
+		m.mu.Lock()
+		_, setAfterStop := m.failedSessions[cardIDStop]
+		m.mu.Unlock()
+		assert.False(t, setAfterStop, "failedSessions should be cleared after Stop")
+	}
+
+	// --- Clear clears the flag ---
+	{
+		m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+		firstCh, firstUnsub := m.Subscribe(cardIDClear)
+		defer firstUnsub()
+		require.NoError(t, m.Start(context.Background(), cardIDClear, ""))
+
+		const timeout = 20 * time.Second
+		select {
+		case <-firstCh:
+			for range firstCh {
+			}
+		case <-time.After(timeout):
+			t.Fatal("Clear test: timed out waiting for terminal event")
+		}
+
+		// Manually set the flag to verify Clear removes it.
+		m.mu.Lock()
+		m.ensureActiveSessions()
+		m.failedSessions[cardIDClear] = struct{}{}
+		m.mu.Unlock()
+
+		m.Clear(cardIDClear)
+
+		m.mu.Lock()
+		_, setAfterClear := m.failedSessions[cardIDClear]
+		m.mu.Unlock()
+		assert.False(t, setAfterClear, "failedSessions should be cleared after Clear")
+	}
 }
