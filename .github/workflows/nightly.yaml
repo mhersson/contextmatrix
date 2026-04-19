@@ -21,3 +21,5 @@ jobs:
 
       - name: go test -race
         run: go test -race ./...
+        env:
+          CGO_ENABLED: "1"

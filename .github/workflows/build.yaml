@@ -39,6 +39,8 @@ jobs:
 
       - name: go test -race -short
         run: go test -race -short ./...
+        env:
+          CGO_ENABLED: "1"
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
