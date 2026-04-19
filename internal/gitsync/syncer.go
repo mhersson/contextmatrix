@@ -264,8 +264,16 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 
 // pushWithRetry attempts to push. On non-fast-forward failure, it performs a
 // pull-rebase then retries once. Never force-pushes.
+//
+// Each call to git.Push is made while holding the service write lock so that
+// push's shell git subprocess cannot race against pullRebase's shell fetch/rebase
+// subprocess — both touch the same .git directory and can collide on
+// .git/index.lock without this serialization. pullRebase acquires writeMu
+// itself, so the lock must be released before calling it to avoid a deadlock.
 func (s *Syncer) pushWithRetry(ctx context.Context) error {
+	s.svc.LockWrites()
 	err := s.git.Push(ctx)
+	s.svc.UnlockWrites()
 	if err == nil {
 		return nil
 	}
@@ -279,13 +287,16 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return fmt.Errorf("push: %w", err)
 	}
 
-	// Pull-rebase, then retry push once.
+	// pullRebase acquires writeMu itself — must NOT be called under writeMu.
 	slog.Info("git sync: push rejected (non-fast-forward), pulling first")
 	if err := s.pullRebase(ctx, "push_retry"); err != nil {
 		return fmt.Errorf("pull before push retry: %w", err)
 	}
 
-	if err := s.git.Push(ctx); err != nil {
+	s.svc.LockWrites()
+	err = s.git.Push(ctx)
+	s.svc.UnlockWrites()
+	if err != nil {
 		slog.Error("git sync: push failed after rebase", "error", err)
 		s.setError(err)
 		s.publishError("push", err)

@@ -446,6 +446,112 @@ func TestRunGit_WithAuthEnv(t *testing.T) {
 	assert.Contains(t, out, "On branch")
 }
 
+// TestSyncer_PushWithRetry_BlocksOnWriteMu verifies that pushWithRetry waits
+// for the service write lock to be released before proceeding. This proves
+// that concurrent pullRebase (which holds writeMu) and pushWithRetry cannot
+// race at the git-subprocess level.
+func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+	ctx := context.Background()
+
+	// Acquire the write lock from outside, simulating a concurrent pullRebase.
+	syncer.svc.LockWrites()
+
+	pushDone := make(chan error, 1)
+	go func() {
+		pushDone <- syncer.pushWithRetry(ctx)
+	}()
+
+	// pushWithRetry must NOT complete while writeMu is held.
+	select {
+	case <-pushDone:
+		t.Fatal("pushWithRetry completed while writeMu was held — expected it to block")
+	case <-time.After(100 * time.Millisecond):
+		// Good: still blocked on LockWrites.
+	}
+
+	// Release the lock — pushWithRetry should acquire it and finish quickly.
+	syncer.svc.UnlockWrites()
+
+	select {
+	case err := <-pushDone:
+		// push to local bare repo succeeds (already up to date is fine too).
+		_ = err
+	case <-time.After(5 * time.Second):
+		t.Fatal("pushWithRetry did not complete within 5s after writeMu was released")
+	}
+
+	// After pushWithRetry returns, writeMu must be free.
+	lockAcquired := make(chan struct{}, 1)
+	go func() {
+		syncer.svc.LockWrites()
+		lockAcquired <- struct{}{}
+		syncer.svc.UnlockWrites()
+	}()
+	select {
+	case <-lockAcquired:
+		// Good: lock is not leaked.
+	case <-time.After(1 * time.Second):
+		t.Fatal("writeMu still held after pushWithRetry returned — lock was leaked")
+	}
+}
+
+// TestSyncer_PushWithRetry_RetryPath_NoDeadlock exercises the non-fast-forward
+// retry branch end-to-end and verifies no deadlock occurs. A second clone
+// pushes to the upstream first, causing the syncer's push to be rejected as
+// non-fast-forward. pushWithRetry must release writeMu before calling
+// pullRebase (which acquires writeMu itself), or a deadlock would occur since
+// sync.Mutex is not reentrant.
+func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
+	syncer, upstream, clone, _ := setupSyncTest(t)
+	ctx := context.Background()
+
+	// Create a local commit on the syncer's clone so there is something to push.
+	require.NoError(t, os.WriteFile(filepath.Join(clone, "local.txt"), []byte("local"), 0o644))
+	run(t, clone, "git", "add", "-A")
+	run(t, clone, "git", "commit", "-m", "local commit")
+
+	// Push a diverging commit from a second clone so the upstream is ahead.
+	clone2 := filepath.Join(t.TempDir(), "clone2")
+	run(t, "", "git", "clone", upstream, clone2)
+	run(t, clone2, "git", "config", "user.email", "test@test.com")
+	run(t, clone2, "git", "config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(clone2, "remote.txt"), []byte("remote"), 0o644))
+	run(t, clone2, "git", "add", "-A")
+	run(t, clone2, "git", "commit", "-m", "remote diverging commit")
+	run(t, clone2, "git", "push", "origin", "HEAD")
+
+	// pushWithRetry should detect non-fast-forward, call pullRebase (which
+	// needs writeMu), then retry the push — all without deadlocking.
+	done := make(chan error, 1)
+	go func() {
+		done <- syncer.pushWithRetry(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		// The retry path completed. Either success or an error from the push —
+		// both outcomes are valid here; what matters is no deadlock.
+		_ = err
+	case <-time.After(15 * time.Second):
+		t.Fatal("pushWithRetry deadlocked or timed out on retry path")
+	}
+
+	// writeMu must be free after return.
+	lockAcquired := make(chan struct{}, 1)
+	go func() {
+		syncer.svc.LockWrites()
+		lockAcquired <- struct{}{}
+		syncer.svc.UnlockWrites()
+	}()
+	select {
+	case <-lockAcquired:
+		// Good.
+	case <-time.After(1 * time.Second):
+		t.Fatal("writeMu still held after pushWithRetry returned on retry path")
+	}
+}
+
 // TestRunGit_NilAuthEnv verifies that nil auth env leaves the process env intact.
 func TestRunGit_NilAuthEnv(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
