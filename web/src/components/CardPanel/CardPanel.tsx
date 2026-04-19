@@ -341,6 +341,7 @@ export function CardPanel({
             preview="edit"
             height={editorHeight}
             visibleDragbar={false}
+            previewOptions={{ skipHtml: true }}
           />
         )}
       </div>

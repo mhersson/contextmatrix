@@ -3,7 +3,9 @@ package board
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 )
 
 // SubtaskType is the built-in card type assigned to all cards that have a parent.
@@ -35,6 +37,9 @@ var (
 
 	// ErrInvalidRunnerStatus indicates an invalid runner_status value.
 	ErrInvalidRunnerStatus = errors.New("invalid runner status")
+
+	// ErrInvalidExternalURL indicates the source.external_url has an unsupported scheme.
+	ErrInvalidExternalURL = errors.New("invalid external URL")
 )
 
 // ValidationError provides detailed validation failure information.
@@ -166,6 +171,35 @@ func (v *Validator) ValidateTransition(cfg *ProjectConfig, fromState, toState st
 	return nil
 }
 
+// ValidateSource checks that card.Source.ExternalURL (if present) uses only the
+// http or https scheme. nil Source and empty ExternalURL are both valid (no-op).
+// Returns *ValidationError wrapping ErrInvalidExternalURL on failure.
+func (v *Validator) ValidateSource(card *Card) error {
+	if card.Source == nil || card.Source.ExternalURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(card.Source.ExternalURL)
+	if err != nil {
+		return &ValidationError{
+			Err:     ErrInvalidExternalURL,
+			Field:   "source.external_url",
+			Value:   card.Source.ExternalURL,
+			Message: fmt.Sprintf("invalid source.external_url %q: %v", card.Source.ExternalURL, err),
+		}
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return &ValidationError{
+			Err:     ErrInvalidExternalURL,
+			Field:   "source.external_url",
+			Value:   card.Source.ExternalURL,
+			Allowed: []string{"http", "https"},
+			Message: fmt.Sprintf("invalid source.external_url %q: scheme must be http or https", card.Source.ExternalURL),
+		}
+	}
+	return nil
+}
+
 // ValidateCard validates type, state, and priority fields against the project config.
 // Returns the first validation error encountered, or nil if all fields are valid.
 // Does NOT validate transitions - use ValidateTransition separately.
@@ -180,6 +214,9 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 		return err
 	}
 	if err := v.ValidateAutonomousFields(card); err != nil {
+		return err
+	}
+	if err := v.ValidateSource(card); err != nil {
 		return err
 	}
 	return nil
