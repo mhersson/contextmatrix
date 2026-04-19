@@ -37,11 +37,18 @@ store or git layer directly.
   commit → event publish. Also runs the heartbeat timeout checker goroutine,
   which lives here (not in the lock manager) because it coordinates store, git,
   and events.
+- **Session Log Manager** (`runner/sessionlog.Manager`): server-side per-card
+  SSE buffer and fan-out hub. Keeps a single long-lived authenticated upstream
+  connection to the runner per active card, tees events into a bounded ring
+  buffer, and replays the buffer snapshot to every new subscriber before tailing
+  live events. Started by `CardService.UpdateRunnerStatus` on `→running`,
+  stopped (fire-and-forget) on terminal statuses. See `docs/remote-execution.md`
+  § Session Log Manager for full details.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
-  serialize. No business logic, no direct store/git/lock access. The runner log
-  proxy (`GET /api/runner/logs`) is the exception: it issues an outbound
-  HMAC-signed SSE request to the runner and forwards the stream verbatim,
-  closing the upstream connection when the browser disconnects.
+  serialize. No business logic, no direct store/git/lock access.
+  `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
+  for replay-on-reconnect) and project-scoped legacy proxy (forwards the raw
+  runner SSE stream verbatim).
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
   `http.ServeMux` as the REST API.

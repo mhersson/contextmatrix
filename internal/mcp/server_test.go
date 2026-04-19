@@ -191,6 +191,7 @@ func TestListTools(t *testing.T) {
 		"get_skill",
 		"report_push",
 		"increment_review_attempts",
+		"promote_to_autonomous",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -1341,23 +1342,18 @@ func TestPrompt_CreatePlan(t *testing.T) {
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
 
-	// Must use the planning delegation prompt with inline subtask creation.
-	assert.Contains(t, content.Text, "Planning Workflow")
-	assert.Contains(t, content.Text, "Plan Drafting")
-	assert.Contains(t, content.Text, "PLAN_DRAFTED")
-	assert.Contains(t, content.Text, "get_skill")
-	assert.Contains(t, content.Text, "skill_name='create-plan'")
+	// Must return the skill content directly (same as createTaskPromptHandler pattern).
+	// The stub skill body must appear in the output.
+	assert.Contains(t, content.Text, "create-plan.md")
+	assert.Contains(t, content.Text, "Skill instructions here.")
 	assert.Contains(t, content.Text, "TEST-001")
+	// Agent Configuration section must be stripped.
 	assert.NotContains(t, content.Text, "## Agent Configuration")
-	// User approval must be handled by the orchestrator, not a sub-agent.
-	assert.Contains(t, content.Text, "User Approval")
-	assert.Contains(t, content.Text, "YOU handle this directly")
-	// Subtask creation is inline — orchestrator creates cards directly.
-	assert.Contains(t, content.Text, "Subtask Creation")
-	assert.Contains(t, content.Text, "create_card")
-	// No Phase 2 sub-agent delegation.
-	assert.NotContains(t, content.Text, "phase-2")
-	assert.NotContains(t, content.Text, "haiku")
+	// Workflow preamble must be present.
+	assert.Contains(t, content.Text, "ContextMatrix Workflow Rules")
+	// Must NOT contain the old delegation wrapper text.
+	assert.NotContains(t, content.Text, "Planning Workflow")
+	assert.NotContains(t, content.Text, "Plan Drafting — Always Inline")
 }
 
 func TestPrompt_CreatePlan_AutonomousRedirect(t *testing.T) {
@@ -1390,43 +1386,37 @@ func TestPrompt_CreatePlan_AutonomousRedirect(t *testing.T) {
 	assert.NotContains(t, content.Text, "get_skill")
 }
 
-// TestBuildCreatePlanDelegationPrompt tests the delegation prompt for the
-// plan-then-approve workflow with inline subtask creation.
-func TestBuildCreatePlanDelegationPrompt(t *testing.T) {
-	cardID := "ALPHA-001"
-	getSkillArgs := "skill_name='create-plan', card_id='ALPHA-001'"
+// TestCreatePlanPromptReturnsSkillContent verifies that the create-plan prompt
+// handler returns the raw skill content (stripped of Agent Configuration) for
+// non-autonomous HITL cards — identical to the createTaskPromptHandler pattern.
+func TestCreatePlanPromptReturnsSkillContent(t *testing.T) {
+	env := setupMCP(t)
 
-	text := buildCreatePlanDelegationPrompt(cardID, getSkillArgs)
+	createTestCard(t, env, "HITL planned feature", "feature", "high")
 
-	// Step 0: early claim before plan drafting.
-	assert.Contains(t, text, "claim_card")
-	assert.Contains(t, text, cardID)
-	assert.Contains(t, text, "Claim the card immediately")
+	result, err := env.session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "create-plan",
+		Arguments: map[string]string{"card_id": "TEST-001"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Messages)
 
-	// Plan drafting — always inline.
-	assert.Contains(t, text, "Plan Drafting")
-	assert.Contains(t, text, "PLAN_DRAFTED")
-	assert.Contains(t, text, "inline")
+	content, ok := result.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, ok)
 
-	// User approval must NOT be delegated to a sub-agent.
-	assert.Contains(t, text, "User Approval")
-	assert.Contains(t, text, "YOU handle this directly")
-	assert.Contains(t, text, "no sub-agent")
-
-	// Revision loop: orchestrator must re-run planning on user changes.
-	assert.Contains(t, text, "user requests changes")
-
-	// Subtask creation — inline (orchestrator creates cards directly).
-	assert.Contains(t, text, "Subtask Creation")
-	assert.Contains(t, text, "inline")
-	assert.Contains(t, text, "create_card")
-
-	// No Phase 2 sub-agent spawning.
-	assert.NotContains(t, text, "phase-2")
-	assert.NotContains(t, text, "haiku")
-
-	// get_skill args must appear.
-	assert.Contains(t, text, getSkillArgs)
+	// Skill content (stub body) must appear directly in the prompt.
+	assert.Contains(t, content.Text, "Skill instructions here.")
+	// Card context is injected by buildSkillContent.
+	assert.Contains(t, content.Text, "TEST-001")
+	// Workflow preamble must be present.
+	assert.Contains(t, content.Text, "ContextMatrix Workflow Rules")
+	// Agent Configuration section must be stripped — it is orchestrator metadata.
+	assert.NotContains(t, content.Text, "## Agent Configuration")
+	// Old delegation-wrapper text must NOT appear.
+	assert.NotContains(t, content.Text, "Planning Workflow")
+	assert.NotContains(t, content.Text, "Plan Drafting — Always Inline")
+	assert.NotContains(t, content.Text, "YOU handle this directly")
+	assert.NotContains(t, content.Text, "Subtask Creation (inline")
 }
 
 func TestPrompt_ExecuteTask(t *testing.T) {
@@ -1647,14 +1637,19 @@ func TestPrompt_StartWorkflow_NonAutonomous(t *testing.T) {
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
 
-	// Must produce the create-plan delegation prompt (HITL path).
-	assert.Contains(t, content.Text, "Planning Workflow")
-	assert.Contains(t, content.Text, "Plan Drafting")
-	assert.Contains(t, content.Text, "PLAN_DRAFTED")
-	assert.Contains(t, content.Text, "get_skill")
+	// Must produce the create-plan skill content (HITL path — same passthrough
+	// pattern as createTaskPromptHandler and runAutonomousPromptHandler).
+	assert.Contains(t, content.Text, "create-plan.md")
+	assert.Contains(t, content.Text, "Skill instructions here.")
 	assert.Contains(t, content.Text, "TEST-001")
+	assert.Contains(t, content.Text, "ContextMatrix Workflow Rules")
+	// Agent Configuration section must be stripped.
+	assert.NotContains(t, content.Text, "## Agent Configuration")
 	// Must NOT be the autonomous prompt content.
 	assert.NotContains(t, content.Text, "autonomous orchestrator")
+	// Must NOT contain old delegation-wrapper text.
+	assert.NotContains(t, content.Text, "Planning Workflow")
+	assert.NotContains(t, content.Text, "Plan Drafting — Always Inline")
 }
 
 // TestPrompt_StartWorkflow_Autonomous verifies that start-workflow routes to
@@ -2608,4 +2603,288 @@ func TestClaimCard_WithoutProject(t *testing.T) {
 	unmarshalResult(t, result, &got)
 	assert.Equal(t, "agent-1", got.AssignedAgent)
 	assert.Equal(t, "in_progress", got.State)
+}
+
+// TestCreatePlanSkill_AutonomousGates verifies that skills/create-plan.md
+// contains the autonomous-mode conditional branches at all four user-prompt
+// gates: plan-approval, execution, review-approval, and commit/push/PR. This is
+// a regression guard — if the autonomous branches are removed from the skill
+// file, this test will fail.
+func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
+	// Read the real skill file directly. The working directory for go test is
+	// the package directory (internal/mcp), so ../../skills reaches the repo root.
+	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "skills/create-plan.md must be readable")
+	content := string(data)
+
+	// Every gate must call get_card to re-read the autonomous flag.
+	assert.Contains(t, content, "autonomous: true",
+		"create-plan.md must reference autonomous: true")
+
+	// Gate 1 (Phase 2): plan-approval gate — autonomous skips the plan approval prompt.
+	assert.Contains(t, content, "Phase 2: Plan Approval Gate",
+		"create-plan.md must have Phase 2: Plan Approval Gate")
+	assert.Regexp(t, `(?si)Phase 2: Plan Approval Gate.*autonomous: true.*skip this phase`,
+		content,
+		"create-plan.md Phase 2 must have autonomous skip instruction")
+
+	// Gate 2 (Phase 4): execution gate — autonomous skips "Want me to start execution?" prompt.
+	assert.Contains(t, content, "Phase 4: Execution Gate",
+		"create-plan.md must have Phase 4: Execution Gate")
+	assert.Regexp(t, `(?si)Phase 4: Execution Gate.*autonomous: true.*skip this phase`,
+		content,
+		"create-plan.md Phase 4 must have autonomous skip instruction")
+
+	// Gate 3 (Phase 8): review approval gate — autonomous skips "Do you approve this work" prompt.
+	assert.Contains(t, content, "Phase 8: Review Decision Gate",
+		"create-plan.md must have Phase 8: Review Decision Gate")
+	assert.Contains(t, content, "AUTONOMOUS_HALTED",
+		"create-plan.md must emit AUTONOMOUS_HALTED when review cycles are exhausted")
+	assert.Contains(t, content, "increment_review_attempts",
+		"create-plan.md must call increment_review_attempts in the autonomous review gate")
+
+	// Gate 4 (Phase 9): commit/push/PR gate — autonomous skips both prompts.
+	assert.Contains(t, content, "Phase 9: Commit/Push/PR Gate",
+		"create-plan.md must have Phase 9: Commit/Push/PR Gate")
+	// Phase 9 contains autonomous: true reference and commit/push steps.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*autonomous: true`,
+		content,
+		"create-plan.md Phase 9 must reference autonomous: true")
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Auto-commit`,
+		content,
+		"create-plan.md Phase 9 must have auto-commit step")
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*Push the feature branch`,
+		content,
+		"create-plan.md Phase 9 must have push step")
+}
+
+// TestCreatePlanSkill_Phase9CMInteractiveBranches verifies that Phase 9 of
+// skills/create-plan.md contains both the CM_INTERACTIVE=1 auto-commit branch
+// for remote HITL and the local-HITL user prompts. This is a regression guard
+// so that accidental removal of either branch is caught.
+func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
+	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "skills/create-plan.md must be readable")
+	content := string(data)
+
+	// CM_INTERACTIVE=1 branch must be present in Phase 9.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1`,
+		content,
+		"create-plan.md Phase 9 must reference CM_INTERACTIVE=1 for remote HITL")
+
+	// Remote HITL path must run printenv to detect context.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv CM_INTERACTIVE`,
+		content,
+		"create-plan.md Phase 9 must use printenv CM_INTERACTIVE to detect context")
+
+	// Remote HITL path must NOT prompt the user.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE=1.*Do NOT prompt`,
+		content,
+		"create-plan.md Phase 9 remote HITL path must say Do NOT prompt the user")
+
+	// Local HITL path must retain the original "Want me to commit" prompt.
+	assert.Contains(t, content, "Want me to commit these changes?",
+		"create-plan.md Phase 9 must retain local-HITL commit prompt")
+
+	// Local HITL path must retain the original "Want me to push" prompt.
+	assert.Contains(t, content, "Want me to push and create a PR?",
+		"create-plan.md Phase 9 must retain local-HITL push prompt")
+
+	// Local HITL path must be gated on CM_INTERACTIVE being unset or 0.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE.*unset or.*0.*local HITL`,
+		content,
+		"create-plan.md Phase 9 must describe local HITL as CM_INTERACTIVE unset or 0")
+}
+
+// TestCreatePlanSkillIsSelfContained verifies that skills/create-plan.md is a
+// linear Phase 1-10 skill with autonomous rechecks at each HITL gate. This is
+// the primary regression guard ensuring the skill can be executed top-to-bottom
+// by a Remote HITL container agent without an orchestrator wrapper.
+func TestCreatePlanSkillIsSelfContained(t *testing.T) {
+	// Read the real skill file directly. The working directory for go test is
+	// the package directory (internal/mcp), so ../../skills reaches the repo root.
+	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "skills/create-plan.md must be readable")
+	content := string(data)
+
+	// All 10 phases must be present as top-level headings.
+	phases := []string{
+		"Phase 1: Plan Drafting",
+		"Phase 2: Plan Approval Gate",
+		"Phase 3: Subtask Creation",
+		"Phase 4: Execution Gate",
+		"Phase 5: Execution",
+		"Phase 6: Documentation",
+		"Phase 7: Review",
+		"Phase 8: Review Decision Gate",
+		"Phase 9: Commit/Push/PR Gate",
+		"Phase 10: Finalization",
+	}
+	for _, phase := range phases {
+		assert.Contains(t, content, phase,
+			"create-plan.md must contain: "+phase)
+	}
+
+	// Old split-phase heading must not exist.
+	assert.NotContains(t, content, "# After subtasks are created — Execution (orchestrator)",
+		"create-plan.md must not contain the old split-phase heading")
+
+	// PLAN_DRAFTED structured output must be present.
+	assert.Contains(t, content, "PLAN_DRAFTED",
+		"create-plan.md must emit PLAN_DRAFTED structured output")
+	assert.Contains(t, content, "subtask_count",
+		"create-plan.md must include subtask_count in PLAN_DRAFTED output")
+	assert.Contains(t, content, "plan_summary",
+		"create-plan.md must include plan_summary in PLAN_DRAFTED output")
+
+	// Phase 2 (plan approval) must open with get_card autonomous check.
+	assert.Regexp(t, `(?s)Phase 2: Plan Approval Gate.*?get_card`,
+		content,
+		"Phase 2 must open with a get_card call")
+
+	// Phase 4 (execution gate) must open with get_card autonomous check.
+	assert.Regexp(t, `(?s)Phase 4: Execution Gate.*?get_card`,
+		content,
+		"Phase 4 must open with a get_card call")
+
+	// Phase 8 (review decision) must open with get_card autonomous check.
+	assert.Regexp(t, `(?s)Phase 8: Review Decision Gate.*?get_card`,
+		content,
+		"Phase 8 must open with a get_card call")
+
+	// Phase 9 (commit/push/PR) must open with get_card autonomous check.
+	assert.Regexp(t, `(?s)Phase 9: Commit/Push/PR Gate.*?get_card`,
+		content,
+		"Phase 9 must open with a get_card call")
+
+	// Phase 3 must contain subtask dedupe instruction.
+	assert.Regexp(t, `(?s)Phase 3: Subtask Creation.*?non-terminal`,
+		content,
+		"Phase 3 must contain subtask dedupe instruction (non-terminal check)")
+
+	// Rejection loop must not re-fetch the skill.
+	assert.Contains(t, content, "Rejection Loop",
+		"create-plan.md must contain Rejection Loop section")
+	assert.Regexp(t, `(?s)Rejection Loop.*?Do NOT call.*?get_skill`,
+		content,
+		"Rejection Loop must instruct agent NOT to call get_skill recursively")
+
+	// Phase 10 finalization must contain mandatory release_card instruction.
+	assert.Regexp(t, `(?s)Phase 10: Finalization.*?release_card`,
+		content,
+		"Phase 10 must contain release_card call")
+
+	// report_push must be referenced for push scenarios.
+	assert.Contains(t, content, "report_push",
+		"create-plan.md must call report_push on successful push")
+
+	// Phase 5 must force sub-agent spawning for execute-task. Inline execution
+	// would break context isolation and parallel worktree handling, so the
+	// skill MUST explicitly forbid inline even if get_skill returns inline:true.
+	assert.Contains(t, content, "Phase 5: Execution (always sub-agents)",
+		"Phase 5 heading must declare (always sub-agents) discipline")
+	assert.Regexp(t, `(?s)Phase 5: Execution \(always sub-agents\).*?Do NOT execute inline.*?Phase 6`,
+		content,
+		"Phase 5 must forbid inline execution even if inline:true is returned")
+}
+
+// --- promote_to_autonomous tool tests ---
+
+func TestPromoteToAutonomous_MCP(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("flips autonomous flag on a non-autonomous card", func(t *testing.T) {
+		env := setupMCP(t)
+
+		card := createTestCard(t, env, "Promote me", "task", "medium")
+		assert.False(t, card.Autonomous)
+
+		result := callTool(t, env, "promote_to_autonomous", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "human:alice",
+		})
+		require.False(t, result.IsError, "promote_to_autonomous should not error")
+
+		var updated board.Card
+		unmarshalResult(t, result, &updated)
+		assert.True(t, updated.Autonomous, "card must be autonomous after promote")
+
+		// Verify via get_card.
+		getResult := callTool(t, env, "get_card", map[string]any{
+			"project": "test-project",
+			"card_id": card.ID,
+		})
+		require.False(t, getResult.IsError)
+		var fetched board.Card
+		unmarshalResult(t, getResult, &fetched)
+		assert.True(t, fetched.Autonomous)
+		require.Len(t, fetched.ActivityLog, 1)
+		assert.Equal(t, "promoted", fetched.ActivityLog[0].Action)
+		assert.Equal(t, "Promoted to autonomous mode", fetched.ActivityLog[0].Message)
+		assert.Equal(t, "human:alice", fetched.ActivityLog[0].Agent)
+	})
+
+	t.Run("idempotent: already-autonomous card succeeds without extra log entry", func(t *testing.T) {
+		env := setupMCP(t)
+
+		// Create card with autonomous already true (requires service-layer direct call).
+		card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title:     "Already autonomous",
+			Type:      "task",
+			Priority:  "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+
+		result := callTool(t, env, "promote_to_autonomous", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "human:bob",
+		})
+		require.False(t, result.IsError, "idempotent promote must not error")
+
+		var updated board.Card
+		unmarshalResult(t, result, &updated)
+		assert.True(t, updated.Autonomous)
+		assert.Empty(t, updated.ActivityLog, "no extra log entry for idempotent promote")
+	})
+
+	t.Run("resolves project from card ID when project omitted", func(t *testing.T) {
+		env := setupMCP(t)
+
+		card := createTestCard(t, env, "No project", "task", "medium")
+
+		result := callTool(t, env, "promote_to_autonomous", map[string]any{
+			"card_id":  card.ID,
+			"agent_id": "human:carol",
+		})
+		require.False(t, result.IsError, "promote must work without explicit project")
+
+		var updated board.Card
+		unmarshalResult(t, result, &updated)
+		assert.True(t, updated.Autonomous)
+	})
+
+	t.Run("errors on done card", func(t *testing.T) {
+		env := setupMCP(t)
+
+		card := createTestCard(t, env, "Done card", "task", "medium")
+
+		// Transition to done.
+		_, err := env.svc.TransitionTo(ctx, "test-project", card.ID, "in_progress")
+		require.NoError(t, err)
+		_, err = env.svc.TransitionTo(ctx, "test-project", card.ID, "done")
+		require.NoError(t, err)
+
+		result := callTool(t, env, "promote_to_autonomous", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "human:alice",
+		})
+		assert.True(t, result.IsError, "promote must error for done card")
+	})
 }

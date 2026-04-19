@@ -9,9 +9,7 @@ interface CardPanelAgentProps {
   canRelease: boolean;
   onClaim: () => void;
   onRelease: () => void;
-  canRun: boolean;
   canStop: boolean;
-  onRun: () => Promise<void>;
   onStop: () => Promise<void>;
 }
 
@@ -21,18 +19,10 @@ export function CardPanelAgent({
   canRelease,
   onClaim,
   onRelease,
-  canRun,
   canStop,
-  onRun,
   onStop,
 }: CardPanelAgentProps) {
-  const [runLoading, setRunLoading] = useState(false);
   const [stopLoading, setStopLoading] = useState(false);
-
-  const handleRun = async () => {
-    setRunLoading(true);
-    try { await onRun(); } finally { setRunLoading(false); }
-  };
 
   const handleStop = async () => {
     if (!window.confirm('Stop this task? The container will be destroyed and uncommitted work discarded.')) return;
@@ -75,16 +65,6 @@ export function CardPanelAgent({
               className="px-3 py-1.5 rounded bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90 transition-opacity text-sm"
             >
               Release
-            </button>
-          )}
-          {canRun && (
-            <button
-              type="button"
-              onClick={handleRun}
-              disabled={runLoading}
-              className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
-            >
-              {runLoading ? 'Starting...' : 'Run Now'}
             </button>
           )}
           {canStop && (

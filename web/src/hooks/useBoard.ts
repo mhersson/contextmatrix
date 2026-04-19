@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
-import { useSSE } from './useSSE';
+import { useSSEBus } from './useSSEBus';
 
 interface UseBoardResult {
   config: ProjectConfig | null;
@@ -128,10 +128,11 @@ export function useBoard(
     [project, fetchData]
   );
 
-  const { connected, error: sseError } = useSSE({
-    project,
-    onEvent: handleEvent,
-  });
+  const { subscribe, connected, error: sseError } = useSSEBus();
+
+  useEffect(() => {
+    return subscribe(handleEvent);
+  }, [subscribe, handleEvent]);
 
   const updateCardLocally = useCallback((cardId: string, updates: Partial<Card>) => {
     setCards((prev) =>

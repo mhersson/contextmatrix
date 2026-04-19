@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -156,19 +158,21 @@ func TestRunCard_RunnerDisabled(t *testing.T) {
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
 }
 
-func TestRunCard_CardNotAutonomous(t *testing.T) {
+func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Create a non-autonomous card.
+	// Create a non-autonomous card — should now succeed (autonomous gate removed).
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Normal task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
+	var receivedPayload runner.TriggerPayload
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -181,6 +185,7 @@ func TestRunCard_CardNotAutonomous(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
+	// Non-autonomous card with empty body now succeeds with Interactive=false.
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
@@ -188,10 +193,13 @@ func TestRunCard_CardNotAutonomous(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	// Any "Run now" trigger (including non-autonomous) should auto-enable feature_branch/create_pr.
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, updated.FeatureBranch, "run now should auto-enable feature_branch")
+	assert.True(t, updated.CreatePR, "run now should auto-enable create_pr")
+	assert.False(t, receivedPayload.Interactive, "Interactive should be false")
 }
 
 func TestRunCard_CardNotInTodo(t *testing.T) {
@@ -972,4 +980,778 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+}
+
+// --- POST /api/projects/{project}/cards/{id}/message ---
+
+func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(), *board.Card) {
+	t.Helper()
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Running task", Type: "task", Priority: "medium",
+		Autonomous: true, FeatureBranch: true,
+	})
+	require.NoError(t, err)
+	// Set runner_status to running.
+	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+	return svc, bus, cleanup, card
+}
+
+func TestMessageCard_HumanOnly(t *testing.T) {
+	svc, bus, cleanup, card := newRunningCardSetup(t)
+	defer cleanup()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := strings.NewReader(`{"content":"hello"}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+}
+
+func TestMessageCard_RunnerDisabled(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := strings.NewReader(`{"content":"hello"}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
+}
+
+func TestMessageCard_NotRunning(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	for _, status := range []string{"", "queued", "failed", "killed"} {
+		t.Run("status="+status, func(t *testing.T) {
+			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+				Title: "Task " + status, Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+			if status != "" {
+				_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, status, "set status")
+				require.NoError(t, err)
+			}
+
+			body := strings.NewReader(`{"content":"hello"}`)
+			req, _ := http.NewRequest("POST",
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusConflict, resp.StatusCode)
+			var apiErr APIError
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
+		})
+	}
+}
+
+func TestMessageCard_EmptyContent(t *testing.T) {
+	svc, bus, cleanup, card := newRunningCardSetup(t)
+	defer cleanup()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := strings.NewReader(`{"content":""}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+}
+
+func TestMessageCard_ContentTooLarge(t *testing.T) {
+	svc, bus, cleanup, card := newRunningCardSetup(t)
+	defer cleanup()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Content of 8193 bytes (maxMessageContentSize + 1).
+	oversized := strings.Repeat("x", maxMessageContentSize+1)
+	bodyJSON := fmt.Sprintf(`{"content":%q}`, oversized)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message",
+		strings.NewReader(bodyJSON))
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
+
+func TestMessageCard_HappyPath(t *testing.T) {
+	svc, bus, cleanup, card := newRunningCardSetup(t)
+	defer cleanup()
+
+	var receivedPayload runner.MessagePayload
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := strings.NewReader(`{"content":"please clarify the task"}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	var result messageResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.True(t, result.OK)
+	// UUID format check: 8-4-4-4-12 hex digits.
+	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, result.MessageID)
+
+	// Verify the forwarded payload.
+	assert.Equal(t, card.ID, receivedPayload.CardID)
+	assert.Equal(t, "test-project", receivedPayload.Project)
+	assert.Equal(t, result.MessageID, receivedPayload.MessageID)
+	assert.Equal(t, "please clarify the task", receivedPayload.Content)
+}
+
+func TestMessageCard_WebhookFailure(t *testing.T) {
+	svc, bus, cleanup, card := newRunningCardSetup(t)
+	defer cleanup()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"runner error"}`))
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := strings.NewReader(`{"content":"hello"}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+}
+
+// --- POST /api/projects/{project}/cards/{id}/promote ---
+
+func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Card {
+	t.Helper()
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Interactive task", Type: "task", Priority: "medium",
+		Autonomous: false,
+	})
+	require.NoError(t, err)
+	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
+	require.NoError(t, err)
+	return card
+}
+
+func TestPromoteCard_HumanOnly(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+}
+
+func TestPromoteCard_NotRunning(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Not running task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	// card has no runner_status (empty) — not running.
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
+}
+
+func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+	// Card already autonomous and running.
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Already autonomous", Type: "task", Priority: "medium",
+		Autonomous: true, FeatureBranch: true, CreatePR: true,
+	})
+	require.NoError(t, err)
+	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "running")
+	require.NoError(t, err)
+
+	var promoteCalled int
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			promoteCalled++
+		}
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	// Guard: already-autonomous card short-circuits before calling the runner webhook.
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var respCard board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
+	assert.True(t, respCard.Autonomous, "card should remain autonomous")
+	assert.Equal(t, 0, promoteCalled, "idempotency guard must skip runner webhook when card is already autonomous")
+
+	// No extra log entry added (idempotent).
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	for _, entry := range updated.ActivityLog {
+		assert.NotEqual(t, "promoted", entry.Action, "idempotent promote must not add a log entry")
+	}
+}
+
+func TestPromoteCard_HappyPath(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+	card := newInteractiveRunningCard(t, svc)
+
+	var promoteCalled int
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			promoteCalled++
+		}
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var respCard board.Card
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
+	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
+	assert.True(t, respCard.FeatureBranch, "card should have feature_branch after promote")
+	assert.True(t, respCard.CreatePR, "card should have create_pr after promote")
+	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
+
+	// Verify flags and log entry are persisted.
+	ctx := context.Background()
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, updated.Autonomous)
+	assert.True(t, updated.FeatureBranch)
+	assert.True(t, updated.CreatePR)
+
+	// Verify the activity log contains the promote entry with the right agent.
+	var found bool
+	for _, entry := range updated.ActivityLog {
+		if entry.Action == "promoted" {
+			found = true
+			assert.Equal(t, "human:alice", entry.Agent, "promote log agent must match X-Agent-ID")
+			assert.Equal(t, "Promoted to autonomous mode", entry.Message)
+		}
+	}
+	assert.True(t, found, "promote activity log entry must be present")
+}
+
+func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
+	// The new design: PromoteToAutonomous sets the flag first (server-authoritative).
+	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
+	// autonomous flag — the flag flip already committed to git and is the source of truth.
+	// The runner-side handlePromote is responsible for failing closed (no stdin write).
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"promote failed"}`))
+			return
+		}
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+
+	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
+	// delivery problem, not a flag problem). The runner-side handlePromote will see
+	// the flag is now set on the card and can retry or the human can re-promote.
+	ctx := context.Background()
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, updated.Autonomous, "autonomous flag must remain set after webhook failure")
+}
+
+// --- runCard interactive extensions ---
+
+func TestRunCard_Interactive(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("non-autonomous with interactive body succeeds", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		var receivedPayload runner.TriggerPayload
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		defer mockRunner.Close()
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Non-auto interactive", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		body := strings.NewReader(`{"interactive":true}`)
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
+		// HITL run should auto-enable feature_branch/create_pr just like autonomous runs.
+		updated, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, updated.FeatureBranch, "HITL run should auto-enable feature_branch")
+		assert.True(t, updated.CreatePR, "HITL run should auto-enable create_pr")
+	})
+
+	t.Run("autonomous with empty body auto-enables feature_branch and create_pr", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		var receivedPayload runner.TriggerPayload
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		defer mockRunner.Close()
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Autonomous task legacy", Type: "task", Priority: "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.False(t, receivedPayload.Interactive, "Interactive should be false")
+		// Autonomous card with empty body should auto-enable feature_branch/create_pr.
+		updated, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, updated.FeatureBranch, "autonomous card should auto-enable feature_branch")
+		assert.True(t, updated.CreatePR, "autonomous card should auto-enable create_pr")
+	})
+
+	t.Run("autonomous with interactive body auto-enables feature_branch/create_pr", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		var receivedPayload runner.TriggerPayload
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		defer mockRunner.Close()
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Autonomous interactive task", Type: "task", Priority: "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+
+		body := strings.NewReader(`{"interactive":true}`)
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
+		// Autonomous+interactive should auto-enable feature_branch/create_pr like all Run now triggers.
+		updated, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, updated.FeatureBranch, "autonomous+interactive should auto-enable feature_branch")
+		assert.True(t, updated.CreatePR, "autonomous+interactive should auto-enable create_pr")
+	})
+
+	t.Run("HITL run on card with feature_branch already true does not redundantly patch", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		var triggerCount int
+		var receivedPayload runner.TriggerPayload
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			triggerCount++
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		defer mockRunner.Close()
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		})
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		// Create a card that already has feature_branch=true.
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Already feature branched", Type: "task", Priority: "medium",
+			FeatureBranch: true,
+		})
+		require.NoError(t, err)
+
+		body := strings.NewReader(`{"interactive":true}`)
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", body)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
+		// Patch is skipped when feature_branch is already true — flags preserved as-is.
+		updated, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, updated.FeatureBranch, "feature_branch should remain true")
+		assert.False(t, updated.CreatePR, "create_pr stays false — patch was skipped since feature_branch was already set")
+		// Exactly one trigger webhook should have fired.
+		assert.Equal(t, 1, triggerCount, "runner should be triggered exactly once")
+	})
+}
+
+// TestPromoteCard_RecursionGuard verifies that when the runner's /promote handler
+// calls back into CM's /promote endpoint (simulating the original infinite-recursion
+// bug), the idempotency guard on CM's side short-circuits on the second call and
+// does NOT forward the webhook again.
+//
+// Without the guard this test would spin up goroutines indefinitely until the
+// 2-second client deadline fires; with the guard the top-level call returns 200
+// and the fake runner receives exactly one POST /promote.
+func TestPromoteCard_RecursionGuard(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a non-autonomous card in the "running" state (ready to be promoted).
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Interactive task for recursion test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session")
+	require.NoError(t, err)
+
+	// cmURL is set after the CM server starts; the fake runner closure captures the pointer.
+	var cmURL atomic.Value
+
+	// promoteCallCount tracks how many times the fake runner's /promote handler fires.
+	var promoteCallCount atomic.Int32
+
+	// Fake runner: when it receives POST /promote, it calls back into CM's /promote
+	// endpoint synchronously — this reproduces the original buggy runner behaviour.
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/promote" {
+			count := promoteCallCount.Add(1)
+
+			// Only call back on the first invocation to avoid spinning up a truly
+			// unbounded number of goroutines in the "without guard" scenario.
+			// One callback is enough to demonstrate the recursion.
+			if count == 1 {
+				base, _ := cmURL.Load().(string)
+				if base != "" {
+					callbackURL := base + "/api/projects/test-project/cards/" + card.ID + "/promote"
+					// Use a short per-call timeout so the test fails fast if the guard is absent.
+					callbackClient := &http.Client{Timeout: 500 * time.Millisecond}
+					cbReq, _ := http.NewRequest("POST", callbackURL, nil)
+					// No X-Agent-ID → treated as human (no agent prefix guard needed here).
+					cbResp, cbErr := callbackClient.Do(cbReq)
+					if cbErr == nil && cbResp != nil {
+						_ = cbResp.Body.Close()
+					}
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer fakeRunner.Close()
+
+	runnerClient := runner.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{
+			Enabled:   true,
+			URL:       fakeRunner.URL,
+			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			PublicURL: "http://localhost:8080",
+		},
+	})
+	cmServer := httptest.NewServer(router)
+	defer cmServer.Close()
+	cmURL.Store(cmServer.URL)
+
+	// Issue the top-level promote with a 2-second deadline.
+	// Without the guard the fake runner's callback will call CM again → CM calls the
+	// runner again → the fan-out continues until the 2-second deadline fires.
+	// With the guard CM sees autonomous==true on the callback and short-circuits.
+	topLevelClient := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequest("POST",
+		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+
+	resp, err := topLevelClient.Do(req)
+	require.NoError(t, err, "top-level promote must not time out (guard must short-circuit the callback)")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "top-level promote must return 200")
+
+	// The fake runner must have been called exactly once — the callback from the runner
+	// must NOT have triggered a second outbound webhook from CM.
+	assert.Equal(t, int32(1), promoteCallCount.Load(),
+		"fake runner must receive exactly one POST /promote; guard must block the recursive call")
 }

@@ -1,6 +1,6 @@
 # REST API Reference
 
-```
+```text
 GET    /api/projects
 POST   /api/projects                                     # create project
 GET    /api/projects/{project}
@@ -30,9 +30,11 @@ POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
+POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
+POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed)
-GET    /api/runner/logs?project=                      # SSE log stream proxy (runner must be enabled)
+GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner must be enabled)
 
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
@@ -70,23 +72,23 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 
 **Error codes relevant to vetting:**
 
-| Code                | HTTP | When                                                                                       |
-| ------------------- | ---- | ------------------------------------------------------------------------------------------ |
-| `CARD_NOT_VETTED`   | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`. |
-| `HUMAN_ONLY_FIELD`  | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, `create_pr`, or `base_branch`. |
+| Code               | HTTP | When                                                                                                                      |
+| ------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------- |
+| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                 |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, `create_pr`, or `base_branch`. |
 
 ### Card list query parameters
 
-| Parameter     | Values          | Description                                                                                     |
-| ------------- | --------------- | ----------------------------------------------------------------------------------------------- |
-| `state`       | state name      | Filter by card state                                                                            |
-| `type`        | type name       | Filter by card type                                                                             |
-| `label`       | label string    | Filter cards that have this label                                                               |
-| `agent`       | agent ID        | Filter by `assigned_agent`                                                                      |
-| `parent`      | card ID         | Filter by parent card                                                                           |
-| `priority`    | priority name   | Filter by priority                                                                              |
-| `external_id` | external ID     | Filter by `source.external_id` (idempotent import check)                                       |
-| `vetted`      | `true` / `false`| Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
+| Parameter     | Values           | Description                                                                                    |
+| ------------- | ---------------- | ---------------------------------------------------------------------------------------------- |
+| `state`       | state name       | Filter by card state                                                                           |
+| `type`        | type name        | Filter by card type                                                                            |
+| `label`       | label string     | Filter cards that have this label                                                              |
+| `agent`       | agent ID         | Filter by `assigned_agent`                                                                     |
+| `parent`      | card ID          | Filter by parent card                                                                          |
+| `priority`    | priority name    | Filter by priority                                                                             |
+| `external_id` | external ID      | Filter by `source.external_id` (idempotent import check)                                       |
+| `vetted`      | `true` / `false` | Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
 
 ## Agent Endpoints
 
@@ -138,10 +140,10 @@ Requires a GitHub token to be configured (`github.token` in `config.yaml` or
 
 **Error codes:**
 
-| Code              | HTTP | When                                              |
-| ----------------- | ---- | ------------------------------------------------- |
-| `NO_GITHUB_TOKEN` | 503  | `github.token` is not configured                  |
-| `NO_GITHUB_REPO`  | 404  | Project `repo` is not a GitHub repository URL     |
+| Code              | HTTP | When                                          |
+| ----------------- | ---- | --------------------------------------------- |
+| `NO_GITHUB_TOKEN` | 503  | `github.token` is not configured              |
+| `NO_GITHUB_REPO`  | 404  | Project `repo` is not a GitHub repository URL |
 
 ### GET /api/projects/{project}/usage
 
@@ -215,8 +217,8 @@ Returns:
 
 ### POST /api/sync
 
-Trigger a git pull on the boards repository. Returns 503 if sync is disabled
-(no remote configured).
+Trigger a git pull on the boards repository. Returns 503 if sync is disabled (no
+remote configured).
 
 ### GET /api/sync
 
@@ -233,11 +235,79 @@ protocol, HMAC signing details, and runner configuration.
 
 ### POST /api/projects/{project}/cards/{id}/run
 
-Trigger remote execution for an autonomous card. Human-only (rejects
-`X-Agent-ID` without `human:` prefix). Requires card to be in `todo` state with
-`autonomous: true` and runner enabled globally + per-project.
+Trigger remote execution for a card. Human-only (rejects `X-Agent-ID` without
+`human:` prefix). Requires card to be in `todo` state and runner enabled
+globally + per-project. The `autonomous` flag is **not** required.
+
+Accepts an optional JSON body:
+
+```json
+{ "interactive": true }
+```
+
+When `interactive` is `true`, the container starts in Human-in-the-Loop (HITL)
+mode — the runner writes a priming stream-json user message to the container's
+stdin after start, which instructs Claude to invoke `get_skill(create-plan)`
+immediately. The user provides approval at the skill's built-in gates (plan
+approval, subtask execution decision, review) via the chat input.
+
+Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
+enabled on the card for all "Run Now" triggers (both autonomous and HITL).
 
 Returns the updated card with `runner_status: "queued"`.
+
+### POST /api/projects/{project}/cards/{id}/message
+
+Send a chat message to a container running in interactive mode. Human-only.
+Requires `runner_status: "running"`.
+
+```json
+{ "content": "Please focus on the authentication module first." }
+```
+
+- 422 if `content` is empty
+- 413 `CONTENT_TOO_LARGE` if `content` exceeds 8 KiB
+- 409 `RUNNER_NOT_RUNNING` if the card is not running
+
+Returns 202 with:
+
+```json
+{ "ok": true, "message_id": "uuid-v4-string" }
+```
+
+### POST /api/projects/{project}/cards/{id}/promote
+
+Promote an interactive session to autonomous mode. Human-only. Requires
+`runner_status: "running"`.
+
+The endpoint performs two steps in order:
+
+1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous`
+   flag to `true`, append an activity log entry (`action=promoted`), commit the
+   change to the boards git repository, and publish a `CardUpdated` SSE event.
+   This step is **idempotent** — if the card is already autonomous, it returns
+   the current card without writing a new log entry or commit.
+2. Sends a `/promote` webhook to the runner. The runner then writes a canned
+   stdin message to the container instructing Claude Code to check the card with
+   `get_card` at its next gate and continue on the autonomous branch.
+
+`feature_branch` and `create_pr` are also set to `true` if not already enabled.
+
+**Error responses:**
+
+- 403 `HUMAN_ONLY_FIELD` if the caller is not a human agent
+- 409 `RUNNER_NOT_RUNNING` if `runner_status` is not `"running"`
+- 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
+  `not_planned`) — the flag flip itself is rejected before any webhook is sent
+- 502 `RUNNER_ERROR` if the runner webhook fails — the autonomous flag flip is
+  **not** reverted; the card is permanently promoted
+
+Returns 200 with the updated card.
+
+```bash
+curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promote \
+  -H "X-Agent-ID: human:alice"
+```
 
 ### POST /api/projects/{project}/cards/{id}/stop
 
@@ -251,13 +321,31 @@ Stop all running remote executions in a project. Human-only. Returns
 
 ### GET /api/runner/logs
 
-SSE proxy that streams live log entries from the runner. Only available when
-runner is enabled (`runner.enabled: true` in config). Not authenticated — the
-browser connects directly; HMAC signing is performed server-side toward the
-runner.
+SSE log stream. Only available when runner is enabled (`runner.enabled: true` in
+config). Not authenticated — the browser connects directly; HMAC signing is
+performed server-side toward the runner.
 
-**Query parameter:** `?project=<name>` — filters entries to a single project.
-Omit to receive all projects.
+**Query parameters:**
+
+| Parameter | Required    | Description                                 |
+| --------- | ----------- | ------------------------------------------- |
+| `project` | recommended | Filter entries to a single project          |
+| `card_id` | optional    | Enable card-scoped session mode (see below) |
+
+**Two modes, selected by `card_id`:**
+
+- **Card-scoped** (`?project=P&card_id=X`): connects to the server-side session
+  manager. The server first replays all buffered events (snapshot), then tails
+  live events. A client that reconnects receives all events from the start of
+  the session, including any HITL questions. The session exists from when the
+  card enters `running` until a terminal status (`failed`, `killed`,
+  `completed`). Returns 204 if the session manager is unavailable.
+- **Project-scoped** (`?project=P`, no `card_id`): connects to the server-side
+  session manager for the project. The server first replays all buffered project
+  events (snapshot), then tails live events — identical replay guarantee as the
+  card-scoped path. Used by the Runner Console panel. A reconnecting client
+  receives all events buffered since the console was first opened. Returns 204
+  if the session manager is unavailable.
 
 **Response:** `Content-Type: text/event-stream`. Each event carries a JSON
 `LogEntry`:
@@ -272,14 +360,14 @@ Omit to receive all projects.
 }
 ```
 
-`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`.
+`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`, `user`,
+`terminal` (session ended), `dropped` (events were evicted from the buffer).
 
-Keepalive comments (`: keepalive`) are forwarded every 15 seconds. The
-connection is closed when the browser disconnects, which in turn cancels the
-upstream request to the runner.
+The connection is closed when the browser disconnects or the session receives a
+terminal event.
 
-See [`docs/remote-execution.md`](remote-execution.md) for the full log
-streaming architecture and `LogEntry` type details.
+See [`docs/remote-execution.md`](remote-execution.md) for the full log streaming
+architecture, `LogEntry` type details, and session manager configuration.
 
 ### POST /api/runner/status
 

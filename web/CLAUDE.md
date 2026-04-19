@@ -10,7 +10,14 @@
 - Files: `PascalCase.tsx` for components, `useX.ts` for hooks, `types/index.ts`
   for shared types.
 - Component size limit: ~150 lines. Split if larger.
-- SSE: `EventSource` with exponential backoff reconnect (max 30s).
+- SSE: one shared `EventSource('/api/events')` owned by `SSEProvider`
+  (`web/src/hooks/useSSEBus.tsx`). Consumers call `useSSEBus()` and register
+  handlers via `subscribe(onEvent): () => void` inside a `useEffect`; the return
+  value is the unsubscribe cleanup. Exponential-backoff reconnect (1s → 30s max)
+  lives in the provider. Do not open additional `EventSource('/api/events')`
+  connections — Firefox cancels in-flight SSE requests to the same origin with
+  `NS_BINDING_ABORTED` when too many connections hit concurrently (see
+  `docs/gotchas.md`).
 - `vite.config.ts` must proxy `/api` → `http://localhost:8080` for dev mode.
 - No `localStorage` usage except: theme preference, human agent ID, last
   selected project, collapsed column/card state.
@@ -79,6 +86,78 @@ throughout all components. Do not hardcode hex values in components.
 - Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
   active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
 
+## CardPanel active-session layout
+
+The split layout and session chat are **HITL-only**. Both are gated on a
+derived boolean:
+
+```ts
+const isHITLRunning = card.runner_status === 'running' && !card.autonomous;
+```
+
+When `isHITLRunning` is true, `CardPanel` switches from its normal
+single-scroll body to a **split layout** that gives the Session Chat maximum
+vertical space. When false (autonomous run, idle, or any other state),
+the single-body layout is used and `CardChat` renders nothing.
+
+### Split-body structure (HITL runs only)
+
+```
+<div data-testid="body-split">          flex flex-col flex-1 min-h-0
+  <div data-testid="body-top-section">  overflow-y-auto max-h-[50%] — Agent, Description, Metadata, Activity
+  <div data-testid="body-chat-region">  flex-1 min-h-0 — CardChat fills remaining height
+```
+
+Autonomous runs (`card.autonomous === true`) always use the single-scroll
+wrapper (`data-testid="body-single"`) even while `runner_status === 'running'`,
+because their chat region would otherwise be empty.
+
+`CardChat` returns null (renders nothing) when
+`card.runner_status !== 'running' || card.autonomous`. This hides the log
+panel, the textarea, the Send button, and the "Switch to Autonomous" button
+together. When a HITL→Auto promotion occurs mid-run, `card.autonomous` flips
+to `true`, the component re-renders, and the entire chat UI disappears
+immediately.
+
+`CardChat` root is `flex flex-col h-full`; its log container is
+`flex-1 min-h-[60px]` (not `max-h-[200px]`), so it expands to fill the chat
+region. The input row and action buttons stay pinned at their natural height
+below the log.
+
+### Collapsible Description, Labels, and Automation sections
+
+All three sections have a chevron toggle button beside their label. The chevron
+uses the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
+`M5 15l7-7 7 7` expanded) with `text-[var(--grey1)] hover:text-[var(--fg)]`
+styling.
+
+**Auto-collapse behaviour:** a `useEffect` in `CardPanel` tracks
+`isHITLRunning` via `prevIsHITLRunningRef` (previous value) and fires only on
+transitions of that boolean:
+
+- `false → true` (entering HITL-running): sets `descriptionCollapsed`,
+  `labelsCollapsed`, and `automationCollapsed` all to `true`.
+- `true → false` (leaving HITL-running, including a HITL→Auto promotion
+  mid-run): resets all three to `false`.
+
+Auto-mode entry and exit never trigger a collapse because `isHITLRunning`
+stays false throughout.
+
+Initial state is set via `useState(initialIsHITLRunning)` — mounting into an
+already-running HITL session starts collapsed without waiting for a transition.
+The `useEffect` only fires on changes, so the initial mount value is handled
+by `useState` directly.
+
+Tracking via ref (not just the current value) ensures that manual re-expands
+during an active session survive re-renders while the card stays `running`.
+
+`CardPanelMetadata` receives `automationCollapsed: boolean`,
+`onToggleAutomation: () => void`, `labelsCollapsed: boolean`, and
+`onToggleLabels: () => void` props. It owns the Automation and Labels label +
+chevron rows and wraps their respective content on those props. The internal
+Automation label inside `AutomationCheckboxes` was removed to avoid duplication.
+Labels uses ARIA labels `Expand labels` / `Collapse labels`.
+
 ## Runner Console
 
 The Runner Console is a live log panel that streams output from
@@ -144,7 +223,7 @@ interference on touch devices.
 
 | File | Role |
 |---|---|
-| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000 }`. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
+| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000, cardId? }`. When `cardId` is set, connects to the card-scoped session endpoint (`?project=P&card_id=X`). Without `cardId`, connects to the project-scoped session endpoint (`?project=P`). Both paths replay the server-side snapshot on connect so no events are lost across reconnects. Ring buffer (drops oldest when full). Exponential backoff reconnect (1s → 30s max). Returns `{ logs, connected, error, clear }`. |
 | `web/src/hooks/useResizeDivider.ts` | Pointer-event-based resize hook. Returns `{ boardPercent, isDragging, handleProps }`. Spread `handleProps` onto the divider element. |
 | `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
 | `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |
@@ -153,7 +232,7 @@ interference on touch devices.
 ### LogEntry type (`types/index.ts`)
 
 ```typescript
-export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system';
+export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system' | 'user';
 
 export interface LogEntry {
   ts: string;        // ISO timestamp (matches Go json:"ts" tag)
@@ -175,6 +254,7 @@ The `project` field sent by the runner is not included in the frontend
 | `tool_call` | `--aqua` |
 | `stderr` | `--yellow` |
 | `system` | `--green` |
+| `user` | `--blue` |
 
 Timestamps use `--grey1`. Card ID badges use a deterministic colour hash over
 `--blue`, `--purple`, `--aqua`, `--orange`, `--yellow`.

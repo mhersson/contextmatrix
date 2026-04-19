@@ -7,6 +7,7 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
+import { CardChat } from './CardChat';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // Approximate height in px of the panel content above the editor on mobile
@@ -55,7 +56,7 @@ interface CardPanelProps {
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
   onPromptAgentId: () => string | null;
-  onRunCard: () => Promise<void>;
+  onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
 
@@ -77,6 +78,14 @@ export function CardPanel({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+  // Initialize collapsed state based on whether we start in HITL-running mode.
+  const initialIsHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+  const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
+  const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
+  const [labelsCollapsed, setLabelsCollapsed] = useState(initialIsHITLRunning);
+  // Tracks previous "HITL running" state: running AND not autonomous.
+  // Promotion mid-run (HITL → auto) is a true→false transition → sections expand.
+  const prevIsHITLRunningRef = useRef<boolean>(initialIsHITLRunning);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState(false);
@@ -89,6 +98,28 @@ export function CardPanel({
   useEffect(() => {
     setEditedCard(card);
   }, [card]);
+
+  // Auto-collapse Description and Automation when entering HITL running mode
+  // (runner_status === 'running' AND NOT autonomous).
+  // Expand both when leaving HITL running mode (including promotion mid-run).
+  // Use a ref for previous HITL-running state so we only react to transitions,
+  // not every re-render, which would overwrite any manual re-expand the user makes.
+  useEffect(() => {
+    const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+    const prev = prevIsHITLRunningRef.current;
+    if (prev !== isHITLRunning) {
+      if (isHITLRunning) {
+        setDescriptionCollapsed(true);
+        setAutomationCollapsed(true);
+        setLabelsCollapsed(true);
+      } else {
+        setDescriptionCollapsed(false);
+        setAutomationCollapsed(false);
+        setLabelsCollapsed(false);
+      }
+      prevIsHITLRunningRef.current = isHITLRunning;
+    }
+  }, [card.runner_status, card.autonomous]);
 
   useEffect(() => {
     if (!config.remote_execution?.enabled) return;
@@ -264,6 +295,91 @@ export function CardPanel({
     }
   };
 
+  const canRun =
+    config.remote_execution?.enabled !== false &&
+    card.state === 'todo' &&
+    (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
+
+  // Split layout only for HITL sessions (running AND not autonomous).
+  // Autonomous runs use the single-body layout — the chat region is unused there.
+  const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+
+  const body = (
+    <>
+      <CardPanelAgent
+        card={card}
+        canClaim={!card.assigned_agent}
+        canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
+        onClaim={handleClaim}
+        onRelease={handleRelease}
+        canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
+        onStop={onStopCard}
+      />
+
+      <div ref={editorContainerRef} data-color-mode={theme}>
+        <div className="flex items-center gap-1 mb-1">
+          <label className="text-xs text-[var(--grey1)]">Description</label>
+          <button
+            onClick={() => setDescriptionCollapsed((v) => !v)}
+            className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+            aria-label={descriptionCollapsed ? 'Expand description' : 'Collapse description'}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d={descriptionCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+            </svg>
+          </button>
+        </div>
+        {!descriptionCollapsed && (
+          <MDEditor
+            value={editedCard.body}
+            onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
+            preview="edit"
+            height={editorHeight}
+            visibleDragbar={false}
+          />
+        )}
+      </div>
+
+      <CardPanelMetadata
+        card={card}
+        editedLabels={editedCard.labels}
+        onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
+        onSubtaskClick={onSubtaskClick}
+        editedAutonomous={editedCard.autonomous ?? false}
+        editedFeatureBranch={editedCard.feature_branch ?? false}
+        editedCreatePR={editedCard.create_pr ?? false}
+        onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
+        onFeatureBranchChange={(v) => setEditedCard((prev) => ({
+          ...prev,
+          feature_branch: v,
+          create_pr: v ? prev.create_pr : false,
+        }))}
+        onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
+        editedVetted={editedCard.vetted ?? false}
+        onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
+        baseBranch={editedCard.base_branch}
+        onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
+        branches={branches}
+        branchesLoading={branchesLoading}
+        branchesError={branchesError}
+        canRun={canRun}
+        onRun={async () => {
+          if (isDirty) {
+            await handleSave();
+          }
+          await onRunCard(!(editedCard.autonomous ?? false));
+        }}
+        automationCollapsed={automationCollapsed}
+        onToggleAutomation={() => setAutomationCollapsed((v) => !v)}
+        labelsCollapsed={labelsCollapsed}
+        onToggleLabels={() => setLabelsCollapsed((v) => !v)}
+      />
+
+      <CardPanelActivity activityLog={card.activity_log} />
+    </>
+  );
+
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
@@ -282,56 +398,23 @@ export function CardPanel({
           onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
         />
 
-        <div className="p-4 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
-          <CardPanelAgent
-            card={card}
-            canClaim={!card.assigned_agent}
-            canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
-            onClaim={handleClaim}
-            onRelease={handleRelease}
-            canRun={!!card.autonomous && card.state === 'todo' && (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed') && config.remote_execution?.enabled !== false}
-            canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
-            onRun={onRunCard}
-            onStop={onStopCard}
-          />
+        {isHITLRunning ? (
+          <div className="flex flex-col flex-1 min-h-0" data-testid="body-split">
+            {/* Top scroll region — capped so chat always gets at least half the panel */}
+            <div className="overflow-y-auto overflow-x-hidden p-4 space-y-4 max-h-[50%] min-h-0" data-testid="body-top-section">
+              {body}
+            </div>
 
-          <div ref={editorContainerRef} data-color-mode={theme}>
-            <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
-            <MDEditor
-              value={editedCard.body}
-              onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
-              preview="edit"
-              height={editorHeight}
-              visibleDragbar={false}
-            />
+            {/* Bottom chat region — fills remaining height */}
+            <div className="flex-1 min-h-0 flex flex-col p-4 pt-0" data-testid="body-chat-region">
+              <CardChat card={card} />
+            </div>
           </div>
-
-          <CardPanelMetadata
-            card={card}
-            editedLabels={editedCard.labels}
-            onLabelsChange={(labels) => setEditedCard((prev) => ({ ...prev, labels }))}
-            onSubtaskClick={onSubtaskClick}
-            editedAutonomous={editedCard.autonomous ?? false}
-            editedFeatureBranch={editedCard.feature_branch ?? false}
-            editedCreatePR={editedCard.create_pr ?? false}
-            onAutonomousChange={(v) => setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))}
-            onFeatureBranchChange={(v) => setEditedCard((prev) => ({
-              ...prev,
-              feature_branch: v,
-              create_pr: v ? prev.create_pr : false,
-            }))}
-            onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
-            editedVetted={editedCard.vetted ?? false}
-            onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
-            baseBranch={editedCard.base_branch}
-            onBaseBranchChange={(v) => setEditedCard((prev) => ({ ...prev, base_branch: v || undefined }))}
-            branches={branches}
-            branchesLoading={branchesLoading}
-            branchesError={branchesError}
-          />
-
-          <CardPanelActivity activityLog={card.activity_log} />
-        </div>
+        ) : (
+          <div className="p-4 space-y-4 overflow-y-auto overflow-x-hidden flex-1 min-h-0" data-testid="body-single">
+            {body}
+          </div>
+        )}
       </div>
     </>
   );

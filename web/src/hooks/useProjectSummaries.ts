@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { DashboardData, BoardEvent } from '../types';
+import type { DashboardData } from '../types';
 import { api } from '../api/client';
-import { useSSE } from './useSSE';
+import { useSSEBus } from './useSSEBus';
 
 const REFRESH_INTERVAL = 30000;
 
@@ -50,17 +50,16 @@ export function useProjectSummaries(projectNames: string[]) {
     };
   }, [fetchAll, projectKey]);
 
-  const handleEvent = useCallback(
-    (event: BoardEvent) => {
+  const { subscribe } = useSSEBus();
+
+  useEffect(() => {
+    return subscribe((event) => {
       if (event.type.startsWith('card.')) {
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => fetchAll(), 500);
       }
-    },
-    [fetchAll]
-  );
-
-  useSSE({ onEvent: handleEvent });
+    });
+  }, [subscribe, fetchAll]);
 
   return { summaries, loading };
 }

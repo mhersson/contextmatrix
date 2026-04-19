@@ -266,7 +266,23 @@ single card using the `run-autonomous.md` skill. The orchestrator model is set
 by the invoker — Opus for local autonomous (user's session), Sonnet for the
 remote runner (via container config).
 
-**Lifecycle phases:**
+**Lifecycle phases (create-plan skill, HITL and autonomous):**
+
+```
+Phase 1:  Plan Drafting          → inline; drafts plan, updates card body, emits PLAN_DRAFTED
+Phase 2:  Plan Approval Gate     → get_card autonomous check; HITL presents plan, autonomous skips
+Phase 3:  Subtask Creation       → inline; dedupe then create_card for each subtask
+Phase 4:  Execution Gate         → get_card autonomous check; HITL asks to start, autonomous skips
+Phase 5:  Execution              → claim parent, get_ready_tasks, spawn execute-task sub-agents in parallel
+Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
+Phase 7:  Review                 → transition to review, inline or sub-agent per inline field
+Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
+Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or remote HITL (CM_INTERACTIVE=1) auto-commits/pushes/PR; local HITL asks
+Phase 10: Finalization           → reclaim, report_usage, transition to done, release_card (mandatory)
+```
+
+For autonomous cards, `run-autonomous.md` drives the same lifecycle with these
+phase labels. run-autonomous starts from the correct phase based on card state:
 
 ```
 Step 0:  Claim the card     → claim_card called before any exploration begins

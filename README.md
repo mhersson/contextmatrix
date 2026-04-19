@@ -26,9 +26,10 @@ own repos, and report progress back through the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
   triggers a fast path that skips planning and review entirely.
-- **Remote execution** — click "Run Now" in the web UI to launch a task in a
-  sandboxed Docker container. If something goes wrong, it goes wrong inside the
-  container.
+- **Remote execution + HITL** — click "Run Now" to launch a task in a sandboxed
+  Docker container. Tick "Interactive" to start a Human-in-the-Loop session:
+  chat with the agent in real time via a per-card chat pane, then promote the
+  session to fully autonomous with a single button.
 - **GitHub issue import** — periodically fetches open issues from GitHub and
   creates cards automatically. Imported cards show a GitHub icon badge and
   trigger a toast notification in the web UI.
@@ -331,12 +332,19 @@ Reserved labels for details.
 
 ## Remote Execution
 
-Remote execution lets you trigger autonomous tasks from the web UI. A **"Run
-Now"** button appears on autonomous cards in `todo` state. Clicking it sends a
-signed webhook to
+Remote execution lets you trigger tasks from the web UI. A **"Run Now"** button
+appears on any card in `todo` state when runner integration is enabled. Clicking
+it sends a signed webhook to
 **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** (a
 separate binary), which spawns a disposable Docker container running Claude Code
 in headless mode. The container connects back to ContextMatrix via MCP tools.
+
+**Interactive (HITL) mode:** an **Interactive** checkbox next to Run Now starts
+the container in Human-in-the-Loop mode. Claude Code introduces itself and waits
+for your first message. A per-card chat pane appears in the web UI while the
+container is running, letting you converse with the agent in real time. A
+**Switch to Autonomous** button promotes the session — the agent finishes the
+workflow, creates a feature branch, and opens a PR without further input.
 
 Each container is sandboxed from the host machine — no access to your filesystem
 or other processes. When the task finishes (or fails), the container is
@@ -381,9 +389,10 @@ remote_execution:
   runner_image: "ghcr.io/org/custom-runner:latest"
 ```
 
-Triggering remote execution automatically enables `feature_branch` and
-`create_pr` on the card, so the container works on a dedicated branch and opens
-a pull request.
+For autonomous (non-interactive) runs, triggering automatically enables
+`feature_branch` and `create_pr` on the card, so the container works on a
+dedicated branch and opens a pull request. Interactive runs defer this until
+"Switch to Autonomous" is clicked.
 
 Cards track execution state via `runner_status`: `queued` → `running` →
 `failed`/`killed`. The web UI shows status badges and pulsing indicators for
@@ -583,8 +592,21 @@ These endpoints are human-only (agents with `X-Agent-ID` headers are rejected).
 Requires `runner.enabled: true` in config.
 
 ```bash
-# Trigger remote execution for an autonomous card in todo state
+# Trigger remote execution (autonomous mode — no body required)
 curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/run
+
+# Trigger in interactive (HITL) mode
+curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/run \
+  -H "Content-Type: application/json" \
+  -d '{"interactive": true}'
+
+# Send a chat message to a running interactive container
+curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/message \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Please focus on the authentication module first."}'
+
+# Promote an interactive session to autonomous (creates branch + PR)
+curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/promote
 
 # Stop a running/queued task
 curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/stop

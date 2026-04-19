@@ -21,6 +21,12 @@ interface CardPanelMetadataProps {
   branches: string[];
   branchesLoading?: boolean;
   branchesError?: boolean;
+  canRun?: boolean;
+  onRun?: () => void | Promise<void>;
+  automationCollapsed?: boolean;
+  onToggleAutomation?: () => void;
+  labelsCollapsed?: boolean;
+  onToggleLabels?: () => void;
 }
 
 export function CardPanelMetadata({
@@ -41,6 +47,12 @@ export function CardPanelMetadata({
   branches,
   branchesLoading,
   branchesError,
+  canRun,
+  onRun,
+  automationCollapsed = false,
+  onToggleAutomation,
+  labelsCollapsed = false,
+  onToggleLabels,
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
@@ -87,39 +99,57 @@ export function CardPanelMetadata({
     <>
       {/* Labels */}
       <div>
-        <label className="block text-xs text-[var(--grey1)] mb-1">Labels</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {editedLabels?.map((label) => (
-            <span
-              key={label}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
+        <div className="flex items-center gap-1 mb-1">
+          <label className="text-xs text-[var(--grey1)]">Labels</label>
+          {onToggleLabels && (
+            <button
+              onClick={onToggleLabels}
+              className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+              aria-label={labelsCollapsed ? 'Expand labels' : 'Collapse labels'}
             >
-              {label}
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d={labelsCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+              </svg>
+            </button>
+          )}
+        </div>
+        {!labelsCollapsed && (
+          <>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {editedLabels?.map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
+                >
+                  {label}
+                  <button
+                    onClick={() => removeLabel(label)}
+                    className="hover:text-[var(--red)] transition-colors"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={labelInput}
+                onChange={(e) => setLabelInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addLabel()}
+                placeholder="Add label..."
+                className="flex-1 min-w-0 px-3 py-1.5 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
+              />
               <button
-                onClick={() => removeLabel(label)}
-                className="hover:text-[var(--red)] transition-colors"
+                onClick={addLabel}
+                className="px-3 py-1.5 rounded bg-[var(--bg3)] text-[var(--grey2)] hover:bg-[var(--bg4)] transition-colors text-sm"
               >
-                ×
+                Add
               </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={labelInput}
-            onChange={(e) => setLabelInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addLabel()}
-            placeholder="Add label..."
-            className="flex-1 min-w-0 px-3 py-1.5 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
-          />
-          <button
-            onClick={addLabel}
-            className="px-3 py-1.5 rounded bg-[var(--bg3)] text-[var(--grey2)] hover:bg-[var(--bg4)] transition-colors text-sm"
-          >
-            Add
-          </button>
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Parent */}
@@ -183,22 +213,43 @@ export function CardPanelMetadata({
 
       {/* Automation — only for parent/standalone cards */}
       {!card.parent && (
-        <AutomationCheckboxes
-          autonomous={editedAutonomous}
-          featureBranch={editedFeatureBranch}
-          createPR={editedCreatePR}
-          onAutonomousChange={onAutonomousChange}
-          onFeatureBranchChange={onFeatureBranchChange}
-          onCreatePRChange={onCreatePRChange}
-          branchName={card.branch_name}
-          prUrl={card.pr_url}
-          reviewAttempts={card.review_attempts}
-          baseBranch={baseBranch}
-          onBaseBranchChange={onBaseBranchChange}
-          branches={branches}
-          branchesLoading={branchesLoading}
-          branchesError={branchesError}
-        />
+        <div>
+          <div className="flex items-center gap-1 mb-2">
+            <label className="text-xs text-[var(--grey1)]">Automation</label>
+            {onToggleAutomation && (
+              <button
+                onClick={onToggleAutomation}
+                className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+                aria-label={automationCollapsed ? 'Expand automation' : 'Collapse automation'}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d={automationCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
+                </svg>
+              </button>
+            )}
+          </div>
+          {!automationCollapsed && (
+            <AutomationCheckboxes
+              autonomous={editedAutonomous}
+              featureBranch={editedFeatureBranch}
+              createPR={editedCreatePR}
+              onAutonomousChange={onAutonomousChange}
+              onFeatureBranchChange={onFeatureBranchChange}
+              onCreatePRChange={onCreatePRChange}
+              branchName={card.branch_name}
+              prUrl={card.pr_url}
+              reviewAttempts={card.review_attempts}
+              baseBranch={baseBranch}
+              onBaseBranchChange={onBaseBranchChange}
+              branches={branches}
+              branchesLoading={branchesLoading}
+              branchesError={branchesError}
+              canRun={canRun}
+              onRun={onRun}
+            />
+          )}
+        </div>
       )}
 
       {/* External Import */}

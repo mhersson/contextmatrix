@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import type { ProjectConfig, BoardEvent } from '../types';
+import type { ProjectConfig } from '../types';
 import { api, isAPIError } from '../api/client';
-import { useSSE } from './useSSE';
+import { useSSEBus } from './useSSEBus';
 
 interface ProjectsContextValue {
   projects: ProjectConfig[];
@@ -34,16 +34,15 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     loadProjects();
   }, [loadProjects]);
 
-  const handleEvent = useCallback(
-    (event: BoardEvent) => {
+  const { subscribe, connected } = useSSEBus();
+
+  useEffect(() => {
+    return subscribe((event) => {
       if (event.type.startsWith('project.')) {
         loadProjects();
       }
-    },
-    [loadProjects]
-  );
-
-  const { connected } = useSSE({ onEvent: handleEvent });
+    });
+  }, [subscribe, loadProjects]);
 
   return (
     <ProjectsContext.Provider value={{ projects, loading, error, connected, refreshProjects: loadProjects }}>

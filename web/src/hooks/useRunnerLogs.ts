@@ -5,6 +5,9 @@ interface UseRunnerLogsOptions {
   project: string;
   enabled: boolean;
   maxEntries?: number;
+  /** When set, the hook connects to the card-scoped session endpoint and
+   *  receives only events for this card (server-filtered). */
+  cardId?: string;
 }
 
 interface UseRunnerLogsResult {
@@ -21,6 +24,7 @@ export function useRunnerLogs({
   project,
   enabled,
   maxEntries = 5000,
+  cardId,
 }: UseRunnerLogsOptions): UseRunnerLogsResult {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
@@ -55,7 +59,10 @@ export function useRunnerLogs({
       eventSourceRef.current.close();
     }
 
-    const url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
+    let url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
+    if (cardId) {
+      url += `&card_id=${encodeURIComponent(cardId)}`;
+    }
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
@@ -101,7 +108,7 @@ export function useRunnerLogs({
         connectRef.current();
       }, delay);
     };
-  }, [project]);
+  }, [project, cardId]);
 
   // Keep connectRef in sync with connect
   useEffect(() => {

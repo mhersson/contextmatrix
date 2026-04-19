@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
+import { SSEProvider } from './hooks/useSSEBus';
 import { ProjectsProvider } from './hooks/useProjects';
 import { ThemeProvider } from './hooks/useTheme';
 import { ToastContext, useToastState } from './hooks/useToast';
@@ -31,35 +32,37 @@ function AppInner() {
 
   return (
     <ToastContext.Provider value={toastState}>
-      <ProjectsProvider>
-        <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
-          <Sidebar
-            onNewProject={() => setNewProjectOpen(true)}
-            mobileOpen={mobileOpen}
-            onMobileClose={onMobileClose}
-          />
-
-          <div className="flex-1 flex flex-col min-w-0">
-            <ErrorBoundary>
-              <Routes>
-                <Route index element={<RedirectToLastProject />} />
-                <Route path="projects/:project/*" element={<ProjectShell />} />
-                <Route path="all" element={<AllProjectsDashboard />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </ErrorBoundary>
-          </div>
-
-          {newProjectOpen && (
-            <NewProjectWizard
-              onClose={() => setNewProjectOpen(false)}
-              onCreated={handleProjectCreated}
+      <SSEProvider>
+        <ProjectsProvider>
+          <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
+            <Sidebar
+              onNewProject={() => setNewProjectOpen(true)}
+              mobileOpen={mobileOpen}
+              onMobileClose={onMobileClose}
             />
-          )}
 
-          <ToastContainer />
-        </div>
-      </ProjectsProvider>
+            <div className="flex-1 flex flex-col min-w-0">
+              <ErrorBoundary>
+                <Routes>
+                  <Route index element={<RedirectToLastProject />} />
+                  <Route path="projects/:project/*" element={<ProjectShell />} />
+                  <Route path="all" element={<AllProjectsDashboard />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </ErrorBoundary>
+            </div>
+
+            {newProjectOpen && (
+              <NewProjectWizard
+                onClose={() => setNewProjectOpen(false)}
+                onCreated={handleProjectCreated}
+              />
+            )}
+
+            <ToastContainer />
+          </div>
+        </ProjectsProvider>
+      </SSEProvider>
     </ToastContext.Provider>
   );
 }

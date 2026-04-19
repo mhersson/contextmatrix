@@ -16,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -41,6 +42,8 @@ const (
 	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
 	ErrCodeInvalidSignature   = "INVALID_SIGNATURE"
 	ErrCodeCardNotVetted      = "CARD_NOT_VETTED"
+	ErrCodeAlreadyAutonomous  = "ALREADY_AUTONOMOUS"
+	ErrCodeContentTooLarge    = "CONTENT_TOO_LARGE"
 )
 
 // APIError is the standard error response format.
@@ -63,6 +66,7 @@ type RouterConfig struct {
 	GitHubToken          string
 	GitHubAPIBaseURL     string
 	GitHubAllowedHosts   []string
+	SessionManager       *sessionlog.Manager // optional; enables card-scoped SSE log path
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -128,9 +132,18 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
 
 	// Runner routes
-	rh := &runnerHandlers{svc: cfg.Service, runner: cfg.Runner, runnerCfg: cfg.RunnerCfg, mcpAPIKey: cfg.MCPAPIKey, port: cfg.Port}
+	rh := &runnerHandlers{
+		svc:            cfg.Service,
+		runner:         cfg.Runner,
+		runnerCfg:      cfg.RunnerCfg,
+		mcpAPIKey:      cfg.MCPAPIKey,
+		port:           cfg.Port,
+		sessionManager: cfg.SessionManager,
+	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
@@ -357,6 +370,8 @@ func handleServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrCardNotVetted):
 		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
 			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
+	case errors.Is(err, service.ErrCardTerminal):
+		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", err.Error())
 	default:
 		slog.Error("unhandled error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")

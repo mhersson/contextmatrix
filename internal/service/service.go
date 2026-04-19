@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -222,6 +223,11 @@ type CardService struct {
 
 	validator *board.Validator
 
+	// sessionManager is optional; when non-nil it is notified of runner lifecycle
+	// transitions (running → Start, terminal → Stop) so the per-card SSE buffer
+	// stays in sync with actual execution state.
+	sessionManager *sessionlog.Manager
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
@@ -253,6 +259,13 @@ func NewCardService(
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
+}
+
+// SetSessionManager registers the session manager used for runner lifecycle
+// hooks.  Must be called before the server starts accepting requests.
+// Passing nil disables lifecycle notifications.
+func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
+	s.sessionManager = m
 }
 
 // SetOnCommit registers a callback invoked after each successful git commit.
@@ -2316,6 +2329,9 @@ func validateAgentIDFormat(agentID string) error {
 
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
+// ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
+var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
+
 // ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
 var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 
@@ -2386,6 +2402,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
+	prevRunnerStatus := card.RunnerStatus
 	card.RunnerStatus = status
 	card.Updated = time.Now()
 
@@ -2428,6 +2445,23 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		}
 	}
 
+	// Session lifecycle hooks — only when a manager is wired.
+	if s.sessionManager != nil {
+		switch {
+		case prevRunnerStatus != "running" && status == "running":
+			// Transition INTO running: open the upstream SSE buffer.
+			if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
+				slog.Error("sessionlog: Start failed on runner status update",
+					"card_id", cardID, "project", project, "error", startErr)
+			}
+		case status == "failed" || status == "killed" || status == "completed":
+			// Transition to terminal: drain and clear the buffer.
+			// Fire-and-forget in a goroutine so Stop (which waits for the pump
+			// to exit) does not hold the write lock.
+			go s.sessionManager.Stop(cardID)
+		}
+	}
+
 	var eventType events.EventType
 	switch status {
 	case "queued":
@@ -2449,5 +2483,68 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		Data:      map[string]any{"runner_status": status},
 	})
 
+	return card, nil
+}
+
+// PromoteToAutonomous sets the Autonomous flag on a card to true and appends
+// an activity log entry. It is idempotent: if the card is already autonomous,
+// it returns the current card unchanged without writing a log entry or commit.
+// Returns ErrCardTerminal if the card is in a terminal state (done/not_planned).
+func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
+	cardID = strings.ToUpper(cardID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Guard: cannot promote a card in a terminal state.
+	if card.State == board.StateDone || card.State == board.StateNotPlanned {
+		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrCardTerminal)
+	}
+
+	// Idempotent: if already autonomous, return current card without side effects.
+	if card.Autonomous {
+		s.enrichDependenciesMet(ctx, card)
+		return card, nil
+	}
+
+	now := time.Now()
+
+	card.Autonomous = true
+	card.Updated = now
+
+	// Append activity log entry (honoring the 50-entry cap).
+	entry := board.ActivityEntry{
+		Agent:     agentID,
+		Timestamp: now,
+		Action:    "promoted",
+		Message:   "Promoted to autonomous mode",
+	}
+	card.ActivityLog = append(card.ActivityLog, entry)
+	if len(card.ActivityLog) > maxActivityLogEntries {
+		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	if err := s.commitCardChange(project, cardID, agentID, "promoted to autonomous"); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardUpdated,
+		Project:   project,
+		CardID:    cardID,
+		Agent:     agentID,
+		Timestamp: now,
+		Data:      map[string]any{"autonomous": true},
+	})
+
+	s.enrichDependenciesMet(ctx, card)
 	return card, nil
 }
