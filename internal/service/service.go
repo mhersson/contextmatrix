@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -231,6 +232,10 @@ type CardService struct {
 	// stays in sync with actual execution state.
 	sessionManager *sessionlog.Manager
 
+	// stalledFn is called on each timeout-checker tick to process stalled cards.
+	// Defaults to s.processStalled; overridable in tests to inject panics.
+	stalledFn func(ctx context.Context) error
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
@@ -248,7 +253,7 @@ func NewCardService(
 	gitAutoCommit bool,
 	gitDeferredCommit bool,
 ) *CardService {
-	return &CardService{
+	svc := &CardService{
 		store:             store,
 		git:               git,
 		lock:              lock,
@@ -262,6 +267,8 @@ func NewCardService(
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
+	svc.stalledFn = svc.processStalled
+	return svc
 }
 
 // SetSessionManager registers the session manager used for runner lifecycle
@@ -1621,12 +1628,6 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 // The goroutine stops when the context is cancelled.
 func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Duration) {
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("timeout checker panicked", "error", r)
-			}
-		}()
-
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -1636,9 +1637,16 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 				slog.Info("timeout checker stopped")
 				return
 			case <-ticker.C:
-				if err := s.processStalled(ctx); err != nil {
-					slog.Error("process stalled cards", "error", err)
-				}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("timeout checker panicked", "panic", r, "stack", string(debug.Stack()))
+						}
+					}()
+					if err := s.stalledFn(ctx); err != nil {
+						slog.Error("process stalled cards", "error", err)
+					}
+				}()
 			}
 		}
 	}()
