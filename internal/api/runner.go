@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -138,7 +139,10 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if err := h.runner.Trigger(r.Context(), payload); err != nil {
 		slog.Error("runner webhook failed", "card_id", id, "project", project, "error", err)
 		// Webhook failed — revert status to failed.
-		if _, revertErr := h.svc.UpdateRunnerStatus(r.Context(), project, id, "failed",
+		// Use context.WithoutCancel so the revert succeeds even when the HTTP client
+		// has already disconnected and r.Context() is cancelled.
+		revertCtx := context.WithoutCancel(r.Context())
+		if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
 			"webhook trigger failed"); revertErr != nil {
 			slog.Error("failed to revert runner status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
