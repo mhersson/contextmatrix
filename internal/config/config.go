@@ -90,6 +90,7 @@ type Config struct {
 	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
 	CORSOrigin       string               `yaml:"cors_origin"`
 	SkillsDir        string               `yaml:"skills_dir"`
+	Theme            string               `yaml:"theme"`
 	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
 	MCPAPIKey        string               `yaml:"mcp_api_key"`
 	Runner           RunnerConfig         `yaml:"runner"`
@@ -111,6 +112,7 @@ func defaults() *Config {
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
+		Theme:            "everforest",
 	}
 }
 
@@ -175,6 +177,15 @@ func (c *Config) Validate() error {
 		if c.Runner.PublicURL == "" {
 			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
+	}
+	if c.Theme == "" {
+		c.Theme = "everforest"
+	}
+	switch c.Theme {
+	case "everforest", "radix":
+		// valid
+	default:
+		return fmt.Errorf("invalid theme %q: must be \"everforest\" or \"radix\"", c.Theme)
 	}
 	return nil
 }
@@ -307,6 +318,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
 		cfg.SkillsDir = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
+		cfg.Theme = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_MCP_API_KEY"); v != "" {
 		cfg.MCPAPIKey = v

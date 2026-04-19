@@ -1,4 +1,5 @@
 import type {
+  AppConfig,
   Card,
   ProjectConfig,
   CardFilter,
@@ -203,6 +204,11 @@ class APIClient {
 
   async getDashboard(project: string): Promise<DashboardData> {
     return this.request<DashboardData>(`/projects/${project}/dashboard`);
+  }
+
+  // App config
+  async getAppConfig(): Promise<AppConfig> {
+    return this.request<AppConfig>('/app/config');
   }
 
   // Sync

@@ -169,6 +169,7 @@ func main() {
 		GitHubAPIBaseURL:   cfg.GitHub.ResolvedAPIBaseURL(),
 		GitHubAllowedHosts: cfg.GitHub.AllowedHosts(),
 		SessionManager:     sessionMgr,
+		Theme:              cfg.Theme,
 	})
 
 	// Create MCP server and register on the mux

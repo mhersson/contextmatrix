@@ -27,15 +27,29 @@
   tracks the active theme. Do not add a new theme mechanism — extend
   `ThemeProvider`.
 
-## Color palette: Everforest
+## Color palettes
 
-The web UI supports both **Everforest Medium Dark** and **Everforest Medium
-Light** palettes, toggled via a sun/moon button in the header. Dark is the
-default; the light variant is defined in `web/src/index.css` under
-`[data-theme="light"]`. Dark mode uses `:root` with no attribute; the
-`ThemeProvider` removes the `data-theme` attribute entirely for dark mode.
-Define CSS custom properties in the root stylesheet and reference them
-throughout all components. Do not hardcode hex values in components.
+The web UI supports two color palettes: **Everforest** (default) and **Radix**.
+
+### Palette selection
+
+Palette is **server-driven** — set `theme: "everforest"` or `"radix"` in
+`config.yaml` (env: `CONTEXTMATRIX_THEME`). On startup `ThemeProvider` fetches
+`GET /api/app/config` and sets `data-palette="radix"` on `<html>` for Radix;
+the attribute is absent for Everforest. Palette is not stored in localStorage.
+
+Dark/light mode is **user-toggleable** (sun/moon button) and orthogonal to
+palette. Dark mode: no `data-theme` attribute. Light mode: `data-theme="light"`.
+
+Both palettes define the same CSS custom properties. Components need no changes
+when the palette is switched — all styling references CSS variables only. Do not
+hardcode hex values in components.
+
+### Everforest palette
+
+Defined in `:root` (dark, default) and `[data-theme="light"]` (light) in
+`web/src/index.css`. Dark mode uses `:root` with no `data-theme` attribute;
+`ThemeProvider` removes the attribute entirely for dark mode.
 
 ```css
 :root {
@@ -72,6 +86,40 @@ throughout all components. Do not hardcode hex values in components.
   --purple: #d699b6; /* special, labels, metadata */
 }
 ```
+
+### Radix palette
+
+Activated when `data-palette="radix"` is present on `<html>`. Defined in two
+blocks in `web/src/index.css`: `[data-palette="radix"]` (dark) and
+`[data-palette="radix"][data-theme="light"]` (light).
+
+Hue assignments:
+
+| CSS variable group | Radix scale |
+|---|---|
+| Gray (`--bg-*`, `--grey*`) | Slate |
+| `--red` / `--bg-red` | Tomato |
+| `--orange` | Orange |
+| `--yellow` / `--bg-yellow` | Amber |
+| `--green` / `--bg-green` | Grass |
+| `--aqua` / `--bg-blue` | Teal |
+| `--blue` | Blue |
+| `--purple` / `--bg-purple` | Plum |
+| `--bg-visual` | Plum |
+
+Step-to-role mapping (applies to every hue):
+
+| Steps | Role |
+|---|---|
+| 1–2 | `--bg-dim`, `--bg0` — page/main backgrounds |
+| 3–5 | `--bg1`, `--bg2`, semantic backgrounds (`--bg-red` etc.) |
+| 6–8 | `--bg3`, `--bg4`, `--bg5` — borders, disabled, hover |
+| 10–11 | `--grey0`, `--grey1`, `--grey2` — muted/secondary text |
+| 12 | `--fg` — primary foreground text |
+| 10 (accent) | `--red`, `--orange`, `--yellow`, `--green`, `--aqua`, `--blue`, `--purple` |
+
+Hex values are hardcoded in `index.css`. Do not add `@radix-ui/colors` as an
+npm dependency.
 
 **Mapping to UI semantics:**
 

@@ -1565,3 +1565,93 @@ func TestLoad_GitAuthMode_ExampleFileHasSSHDefault(t *testing.T) {
 	require.NoError(t, err, "config.yaml.example must parse and validate without error")
 	assert.Equal(t, "ssh", cfg.Boards.GitAuthMode)
 }
+
+// ---------- Theme config tests ----------
+
+func TestDefaults_Theme(t *testing.T) {
+	cfg := defaults()
+	assert.Equal(t, "everforest", cfg.Theme)
+}
+
+func TestLoad_Theme_DefaultIsEverforest(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "everforest", cfg.Theme)
+}
+
+func TestLoad_Theme_ValidRadix(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+theme: "radix"
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "radix", cfg.Theme)
+}
+
+func TestLoad_Theme_InvalidValueRejected(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+theme: "dracula"
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid theme")
+}
+
+func TestLoad_Theme_EnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+
+	t.Setenv("CONTEXTMATRIX_THEME", "radix")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "radix", cfg.Theme)
+}
+
+func TestValidate_Theme_InvalidValue(t *testing.T) {
+	cfg := &Config{
+		Boards:           BoardsConfig{Dir: "/some/path"},
+		HeartbeatTimeout: "30m",
+		Theme:            "monokai",
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid theme")
+}
+
+func TestValidate_Theme_ValidValues(t *testing.T) {
+	for _, theme := range []string{"everforest", "radix"} {
+		t.Run(theme, func(t *testing.T) {
+			cfg := &Config{
+				Boards:           BoardsConfig{Dir: "/some/path"},
+				HeartbeatTimeout: "30m",
+				Theme:            theme,
+			}
+			err := cfg.Validate()
+			assert.NoError(t, err)
+		})
+	}
+}

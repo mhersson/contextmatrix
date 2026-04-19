@@ -17,7 +17,7 @@ vi.mock('@uiw/react-md-editor', () => ({
 
 // Mock useTheme to avoid ThemeProvider requirement
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
+  useTheme: () => ({ theme: 'dark', palette: 'everforest', toggleTheme: vi.fn() }),
 }));
 
 const baseConfig: ProjectConfig = {

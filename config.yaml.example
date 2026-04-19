@@ -31,6 +31,12 @@ heartbeat_timeout: "30m"
 # Env: CONTEXTMATRIX_CORS_ORIGIN
 cors_origin: "http://localhost:5173"
 
+# UI color palette theme.
+# Allowed values: "everforest" | "radix"
+# Default: everforest
+# Env: CONTEXTMATRIX_THEME
+theme: "everforest"
+
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.
 # Example rates below are illustrative — check Anthropic pricing for current values.

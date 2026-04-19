@@ -92,8 +92,12 @@ details.
 
 ### Frontend
 
-Frontend conventions and Everforest palette: see `web/CLAUDE.md` (auto-loaded
-when working in `web/`).
+Frontend conventions, color palettes (Everforest and Radix), and UI semantic
+mappings: see `web/CLAUDE.md` (auto-loaded when working in `web/`).
+
+The active palette is server-driven via the `theme` config setting
+(`"everforest"` default, `"radix"` alternative). Components use CSS custom
+properties only — no palette-specific code in components.
 
 ### Skills (`skills/`)
 

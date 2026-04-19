@@ -77,6 +77,76 @@
   --purple: #df69ba;
 }
 
+/* Radix Colors Dark palette */
+[data-palette="radix"] {
+  /* Slate dark scale — Backgrounds */
+  --bg-dim: #111113;   /* slate1 — deepest background */
+  --bg0:    #18191b;   /* slate2 — default background */
+  --bg1:    #212225;   /* slate3 — raised surfaces: cards, panels */
+  --bg2:    #272a2d;   /* slate4 — popups, modals, dropdowns */
+  --bg3:    #363a3f;   /* slate6 — borders, dividers */
+  --bg4:    #43484e;   /* slate7 — subtle UI elements, disabled states */
+  --bg5:    #5a6169;   /* slate8 — hover states on muted elements */
+
+  /* Semantic backgrounds — colored scales, step 3 */
+  --bg-red:    #3e1f19;  /* tomato3 */
+  --bg-yellow: #302008;  /* amber3 */
+  --bg-green:  #132819;  /* grass3 */
+  --bg-blue:   #0d2847;  /* blue3 */
+  --bg-purple: #351a35;  /* plum3 */
+  --bg-visual: #351a35;  /* plum3 — selection/drag highlight */
+
+  /* Slate dark scale — Foreground */
+  --fg:    #edeef0;   /* slate12 — primary text */
+  --grey0: #777b84;   /* slate10 — muted text, placeholders */
+  --grey1: #b0b4ba;   /* slate11 — secondary text, timestamps */
+  --grey2: #b0b4ba;   /* slate11 — tertiary text, labels */
+
+  /* Accent colors — step 10 from each dark scale */
+  --red:    #ec6142;  /* tomato10 */
+  --orange: #ff801f;  /* orange10 */
+  --yellow: #ffd60a;  /* amber10 */
+  --green:  #53b365;  /* grass10 */
+  --aqua:   #0eb39e;  /* teal10 */
+  --blue:   #3b9eff;  /* blue10 */
+  --purple: #b658c4;  /* plum10 */
+}
+
+/* Radix Colors Light palette */
+[data-palette="radix"][data-theme="light"] {
+  /* Slate light scale — Backgrounds */
+  --bg-dim: #f8f9fa;   /* slate2 — deepest background */
+  --bg0:    #fbfcfd;   /* slate1 — default background */
+  --bg1:    #f1f3f5;   /* slate3 — raised surfaces: cards, panels */
+  --bg2:    #eceef0;   /* slate4 — popups, modals, dropdowns */
+  --bg3:    #dfe3e6;   /* slate6 — borders, dividers */
+  --bg4:    #d7dbdf;   /* slate7 — subtle UI elements, disabled states */
+  --bg5:    #c1c8cd;   /* slate8 — hover states on muted elements */
+
+  /* Semantic backgrounds — colored scales, step 3 */
+  --bg-red:    #feebe7;  /* tomato3 */
+  --bg-yellow: #fff4d5;  /* amber3 */
+  --bg-green:  #ebf9eb;  /* grass3 */
+  --bg-blue:   #e6f4fe;  /* blue3 */
+  --bg-purple: #fbebff;  /* plum3 */
+  --bg-visual: #fbebff;  /* plum3 — selection/drag highlight */
+
+  /* Slate light scale — Foreground */
+  --fg:    #11181c;   /* slate12 — primary text */
+  --grey0: #7e868c;   /* slate10 — muted text, placeholders */
+  --grey1: #687076;   /* slate11 — secondary text, timestamps */
+  --grey2: #687076;   /* slate11 — tertiary text, labels */
+
+  /* Accent colors — step 10 from each light scale */
+  --red:    #db4324;  /* tomato10 */
+  --orange: #ef5f00;  /* orange10 */
+  --yellow: #ffba18;  /* amber10 */
+  --green:  #3d9a50;  /* grass10 */
+  --aqua:   #0d9b8a;  /* teal10 */
+  --blue:   #0588f0;  /* blue10 */
+  --purple: #a144af;  /* plum10 */
+}
+
 @media (max-width: 1280px) {
   :root {
     --col-width: 240px;

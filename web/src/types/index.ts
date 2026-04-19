@@ -246,6 +246,10 @@ export interface LogEntry {
   content: string;
 }
 
+export interface AppConfig {
+  theme: 'everforest' | 'radix';
+}
+
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
   queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },

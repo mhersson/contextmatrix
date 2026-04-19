@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useContext, createContext } from 'react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
+import { api } from '../api/client';
 
 type Theme = 'dark' | 'light';
+type Palette = 'everforest' | 'radix';
 
 const STORAGE_KEY = 'theme';
 
@@ -22,8 +24,17 @@ function applyTheme(theme: Theme) {
   }
 }
 
+function applyPalette(palette: Palette) {
+  if (palette === 'radix') {
+    document.documentElement.setAttribute('data-palette', 'radix');
+  } else {
+    document.documentElement.removeAttribute('data-palette');
+  }
+}
+
 interface ThemeContextValue {
   theme: Theme;
+  palette: Palette;
   toggleTheme: () => void;
 }
 
@@ -36,16 +47,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return initial;
   });
 
+  const [palette, setPalette] = useState<Palette>('everforest');
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, theme);
     applyTheme(theme);
   }, [theme]);
 
+  useEffect(() => {
+    api.getAppConfig().then((config) => {
+      const p: Palette = config.theme === 'radix' ? 'radix' : 'everforest';
+      setPalette(p);
+      applyPalette(p);
+    }).catch(() => {
+      // swallow errors — leave default everforest palette
+    });
+  }, []);
+
   const toggleTheme = useCallback(() => {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  return createElement(ThemeContext.Provider, { value: { theme, toggleTheme } }, children);
+  return createElement(ThemeContext.Provider, { value: { theme, palette, toggleTheme } }, children);
 }
 
 export function useTheme(): ThemeContextValue {

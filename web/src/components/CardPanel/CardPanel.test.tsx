@@ -4,7 +4,7 @@ import { CardPanel } from './CardPanel';
 import type { Card, ProjectConfig } from '../../types';
 
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
+  useTheme: () => ({ theme: 'dark', palette: 'everforest', toggleTheme: vi.fn() }),
 }));
 
 vi.mock('@uiw/react-md-editor', () => ({

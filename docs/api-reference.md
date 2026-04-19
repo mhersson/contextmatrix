@@ -39,6 +39,8 @@ GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-sc
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
+GET    /api/app/config                                 # server-side app config (theme/palette)
+
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # health check
 ```
@@ -89,6 +91,29 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 | `priority`    | priority name    | Filter by priority                                                                             |
 | `external_id` | external ID      | Filter by `source.external_id` (idempotent import check)                                       |
 | `vetted`      | `true` / `false` | Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
+
+## App Endpoints
+
+### GET /api/app/config
+
+Returns the server-configured application settings. Unauthenticated — safe for
+public read. Called by the frontend on startup to determine which color palette
+to apply.
+
+**Response:**
+
+```json
+{ "theme": "everforest" }
+```
+
+`theme` is one of `"everforest"` (default) or `"radix"`. The frontend maps
+`"radix"` to `data-palette="radix"` on `<html>`; `"everforest"` removes the
+attribute.
+
+```bash
+curl http://localhost:8080/api/app/config
+# → {"theme":"everforest"}
+```
 
 ## Agent Endpoints
 

@@ -67,6 +67,7 @@ type RouterConfig struct {
 	GitHubAPIBaseURL     string
 	GitHubAllowedHosts   []string
 	SessionManager       *sessionlog.Manager // optional; enables card-scoped SSE log path
+	Theme                string              // active color palette ("everforest" or "radix")
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -81,6 +82,7 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
+	ach := &appConfigHandlers{theme: cfg.Theme}
 	bh := &branchHandlers{
 		svc:              cfg.Service,
 		githubToken:      cfg.GitHubToken,
@@ -126,6 +128,9 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 
 	// Branch listing
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
+
+	// App config
+	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
 
 	// Sync routes
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)
