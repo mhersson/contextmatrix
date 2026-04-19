@@ -254,7 +254,7 @@ Omit to receive entries from all projects.
 | ----------- | ------------------ | ----------------------------------------------------------------- |
 | `text`      | Claude Code stdout | Parsed assistant text block                                       |
 | `thinking`  | Claude Code stdout | Parsed assistant thinking block                                   |
-| `tool_call` | Claude Code stdout | Non-MCP tool call (name only)                                     |
+| `tool_call` | Claude Code stdout | Non-MCP tool call: `Name: <summary>`, truncated to 200 runes with `…` |
 | `stderr`    | Container stderr   | Raw stderr line from the container                                |
 | `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled) |
 | `user`      | Chat input         | User message submitted via the chat input                         |
