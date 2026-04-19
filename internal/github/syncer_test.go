@@ -161,14 +161,26 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cards, 2)
 
-	assert.Equal(t, "First issue", cards[0].Title)
-	assert.Equal(t, "task", cards[0].Type)
-	assert.Equal(t, "medium", cards[0].Priority)
-	assert.Equal(t, "todo", cards[0].State)
-	require.NotNil(t, cards[0].Source)
-	assert.Equal(t, "github", cards[0].Source.System)
-	assert.Equal(t, "testorg/testrepo#1", cards[0].Source.ExternalID)
-	assert.Equal(t, []string{"bug", "help wanted"}, cards[0].Labels)
+	// Build a map keyed by ExternalID to avoid relying on ListCards iteration order.
+	byExtID := make(map[string]*board.Card, len(cards))
+	for _, c := range cards {
+		require.NotNil(t, c.Source, "card %s missing Source", c.ID)
+		byExtID[c.Source.ExternalID] = c
+	}
+
+	first := byExtID["testorg/testrepo#1"]
+	require.NotNil(t, first, "card for testorg/testrepo#1 not found")
+	assert.Equal(t, "First issue", first.Title)
+	assert.Equal(t, "task", first.Type)
+	assert.Equal(t, "medium", first.Priority)
+	assert.Equal(t, "todo", first.State)
+	assert.Equal(t, "github", first.Source.System)
+	assert.Equal(t, "testorg/testrepo#1", first.Source.ExternalID)
+	assert.Equal(t, []string{"bug", "help wanted"}, first.Labels)
+
+	second := byExtID["testorg/testrepo#2"]
+	require.NotNil(t, second, "card for testorg/testrepo#2 not found")
+	assert.Equal(t, "Second issue", second.Title)
 }
 
 func TestSyncProject_SkipsDuplicates(t *testing.T) {
