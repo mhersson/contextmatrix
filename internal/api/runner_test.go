@@ -361,6 +361,101 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	assert.Equal(t, "failed", updated.RunnerStatus)
 }
 
+// TestRunCard_ContextCancelledDuringWebhook verifies that when the HTTP client
+// disconnects (cancelling r.Context()) while the runner webhook is in-flight,
+// the revert to "failed" still succeeds because the handler uses
+// context.WithoutCancel for the rollback path.
+func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Cancel-during-webhook task", Type: "task", Priority: "medium",
+		Autonomous: true, FeatureBranch: true,
+	})
+	require.NoError(t, err)
+
+	// triggerReady is closed when the mock webhook handler is entered so the
+	// test can cancel the request context at exactly the right moment.
+	triggerReady := make(chan struct{})
+	// triggerUnblock is closed by the test to let the handler return (simulating
+	// a slow downstream after the context was cancelled).
+	triggerUnblock := make(chan struct{})
+
+	// Mock runner that blocks until triggerUnblock is closed, simulating a slow
+	// remote endpoint that outlives the HTTP client connection.
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(triggerReady)
+		<-triggerUnblock
+		// Return an error so the revert branch is exercised.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"slow failure"}`))
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{
+			Enabled:   true,
+			URL:       mockRunner.URL,
+			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			PublicURL: "http://localhost:8080",
+		},
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Build a request with a cancellable context.
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(reqCtx,
+		"POST", server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+	require.NoError(t, err)
+
+	// Fire the request in the background.
+	errCh := make(chan error, 1)
+	go func() {
+		resp, doErr := http.DefaultClient.Do(req)
+		if doErr == nil {
+			_ = resp.Body.Close()
+		}
+		errCh <- doErr
+	}()
+
+	// Wait until the webhook handler is entered, then cancel the request context
+	// to simulate the client disconnecting mid-webhook.
+	<-triggerReady
+	reqCancel()
+
+	// Give the handler a moment to observe the cancellation, then unblock it so
+	// it can return the error response and the revert branch runs.
+	time.Sleep(20 * time.Millisecond)
+	close(triggerUnblock)
+
+	// The client-side Do() call will have returned a context-cancelled error;
+	// that's fine — we care about the card state, not the HTTP response.
+	<-errCh
+
+	// Allow a short window for the server goroutine to complete the revert.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		updated, getErr := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, getErr)
+		if updated.RunnerStatus == "failed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The card must have been reverted to "failed", not left in "queued".
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", updated.RunnerStatus,
+		"card must be reverted to failed even when client context is cancelled mid-webhook")
+}
+
 func TestRunCard_PerProjectDisabled(t *testing.T) {
 	boardConfigDisabled := `name: test-project
 prefix: TEST
