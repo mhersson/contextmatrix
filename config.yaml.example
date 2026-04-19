@@ -165,6 +165,19 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_PUBLIC_URL
   public_url: ""
 
+  # Model ID used for the Sonnet orchestrator in autonomous runs.
+  # Passed to runner containers via the trigger payload so the orchestrator
+  # selects the correct model. Update when a newer Sonnet model ships.
+  # Default: claude-sonnet-4-6
+  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL
+  orchestrator_sonnet_model: "claude-sonnet-4-6"
+
+  # Model ID used for the Opus orchestrator in autonomous runs (when the user
+  # selects the high-capability mode). Update when a newer Opus model ships.
+  # Default: claude-opus-4-7
+  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL
+  orchestrator_opus_model: "claude-opus-4-7"
+
 # GitHub integration configuration.
 # A fine-grained PAT (token) is used for reading branches, importing issues,
 # and — when boards.git_auth_mode is "pat" — authenticating the boards repo.
