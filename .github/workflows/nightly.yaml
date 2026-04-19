@@ -16,5 +16,8 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Prepare web/dist placeholder for go:embed
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
       - name: go test -race
         run: go test -race ./...
