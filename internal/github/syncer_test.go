@@ -212,6 +212,29 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	assert.Len(t, cards, 1)
 }
 
+func TestSafeSyncAll_DoesNotPropagateSync(t *testing.T) {
+	// Set up a project with GitHub import enabled and an explicit owner/repo so
+	// syncAll will attempt to call syncProject.  A nil client causes syncProject
+	// to panic on the first FetchOpenIssues call, which exercises the recover()
+	// in safeSyncAll.
+	ghCfg := &board.GitHubImportConfig{
+		ImportIssues: true,
+		Owner:        "testorg",
+		Repo:         "testrepo",
+	}
+	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
+
+	// nil client will panic inside syncProject → FetchOpenIssues.
+	syncer := NewSyncer(svc, store, nil, boardsDir, 5*time.Minute, []string{"github.com"})
+
+	ctx := context.Background()
+
+	// safeSyncAll must return normally — the panic must not escape.
+	require.NotPanics(t, func() {
+		syncer.safeSyncAll(ctx)
+	})
+}
+
 func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	issues := []Issue{
 		{Number: 5, Title: "Bug from GH", HTMLURL: "https://github.com/o/r/issues/5"},

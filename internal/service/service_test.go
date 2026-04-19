@@ -5203,3 +5203,42 @@ func TestPromoteToAutonomous(t *testing.T) {
 		assert.ErrorIs(t, err, storage.ErrCardNotFound)
 	})
 }
+
+func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// tickCh receives a value each time stalledFn is called successfully.
+	tickCh := make(chan struct{}, 10)
+
+	callCount := 0
+	var mu sync.Mutex
+
+	svc.stalledFn = func(_ context.Context) error {
+		mu.Lock()
+		n := callCount
+		callCount++
+		mu.Unlock()
+
+		if n == 0 {
+			panic("injected panic for test")
+		}
+
+		tickCh <- struct{}{}
+		return nil
+	}
+
+	svc.StartTimeoutChecker(ctx, 10*time.Millisecond)
+
+	// Wait for at least two successful ticks after the initial panic.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-tickCh:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout checker did not fire tick %d after panic recovery", i+1)
+		}
+	}
+}

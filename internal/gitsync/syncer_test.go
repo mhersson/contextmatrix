@@ -459,3 +459,110 @@ func TestRunGit_NilAuthEnv(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "On branch")
 }
+
+// TestPeriodicPull_SurvivesPanic verifies that a panic inside periodicPull's
+// per-tick work is recovered and the loop continues firing on the next tick.
+func TestPeriodicPull_SurvivesPanic(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+
+	var callCount int
+	done := make(chan struct{})
+
+	syncer.pullHook = func(_ context.Context, _ string) error {
+		callCount++
+		if callCount == 1 {
+			panic("injected test panic")
+		}
+		// Signal after the second successful call.
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Use a very short interval so the test completes quickly.
+	syncer.interval = 10 * time.Millisecond
+
+	syncer.wg.Add(1)
+	go func() {
+		defer syncer.wg.Done()
+		syncer.periodicPull(ctx)
+	}()
+
+	// Wait for at least two ticks — proves the loop survived the first-tick panic.
+	select {
+	case <-done:
+		// success: loop continued after the panic
+	case <-time.After(5 * time.Second):
+		t.Fatal("periodicPull loop did not continue after panic within 5s")
+	}
+
+	cancel()
+	syncer.wg.Wait()
+
+	assert.GreaterOrEqual(t, callCount, 2, "pullHook must have been called at least twice")
+}
+
+// TestPushListener_SurvivesPanic verifies that a panic inside pushListener's
+// per-notification work is recovered and the loop continues on the next push.
+func TestPushListener_SurvivesPanic(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+
+	var callCount int
+	// firstDone is closed when the first (panic) call finishes its recovery.
+	firstDone := make(chan struct{})
+	done := make(chan struct{})
+
+	syncer.pushHook = func(_ context.Context) error {
+		callCount++
+		if callCount == 1 {
+			defer close(firstDone)
+			panic("injected push panic")
+		}
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	syncer.wg.Add(1)
+	go func() {
+		defer syncer.wg.Done()
+		syncer.pushListener(ctx)
+	}()
+
+	// Send the first notification (will panic on the hook).
+	syncer.NotifyCommit()
+
+	// Wait until the panic has been recovered before sending the second
+	// notification. This ensures the channel slot is free.
+	select {
+	case <-firstDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first push (panic) did not complete within 5s")
+	}
+
+	// Now send the second notification — the loop must still be running.
+	syncer.NotifyCommit()
+
+	// Wait for confirmation the second notification was processed.
+	select {
+	case <-done:
+		// success: loop continued after the panic
+	case <-time.After(5 * time.Second):
+		t.Fatal("pushListener loop did not continue after panic within 5s")
+	}
+
+	cancel()
+	syncer.wg.Wait()
+
+	assert.GreaterOrEqual(t, callCount, 2, "pushHook must have been called at least twice")
+}

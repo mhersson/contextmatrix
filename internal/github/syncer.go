@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -78,7 +79,7 @@ func (s *Syncer) run(ctx context.Context) {
 func (s *Syncer) safeSyncAll(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("github syncer panicked", "error", r)
+			slog.Error("github syncer panicked", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 	s.syncAll(ctx)
