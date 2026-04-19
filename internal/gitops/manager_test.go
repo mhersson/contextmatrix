@@ -746,7 +746,7 @@ func createBareRepo(t *testing.T) string {
 	bare := filepath.Join(t.TempDir(), "bare.git")
 	work := filepath.Join(t.TempDir(), "work")
 
-	cmd := exec.Command("git", "init", "--bare", bare)
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main", bare)
 	require.NoError(t, cmd.Run())
 
 	cmd = exec.Command("git", "clone", bare, work)
