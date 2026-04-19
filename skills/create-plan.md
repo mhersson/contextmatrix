@@ -101,7 +101,9 @@ Proceed immediately to Phase 2 — do NOT stop here.
 
 # Phase 2: Plan Approval Gate
 
-Call `get_card(card_id=<parent_id>)` to re-read the current card state.
+Call `get_card(card_id=<parent_id>)` to re-read the current card state. Use
+only the top-level `autonomous` field. Do NOT infer mode from the
+`activity_log`.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 3.
 
@@ -144,7 +146,9 @@ Proceed immediately to Phase 4.
 
 # Phase 4: Execution Gate
 
-Call `get_card(card_id=<parent_id>)` to re-read the current card state.
+Call `get_card(card_id=<parent_id>)` to re-read the current card state. Use
+only the top-level `autonomous` field. Do NOT infer mode from the
+`activity_log`.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 5.
 
@@ -325,7 +329,8 @@ from the card body.
 # Phase 8: Review Decision Gate
 
 Call `get_card(card_id=<parent_id>)` to re-read the current card state,
-including the `autonomous` flag.
+including the `autonomous` flag. Use only the top-level `autonomous` field.
+Do NOT infer mode from the `activity_log`.
 
 **If `autonomous: true`:** branch on the `recommendation` field in
 `REVIEW_FINDINGS`:
