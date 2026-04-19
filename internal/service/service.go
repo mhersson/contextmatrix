@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -681,18 +682,21 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		cardPath := s.cardPath(project, cardID)
 		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", cardID, "created")
-		if err := s.git.CommitFiles([]string{cardPath, configPath}, msg); err != nil {
+		if gitErr := s.git.CommitFiles([]string{cardPath, configPath}, msg); gitErr != nil {
 			// Rollback: remove the orphaned card file and restore NextID so
 			// the sequence has no gap on the next creation attempt.
+			var rollbackErrs []error
 			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
 				slog.Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
+				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback delete card: %w", delErr))
 			}
 			cfg.NextID--
 			if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
 				slog.Error("failed to rollback NextID after git error",
 					"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
+				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback save project: %w", saveErr))
 			}
-			return nil, fmt.Errorf("git commit: %w", err)
+			return nil, errors.Join(append([]error{fmt.Errorf("git commit: %w", gitErr)}, rollbackErrs...)...)
 		}
 		s.notifyCommit()
 	}

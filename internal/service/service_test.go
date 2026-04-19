@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -5241,4 +5242,89 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 			t.Fatalf("timeout checker did not fire tick %d after panic recovery", i+1)
 		}
 	}
+}
+
+// rollbackFailStore wraps a real Store and injects errors on DeleteCard and
+// on the second call to SaveProject (the rollback call), to simulate a partial
+// rollback failure after a git commit error.
+type rollbackFailStore struct {
+	storage.Store
+	deleteErr      error
+	saveErr        error
+	saveCallCount  int
+}
+
+func (s *rollbackFailStore) DeleteCard(_ context.Context, _, _ string) error {
+	return s.deleteErr
+}
+
+// SaveProject fails only on the second call (the rollback restore-NextID call).
+// The first call (incrementing NextID) must succeed so CreateCard reaches the
+// git commit step.
+func (s *rollbackFailStore) SaveProject(ctx context.Context, cfg *board.ProjectConfig) error {
+	s.saveCallCount++
+	if s.saveCallCount > 1 {
+		return s.saveErr
+	}
+	return s.Store.SaveProject(ctx, cfg)
+}
+
+// TestCreateCard_RollbackErrorsJoined verifies that when the git commit fails
+// during CreateCard, any rollback errors (DeleteCard / SaveProject) are surfaced
+// in the returned error via errors.Join rather than being silently discarded.
+func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
+	// Build a fresh service environment.
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	realStore, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(realStore, 30*time.Minute)
+
+	delErr := errors.New("simulated DeleteCard failure")
+	saveErr := errors.New("simulated SaveProject failure")
+
+	wrappedStore := &rollbackFailStore{
+		Store:     realStore,
+		deleteErr: delErr,
+		saveErr:   saveErr,
+	}
+
+	svc := NewCardService(wrappedStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
+	ctx := context.Background()
+
+	// Remove the .git directory so CommitFiles fails. The gitMgr already holds
+	// an in-memory reference to the repository object, but the underlying
+	// worktree operations will fail once the .git dir is gone.
+	require.NoError(t, os.RemoveAll(filepath.Join(boardsDir, ".git")))
+
+	input := CreateCardInput{
+		Title:    "Rollback Test Card",
+		Type:     "task",
+		Priority: "medium",
+	}
+
+	_, createErr := svc.CreateCard(ctx, "test-project", input)
+	require.Error(t, createErr, "expected CreateCard to fail when git commit fails")
+
+	// The returned error must contain the git commit error.
+	assert.ErrorContains(t, createErr, "git commit")
+
+	// Crucially, the rollback errors must also be present so callers can
+	// detect a partial-rollback scenario (orphaned card on disk).
+	assert.ErrorContains(t, createErr, "rollback delete card")
+	assert.ErrorContains(t, createErr, delErr.Error())
+	assert.ErrorContains(t, createErr, "rollback save project")
+	assert.ErrorContains(t, createErr, saveErr.Error())
 }
