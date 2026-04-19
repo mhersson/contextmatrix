@@ -674,6 +674,125 @@ func TestRoundTrip_VettedField(t *testing.T) {
 	})
 }
 
+func TestParseCard_UseOpusOrchestratorField(t *testing.T) {
+	t.Run("use_opus_orchestrator true deserializes correctly", func(t *testing.T) {
+		input := `---
+id: TEST-001
+title: Opus card
+project: test
+type: task
+state: todo
+priority: medium
+use_opus_orchestrator: true
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		assert.True(t, card.UseOpusOrchestrator)
+	})
+
+	t.Run("without use_opus_orchestrator field defaults to false", func(t *testing.T) {
+		input := `---
+id: TEST-001
+title: Normal card
+project: test
+type: task
+state: todo
+priority: medium
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		assert.False(t, card.UseOpusOrchestrator)
+	})
+}
+
+func TestSerializeCard_UseOpusOrchestratorOmitempty(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	t.Run("use_opus_orchestrator false omitted from YAML", func(t *testing.T) {
+		card := &Card{
+			ID:                  "TEST-001",
+			Title:               "Test card",
+			Project:             "test-project",
+			Type:                "task",
+			State:               "todo",
+			Priority:            "medium",
+			UseOpusOrchestrator: false,
+			Created:             created,
+			Updated:             created,
+		}
+		data, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "use_opus_orchestrator")
+	})
+
+	t.Run("use_opus_orchestrator true present in YAML", func(t *testing.T) {
+		card := &Card{
+			ID:                  "TEST-001",
+			Title:               "Test card",
+			Project:             "test-project",
+			Type:                "task",
+			State:               "todo",
+			Priority:            "medium",
+			UseOpusOrchestrator: true,
+			Created:             created,
+			Updated:             created,
+		}
+		data, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "use_opus_orchestrator: true")
+	})
+}
+
+func TestRoundTrip_UseOpusOrchestratorField(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	t.Run("use_opus_orchestrator true round-trips correctly", func(t *testing.T) {
+		original := &Card{
+			ID:                  "TEST-001",
+			Title:               "Opus card",
+			Project:             "test-project",
+			Type:                "task",
+			State:               "todo",
+			Priority:            "medium",
+			UseOpusOrchestrator: true,
+			Created:             created,
+			Updated:             created,
+		}
+		data, err := SerializeCard(original)
+		require.NoError(t, err)
+
+		parsed, err := ParseCard(data)
+		require.NoError(t, err)
+		assert.True(t, parsed.UseOpusOrchestrator)
+	})
+
+	t.Run("use_opus_orchestrator false round-trips correctly", func(t *testing.T) {
+		original := &Card{
+			ID:                  "TEST-001",
+			Title:               "Normal card",
+			Project:             "test-project",
+			Type:                "task",
+			State:               "todo",
+			Priority:            "medium",
+			UseOpusOrchestrator: false,
+			Created:             created,
+			Updated:             created,
+		}
+		data, err := SerializeCard(original)
+		require.NoError(t, err)
+
+		parsed, err := ParseCard(data)
+		require.NoError(t, err)
+		assert.False(t, parsed.UseOpusOrchestrator)
+	})
+}
+
 func TestRoundTrip_CustomFields(t *testing.T) {
 	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 

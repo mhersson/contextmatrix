@@ -23,10 +23,12 @@ const MinRunnerAPIKeyLength = 32
 
 // RunnerConfig holds configuration for the remote execution runner.
 type RunnerConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	URL       string `yaml:"url"`        // base URL, e.g. http://localhost:9090
-	APIKey    string `yaml:"api_key"`    // shared secret for HMAC signing
-	PublicURL string `yaml:"public_url"` // public URL for MCP endpoint sent to runner containers
+	Enabled                 bool   `yaml:"enabled"`
+	URL                     string `yaml:"url"`                       // base URL, e.g. http://localhost:9090
+	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
+	PublicURL               string `yaml:"public_url"`                // public URL for MCP endpoint sent to runner containers
+	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
+	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
 }
 
 // IssueImportingConfig holds configuration specific to GitHub issue importing.
@@ -113,6 +115,10 @@ func defaults() *Config {
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
 		Theme:            "everforest",
+		Runner: RunnerConfig{
+			OrchestratorSonnetModel: "claude-sonnet-4-6",
+			OrchestratorOpusModel:   "claude-opus-4-7",
+		},
 	}
 }
 
@@ -336,6 +342,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL"); v != "" {
 		cfg.Runner.PublicURL = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {
+		cfg.Runner.OrchestratorSonnetModel = v
+	}
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
+		cfg.Runner.OrchestratorOpusModel = v
 	}
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
 		cfg.GitHub.Token = v

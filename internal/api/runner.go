@@ -116,6 +116,10 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Build trigger payload.
 	mcpURL := fmt.Sprintf("%s/mcp", h.runnerCfg.PublicURL)
+	model := h.runnerCfg.OrchestratorSonnetModel
+	if card.UseOpusOrchestrator {
+		model = h.runnerCfg.OrchestratorOpusModel
+	}
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
@@ -124,6 +128,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
+		Model:       model,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage

@@ -4,9 +4,11 @@ import { AutomationCheckboxes } from './AutomationCheckboxes';
 
 const baseProps = {
   autonomous: false,
+  useOpusOrchestrator: false,
   featureBranch: false,
   createPR: false,
   onAutonomousChange: vi.fn(),
+  onUseOpusOrchestratorChange: vi.fn(),
   onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
   onBaseBranchChange: vi.fn(),
@@ -14,9 +16,10 @@ const baseProps = {
 };
 
 describe('AutomationCheckboxes — checkboxes', () => {
-  it('renders all three checkboxes regardless of props', () => {
+  it('renders all four checkboxes regardless of props', () => {
     render(<AutomationCheckboxes {...baseProps} />);
     expect(screen.getByLabelText('Autonomous mode')).toBeInTheDocument();
+    expect(screen.getByLabelText('Opus as orchestrator')).toBeInTheDocument();
     expect(screen.getByLabelText('Feature branch')).toBeInTheDocument();
     expect(screen.getByLabelText('Create PR')).toBeInTheDocument();
   });
@@ -166,6 +169,49 @@ describe('AutomationCheckboxes — Run Now interaction', () => {
 
     await act(async () => { resolve!(); });
     expect(screen.getByRole('button', { name: 'Run HITL' })).not.toBeDisabled();
+  });
+});
+
+describe('AutomationCheckboxes — Opus as orchestrator checkbox', () => {
+  it('renders the Opus as orchestrator checkbox', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.getByLabelText('Opus as orchestrator')).toBeInTheDocument();
+  });
+
+  it('reflects useOpusOrchestrator=false (unchecked)', () => {
+    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={false} />);
+    expect(screen.getByLabelText('Opus as orchestrator')).not.toBeChecked();
+  });
+
+  it('reflects useOpusOrchestrator=true (checked)', () => {
+    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={true} />);
+    expect(screen.getByLabelText('Opus as orchestrator')).toBeChecked();
+  });
+
+  it('calls onUseOpusOrchestratorChange with true when clicked while unchecked', () => {
+    const onUseOpusOrchestratorChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        useOpusOrchestrator={false}
+        onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Opus as orchestrator'));
+    expect(onUseOpusOrchestratorChange).toHaveBeenCalledWith(true);
+  });
+
+  it('calls onUseOpusOrchestratorChange with false when clicked while checked', () => {
+    const onUseOpusOrchestratorChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        useOpusOrchestrator={true}
+        onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Opus as orchestrator'));
+    expect(onUseOpusOrchestratorChange).toHaveBeenCalledWith(false);
   });
 });
 

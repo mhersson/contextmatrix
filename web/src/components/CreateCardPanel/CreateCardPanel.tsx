@@ -25,6 +25,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   useFocusTrap(panelRef, true);
 
   const [autonomous, setAutonomous] = useState(false);
+  const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
   const [featureBranch, setFeatureBranch] = useState(false);
   const [createPR, setCreatePR] = useState(false);
   const [baseBranch, setBaseBranch] = useState('');
@@ -79,6 +80,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
         parent: parent || undefined,
         body: body || undefined,
         autonomous: autonomous || undefined,
+        use_opus_orchestrator: useOpusOrchestrator || undefined,
         feature_branch: featureBranch || undefined,
         create_pr: createPR || undefined,
         base_branch: baseBranch || undefined,
@@ -88,7 +90,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     } finally {
       setIsSubmitting(false);
     }
-  }, [title, type, priority, labels, parent, body, autonomous, featureBranch, createPR, baseBranch, isSubmitting, onCreate]);
+  }, [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch, isSubmitting, onCreate]);
 
   return (
     <>
@@ -137,6 +139,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             cards={cards}
             bodyDirty={bodyDirty} setBodyDirty={setBodyDirty}
             autonomous={autonomous} setAutonomous={setAutonomous}
+            useOpusOrchestrator={useOpusOrchestrator} setUseOpusOrchestrator={setUseOpusOrchestrator}
             featureBranch={featureBranch} setFeatureBranch={setFeatureBranch}
             createPR={createPR} setCreatePR={setCreatePR}
             baseBranch={baseBranch} onBaseBranchChange={setBaseBranch}
