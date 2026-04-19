@@ -7,6 +7,7 @@ package sessionlog
 import (
 	"encoding/binary"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -194,13 +195,29 @@ type Manager struct {
 	maxEvents int
 	maxBytes  int
 
+	// droppedEvents counts fan-out drops across all sessions (slow-subscriber
+	// events discarded in the default branch of the fan-out select). Atomically
+	// updated so callers can observe the counter without holding m.mu.
+	droppedEvents atomic.Uint64
+	// lastDropWarn records the last Unix nanosecond a drop warning was emitted,
+	// used to throttle slog.Warn calls to at most one per second globally.
+	lastDropWarn atomic.Int64
+
 	// Upstream session management (populated by WithRunnerConfig / Start / Stop).
 	activeSessions map[string]*activeSession
 	pendingSubs    map[string][]*subscriber // subscribers registered before Start
+	failedSessions map[string]struct{}      // sessions that permanently failed upstream
 	maxSessions    int
 	sessionTTL     time.Duration
 	runnerURL      string
 	runnerAPIKey   string
+}
+
+// DroppedEvents returns the total number of fan-out events dropped because a
+// subscriber's channel was full (slow subscriber). The count is monotonically
+// increasing and safe to read without holding m.mu.
+func (m *Manager) DroppedEvents() uint64 {
+	return m.droppedEvents.Load()
 }
 
 // NewManager creates a Manager with optional configuration overrides.
@@ -257,9 +274,11 @@ func (m *Manager) SnapshotProject(project string) []Event {
 }
 
 // Clear removes all buffered events for cardID and frees the underlying buffer.
-// After Clear, Snapshot returns nil for the same cardID.
+// After Clear, Snapshot returns nil for the same cardID. It also clears any
+// permanent-failure flag so a future Start can restart the session cleanly.
 func (m *Manager) Clear(cardID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sessions, cardID)
+	delete(m.failedSessions, cardID)
 }
