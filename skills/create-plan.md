@@ -101,13 +101,14 @@ Proceed immediately to Phase 2 — do NOT stop here.
 
 # Phase 2: Plan Approval Gate
 
-Call `get_card(card_id=<parent_id>)` to re-read the current card state. Use
-only the top-level `autonomous` field. Do NOT infer mode from the
-`activity_log`.
+Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
+top-level `autonomous` field is the ONLY source of truth for mode. If
+`autonomous: false`, the card is HITL — regardless of any `promoted` entry
+in `activity_log`.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 3.
 
-**If not autonomous (HITL):** present the plan to the user:
+**If `autonomous: false` (HITL):** present the plan to the user:
 
 > Here is the proposed plan for **<card title>**:
 >
@@ -146,13 +147,13 @@ Proceed immediately to Phase 4.
 
 # Phase 4: Execution Gate
 
-Call `get_card(card_id=<parent_id>)` to re-read the current card state. Use
-only the top-level `autonomous` field. Do NOT infer mode from the
-`activity_log`.
+Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
+top-level `autonomous` field is the ONLY source of truth for mode. Ignore
+`activity_log` entirely for mode determination.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 5.
 
-**If not autonomous (HITL):** ask the user:
+**If `autonomous: false` (HITL):** ask the user:
 
 > Subtasks created. Want me to start execution?
 
@@ -328,9 +329,9 @@ from the card body.
 
 # Phase 8: Review Decision Gate
 
-Call `get_card(card_id=<parent_id>)` to re-read the current card state,
-including the `autonomous` flag. Use only the top-level `autonomous` field.
-Do NOT infer mode from the `activity_log`.
+Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
+top-level `autonomous` field is the ONLY source of truth for mode. Ignore
+`activity_log` entirely for mode determination.
 
 **If `autonomous: true`:** branch on the `recommendation` field in
 `REVIEW_FINDINGS`:
