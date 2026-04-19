@@ -28,7 +28,7 @@ type Card struct {
 	Labels        []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
 	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom         map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
-	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous,omitempty"`
+	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous"`
 	UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
 	Vetted              bool            `yaml:"vetted,omitempty"               json:"vetted"`
 	FeatureBranch  bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
