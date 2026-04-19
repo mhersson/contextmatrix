@@ -82,6 +82,7 @@ export function CardPanel({
   const initialIsHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
   const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
   const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
+  const [labelsCollapsed, setLabelsCollapsed] = useState(initialIsHITLRunning);
   // Tracks previous "HITL running" state: running AND not autonomous.
   // Promotion mid-run (HITL → auto) is a true→false transition → sections expand.
   const prevIsHITLRunningRef = useRef<boolean>(initialIsHITLRunning);
@@ -110,9 +111,11 @@ export function CardPanel({
       if (isHITLRunning) {
         setDescriptionCollapsed(true);
         setAutomationCollapsed(true);
+        setLabelsCollapsed(true);
       } else {
         setDescriptionCollapsed(false);
         setAutomationCollapsed(false);
+        setLabelsCollapsed(false);
       }
       prevIsHITLRunningRef.current = isHITLRunning;
     }
@@ -369,6 +372,8 @@ export function CardPanel({
         }}
         automationCollapsed={automationCollapsed}
         onToggleAutomation={() => setAutomationCollapsed((v) => !v)}
+        labelsCollapsed={labelsCollapsed}
+        onToggleLabels={() => setLabelsCollapsed((v) => !v)}
       />
 
       <CardPanelActivity activityLog={card.activity_log} />

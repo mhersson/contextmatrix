@@ -123,18 +123,43 @@ describe('CardPanel — collapsible Automation section', () => {
   });
 });
 
+describe('CardPanel — collapsible Labels section', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('Labels input is visible by default', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
+  });
+
+  it('clicking the Labels chevron hides the labels input', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse labels' }));
+    expect(screen.queryByPlaceholderText('Add label...')).not.toBeInTheDocument();
+  });
+
+  it('clicking the Labels chevron again shows the labels input', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse labels' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand labels' }));
+    expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
+  });
+});
+
 describe('CardPanel — auto-collapse on HITL runner_status transitions', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
-  it('transitions to HITL running collapses both Description and Automation', async () => {
+  it('transitions to HITL running collapses Description, Automation, and Labels', async () => {
     const { rerender } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
-    // Both sections visible initially
+    // All sections visible initially
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
 
     // Transition to HITL running (running AND NOT autonomous)
     await act(async () => {
@@ -146,6 +171,7 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
     await waitFor(() => {
       expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
       expect(screen.queryByRole('checkbox', { name: 'Autonomous mode' })).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Add label...')).not.toBeInTheDocument();
     });
   });
 
@@ -154,7 +180,7 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
       <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
 
-    // Transition to HITL running — auto-collapses both
+    // Transition to HITL running — auto-collapses all three sections
     await act(async () => {
       rerender(
         <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false } })} />,
@@ -163,13 +189,18 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
 
     await waitFor(() => {
       expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Add label...')).not.toBeInTheDocument();
     });
 
     // Manually expand Description
     fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
 
-    // Another re-render while still HITL running — should NOT re-collapse
+    // Manually expand Labels
+    fireEvent.click(screen.getByRole('button', { name: 'Expand labels' }));
+    expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
+
+    // Another re-render while still HITL running — should NOT re-collapse either
     await act(async () => {
       rerender(
         <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, title: 'updated title' } })} />,
@@ -177,9 +208,10 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
     });
 
     expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
   });
 
-  it('transitions out of HITL running expands both sections', async () => {
+  it('transitions out of HITL running expands Description, Automation, and Labels', async () => {
     const { rerender } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
@@ -193,6 +225,7 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
 
     await waitFor(() => {
       expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Add label...')).not.toBeInTheDocument();
     });
 
     // Transition out of running
@@ -205,6 +238,7 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
     await waitFor(() => {
       expect(screen.getByTestId('md-editor')).toBeInTheDocument();
       expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
     });
   });
 });
@@ -268,17 +302,17 @@ describe('CardPanel — split layout when HITL runner is active', () => {
     expect(screen.queryByTestId('card-chat-mock')).not.toBeInTheDocument();
   });
 
-  it('promoting mid-run (autonomous false→true) switches layout from split to single and expands Description and Automation', async () => {
+  it('promoting mid-run (autonomous false→true) switches layout from split to single and expands Description, Automation, and Labels', async () => {
     const { rerender } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, runner_status: 'running', autonomous: false, state: 'in_progress' } })} />,
     );
 
-    // Initially in HITL running — split layout, sections collapsed
+    // Initially in HITL running — split layout, all three sections collapsed
     expect(screen.getByTestId('body-split')).toBeInTheDocument();
     // Auto-collapsed on mount since it starts in HITL-running state
-    // (both Description and Automation should be collapsed)
     expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Autonomous mode' })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Add label...')).not.toBeInTheDocument();
 
     // Promote to autonomous mid-run
     await act(async () => {
@@ -291,9 +325,10 @@ describe('CardPanel — split layout when HITL runner is active', () => {
       // Layout switches to single-body
       expect(screen.getByTestId('body-single')).toBeInTheDocument();
       expect(screen.queryByTestId('body-split')).not.toBeInTheDocument();
-      // Description and Automation are expanded
+      // Description, Automation, and Labels are all expanded
       expect(screen.getByTestId('md-editor')).toBeInTheDocument();
       expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
     });
   });
 });

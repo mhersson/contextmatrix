@@ -124,10 +124,10 @@ immediately.
 region. The input row and action buttons stay pinned at their natural height
 below the log.
 
-### Collapsible Description and Automation sections
+### Collapsible Description, Labels, and Automation sections
 
-Both sections have a chevron toggle button beside their label. The chevron uses
-the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
+All three sections have a chevron toggle button beside their label. The chevron
+uses the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
 `M5 15l7-7 7 7` expanded) with `text-[var(--grey1)] hover:text-[var(--fg)]`
 styling.
 
@@ -135,10 +135,10 @@ styling.
 `isHITLRunning` via `prevIsHITLRunningRef` (previous value) and fires only on
 transitions of that boolean:
 
-- `false → true` (entering HITL-running): sets both `descriptionCollapsed` and
-  `automationCollapsed` to `true`.
+- `false → true` (entering HITL-running): sets `descriptionCollapsed`,
+  `labelsCollapsed`, and `automationCollapsed` all to `true`.
 - `true → false` (leaving HITL-running, including a HITL→Auto promotion
-  mid-run): resets both to `false`.
+  mid-run): resets all three to `false`.
 
 Auto-mode entry and exit never trigger a collapse because `isHITLRunning`
 stays false throughout.
@@ -151,10 +151,12 @@ by `useState` directly.
 Tracking via ref (not just the current value) ensures that manual re-expands
 during an active session survive re-renders while the card stays `running`.
 
-`CardPanelMetadata` receives `automationCollapsed: boolean` and
-`onToggleAutomation: () => void` props; it owns the Automation label + chevron
-row and wraps `<AutomationCheckboxes>` on those props. The internal Automation
-label inside `AutomationCheckboxes` was removed to avoid duplication.
+`CardPanelMetadata` receives `automationCollapsed: boolean`,
+`onToggleAutomation: () => void`, `labelsCollapsed: boolean`, and
+`onToggleLabels: () => void` props. It owns the Automation and Labels label +
+chevron rows and wraps their respective content on those props. The internal
+Automation label inside `AutomationCheckboxes` was removed to avoid duplication.
+Labels uses ARIA labels `Expand labels` / `Collapse labels`.
 
 ## Runner Console
 
