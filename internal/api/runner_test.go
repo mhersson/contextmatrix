@@ -106,7 +106,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	})
 
 	t.Run("no agent header allowed", func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	})
 }
 
@@ -205,7 +205,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	// Any "Run now" trigger (including non-autonomous) should auto-enable feature_branch/create_pr.
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+	assert.Equal(t, ErrCodeRunnerConflict, apiErr.Code)
 }
 
 func TestRunCard_CardNotFound(t *testing.T) {
@@ -376,7 +376,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
 
 	// Verify runner_status was reverted to "failed".
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -601,7 +601,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
@@ -886,7 +886,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
 }
 
 // --- POST /api/runner/status ---
@@ -1443,7 +1443,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
 }
 
 // --- POST /api/projects/{project}/cards/{id}/promote ---
@@ -1583,7 +1583,8 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	// Guard: already-autonomous card short-circuits before calling the runner webhook.
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	// Still 202 (accepted) — the idempotent path returns the current card.
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
@@ -1634,7 +1635,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
@@ -1709,7 +1710,7 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
 
 	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
 	// delivery problem, not a flag problem). The runner-side handlePromote will see
@@ -1762,7 +1763,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
 		// HITL run should auto-enable feature_branch/create_pr just like autonomous runs.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -1807,7 +1808,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.False(t, receivedPayload.Interactive, "Interactive should be false")
 		// Autonomous card with empty body should auto-enable feature_branch/create_pr.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -1854,7 +1855,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
 		// Autonomous+interactive should auto-enable feature_branch/create_pr like all Run now triggers.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -1906,7 +1907,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
 		// Patch is skipped when feature_branch is already true — flags preserved as-is.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -2004,7 +2005,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	require.NoError(t, err, "top-level promote must not time out (guard must short-circuit the callback)")
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "top-level promote must return 200")
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode, "top-level promote must return 202")
 
 	// The fake runner must have been called exactly once — the callback from the runner
 	// must NOT have triggered a second outbound webhook from CM.
@@ -2061,7 +2062,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.Equal(t, "test-sonnet-9", capturedPayload.Model, "default card must use OrchestratorSonnetModel")
 	})
 
@@ -2108,7 +2109,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.Equal(t, "test-opus-9", capturedPayload.Model, "use_opus_orchestrator card must use OrchestratorOpusModel")
 	})
 }

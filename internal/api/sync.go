@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
 )
 
@@ -28,8 +29,12 @@ func (h *syncHandlers) triggerSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.syncer.TriggerSync(r.Context()); err != nil {
+		// Log the raw error server-side — go-git transport errors typically
+		// embed the remote URL and on-disk path. Sanitize before emitting
+		// to the client so auth hints / filesystem layout don't leak.
+		ctxlog.Logger(r.Context()).Error("sync failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "SYNC_ERROR",
-			"sync failed", err.Error())
+			"sync failed", sanitizeErrorDetails(err.Error()))
 
 		return
 	}

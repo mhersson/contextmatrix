@@ -2004,7 +2004,7 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 		parentCard, err := s.store.GetCard(ctx, project, parent)
 		if err != nil {
 			return fmt.Errorf("validate card: %w", &board.ValidationError{
-				Err:     board.ErrInvalidType,
+				Err:     board.ErrParentNotFound,
 				Field:   "parent",
 				Value:   parent,
 				Message: fmt.Sprintf("parent card %q does not exist", parent),
