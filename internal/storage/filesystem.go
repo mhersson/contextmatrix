@@ -290,7 +290,11 @@ func (s *FilesystemStore) matchesFilter(idx *cardIndex, f CardFilter) bool {
 }
 
 // ListProjects returns all discovered projects.
-func (s *FilesystemStore) ListProjects(_ context.Context) ([]board.ProjectConfig, error) {
+func (s *FilesystemStore) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -303,7 +307,11 @@ func (s *FilesystemStore) ListProjects(_ context.Context) ([]board.ProjectConfig
 }
 
 // GetProject returns the configuration for a specific project.
-func (s *FilesystemStore) GetProject(_ context.Context, name string) (*board.ProjectConfig, error) {
+func (s *FilesystemStore) GetProject(ctx context.Context, name string) (*board.ProjectConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -318,7 +326,11 @@ func (s *FilesystemStore) GetProject(_ context.Context, name string) (*board.Pro
 }
 
 // SaveProject persists a project configuration.
-func (s *FilesystemStore) SaveProject(_ context.Context, cfg *board.ProjectConfig) error {
+func (s *FilesystemStore) SaveProject(ctx context.Context, cfg *board.ProjectConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -344,7 +356,11 @@ func (s *FilesystemStore) SaveProject(_ context.Context, cfg *board.ProjectConfi
 }
 
 // DeleteProject removes a project and its directory from disk.
-func (s *FilesystemStore) DeleteProject(_ context.Context, name string) error {
+func (s *FilesystemStore) DeleteProject(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -367,7 +383,11 @@ func (s *FilesystemStore) DeleteProject(_ context.Context, name string) error {
 }
 
 // ProjectCardCount returns the number of cards in a project.
-func (s *FilesystemStore) ProjectCardCount(_ context.Context, name string) (int, error) {
+func (s *FilesystemStore) ProjectCardCount(ctx context.Context, name string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -382,7 +402,13 @@ func (s *FilesystemStore) ProjectCardCount(_ context.Context, name string) (int,
 // ListCards returns all cards in a project matching the filter.
 // RLock is held for the entire operation (index scan + file reads) to prevent
 // TOCTOU races where files are deleted between the index scan and the read.
-func (s *FilesystemStore) ListCards(_ context.Context, project string, filter CardFilter) ([]*board.Card, error) {
+// If the context is cancelled during the file-read loop, ListCards returns the
+// partial result collected so far along with the context error.
+func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter CardFilter) ([]*board.Card, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -401,6 +427,10 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 
 	cards := make([]*board.Card, 0, len(paths))
 	for _, path := range paths {
+		if err := ctx.Err(); err != nil {
+			return cards, err
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -422,7 +452,11 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 // GetCard returns a specific card.
 // RLock is held for the entire operation (index lookup + file read) to prevent
 // TOCTOU races where files are deleted between the index lookup and the read.
-func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board.Card, error) {
+func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -454,7 +488,11 @@ func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board
 }
 
 // CreateCard persists a new card.
-func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *board.Card) error {
+func (s *FilesystemStore) CreateCard(ctx context.Context, project string, card *board.Card) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -491,7 +529,11 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 }
 
 // UpdateCard persists changes to an existing card.
-func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *board.Card) error {
+func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *board.Card) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -522,7 +564,11 @@ func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *bo
 }
 
 // DeleteCard removes a card.
-func (s *FilesystemStore) DeleteCard(_ context.Context, project, id string) error {
+func (s *FilesystemStore) DeleteCard(ctx context.Context, project, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

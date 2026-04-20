@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -846,6 +847,56 @@ func TestAtomicWriteFile(t *testing.T) {
 			assert.Equal(t, first, b,
 				"byte %d differs: expected %c, got %c (partial write detected)", i, first, b)
 		}
+	})
+}
+
+func TestFilesystemStore_ListCards_ContextCancellation(t *testing.T) {
+	const numCards = 500
+
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	// Body content large enough to make each ReadFile measurably slow.
+	largeBody := strings.Repeat("x", 4096)
+
+	// Create enough large card files to make mid-loop cancellation detectable.
+	for i := range numCards {
+		id := fmt.Sprintf("TEST-%04d", i+1)
+		c := testCard(id, "todo")
+		c.Body = largeBody
+		require.NoError(t, store.CreateCard(context.Background(), "test-project", c))
+	}
+
+	t.Run("entry cancellation returns error immediately", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // pre-cancel before calling ListCards
+
+		cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.Nil(t, cards)
+	})
+
+	t.Run("mid-loop cancellation returns partial results and error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Cancel the context after a short delay so the loop starts but does
+		// not finish reading all cards before it is interrupted.
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+
+		cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+
+		// The context must have been cancelled.
+		assert.ErrorIs(t, err, context.Canceled)
+
+		// We expect a partial result: fewer than all cards returned.
+		assert.Less(t, len(cards), numCards, "expected fewer than all %d cards to be returned on cancellation", numCards)
 	})
 }
 
