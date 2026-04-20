@@ -77,16 +77,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = getStoredPalette();
-    if (stored !== null) {
-      // User has a stored preference — skip server-driven palette
-      return;
-    }
     api.getAppConfig().then((config) => {
-      const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
-        ? (config.theme as Palette)
-        : 'everforest';
-      setPaletteState(p);
-      applyPalette(p);
+      if (stored === null) {
+        const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
+          ? (config.theme as Palette)
+          : 'everforest';
+        setPaletteState(p);
+        applyPalette(p);
+      }
       if (config.version) {
         setVersion(config.version);
       }
