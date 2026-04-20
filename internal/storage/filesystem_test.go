@@ -850,6 +850,62 @@ func TestAtomicWriteFile(t *testing.T) {
 	})
 }
 
+// countingContext is a context.Context that cancels itself after a fixed number
+// of Err() calls. The production ListCards loop calls ctx.Err() exactly once per
+// card, so cancelAfter=N means the loop will see the cancellation on the (N+1)-th
+// card and return at most N cards. This gives a deterministic bound that does not
+// depend on wall-clock timing or I/O speed.
+type countingContext struct {
+	inner       context.Context //nolint:containedctx // test helper needs to delegate to inner ctx
+	mu          sync.Mutex
+	remaining   int
+	cancel      context.CancelFunc
+	cancelledAt int // Err() call number when cancel fired (1-based)
+	total       int // total Err() calls so far
+}
+
+func newCountingContext(parent context.Context, cancelAfter int) (*countingContext, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	cc := &countingContext{
+		inner:     ctx,
+		remaining: cancelAfter,
+		cancel:    cancel,
+	}
+
+	return cc, cancel
+}
+
+// Deadline implements context.Context.
+func (c *countingContext) Deadline() (deadline time.Time, ok bool) { return c.inner.Deadline() }
+
+// Done implements context.Context.
+func (c *countingContext) Done() <-chan struct{} { return c.inner.Done() }
+
+// Value implements context.Context.
+func (c *countingContext) Value(key any) any { return c.inner.Value(key) }
+
+// Err implements context.Context. It decrements the remaining counter and fires
+// the cancel after the configured number of calls.
+func (c *countingContext) Err() error {
+	if err := c.inner.Err(); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.total++
+	if c.remaining > 0 {
+		c.remaining--
+		if c.remaining == 0 {
+			c.cancelledAt = c.total
+			c.cancel()
+		}
+	}
+
+	return c.inner.Err()
+}
+
 func TestFilesystemStore_ListCards_ContextCancellation(t *testing.T) {
 	const numCards = 500
 
@@ -875,28 +931,31 @@ func TestFilesystemStore_ListCards_ContextCancellation(t *testing.T) {
 		cancel() // pre-cancel before calling ListCards
 
 		cards, err := store.ListCards(ctx, "test-project", CardFilter{})
-		assert.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 		assert.Nil(t, cards)
 	})
 
 	t.Run("mid-loop cancellation returns partial results and error", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		// cancelAfter=10 means Err() will return nil for the first 10 calls and
+		// then cancel; the loop checks Err() once per card before reading it, so
+		// at most 10 cards are read before the cancellation is observed.
+		const cancelAfter = 10
+
+		cc, cancel := newCountingContext(context.Background(), cancelAfter)
 		defer cancel()
 
-		// Cancel the context after a short delay so the loop starts but does
-		// not finish reading all cards before it is interrupted.
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-
-		cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+		cards, err := store.ListCards(cc, "test-project", CardFilter{})
 
 		// The context must have been cancelled.
-		assert.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 
-		// We expect a partial result: fewer than all cards returned.
-		assert.Less(t, len(cards), numCards, "expected fewer than all %d cards to be returned on cancellation", numCards)
+		// The loop checks ctx.Err() once per card before reading it.  After the
+		// cancelAfter-th check the cancel fires; the loop detects it on the very
+		// next iteration check.  So the number of cards returned must be exactly
+		// cancelAfter (the ones already appended before the check fires).
+		assert.LessOrEqual(t, len(cards), cancelAfter,
+			"expected at most %d cards before cancellation was detected, got %d/%d",
+			cancelAfter, len(cards), numCards)
 	})
 }
 

@@ -2546,7 +2546,7 @@ func TestDeferredCommitNoOpFlush(t *testing.T) {
 
 	// Flush on card with no deferred paths — should not produce a commit.
 	svc.writeMu.Lock()
-	err := svc.flushDeferredCommit("NONEXISTENT-001", "test-agent")
+	err := svc.flushDeferredCommit(ctx, "NONEXISTENT-001", "test-agent")
 	svc.writeMu.Unlock()
 	require.NoError(t, err)
 
@@ -4252,7 +4252,7 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 
 	// The flush should return an error.
 	svc.writeMu.Lock()
-	err = svc.flushDeferredCommit(card.ID, "test-agent")
+	err = svc.flushDeferredCommit(ctx, card.ID, "test-agent")
 	svc.writeMu.Unlock()
 	require.Error(t, err, "flush should fail when staging a non-existent file")
 
