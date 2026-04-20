@@ -70,6 +70,9 @@ transitions:
 	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
 	require.NoError(t, err)
 
+	// Seed an initial commit so HEAD exists and CurrentBranch() works.
+	require.NoError(t, git.CommitFile("test-project/.board.yaml", "init: seed boards repo"))
+
 	// Initialize store
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
@@ -631,6 +634,128 @@ func TestHealthzNotLogged(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	assert.Empty(t, buf.String(), "expected no log output for GET /healthz")
+}
+
+func TestReadyzHappyPath(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/readyz")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result readyzResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, "ok", result.Status)
+	assert.NotEmpty(t, result.Checks)
+
+	for _, c := range result.Checks {
+		assert.True(t, c.OK, "check %q should be ok", c.Name)
+	}
+}
+
+func TestReadyzDegradedOnStoreFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod 000 has no effect as root")
+	}
+
+	// Create a fresh environment with a boards dir we can chmod to trigger failure.
+	boardsDir := t.TempDir()
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+
+	boardConfig := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo]
+  not_planned: [todo]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
+
+	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	// Seed an initial commit so HEAD exists and git check passes.
+	require.NoError(t, git.CommitFile("test-project/.board.yaml", "init: seed boards repo"))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	bus2 := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc2 := service.NewCardService(store, git, lockMgr, bus2, boardsDir, nil, true, false)
+
+	router := NewRouter(RouterConfig{Service: svc2, Bus: bus2})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Revoke read access to the boards directory so ListProjects fails.
+	require.NoError(t, os.Chmod(boardsDir, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(boardsDir, 0o755) })
+
+	resp, err := http.Get(server.URL + "/readyz")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+	var result readyzResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, "degraded", result.Status)
+
+	// At least the store check should have failed.
+	hasFailed := false
+
+	for _, c := range result.Checks {
+		if !c.OK {
+			hasFailed = true
+		}
+	}
+
+	assert.True(t, hasFailed, "expected at least one failed check")
+}
+
+func TestReadyzNotLogged(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	var buf bytes.Buffer
+
+	orig := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	resp, err := http.Get(server.URL + "/readyz")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.Empty(t, buf.String(), "expected no log output for GET /readyz")
 }
 
 // === Agent Endpoint Tests ===

@@ -298,7 +298,7 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(fsys))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/mcp" {
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/mcp" {
 			apiHandler.ServeHTTP(w, r)
 
 			return
