@@ -74,14 +74,13 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     setPromoting(true);
     setError(null);
     try {
+      // Promote is idempotent server-side: an already-autonomous card returns
+      // the current card with 202 rather than an error. No client-side
+      // branch on ALREADY_AUTONOMOUS is needed.
       await api.promoteCardToAutonomous(card.project, card.id);
     } catch (err) {
-      if (isAPIError(err) && err.code === 'ALREADY_AUTONOMOUS') {
-        setError('Session is already autonomous');
-      } else {
-        const msg = isAPIError(err) ? err.error : 'Failed to promote session';
-        setError(msg);
-      }
+      const msg = isAPIError(err) ? err.error : 'Failed to promote session';
+      setError(msg);
     } finally {
       setPromoting(false);
     }

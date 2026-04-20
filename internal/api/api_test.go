@@ -222,6 +222,30 @@ func TestCreateCard(t *testing.T) {
 		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
 	})
 
+	t.Run("non-existent parent returns 404 PARENT_NOT_FOUND", func(t *testing.T) {
+		// Regression guard: before the ctxmax-328 audit, a missing parent
+		// wrapped in board.ErrInvalidType, which surfaced as 422
+		// VALIDATION_ERROR. Parent is a resource — clients need 404.
+		body := createCardRequest{
+			Title:    "Subtask with bogus parent",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   "TEST-999",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeParentNotFound, apiErr.Code)
+	})
+
 	t.Run("non-existent project", func(t *testing.T) {
 		body := createCardRequest{
 			Title:    "Test Card",

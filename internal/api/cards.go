@@ -126,21 +126,21 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if state != "" && !slices.Contains(cfg.States, state) {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid state filter: "+state, "")
 
 			return
 		}
 
 		if typ != "" && !slices.Contains(cfg.Types, typ) && typ != "subtask" {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid type filter: "+typ, "")
 
 			return
 		}
 
 		if priority != "" && !slices.Contains(cfg.Priorities, priority) {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid priority filter: "+priority, "")
 
 			return

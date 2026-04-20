@@ -29,6 +29,11 @@ var (
 	// ErrDependenciesNotMet indicates that not all depends_on cards are done.
 	ErrDependenciesNotMet = errors.New("dependencies not met")
 
+	// ErrParentNotFound indicates that a referenced parent card does not exist.
+	// This maps to HTTP 404 at the API layer (the parent is a resource, not a
+	// field-shape problem).
+	ErrParentNotFound = errors.New("parent card not found")
+
 	// ErrNoPath indicates no sequence of valid transitions connects two states.
 	ErrNoPath = errors.New("no transition path exists")
 

@@ -21,10 +21,15 @@ import (
 )
 
 // Error codes for runner-related errors.
+//
+// The previous ErrCodeRunnerError was emitted with both 409 and 502 — callers
+// could not tell an already-running card from an unreachable runner host.
+// The codes below split that axis: conflict = 409, unavailable = 502.
 const (
-	ErrCodeRunnerDisabled   = "RUNNER_DISABLED"
-	ErrCodeRunnerError      = "RUNNER_ERROR"
-	ErrCodeRunnerNotRunning = "RUNNER_NOT_RUNNING"
+	ErrCodeRunnerDisabled    = "RUNNER_DISABLED"
+	ErrCodeRunnerConflict    = "RUNNER_CONFLICT"
+	ErrCodeRunnerUnavailable = "RUNNER_UNAVAILABLE"
+	ErrCodeRunnerNotRunning  = "RUNNER_NOT_RUNNING"
 )
 
 // runnerHandlers contains handlers for remote execution endpoints.
@@ -83,7 +88,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
-		writeError(w, http.StatusConflict, ErrCodeRunnerError,
+		writeError(w, http.StatusConflict, ErrCodeRunnerConflict,
 			"card is already being executed by the runner", fmt.Sprintf("runner_status: %s", card.RunnerStatus))
 
 		return
@@ -164,13 +169,13 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 				"card_id", id, "project", project, "error", revertErr)
 		}
 
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
 			"failed to trigger runner", "")
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, card)
+	writeJSON(w, http.StatusAccepted, card)
 }
 
 // maxMessageContentSize is the maximum allowed byte length for a human message.
@@ -244,7 +249,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		Content:   body.Content,
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to send message to runner", "")
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to send message to runner", "")
 
 		return
 	}
@@ -307,7 +312,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		writeJSON(w, http.StatusOK, card)
+		writeJSON(w, http.StatusAccepted, card)
 
 		return
 	}
@@ -349,12 +354,12 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		Project: project,
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to promote runner task", "")
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updatedCard)
+	writeJSON(w, http.StatusAccepted, updatedCard)
 }
 
 // stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".
@@ -392,7 +397,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	// Send kill webhook.
 	if err := h.runner.Kill(r.Context(), runner.KillPayload{CardID: id, Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
 			"failed to stop runner task", "")
 
 		return
@@ -405,7 +410,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, card)
+	writeJSON(w, http.StatusAccepted, card)
 }
 
 // stopAllResponse is the response for the stop-all endpoint.
@@ -432,7 +437,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	// Send stop-all webhook.
 	if err := h.runner.StopAll(r.Context(), runner.StopAllPayload{Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner stop-all webhook failed", "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
 			"failed to stop all runner tasks", "")
 
 		return
