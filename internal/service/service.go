@@ -369,7 +369,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	// Git commit
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
-		if err := s.git.CommitAll(msg); err != nil {
+		if err := s.git.CommitAll(ctx, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
@@ -469,7 +469,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		path := filepath.Join(name, ".board.yaml")
 
 		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
-		if err := s.git.CommitFile(path, msg); err != nil {
+		if err := s.git.CommitFile(ctx, path, msg); err != nil {
 			slog.Warn("git commit after project update", "error", err)
 		} else {
 			s.notifyCommit()
@@ -519,7 +519,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	// Git commit
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
-		if err := s.git.CommitAll(msg); err != nil {
+		if err := s.git.CommitAll(ctx, msg); err != nil {
 			slog.Warn("git commit after project delete", "error", err)
 		} else {
 			s.notifyCommit()
@@ -708,7 +708,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		configPath := filepath.Join(project, ".board.yaml")
 
 		msg := commitMessage("", cardID, "created")
-		if gitErr := s.git.CommitFiles([]string{cardPath, configPath}, msg); gitErr != nil {
+		if gitErr := s.git.CommitFiles(ctx, []string{cardPath, configPath}, msg); gitErr != nil {
 			// Rollback: remove the orphaned card file and restore NextID so
 			// the sequence has no gap on the next creation attempt.
 			var rollbackErrs []error
@@ -915,7 +915,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		cardPath := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "updated")
-		if err := s.git.CommitFile(cardPath, msg); err != nil {
+		if err := s.git.CommitFile(ctx, cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
@@ -1135,7 +1135,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		cardPath := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "updated")
-		if err := s.git.CommitFile(cardPath, msg); err != nil {
+		if err := s.git.CommitFile(ctx, cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
@@ -1229,7 +1229,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		path := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "deleted")
-		if err := s.git.CommitFile(path, msg); err != nil {
+		if err := s.git.CommitFile(ctx, path, msg); err != nil {
 			return fmt.Errorf("git commit delete: %w", err)
 		}
 
@@ -1488,7 +1488,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	// Batch-commit all recalculated cards in a single git commit.
 	if s.gitAutoCommit && len(updatedPaths) > 0 {
 		msg := fmt.Sprintf("[contextmatrix] %s: recalculated costs for %d cards", project, result.CardsUpdated)
-		if err := s.git.CommitFiles(updatedPaths, msg); err != nil {
+		if err := s.git.CommitFiles(ctx, updatedPaths, msg); err != nil {
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
 
@@ -2182,7 +2182,7 @@ func (s *CardService) commitCardChange(project, cardID, agentID, action string) 
 	}
 
 	msg := commitMessage(agentID, cardID, action)
-	if err := s.git.CommitFile(path, msg); err != nil {
+	if err := s.git.CommitFile(context.Background(), path, msg); err != nil {
 		return err
 	}
 
@@ -2225,7 +2225,7 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	delete(s.deferredPaths, cardID)
 	// Refresh go-git's in-memory repo state so subsequent read operations
 	// (e.g. GetLastCommitMessage) see the shell-git commit.
-	if err := s.git.ReloadRepo(); err != nil {
+	if err := s.git.ReloadRepo(context.Background()); err != nil {
 		slog.Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
 

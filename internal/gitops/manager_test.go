@@ -56,7 +56,7 @@ func TestCommitFile(t *testing.T) {
 
 	// Commit the file
 	message := "[contextmatrix] TEST-001: created test file"
-	err = mgr.CommitFile(testFile, message)
+	err = mgr.CommitFile(context.Background(), testFile, message)
 	require.NoError(t, err)
 
 	// Verify commit was created
@@ -77,7 +77,7 @@ func TestCommitFile_OnlyStagesSpecifiedFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit only file1
-	err = mgr.CommitFile("file1.txt", "commit file1")
+	err = mgr.CommitFile(context.Background(), "file1.txt", "commit file1")
 	require.NoError(t, err)
 
 	// file2 should still be untracked (uncommitted changes)
@@ -98,7 +98,7 @@ func TestCommitAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit all
-	err = mgr.CommitAll("commit all files")
+	err = mgr.CommitAll(context.Background(), "commit all files")
 	require.NoError(t, err)
 
 	// No uncommitted changes should remain
@@ -118,7 +118,7 @@ func TestSetAuthor(t *testing.T) {
 	// Create and commit a file
 	err = os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("content"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("test.txt", "test commit")
+	err = mgr.CommitFile(context.Background(), "test.txt", "test commit")
 	require.NoError(t, err)
 
 	// Verify author
@@ -177,10 +177,10 @@ func TestPushPull_BareRemote(t *testing.T) {
 
 	err = os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("hello.txt", "initial commit")
+	err = mgr.CommitFile(context.Background(), "hello.txt", "initial commit")
 	require.NoError(t, err)
 
-	err = mgr.AddRemote("origin", "file://"+bareDir)
+	err = mgr.AddRemote(context.Background(), "origin", "file://"+bareDir)
 	require.NoError(t, err)
 
 	// Push to the bare remote — should succeed.
@@ -201,7 +201,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 
 	err = os.WriteFile(filepath.Join(cloneDir, "world.txt"), []byte("world"), 0o644)
 	require.NoError(t, err)
-	err = cloneMgr.CommitFile("world.txt", "second commit")
+	err = cloneMgr.CommitFile(context.Background(), "world.txt", "second commit")
 	require.NoError(t, err)
 	err = cloneMgr.Push(ctx)
 	require.NoError(t, err)
@@ -234,8 +234,8 @@ func TestPull_AutoReloadsGoGit(t *testing.T) {
 	mgr.SetAuthor("Test User", "test@example.com")
 
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
-	require.NoError(t, mgr.CommitFile("init.txt", "initial commit"))
-	require.NoError(t, mgr.AddRemote("origin", "file://"+bareDir))
+	require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote(context.Background(), "origin", "file://"+bareDir))
 	require.NoError(t, mgr.Push(ctx))
 
 	// Clone and push a new commit from a second working copy.
@@ -246,7 +246,7 @@ func TestPull_AutoReloadsGoGit(t *testing.T) {
 	require.NoError(t, err)
 	cloneMgr.SetAuthor("Clone User", "clone@example.com")
 	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "new.txt"), []byte("new"), 0o644))
-	require.NoError(t, cloneMgr.CommitFile("new.txt", "remote commit"))
+	require.NoError(t, cloneMgr.CommitFile(context.Background(), "new.txt", "remote commit"))
 	require.NoError(t, cloneMgr.Push(ctx))
 
 	// Pull in the original repo.
@@ -260,7 +260,7 @@ func TestPull_AutoReloadsGoGit(t *testing.T) {
 
 	// go-git operations should still work after the auto-reload.
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "post-pull.txt"), []byte("post"), 0o644))
-	require.NoError(t, mgr.CommitFile("post-pull.txt", "post-pull commit"))
+	require.NoError(t, mgr.CommitFile(context.Background(), "post-pull.txt", "post-pull commit"))
 
 	msg, err = mgr.GetLastCommitMessage()
 	require.NoError(t, err)
@@ -286,8 +286,8 @@ func TestPush_AutoReloadsGoGit(t *testing.T) {
 	mgr.SetAuthor("Test User", "test@example.com")
 
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
-	require.NoError(t, mgr.CommitFile("init.txt", "initial commit"))
-	require.NoError(t, mgr.AddRemote("origin", "file://"+bareDir))
+	require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote(context.Background(), "origin", "file://"+bareDir))
 	require.NoError(t, mgr.Push(ctx))
 
 	// After push, go-git should still work correctly.
@@ -298,7 +298,7 @@ func TestPush_AutoReloadsGoGit(t *testing.T) {
 
 	// Subsequent commits and pushes should work.
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "second.txt"), []byte("second"), 0o644))
-	require.NoError(t, mgr.CommitFile("second.txt", "second commit"))
+	require.NoError(t, mgr.CommitFile(context.Background(), "second.txt", "second commit"))
 	require.NoError(t, mgr.Push(ctx))
 
 	msg, err = mgr.GetLastCommitMessage()
@@ -311,7 +311,7 @@ func TestAddRemote(t *testing.T) {
 	mgr, err := NewManager(tmpDir, "", "ssh", "")
 	require.NoError(t, err)
 
-	err = mgr.AddRemote("origin", "https://github.com/test/repo.git")
+	err = mgr.AddRemote(context.Background(), "origin", "https://github.com/test/repo.git")
 	require.NoError(t, err)
 
 	// Verify remote was added
@@ -353,7 +353,7 @@ func TestHasUncommittedChanges(t *testing.T) {
 	assert.True(t, hasChanges)
 
 	// Commit the file
-	err = mgr.CommitFile("test.txt", "commit")
+	err = mgr.CommitFile(context.Background(), "test.txt", "commit")
 	require.NoError(t, err)
 
 	// No more uncommitted changes
@@ -381,12 +381,12 @@ func TestGetLastCommitMessage_WithCommits(t *testing.T) {
 	// Create and commit files
 	err = os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("1"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("file1.txt", "first commit")
+	err = mgr.CommitFile(context.Background(), "file1.txt", "first commit")
 	require.NoError(t, err)
 
 	err = os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("2"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("file2.txt", "second commit")
+	err = mgr.CommitFile(context.Background(), "file2.txt", "second commit")
 	require.NoError(t, err)
 
 	// Should return the latest commit message
@@ -411,7 +411,7 @@ func TestCommitFile_InSubdirectory(t *testing.T) {
 
 	// Commit with relative path
 	relativePath := "boards/project-alpha/tasks/ALPHA-001.md"
-	err = mgr.CommitFile(relativePath, "[contextmatrix] ALPHA-001: created card")
+	err = mgr.CommitFile(context.Background(), relativePath, "[contextmatrix] ALPHA-001: created card")
 	require.NoError(t, err)
 
 	// Verify commit
@@ -429,11 +429,11 @@ func TestDeleteFile(t *testing.T) {
 	testFile := "test.txt"
 	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("content"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile(testFile, "add file")
+	err = mgr.CommitFile(context.Background(), testFile, "add file")
 	require.NoError(t, err)
 
 	// Delete the file
-	err = mgr.DeleteFile(testFile)
+	err = mgr.DeleteFile(context.Background(), testFile)
 	require.NoError(t, err)
 
 	// File should not exist
@@ -452,7 +452,7 @@ func TestDeleteFile_NonExistent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deleting non-existent file should not error (file already removed)
-	err = mgr.DeleteFile("nonexistent.txt")
+	err = mgr.DeleteFile(context.Background(), "nonexistent.txt")
 	// This will error because the file isn't tracked
 	assert.Error(t, err)
 }
@@ -492,7 +492,7 @@ func TestCommitMessageFormat(t *testing.T) {
 			require.NoError(t, err)
 
 			relPath := filepath.Base(filename)
-			err = mgr.CommitFile(relPath, tt.message)
+			err = mgr.CommitFile(context.Background(), relPath, tt.message)
 			require.NoError(t, err)
 
 			// Verify message
@@ -520,7 +520,7 @@ func TestCommitTimestamp(t *testing.T) {
 
 	err = os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("content"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("test.txt", "test commit")
+	err = mgr.CommitFile(context.Background(), "test.txt", "test commit")
 	require.NoError(t, err)
 
 	after := time.Now().Add(time.Second)
@@ -552,7 +552,7 @@ func TestConcurrentCommits(t *testing.T) {
 	// Commit all files sequentially (mutex ensures serialization)
 	for i := range 10 {
 		relPath := "file" + string(rune('0'+i)) + ".txt"
-		err := mgr.CommitFile(relPath, "commit "+relPath)
+		err := mgr.CommitFile(context.Background(), relPath, "commit "+relPath)
 		require.NoError(t, err)
 	}
 
@@ -595,7 +595,7 @@ func TestHasRemote_WithRemote(t *testing.T) {
 	mgr, err := NewManager(tmpDir, "", "ssh", "")
 	require.NoError(t, err)
 
-	err = mgr.AddRemote("origin", "https://github.com/test/repo.git")
+	err = mgr.AddRemote(context.Background(), "origin", "https://github.com/test/repo.git")
 	require.NoError(t, err)
 
 	assert.True(t, mgr.HasRemote())
@@ -609,7 +609,7 @@ func TestCurrentBranch(t *testing.T) {
 	// Create an initial commit so HEAD exists
 	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("init.txt", "initial commit")
+	err = mgr.CommitFile(context.Background(), "init.txt", "initial commit")
 	require.NoError(t, err)
 
 	branch, err := mgr.CurrentBranch()
@@ -640,7 +640,7 @@ func TestCommitFilesShell(t *testing.T) {
 	// Create initial commit so HEAD exists.
 	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("init.txt", "initial commit")
+	err = mgr.CommitFile(context.Background(), "init.txt", "initial commit")
 	require.NoError(t, err)
 
 	// Create a new file and commit via shell.
@@ -682,7 +682,7 @@ func TestCommitFilesShell_NoChanges(t *testing.T) {
 	testFile := "test.txt"
 	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("content"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile(testFile, "initial commit")
+	err = mgr.CommitFile(context.Background(), testFile, "initial commit")
 	require.NoError(t, err)
 
 	initialMsg, err := mgr.GetLastCommitMessage()
@@ -711,7 +711,7 @@ func TestReloadRepo(t *testing.T) {
 	// Create initial commit via go-git.
 	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("init.txt", "initial commit")
+	err = mgr.CommitFile(context.Background(), "init.txt", "initial commit")
 	require.NoError(t, err)
 
 	// Make a commit via shell git (bypassing go-git).
@@ -726,7 +726,7 @@ func TestReloadRepo(t *testing.T) {
 	require.NoError(t, cmd.Run())
 
 	// ReloadRepo should succeed and go-git should see the shell commit.
-	err = mgr.ReloadRepo()
+	err = mgr.ReloadRepo(context.Background())
 	require.NoError(t, err)
 
 	headAfter, err := mgr.GetLastCommitMessage()
@@ -737,7 +737,7 @@ func TestReloadRepo(t *testing.T) {
 	// After reload, go-git operations (like CommitFile) should still work.
 	err = os.WriteFile(filepath.Join(tmpDir, "post-reload.txt"), []byte("post"), 0o644)
 	require.NoError(t, err)
-	err = mgr.CommitFile("post-reload.txt", "post-reload commit")
+	err = mgr.CommitFile(context.Background(), "post-reload.txt", "post-reload commit")
 	require.NoError(t, err)
 
 	postMsg, err := mgr.GetLastCommitMessage()
@@ -827,7 +827,7 @@ func TestNewManager_ExistingRepo_IgnoresCloneURL(t *testing.T) {
 	require.NoError(t, err)
 	mgr.SetAuthor("Test", "test@test.com")
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("local"), 0o644))
-	require.NoError(t, mgr.CommitFile("file.txt", "local commit"))
+	require.NoError(t, mgr.CommitFile(context.Background(), "file.txt", "local commit"))
 
 	// Re-open with a clone URL — should open existing, not clone
 	mgr2, err := NewManager(tmpDir, "git@example.com:user/repo.git", "ssh", "")
@@ -902,7 +902,7 @@ func TestNewManager_PATMode_TokenNotInArgs(t *testing.T) {
 
 	// Create an initial commit so we can call Push/Pull.
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644))
-	require.NoError(t, mgr.CommitFile("init.txt", "initial commit"))
+	require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
 
 	// The token must not appear anywhere in the git args built by runGit.
 	// We verify this indirectly: GitAuthEnv places it only in env, not args.
