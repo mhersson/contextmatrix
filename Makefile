@@ -39,7 +39,11 @@ install: build-frontend
 	go install -ldflags="$(LDFLAGS)" ./cmd/contextmatrix
 
 docker-build:
-	docker build -t contextmatrix .
+	docker build \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg GIT_COMMIT="$(GIT_COMMIT)" \
+		--build-arg BUILD_TIME="$(BUILD_TIME)" \
+		-t contextmatrix .
 
 install-config:
 	scripts/install.sh

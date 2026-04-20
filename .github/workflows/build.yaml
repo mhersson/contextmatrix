@@ -87,9 +87,18 @@ jobs:
       - name: Set short SHA
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
+      - name: Set version info
+        run: |
+          echo "BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M')" >> "$GITHUB_ENV"
+          VERSION=$(git describe --tags --exact-match 2>/dev/null || true)
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Build image
         run: |
           docker build \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg GIT_COMMIT="${SHORT_SHA}" \
+            --build-arg BUILD_TIME="${BUILD_TIME}" \
             -t ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }} \
             -t ${{ vars.REGISTRY }}/contextmatrix:latest \
             .

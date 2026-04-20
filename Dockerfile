@@ -14,10 +14,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /build/web/dist ./web/dist
-RUN VERSION=$(git describe --tags --exact-match 2>/dev/null || true) && \
-    GIT_COMMIT=$(git rev-parse --short HEAD) && \
-    BUILD_TIME=$(date -u "+%Y-%m-%d %H:%M") && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+ARG VERSION=""
+ARG GIT_COMMIT=""
+ARG BUILD_TIME=""
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
       -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X 'main.buildTime=${BUILD_TIME}'" \
       -o /contextmatrix ./cmd/contextmatrix
 
