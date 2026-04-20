@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
@@ -15,6 +15,15 @@ interface UseBoardResult {
   unsuppressSSE: (cardId: string) => void;
 }
 
+/**
+ * `useBoard` manages the cards + config for a project and subscribes to SSE
+ * board updates.
+ *
+ * Caller contract for `filter`: callers may pass a literal object each render
+ * (e.g. `useBoard(project, { state: 'todo' })`) — the hook stabilizes the
+ * reference internally using a JSON-string key, so inline object literals do
+ * not trigger re-fetch loops.
+ */
 export function useBoard(
   project: string,
   filter?: CardFilter,
@@ -26,6 +35,13 @@ export function useBoard(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef<Set<string>>(new Set());
+
+  // Stabilize the filter reference against value-equal but reference-different
+  // inputs. JSON.stringify is sufficient here: CardFilter is a flat bag of
+  // primitives / string arrays, no Dates or cycles.
+  const filterKey = filter ? JSON.stringify(filter) : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stableFilter = useMemo(() => filter, [filterKey]);
 
   const fetchData = useCallback(async () => {
     if (!project) {
@@ -41,7 +57,7 @@ export function useBoard(
     try {
       const [projectConfig, projectCards] = await Promise.all([
         api.getProject(project),
-        api.getCards(project, filter),
+        api.getCards(project, stableFilter),
       ]);
       setConfig(projectConfig);
       setCards(projectCards);
@@ -50,14 +66,14 @@ export function useBoard(
     } finally {
       setLoading(false);
     }
-  }, [project, filter]);
+  }, [project, stableFilter]);
 
   // Reset state on project/filter change (render-time pattern).
   const [prevProject, setPrevProject] = useState(project);
-  const [prevFilter, setPrevFilter] = useState(filter);
-  if (project !== prevProject || filter !== prevFilter) {
+  const [prevFilter, setPrevFilter] = useState(stableFilter);
+  if (project !== prevProject || stableFilter !== prevFilter) {
     setPrevProject(project);
-    setPrevFilter(filter);
+    setPrevFilter(stableFilter);
     if (!project) {
       setConfig(null);
       setCards([]);
@@ -74,7 +90,7 @@ export function useBoard(
     let cancelled = false;
     Promise.all([
       api.getProject(project),
-      api.getCards(project, filter),
+      api.getCards(project, stableFilter),
     ]).then(([projectConfig, projectCards]) => {
       if (cancelled) return;
       setConfig(projectConfig);
@@ -88,7 +104,7 @@ export function useBoard(
     return () => {
       cancelled = true;
     };
-  }, [project, filter]);
+  }, [project, stableFilter]);
 
   const onSyncEventRef = useRef(onSyncEvent);
   useEffect(() => {

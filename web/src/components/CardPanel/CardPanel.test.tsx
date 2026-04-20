@@ -377,6 +377,37 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
   });
 });
 
+describe('CardPanel — keydown listener stability', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('does not re-register the keydown listener when typing into the editor', () => {
+    // Spy on both addEventListener targets so we catch wherever the listener lands.
+    const docAddSpy = vi.spyOn(document, 'addEventListener');
+    const winAddSpy = vi.spyOn(window, 'addEventListener');
+
+    renderWithTheme(<CardPanel {...makeProps()} />);
+
+    const initialDocKeydown = docAddSpy.mock.calls.filter((c) => c[0] === 'keydown').length;
+    const initialWinKeydown = winAddSpy.mock.calls.filter((c) => c[0] === 'keydown').length;
+
+    const editor = screen.getByTestId('md-editor');
+    fireEvent.change(editor, { target: { value: 'a' } });
+    fireEvent.change(editor, { target: { value: 'ab' } });
+    fireEvent.change(editor, { target: { value: 'abc' } });
+
+    const finalDocKeydown = docAddSpy.mock.calls.filter((c) => c[0] === 'keydown').length;
+    const finalWinKeydown = winAddSpy.mock.calls.filter((c) => c[0] === 'keydown').length;
+
+    expect(finalDocKeydown).toBe(initialDocKeydown);
+    expect(finalWinKeydown).toBe(initialWinKeydown);
+
+    docAddSpy.mockRestore();
+    winAddSpy.mockRestore();
+  });
+});
+
 describe('CardPanel — Run Now save-before-run ordering', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
