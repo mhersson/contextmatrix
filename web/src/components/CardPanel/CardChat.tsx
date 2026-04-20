@@ -19,14 +19,27 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
+  // Throttle scroll measurements to once per animation frame to avoid doing
+  // layout work on every native scroll event when the log list is long.
+  const rafIdRef = useRef<number | null>(null);
 
   // Auto-scroll to bottom unless user has scrolled up
   const handleScroll = () => {
-    const el = logContainerRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const el = logContainerRef.current;
+      if (!el) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
+    });
   };
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = logContainerRef.current;

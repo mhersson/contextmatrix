@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import type { LogEntry } from '../../types';
 import { TYPE_COLORS, cardBadgeColor, formatTimestamp } from './logUtils';
 
-export function LogLine({ entry }: { entry: LogEntry }) {
+function LogLineImpl({ entry }: { entry: LogEntry }) {
   const typeColor = TYPE_COLORS[entry.type] ?? 'var(--fg)';
   const badgeColor = cardBadgeColor(entry.card_id);
 
@@ -32,3 +33,11 @@ export function LogLine({ entry }: { entry: LogEntry }) {
     </div>
   );
 }
+
+/**
+ * `LogLine` is wrapped in `React.memo` so that re-renders of the log list
+ * (e.g. when a new entry is appended) only re-render the newly added rows.
+ * The `entry` objects are immutable (produced by `useRingBuffer`), so the
+ * default reference-equality comparison is sufficient.
+ */
+export const LogLine = memo(LogLineImpl);

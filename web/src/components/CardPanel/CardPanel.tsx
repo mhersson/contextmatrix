@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import MDEditor from '@uiw/react-md-editor';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import type { Card, LogEntry, ProjectConfig, PatchCardInput } from '../../types';
 import { CardPanelHeader } from './CardPanelHeader';
@@ -9,6 +8,9 @@ import { CardPanelActivity } from './CardPanelActivity';
 import { CardChat } from './CardChat';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
+
+// Lazy-load MDEditor so the ~5 MB editor chunk is not shipped with the initial bundle.
+const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 
 // Approximate height in px of the panel content above the editor on mobile
 // (header bar ~57px + title section ~60px + type/priority/state row ~60px +
@@ -315,14 +317,26 @@ export function CardPanel({
           </button>
         </div>
         {!descriptionCollapsed && (
-          <MDEditor
-            value={editedCard.body}
-            onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
-            preview="edit"
-            height={editorHeight}
-            visibleDragbar={false}
-            previewOptions={{ skipHtml: true }}
-          />
+          <Suspense
+            fallback={
+              <textarea
+                value={editedCard.body}
+                onChange={(e) => setEditedCard((prev) => ({ ...prev, body: e.target.value }))}
+                style={{ height: editorHeight }}
+                className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
+                aria-label="Description (loading rich editor...)"
+              />
+            }
+          >
+            <MDEditor
+              value={editedCard.body}
+              onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
+              preview="edit"
+              height={editorHeight}
+              visibleDragbar={false}
+              previewOptions={{ skipHtml: true }}
+            />
+          </Suspense>
         )}
       </div>
 

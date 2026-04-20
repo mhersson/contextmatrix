@@ -94,22 +94,25 @@ describe('CardPanel — collapsible Description section', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
-  it('Description editor is visible by default', () => {
+  it('Description editor is visible by default', async () => {
     renderWithTheme(<CardPanel {...makeProps()} />);
-    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    // MDEditor is lazy-loaded, so await its Suspense boundary resolution.
+    expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
   });
 
-  it('clicking the Description chevron hides the MDEditor', () => {
+  it('clicking the Description chevron hides the MDEditor', async () => {
     renderWithTheme(<CardPanel {...makeProps()} />);
+    await screen.findByTestId('md-editor');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse description' }));
     expect(screen.queryByTestId('md-editor')).not.toBeInTheDocument();
   });
 
-  it('clicking the Description chevron again shows the MDEditor', () => {
+  it('clicking the Description chevron again shows the MDEditor', async () => {
     renderWithTheme(<CardPanel {...makeProps()} />);
+    await screen.findByTestId('md-editor');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse description' }));
     fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
-    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
   });
 });
 
@@ -170,8 +173,8 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
     const { rerender } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, runner_status: undefined, autonomous: false } })} />,
     );
-    // All sections visible initially
-    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    // All sections visible initially (MDEditor is lazy-loaded via Suspense).
+    expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Add label...')).toBeInTheDocument();
 
@@ -208,7 +211,7 @@ describe('CardPanel — auto-collapse on HITL runner_status transitions', () => 
 
     // Manually expand Description
     fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
-    expect(screen.getByTestId('md-editor')).toBeInTheDocument();
+    expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
 
     // Manually expand Labels
     fireEvent.click(screen.getByRole('button', { name: 'Expand labels' }));
@@ -354,25 +357,28 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
-  it('does not render iframe in the preview pane', () => {
+  it('does not render iframe in the preview pane', async () => {
     const { container } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
     );
+    // Wait for lazy MDEditor to mount so the preview exists.
+    await screen.findByTestId('md-preview');
     expect(container.querySelector('iframe')).toBeNull();
   });
 
-  it('does not render script in the preview pane', () => {
+  it('does not render script in the preview pane', async () => {
     const { container } = renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
     );
+    await screen.findByTestId('md-preview');
     expect(container.querySelector('script')).toBeNull();
   });
 
-  it('still renders plain text content in the preview pane', () => {
+  it('still renders plain text content in the preview pane', async () => {
     renderWithTheme(
       <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
     );
-    const preview = screen.getByTestId('md-preview');
+    const preview = await screen.findByTestId('md-preview');
     expect(preview.textContent).toContain('hello');
   });
 });
