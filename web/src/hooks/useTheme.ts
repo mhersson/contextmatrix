@@ -37,6 +37,7 @@ function applyPalette(palette: Palette) {
 interface ThemeContextValue {
   theme: Theme;
   palette: Palette;
+  version: string;
   toggleTheme: () => void;
 }
 
@@ -50,6 +51,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   const [palette, setPalette] = useState<Palette>('everforest');
+  const [version, setVersion] = useState('');
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, theme);
@@ -63,6 +65,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         : 'everforest';
       setPalette(p);
       applyPalette(p);
+      if (config.version) {
+        setVersion(config.version);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -72,7 +77,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  return createElement(ThemeContext.Provider, { value: { theme, palette, toggleTheme } }, children);
+  return createElement(ThemeContext.Provider, { value: { theme, palette, version, toggleTheme } }, children);
 }
 
 export function useTheme(): ThemeContextValue {

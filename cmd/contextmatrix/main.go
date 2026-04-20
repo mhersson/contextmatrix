@@ -28,6 +28,28 @@ import (
 	"github.com/mhersson/contextmatrix/web"
 )
 
+var (
+	version   string
+	gitCommit string
+	buildTime string
+)
+
+func buildVersion() string {
+	if buildTime == "" {
+		return ""
+	}
+
+	if version != "" {
+		return buildTime + " " + version
+	}
+
+	if gitCommit != "" {
+		return buildTime + " " + gitCommit
+	}
+
+	return buildTime
+}
+
 func main() {
 	configPath := flag.String("config", "", "path to config file")
 
@@ -182,6 +204,7 @@ func main() {
 		GitHubAllowedHosts: cfg.GitHub.AllowedHosts(),
 		SessionManager:     sessionMgr,
 		Theme:              cfg.Theme,
+		Version:            buildVersion(),
 	})
 
 	// Create MCP server and register on the mux

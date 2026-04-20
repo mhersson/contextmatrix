@@ -251,6 +251,7 @@ export interface LogEntry {
 
 export interface AppConfig {
   theme: 'everforest' | 'radix' | 'catppuccin';
+  version: string;
 }
 
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {

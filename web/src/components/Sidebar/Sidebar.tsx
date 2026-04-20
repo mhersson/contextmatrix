@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummaries } from '../../hooks/useProjectSummaries';
+import { useTheme } from '../../hooks/useTheme';
 import { ProjectCard } from './ProjectCard';
 
 interface SidebarProps {
@@ -12,6 +13,7 @@ interface SidebarProps {
 
 export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects, connected } = useProjects();
+  const { version } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
@@ -24,12 +26,19 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
   const panelContent = (
     <>
       <div className="flex items-center justify-between px-4 py-4 border-b" style={{ borderColor: 'var(--bg3)' }}>
-        <h1
-          className="text-lg font-semibold truncate"
-          style={{ color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}
-        >
-          ContextMatrix
-        </h1>
+        <div>
+          <h1
+            className="text-lg font-semibold truncate"
+            style={{ color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}
+          >
+            ContextMatrix
+          </h1>
+          {version && (
+            <p className="text-xs" style={{ color: 'var(--grey1)' }}>
+              {version}
+            </p>
+          )}
+        </div>
         {!mobileOpen && (
           <button
             onClick={() => setCollapsed(true)}

@@ -14,7 +14,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /build/web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /contextmatrix ./cmd/contextmatrix
+RUN VERSION=$(git describe --tags --exact-match 2>/dev/null || true) && \
+    GIT_COMMIT=$(git rev-parse --short HEAD) && \
+    BUILD_TIME=$(date -u "+%Y-%m-%d %H:%M") && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X 'main.buildTime=${BUILD_TIME}'" \
+      -o /contextmatrix ./cmd/contextmatrix
 
 # Stage 3: Minimal runtime
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
