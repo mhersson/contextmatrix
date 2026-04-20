@@ -41,6 +41,8 @@ internal/mcp/                → MCP server: tools + prompts
 internal/runner/             → webhook client for contextmatrix-runner
 internal/events/             → in-process pub/sub event bus
 internal/config/             → global config loading
+internal/ctxlog/             → request_id context logger (WithRequestID / Logger)
+internal/metrics/            → Prometheus metric vars + Register()
 web/                         → React frontend (Vite + TypeScript + Tailwind)
 skills/                      → Agent skill files (markdown, served via MCP prompts)
 ```

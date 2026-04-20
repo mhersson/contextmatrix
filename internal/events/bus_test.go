@@ -5,8 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 func TestNewBus(t *testing.T) {
@@ -433,4 +436,43 @@ func TestPartialUnsubscribe(t *testing.T) {
 			t.Fatal("timeout waiting for event")
 		}
 	}
+}
+
+// TestPublish_DroppedEventsIncrementMetric verifies that EventBusDropped is
+// incremented when an event is dropped due to a full subscriber buffer.
+func TestPublish_DroppedEventsIncrementMetric(t *testing.T) {
+	// Record baseline before the test.
+	baseline := testutil.ToFloat64(metrics.EventBusDropped)
+
+	bus := NewBus()
+
+	// Subscribe but never consume.
+	_, unsub := bus.Subscribe()
+	defer unsub()
+
+	// Fill the buffer completely.
+	for i := 0; i < subscriberBufferSize; i++ {
+		bus.Publish(Event{
+			Type:      CardUpdated,
+			Project:   "test-project",
+			CardID:    "TEST-DROP",
+			Timestamp: time.Now(),
+		})
+	}
+
+	// These publishes must be dropped (buffer already full).
+	const extraDrops = 5
+
+	for i := 0; i < extraDrops; i++ {
+		bus.Publish(Event{
+			Type:      CardUpdated,
+			Project:   "test-project",
+			CardID:    "TEST-DROP",
+			Timestamp: time.Now(),
+		})
+	}
+
+	after := testutil.ToFloat64(metrics.EventBusDropped)
+	assert.GreaterOrEqual(t, after-baseline, float64(extraDrops),
+		"EventBusDropped should have been incremented for each dropped event")
 }

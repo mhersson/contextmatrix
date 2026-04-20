@@ -12,6 +12,35 @@
 # Env: CONTEXTMATRIX_PORT
 port: 8080
 
+# Log output format.
+# Allowed values: "text" (default, human-readable key=value) | "json" (structured JSON lines)
+# Default: text
+# Env: CONTEXTMATRIX_LOG_FORMAT
+log_format: "text"
+
+# Minimum log level to emit.
+# Allowed values: "debug" | "info" (default) | "warn" | "error"
+# Default: info
+# Env: CONTEXTMATRIX_LOG_LEVEL
+log_level: "info"
+
+# Port for the admin/debug HTTP server. When non-zero, the admin listener
+# serves /debug/pprof/* (Go runtime profiling) and /metrics (Prometheus). The
+# main listener on `port` does NOT expose these — /metrics is admin-only by
+# design so unauthenticated scrapers and path-scanners cannot reach it.
+# Default: 0 (disabled)
+# Env: CONTEXTMATRIX_ADMIN_PORT
+admin_port: 0
+
+# Bind address for the admin server. Defaults to loopback so pprof heap dumps
+# and /metrics are unreachable from outside the host unless an operator
+# explicitly chooses otherwise (in which case the server logs a warning).
+# Override only if you know the listener is protected by a firewall / k8s
+# NetworkPolicy / service-mesh restriction.
+# Default: 127.0.0.1
+# Env: CONTEXTMATRIX_ADMIN_BIND_ADDR
+admin_bind_addr: "127.0.0.1"
+
 # Path to the directory containing agent skill files (markdown).
 # When left empty, defaults to a "skills" directory next to this config file.
 # Tilde expansion is supported.

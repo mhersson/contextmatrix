@@ -18,6 +18,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // DefaultAuthor is used when no author is configured.
@@ -160,9 +162,14 @@ func (m *Manager) CommitFile(ctx context.Context, path, message string) error {
 	author := m.author
 	author.When = time.Now()
 
+	start := time.Now()
+
 	_, err = wt.Commit(message, &git.CommitOptions{
 		Author: &author,
 	})
+
+	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
+
 	if err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
@@ -196,9 +203,14 @@ func (m *Manager) CommitFiles(ctx context.Context, paths []string, message strin
 	author := m.author
 	author.When = time.Now()
 
+	start := time.Now()
+
 	_, err = wt.Commit(message, &git.CommitOptions{
 		Author: &author,
 	})
+
+	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
+
 	if err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
@@ -230,9 +242,14 @@ func (m *Manager) CommitAll(ctx context.Context, message string) error {
 	author := m.author
 	author.When = time.Now()
 
+	start := time.Now()
+
 	_, err = wt.Commit(message, &git.CommitOptions{
 		Author: &author,
 	})
+
+	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
+
 	if err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
@@ -310,9 +327,15 @@ func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message 
 
 	// Commit with explicit author to match go-git commits.
 	author := fmt.Sprintf("%s <%s>", m.author.Name, m.author.Email)
+	start := time.Now()
+
 	if err := m.runGit(ctx, "commit", "--author", author, "-m", message); err != nil {
+		metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
+
 		return fmt.Errorf("commit: %w", err)
 	}
+
+	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 	return nil
 }

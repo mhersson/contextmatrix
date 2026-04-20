@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // EventType identifies the kind of event that occurred.
@@ -110,6 +112,7 @@ func (b *Bus) Publish(event Event) {
 			// Event delivered
 		default:
 			// Buffer full, drop event for this subscriber
+			metrics.EventBusDropped.Inc()
 			slog.Warn("event dropped for slow subscriber",
 				"event_type", event.Type,
 				"project", event.Project,

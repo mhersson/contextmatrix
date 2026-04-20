@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -100,6 +101,10 @@ type Config struct {
 	MCPAPIKey        string               `yaml:"mcp_api_key"`
 	Runner           RunnerConfig         `yaml:"runner"`
 	GitHub           GitHubConfig         `yaml:"github"`
+	LogFormat        string               `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel         string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort        int                  `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr    string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 }
 
 // defaults returns a Config with default values.
@@ -122,6 +127,10 @@ func defaults() *Config {
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
 			OrchestratorOpusModel:   "claude-opus-4-7",
 		},
+		LogFormat:     "text",
+		LogLevel:      "info",
+		AdminPort:     0,
+		AdminBindAddr: "127.0.0.1",
 	}
 }
 
@@ -212,6 +221,44 @@ func (c *Config) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("invalid theme %q: must be one of \"everforest\", \"radix\", \"catppuccin\"", c.Theme)
+	}
+
+	if c.LogFormat == "" {
+		c.LogFormat = "text"
+	}
+
+	switch strings.ToLower(c.LogFormat) {
+	case "text", "json":
+		// valid
+	default:
+		return fmt.Errorf("invalid log_format %q: must be \"text\" or \"json\"", c.LogFormat)
+	}
+
+	if c.LogLevel == "" {
+		c.LogLevel = "info"
+	}
+
+	switch strings.ToLower(c.LogLevel) {
+	case "debug", "info", "warn", "error":
+		// valid
+	default:
+		return fmt.Errorf("invalid log_level %q: must be one of \"debug\", \"info\", \"warn\", \"error\"", c.LogLevel)
+	}
+
+	if c.Port < 0 || c.Port > 65535 {
+		return fmt.Errorf("invalid port %d: must be in 0..65535", c.Port)
+	}
+
+	if c.AdminPort < 0 || c.AdminPort > 65535 {
+		return fmt.Errorf("invalid admin_port %d: must be in 0..65535 (0 disables)", c.AdminPort)
+	}
+
+	if c.AdminPort != 0 && c.AdminPort == c.Port {
+		return fmt.Errorf("admin_port %d collides with port %d", c.AdminPort, c.Port)
+	}
+
+	if c.AdminBindAddr == "" {
+		c.AdminBindAddr = "127.0.0.1"
 	}
 
 	return nil
@@ -416,6 +463,26 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
+
+	if v := os.Getenv("CONTEXTMATRIX_LOG_FORMAT"); v != "" {
+		cfg.LogFormat = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_LOG_LEVEL"); v != "" {
+		cfg.LogLevel = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_ADMIN_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.AdminPort = port
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_ADMIN_PORT", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_ADMIN_BIND_ADDR"); v != "" {
+		cfg.AdminBindAddr = v
+	}
 }
 
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
@@ -426,6 +493,31 @@ func (c *Config) HeartbeatDuration() (time.Duration, error) {
 // PullIntervalDuration parses Boards.GitPullInterval as a time.Duration.
 func (c *Config) PullIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.Boards.GitPullInterval)
+}
+
+// BuildSlogHandler constructs a slog.Handler from the LogFormat and LogLevel fields.
+// Unknown level strings default to slog.LevelInfo. Unknown format strings default to text.
+func (c *Config) BuildSlogHandler(w io.Writer) slog.Handler {
+	var level slog.Level
+
+	switch strings.ToLower(c.LogLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+
+	if strings.ToLower(c.LogFormat) == "json" {
+		return slog.NewJSONHandler(w, opts)
+	}
+
+	return slog.NewTextHandler(w, opts)
 }
 
 // expandTilde expands a leading ~ in a path to the user's home directory.

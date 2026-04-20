@@ -46,8 +46,23 @@ GET    /healthz                                        # liveness probe (shallow
 GET    /readyz                                         # readiness probe (dependency-checked)
 ```
 
+**Admin/debug server:** when `admin_port` is configured (non-zero), a separate
+HTTP server binds to `admin_bind_addr` (default `127.0.0.1`) and serves:
+
+- `GET /metrics` — Prometheus text exposition format.
+- `GET /debug/pprof/*` — Go runtime profiling (heap, goroutine, profile, etc.).
+
+Neither endpoint is exposed on the main listener. The admin listener has no
+built-in authentication — keep it loopback-only, or gate it with a firewall /
+NetworkPolicy / service-mesh rule.
+
 **Agent identification:** `X-Agent-ID` header on all requests. For mutations on
 claimed cards, the header value must match `assigned_agent` — otherwise 403.
+
+**Request correlation:** every response carries an `X-Request-ID` header. If
+the client sends an `X-Request-ID` matching `[A-Za-z0-9._-]{1,128}` it is
+echoed; otherwise the server generates a UUID. The same id is emitted as the
+`request_id` attribute on every structured log line the request produces.
 
 **Error response format:**
 

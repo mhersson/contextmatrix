@@ -2967,16 +2967,19 @@ func TestListCards_VettedFilter(t *testing.T) {
 	})
 }
 
-// TestWrapMCPHandler_PanicRecovery verifies that a panicking handler wrapped
-// via WrapMCPHandler returns HTTP 500 and does not crash the process.
-func TestWrapMCPHandler_PanicRecovery(t *testing.T) {
+// TestMCPPanicRecovery verifies that a panicking MCP handler routed through
+// the shared router middleware chain returns HTTP 500 and does not crash.
+func TestMCPPanicRecovery(t *testing.T) {
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
 	})
 
-	wrapped := WrapMCPHandler(panicHandler)
+	svc, _, cleanup := testSetup(t)
+	defer cleanup()
 
-	server := httptest.NewServer(wrapped)
+	router := NewRouter(RouterConfig{Service: svc, MCPHandler: panicHandler})
+
+	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Post(server.URL+"/mcp", "application/json", strings.NewReader(`{}`))
@@ -2991,19 +2994,21 @@ func TestWrapMCPHandler_PanicRecovery(t *testing.T) {
 	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
 }
 
-// TestWrapMCPHandler_BodyLimit verifies that a POST to a WrapMCPHandler-wrapped
-// endpoint with a 20 MB body is rejected with HTTP 413 Payload Too Large.
-func TestWrapMCPHandler_BodyLimit(t *testing.T) {
+// TestMCPBodyLimit verifies that an oversized POST to /mcp is rejected with
+// HTTP 413 via the shared body-limit middleware.
+func TestMCPBodyLimit(t *testing.T) {
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := WrapMCPHandler(okHandler)
+	svc, _, cleanup := testSetup(t)
+	defer cleanup()
 
-	server := httptest.NewServer(wrapped)
+	router := NewRouter(RouterConfig{Service: svc, MCPHandler: okHandler})
+
+	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// 20 MB body — well over the 5 MB MCP limit.
 	const twentyMB = 20 * 1024 * 1024
 
 	bigBody := bytes.Repeat([]byte("x"), twentyMB)
@@ -3018,4 +3023,45 @@ func TestWrapMCPHandler_BodyLimit(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
+
+// TestRequestIDLogging verifies that an API request produces a log line
+// containing the request_id from the X-Request-ID header (or auto-generated)
+// so that log output is correlated with the HTTP request.
+func TestRequestIDLogging(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	// Capture log output via a custom slog handler.
+	var buf bytes.Buffer
+
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	origDefault := slog.Default()
+
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(origDefault) })
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	const wantID = "test-correlation-id-xyz"
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/projects", nil)
+	require.NoError(t, err)
+	req.Header.Set("X-Request-ID", wantID)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, wantID, resp.Header.Get("X-Request-ID"),
+		"response should echo the X-Request-ID header")
+
+	logOutput := buf.String()
+	assert.Contains(t, logOutput, "request_id="+wantID,
+		"log output should contain the request_id from the header")
 }

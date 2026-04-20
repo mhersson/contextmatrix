@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,9 +16,11 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -470,7 +471,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 
 		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
 		if err := s.git.CommitFile(ctx, path, msg); err != nil {
-			slog.Warn("git commit after project update", "error", err)
+			ctxlog.Logger(ctx).Warn("git commit after project update", "error", err)
 		} else {
 			s.notifyCommit()
 		}
@@ -520,7 +521,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
 		if err := s.git.CommitAll(ctx, msg); err != nil {
-			slog.Warn("git commit after project delete", "error", err)
+			ctxlog.Logger(ctx).Warn("git commit after project delete", "error", err)
 		} else {
 			s.notifyCommit()
 		}
@@ -681,7 +682,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		for _, sub := range existing {
 			if strings.ToLower(strings.TrimSpace(sub.Title)) == titleNorm &&
 				sub.State != board.StateDone && sub.State != board.StateNotPlanned {
-				slog.Info("duplicate subtask detected, returning existing card",
+				ctxlog.Logger(ctx).Info("duplicate subtask detected, returning existing card",
 					"existing_id", sub.ID,
 					"parent_id", parentID,
 					"title", sub.Title,
@@ -714,13 +715,13 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 			var rollbackErrs []error
 
 			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
-				slog.Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
+				ctxlog.Logger(ctx).Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
 				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback delete card: %w", delErr))
 			}
 
 			cfg.NextID--
 			if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
-				slog.Error("failed to rollback NextID after git error",
+				ctxlog.Logger(ctx).Error("failed to rollback NextID after git error",
 					"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
 				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback save project: %w", saveErr))
 			}
@@ -932,7 +933,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
-			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
+			ctxlog.Logger(ctx).Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
 
@@ -1152,7 +1153,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
 		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
-			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
+			ctxlog.Logger(ctx).Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
 
@@ -1351,7 +1352,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 			deltaCost := float64(input.PromptTokens)*rate.Prompt + float64(input.CompletionTokens)*rate.Completion
 			card.TokenUsage.EstimatedCostUSD += deltaCost
 		} else {
-			slog.Warn("unknown model in cost map, cost not calculated",
+			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
 				"model", input.Model,
 				"card_id", id,
 			)
@@ -1374,7 +1375,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// called after complete_task).
 	if card.AssignedAgent == "" {
 		if err := s.flushDeferredCommit(ctx, id, input.AgentID); err != nil {
-			slog.Error("flush deferred commit on post-release usage report", "card_id", id, "error", err)
+			ctxlog.Logger(ctx).Error("flush deferred commit on post-release usage report", "card_id", id, "error", err)
 		}
 	}
 
@@ -1457,7 +1458,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 
 		rate, ok := s.tokenCosts[model]
 		if !ok {
-			slog.Warn("recalculate_costs: model not in cost map, skipping card",
+			ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping card",
 				"model", model,
 				"card_id", card.ID,
 			)
@@ -1686,7 +1687,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 
 	// Flush any remaining deferred commits (release is the end of a work session)
 	if err := s.flushDeferredCommit(ctx, id, agentID); err != nil {
-		slog.Error("flush deferred commit on release", "card_id", id, "error", err)
+		ctxlog.Logger(ctx).Error("flush deferred commit on release", "card_id", id, "error", err)
 	}
 
 	// Publish event
@@ -1743,26 +1744,26 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 		for {
 			select {
 			case <-ctx.Done():
-				slog.Info("timeout checker stopped")
+				ctxlog.Logger(ctx).Info("timeout checker stopped")
 
 				return
 			case <-ticker.C:
 				func() {
 					defer func() {
 						if r := recover(); r != nil {
-							slog.Error("timeout checker panicked", "panic", r, "stack", string(debug.Stack()))
+							ctxlog.Logger(ctx).Error("timeout checker panicked", "panic", r, "stack", string(debug.Stack()))
 						}
 					}()
 
 					if err := s.stalledFn(ctx); err != nil {
-						slog.Error("process stalled cards", "error", err)
+						ctxlog.Logger(ctx).Error("process stalled cards", "error", err)
 					}
 				}()
 			}
 		}
 	}()
 
-	slog.Info("timeout checker started", "interval", interval)
+	ctxlog.Logger(ctx).Info("timeout checker started", "interval", interval)
 }
 
 // processStalled finds and handles all stalled cards.
@@ -1772,6 +1773,10 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 // trade-off — holding writeMu across the entire loop would block all mutations
 // during stalled-card processing, which is worse for throughput.
 func (s *CardService) processStalled(ctx context.Context) error {
+	start := time.Now()
+
+	defer func() { metrics.StallScanDuration.Observe(time.Since(start).Seconds()) }()
+
 	stalled, err := s.lock.FindStalled(ctx)
 	if err != nil {
 		return fmt.Errorf("find stalled: %w", err)
@@ -1779,7 +1784,7 @@ func (s *CardService) processStalled(ctx context.Context) error {
 
 	for _, sc := range stalled {
 		if err := s.markCardStalled(ctx, sc); err != nil {
-			slog.Error("mark card stalled",
+			ctxlog.Logger(ctx).Error("mark card stalled",
 				"project", sc.Project,
 				"card_id", sc.Card.ID,
 				"error", err,
@@ -1832,7 +1837,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 
 	// Flush any deferred commits since card is now in a final state
 	if err := s.flushDeferredCommit(ctx, card.ID, previousAgent); err != nil {
-		slog.Error("flush deferred commit after stall", "card_id", card.ID, "error", err)
+		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", err)
 	}
 
 	// Publish event
@@ -1846,7 +1851,9 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		},
 	})
 
-	slog.Info("card marked stalled",
+	metrics.StallCardsMarked.Inc()
+
+	ctxlog.Logger(ctx).Info("card marked stalled",
 		"project", sc.Project,
 		"card_id", card.ID,
 		"previous_agent", previousAgent,
@@ -2142,7 +2149,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		// Flush deferred commits when reaching not_planned or review.
 		if card.State == board.StateNotPlanned || card.State == board.StateReview {
 			if err := s.flushDeferredCommit(ctx, cardID, ""); err != nil {
-				slog.Error("flush deferred commit after transition",
+				ctxlog.Logger(ctx).Error("flush deferred commit after transition",
 					"card_id", cardID, "state", card.State, "error", err)
 			}
 		}
@@ -2226,7 +2233,7 @@ func (s *CardService) flushDeferredCommit(ctx context.Context, cardID, agentID s
 	// Refresh go-git's in-memory repo state so subsequent read operations
 	// (e.g. GetLastCommitMessage) see the shell-git commit.
 	if err := s.git.ReloadRepo(ctx); err != nil {
-		slog.Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
+		ctxlog.Logger(ctx).Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
 
 	s.notifyCommit()
@@ -2251,7 +2258,7 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 
 	parent, err := s.store.GetCard(ctx, child.Project, child.Parent)
 	if err != nil {
-		slog.Warn("parent auto-transition: get parent card",
+		ctxlog.Logger(ctx).Warn("parent auto-transition: get parent card",
 			"parent_id", child.Parent,
 			"child_id", child.ID,
 			"error", err,
@@ -2263,7 +2270,7 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 	if child.State == board.StateInProgress {
 		if parent.State == board.StateTodo {
 			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
-				slog.Error("parent auto-transition failed: todo→in_progress",
+				ctxlog.Logger(ctx).Error("parent auto-transition failed: todo→in_progress",
 					"parent_id", parent.ID,
 					"child_id", child.ID,
 					"error", err,
@@ -2303,7 +2310,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 		}
 
 		if err := s.commitCardChange(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
-			slog.Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
+			ctxlog.Logger(ctx).Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
 		}
 
 		s.bus.Publish(events.Event{
@@ -2317,7 +2324,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 			},
 		})
 
-		slog.Info("parent auto-transitioned",
+		ctxlog.Logger(ctx).Info("parent auto-transitioned",
 			"parent_id", parent.ID,
 			"old_state", oldState,
 			"new_state", state,
@@ -2326,7 +2333,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 
 	// Flush deferred commits for the parent card
 	if err := s.flushDeferredCommit(ctx, parent.ID, ""); err != nil {
-		slog.Error("flush deferred commit for parent auto-transition",
+		ctxlog.Logger(ctx).Error("flush deferred commit for parent auto-transition",
 			"parent_id", parent.ID, "error", err)
 	}
 
@@ -2623,7 +2630,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	// running) happen during active work and should continue to defer.
 	if status == "failed" || status == "killed" || status == "completed" {
 		if err := s.flushDeferredCommit(ctx, cardID, "runner"); err != nil {
-			slog.Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
+			ctxlog.Logger(ctx).Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
 		}
 	}
 
@@ -2633,7 +2640,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		case prevRunnerStatus != "running" && status == "running":
 			// Transition INTO running: open the upstream SSE buffer.
 			if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
-				slog.Error("sessionlog: Start failed on runner status update",
+				ctxlog.Logger(ctx).Error("sessionlog: Start failed on runner status update",
 					"card_id", cardID, "project", project, "error", startErr)
 			}
 		case status == "failed" || status == "killed" || status == "completed":

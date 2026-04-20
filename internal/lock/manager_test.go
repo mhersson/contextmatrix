@@ -314,7 +314,9 @@ func TestFindStalled_WithStalledCards(t *testing.T) {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	mgr := NewManager(store, 100*time.Millisecond)
+	// 30s is far longer than any CI filesystem operation between card creation
+	// and FindStalled; it only rejects the -1h heartbeat below.
+	mgr := NewManager(store, 30*time.Second)
 
 	stalled, err := mgr.FindStalled(ctx)
 	require.NoError(t, err)

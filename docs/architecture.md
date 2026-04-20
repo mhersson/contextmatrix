@@ -51,9 +51,32 @@ store or git layer directly.
   runner SSE stream verbatim).
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
-  `http.ServeMux` as the REST API, wrapped via `api.WrapMCPHandler` which
-  applies the recovery, logging, request-ID, and body-limit (5 MB) middleware
-  chain before the routes are mounted.
+  `http.ServeMux` as the REST API, so it inherits the shared middleware chain
+  (recovery, security headers, CORS, requestID, observe, bodyLimit) with no
+  special wrapping — the body-limit (5 MB) is applied uniformly across all
+  routes.
+- **Context-aware logger** (`ctxlog`): stores a `*slog.Logger` enriched with a
+  `request_id` attribute in the request context. The `requestID` middleware in
+  `internal/api/` calls `ctxlog.WithRequestID(ctx, id)` on every incoming
+  request. All log sites in `internal/api/`, `internal/service/`,
+  `internal/storage/`, and `internal/runner/` retrieve the logger via
+  `ctxlog.Logger(ctx)` so every log line emitted during a request carries the
+  same correlation ID. Falls back to `slog.Default()` for background contexts
+  that bypass the middleware (e.g. stall scanner goroutine).
+- **Metrics** (`metrics`): declares all Prometheus metric vars and exposes a
+  `Register(prometheus.Registerer)` function called once at startup in
+  `main.go`. Metrics are served at `GET /metrics` on the **admin listener**
+  only (`admin_port`, bound to `admin_bind_addr`; default loopback). The main
+  listener does not expose `/metrics`. The `observe` middleware in
+  `internal/api/` wraps every REST route to record per-route HTTP RED
+  (rate/error/duration) metrics; unmatched routes collapse to a single
+  `path="unmatched"` label to bound cardinality. SSE endpoints are excluded
+  from the latency histogram because their connection lifetime would drown
+  out real REST signal. Additional instrumentation: SSE gauge in
+  `internal/api/events.go` and `runner_logs.go`, event-bus drop counter in
+  `internal/events/`, git-sync histogram in `internal/gitops/`, stall-scanner
+  histogram and counter in `internal/service/`. See the full metric list in
+  `internal/metrics/metrics.go`.
 
 ## Git repository scope
 
@@ -87,6 +110,18 @@ path or a path like `~/boards/contextmatrix`, not `./boards`.
 ```text
 cmd/contextmatrix/main.go
 internal/
+  board/         # domain types
+  storage/       # FilesystemStore
+  gitops/        # GitManager
+  lock/          # claim/release/heartbeat
+  service/       # CardService orchestration
+  api/           # REST handlers + SSE
+  mcp/           # MCP server
+  runner/        # webhook client
+  events/        # in-process pub/sub
+  config/        # config loading
+  ctxlog/        # request_id context logger
+  metrics/       # Prometheus metric vars + Register()
 web/
 skills/
   create-task.md

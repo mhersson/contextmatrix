@@ -2,9 +2,9 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -59,7 +59,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
-		slog.Error("failed to fetch branches", "project", projectName, "error", err)
+		ctxlog.Logger(r.Context()).Error("failed to fetch branches", "project", projectName, "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError,
 			"failed to fetch branches", "")
 

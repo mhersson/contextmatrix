@@ -16,7 +16,11 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -5706,4 +5710,91 @@ func TestHealthCheck_GitNil(t *testing.T) {
 	sessionLog, ok := byName["session_log"]
 	require.True(t, ok, "session_log check missing")
 	assert.True(t, sessionLog.OK)
+}
+
+// histSampleCount reads the SampleCount from a prometheus.Histogram via the
+// internal dto representation. testutil.ToFloat64 panics for Histograms because
+// they expose multiple metric series; this helper avoids that issue.
+func histSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+
+	ch := make(chan prometheus.Metric, 1)
+	h.Collect(ch)
+
+	m := <-ch
+
+	var d dto.Metric
+	require.NoError(t, m.Write(&d))
+
+	return d.GetHistogram().GetSampleCount()
+}
+
+// TestProcessStalled_ObservesStallScanDuration verifies that processStalled
+// records an observation in the StallScanDuration histogram on every call.
+func TestProcessStalled_ObservesStallScanDuration(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	before := histSampleCount(t, metrics.StallScanDuration)
+
+	err := svc.processStalled(ctx)
+	require.NoError(t, err)
+
+	after := histSampleCount(t, metrics.StallScanDuration)
+
+	assert.Greater(t, after, before, "StallScanDuration should have been observed after processStalled")
+}
+
+// TestProcessStalled_IncrementsStallCardsMarked verifies that
+// StallCardsMarked is incremented for each card transitioned to stalled.
+func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	// Use a 1 ms timeout so the card stalls immediately.
+	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
+	ctx := context.Background()
+
+	// Baseline counter value before this test runs.
+	baseline := testutil.ToFloat64(metrics.StallCardsMarked)
+
+	// Create and claim a card.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Will Stall For Metric", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "stale-agent-metric")
+	require.NoError(t, err)
+
+	// Wait past the 1 ms timeout to ensure the heartbeat is stale.
+	time.Sleep(10 * time.Millisecond)
+
+	err = svc.processStalled(ctx)
+	require.NoError(t, err)
+
+	// Card should be stalled now.
+	stalledCard, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "stalled", stalledCard.State)
+
+	after := testutil.ToFloat64(metrics.StallCardsMarked)
+	assert.GreaterOrEqual(t, after-baseline, 1.0, "StallCardsMarked should have been incremented")
 }
