@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummaries } from '../../hooks/useProjectSummaries';
 import { useTheme } from '../../hooks/useTheme';
+import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { ProjectCard } from './ProjectCard';
 
 interface SidebarProps {
@@ -35,7 +36,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
           </h1>
           {version && (
             <p className="text-xs" style={{ color: 'var(--grey1)' }}>
-              {version}
+              {formatVersionWithLocalTime(version)}
             </p>
           )}
         </div>
