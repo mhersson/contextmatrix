@@ -5627,12 +5627,12 @@ func TestHealthCheck_HappyPath(t *testing.T) {
 	store, ok := byName["store"]
 	require.True(t, ok, "store check missing")
 	assert.True(t, store.OK)
-	assert.NoError(t, store.Err)
+	require.NoError(t, store.Err)
 
 	gitCheck, ok := byName["git"]
 	require.True(t, ok, "git check missing")
 	assert.True(t, gitCheck.OK)
-	assert.NoError(t, gitCheck.Err)
+	require.NoError(t, gitCheck.Err)
 
 	sessionLog, ok := byName["session_log"]
 	require.True(t, ok, "session_log check missing")
@@ -5661,7 +5661,7 @@ func TestHealthCheck_StoreError(t *testing.T) {
 	store, ok := byName["store"]
 	require.True(t, ok, "store check missing")
 	assert.False(t, store.OK)
-	assert.Error(t, store.Err)
+	require.Error(t, store.Err)
 
 	// session_log must still pass regardless of store failure.
 	sessionLog, ok := byName["session_log"]
@@ -5700,8 +5700,8 @@ func TestHealthCheck_GitNil(t *testing.T) {
 	gitCheck, ok := byName["git"]
 	require.True(t, ok, "git check missing")
 	assert.False(t, gitCheck.OK)
-	assert.Error(t, gitCheck.Err)
-	assert.ErrorContains(t, gitCheck.Err, "not configured")
+	require.Error(t, gitCheck.Err)
+	require.ErrorContains(t, gitCheck.Err, "not configured")
 
 	sessionLog, ok := byName["session_log"]
 	require.True(t, ok, "session_log check missing")
