@@ -1036,3 +1036,261 @@ func TestFilesystemStore_CtxlogRequestID(t *testing.T) {
 	assert.Contains(t, output, "request_id="+requestID,
 		"log output should contain the request_id from the enriched context")
 }
+
+// TestFilesystemStore_CardCache_GetCardServedFromCache verifies that GetCard
+// returns the cached value without touching disk: after deleting the on-disk
+// file out-of-band, GetCard still returns the cached card.
+func TestFilesystemStore_CardCache_GetCardServedFromCache(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	card := testCard("TEST-001", "todo")
+	require.NoError(t, store.CreateCard(ctx, "test-project", card))
+
+	// Delete the on-disk file behind the cache's back.
+	filePath := filepath.Join(dir, "test-project", "tasks", "TEST-001.md")
+	require.NoError(t, os.Remove(filePath))
+
+	// GetCard should still return the cached value — no disk read.
+	got, err := store.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+	assert.Equal(t, "TEST-001", got.ID)
+	assert.Equal(t, "todo", got.State)
+}
+
+// TestFilesystemStore_CardCache_ListCardsServedFromCache verifies that
+// ListCards returns cached cards without touching disk.
+func TestFilesystemStore_CardCache_ListCardsServedFromCache(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, store.CreateCard(ctx, "test-project", testCard("TEST-001", "todo")))
+	require.NoError(t, store.CreateCard(ctx, "test-project", testCard("TEST-002", "in_progress")))
+
+	// Delete all on-disk card files.
+	tasksDir := filepath.Join(dir, "test-project", "tasks")
+	entries, err := os.ReadDir(tasksDir)
+	require.NoError(t, err)
+
+	for _, e := range entries {
+		require.NoError(t, os.Remove(filepath.Join(tasksDir, e.Name())))
+	}
+
+	// ListCards should still see both cards from the cache.
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 2)
+}
+
+// TestFilesystemStore_CardCache_SaveUpdatesCache verifies that UpdateCard
+// replaces the cached value so subsequent reads see the new data.
+func TestFilesystemStore_CardCache_SaveUpdatesCache(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	card := testCard("TEST-001", "todo")
+	card.Title = "Original"
+	require.NoError(t, store.CreateCard(ctx, "test-project", card))
+
+	// Mutate and update.
+	card.Title = "Updated"
+	card.State = "in_progress"
+	require.NoError(t, store.UpdateCard(ctx, "test-project", card))
+
+	// Delete the on-disk file to prove the read comes from the cache.
+	require.NoError(t, os.Remove(filepath.Join(dir, "test-project", "tasks", "TEST-001.md")))
+
+	got, err := store.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+	assert.Equal(t, "Updated", got.Title)
+	assert.Equal(t, "in_progress", got.State)
+}
+
+// TestFilesystemStore_CardCache_DeleteRemovesFromCache verifies that
+// DeleteCard drops the entry from the cache.
+func TestFilesystemStore_CardCache_DeleteRemovesFromCache(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, store.CreateCard(ctx, "test-project", testCard("TEST-001", "todo")))
+	require.NoError(t, store.DeleteCard(ctx, "test-project", "TEST-001"))
+
+	_, err = store.GetCard(ctx, "test-project", "TEST-001")
+	require.ErrorIs(t, err, ErrCardNotFound)
+
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, cards)
+}
+
+// TestFilesystemStore_CardCache_DeepCopyContract verifies that mutating a
+// card returned from GetCard or ListCards does not affect the cached value
+// or subsequent reads.
+func TestFilesystemStore_CardCache_DeepCopyContract(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	card := testCard("TEST-001", "todo")
+	card.Labels = []string{"alpha", "beta"}
+	card.DependsOn = []string{"OTHER-001"}
+	card.Subtasks = []string{"SUB-001"}
+	card.Context = []string{"ctx-a"}
+	card.LastHeartbeat = &now
+	card.Source = &board.Source{System: "jira", ExternalID: "JIRA-1", ExternalURL: "http://example"}
+	card.TokenUsage = &board.TokenUsage{PromptTokens: 100, CompletionTokens: 50}
+	card.Custom = map[string]any{"key": "value"}
+	card.ActivityLog = []board.ActivityEntry{{Agent: "a", Timestamp: now, Action: "act", Message: "msg"}}
+	require.NoError(t, store.CreateCard(ctx, "test-project", card))
+
+	// First read, then mutate every clonable field.
+	got1, err := store.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+
+	got1.Title = "Mutated"
+	got1.State = "done"
+	got1.Labels[0] = "mutated"
+	got1.DependsOn[0] = "mutated"
+	got1.Subtasks[0] = "mutated"
+	got1.Context[0] = "mutated"
+	*got1.LastHeartbeat = now.Add(24 * time.Hour)
+	got1.Source.ExternalID = "mutated"
+	got1.TokenUsage.PromptTokens = 99999
+	got1.Custom["key"] = "mutated"
+	got1.ActivityLog[0].Message = "mutated"
+
+	// Second read must be pristine.
+	got2, err := store.GetCard(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+
+	assert.Equal(t, "Test TEST-001", got2.Title)
+	assert.Equal(t, "todo", got2.State)
+	assert.Equal(t, []string{"alpha", "beta"}, got2.Labels)
+	assert.Equal(t, []string{"OTHER-001"}, got2.DependsOn)
+	assert.Equal(t, []string{"SUB-001"}, got2.Subtasks)
+	assert.Equal(t, []string{"ctx-a"}, got2.Context)
+	require.NotNil(t, got2.LastHeartbeat)
+	assert.True(t, got2.LastHeartbeat.Equal(now), "LastHeartbeat should be unchanged")
+	require.NotNil(t, got2.Source)
+	assert.Equal(t, "JIRA-1", got2.Source.ExternalID)
+	require.NotNil(t, got2.TokenUsage)
+	assert.Equal(t, int64(100), got2.TokenUsage.PromptTokens)
+	assert.Equal(t, "value", got2.Custom["key"])
+	require.Len(t, got2.ActivityLog, 1)
+	assert.Equal(t, "msg", got2.ActivityLog[0].Message)
+
+	// Same contract for ListCards.
+	list1, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, list1, 1)
+
+	list1[0].Title = "ListMutated"
+	list1[0].Labels[0] = "mutated"
+
+	list2, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, list2, 1)
+	assert.Equal(t, "Test TEST-001", list2[0].Title)
+	assert.Equal(t, []string{"alpha", "beta"}, list2[0].Labels)
+}
+
+// TestFilesystemStore_CardCache_ReloadPicksUpExternalWrites verifies that
+// ReloadIndex (the hook invoked after a git rebase pulls in new cards) makes
+// out-of-band card files visible via GetCard without a disk read.
+func TestFilesystemStore_CardCache_ReloadPicksUpExternalWrites(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Write a card file directly to disk, bypassing the store.
+	external := `---
+id: TEST-EXT
+title: External Card
+project: test-project
+type: task
+state: in_progress
+priority: high
+created: 2026-04-01T00:00:00Z
+updated: 2026-04-01T00:00:00Z
+---
+
+Created by an external writer (e.g. git rebase pulling in a commit).
+`
+	tasksDir := filepath.Join(dir, "test-project", "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "TEST-EXT.md"), []byte(external), 0o644))
+
+	// Before reload, the cache does not know about the card.
+	_, err = store.GetCard(ctx, "test-project", "TEST-EXT")
+	// Cache miss falls through to disk and finds it, so this should succeed.
+	require.NoError(t, err)
+
+	// After reload, the card is fully hydrated in the cache. Prove this by
+	// deleting the on-disk file and reading again — the cache must answer.
+	require.NoError(t, store.ReloadIndex(ctx))
+	require.NoError(t, os.Remove(filepath.Join(tasksDir, "TEST-EXT.md")))
+
+	got, err := store.GetCard(ctx, "test-project", "TEST-EXT")
+	require.NoError(t, err)
+	assert.Equal(t, "TEST-EXT", got.ID)
+	assert.Equal(t, "External Card", got.Title)
+	assert.Equal(t, "in_progress", got.State)
+}
+
+// BenchmarkListCards_500Cards measures ListCards throughput with a warm cache.
+func BenchmarkListCards_500Cards(b *testing.B) {
+	dir := b.TempDir()
+
+	cfg := validProjectConfig("bench-project", "BENCH")
+	require.NoError(b, board.SaveProjectConfig(dir+"/bench-project", cfg))
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(b, err)
+
+	ctx := context.Background()
+
+	for i := range 500 {
+		id := fmt.Sprintf("BENCH-%04d", i+1)
+		c := testCard(id, "todo")
+		c.Body = strings.Repeat("x", 1024)
+		require.NoError(b, store.CreateCard(ctx, "bench-project", c))
+	}
+
+	b.ResetTimer()
+
+	for range b.N {
+		cards, err := store.ListCards(ctx, "bench-project", CardFilter{})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if len(cards) != 500 {
+			b.Fatalf("expected 500 cards, got %d", len(cards))
+		}
+	}
+}
