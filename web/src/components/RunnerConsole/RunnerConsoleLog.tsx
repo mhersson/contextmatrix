@@ -3,7 +3,7 @@ import type { LogEntry } from '../../types';
 import { LogLine } from './LogLine';
 
 interface RunnerConsoleLogProps {
-  logs: LogEntry[];
+  logs: readonly LogEntry[];
   error: string | null;
 }
 

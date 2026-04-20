@@ -4,7 +4,7 @@ import { RunnerConsoleHeader } from './RunnerConsoleHeader';
 import { RunnerConsoleLog } from './RunnerConsoleLog';
 
 interface RunnerConsoleProps {
-  logs: LogEntry[];
+  logs: readonly LogEntry[];
   connected: boolean;
   error: string | null;
   onClose: () => void;
