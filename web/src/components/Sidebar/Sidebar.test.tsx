@@ -11,6 +11,10 @@ vi.mock('../../hooks/useProjectSummaries', () => ({
   useProjectSummaries: vi.fn(() => ({ summaries: new Map(), loading: false })),
 }));
 
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', toggleTheme: () => {} })),
+}));
+
 import { useProjects } from '../../hooks/useProjects';
 
 const mockUseProjects = vi.mocked(useProjects);
