@@ -9,6 +9,7 @@ type Palette = 'everforest' | 'radix' | 'catppuccin';
 const VALID_PALETTES: readonly Palette[] = ['everforest', 'radix', 'catppuccin'];
 
 const STORAGE_KEY = 'theme';
+const PALETTE_STORAGE_KEY = 'palette';
 
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY);
@@ -16,6 +17,14 @@ function getInitialTheme(): Theme {
     return stored;
   }
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function getStoredPalette(): Palette | null {
+  const stored = localStorage.getItem(PALETTE_STORAGE_KEY);
+  if (stored !== null && VALID_PALETTES.includes(stored as Palette)) {
+    return stored as Palette;
+  }
+  return null;
 }
 
 function applyTheme(theme: Theme) {
@@ -39,6 +48,7 @@ interface ThemeContextValue {
   palette: Palette;
   version: string;
   toggleTheme: () => void;
+  setPalette: (palette: Palette) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -50,7 +60,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return initial;
   });
 
-  const [palette, setPalette] = useState<Palette>('everforest');
+  const [palette, setPaletteState] = useState<Palette>(() => {
+    const stored = getStoredPalette();
+    if (stored !== null) {
+      applyPalette(stored);
+      return stored;
+    }
+    return 'everforest';
+  });
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -59,11 +76,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
+    const stored = getStoredPalette();
+    if (stored !== null) {
+      // User has a stored preference — skip server-driven palette
+      return;
+    }
     api.getAppConfig().then((config) => {
       const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
         ? (config.theme as Palette)
         : 'everforest';
-      setPalette(p);
+      setPaletteState(p);
       applyPalette(p);
       if (config.version) {
         setVersion(config.version);
@@ -77,7 +99,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  return createElement(ThemeContext.Provider, { value: { theme, palette, version, toggleTheme } }, children);
+  const setPalette = useCallback((p: Palette) => {
+    setPaletteState(p);
+    applyPalette(p);
+    localStorage.setItem(PALETTE_STORAGE_KEY, p);
+  }, []);
+
+  return createElement(ThemeContext.Provider, { value: { theme, palette, version, toggleTheme, setPalette } }, children);
 }
 
 export function useTheme(): ThemeContextValue {

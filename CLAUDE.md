@@ -95,9 +95,12 @@ details.
 Frontend conventions, color palettes (Everforest and Radix), and UI semantic
 mappings: see `web/CLAUDE.md` (auto-loaded when working in `web/`).
 
-The active palette is server-driven via the `theme` config setting
-(`"everforest"` default, `"radix"` alternative). Components use CSS custom
-properties only — no palette-specific code in components.
+The `theme` config setting (`"everforest"` default, `"radix"` / `"catppuccin"`
+alternatives) sets the server-side default palette, but users can override it
+per-browser via the PaletteSelector in `AppHeader`. The chosen palette is
+persisted in `localStorage` under the key `palette` and takes precedence over
+the server default on subsequent loads. Components use CSS custom properties
+only — no palette-specific code in components.
 
 ### Skills (`skills/`)
 

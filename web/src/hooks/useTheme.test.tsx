@@ -157,3 +157,73 @@ describe('ThemeProvider dark/light toggle', () => {
     expect(latest!.palette).toBe('radix');
   });
 });
+
+describe('ThemeProvider localStorage palette persistence', () => {
+  it('(a) stored palette wins over server default', async () => {
+    localStorageMock.setItem('palette', 'catppuccin');
+    mockFetchAppConfig('radix');
+
+    await act(async () => {
+      renderWithProvider();
+    });
+
+    // Stored palette should be used immediately, server response should be ignored
+    expect(latest!.palette).toBe('catppuccin');
+    expect(document.documentElement.getAttribute('data-palette')).toBe('catppuccin');
+  });
+
+  it('(b) invalid stored value is ignored and server default is used', async () => {
+    localStorageMock.setItem('palette', 'invalid-palette');
+    mockFetchAppConfig('radix');
+
+    await act(async () => {
+      renderWithProvider();
+    });
+
+    await waitFor(() => {
+      expect(latest!.palette).toBe('radix');
+    });
+
+    expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+  });
+
+  it('(c) setPalette updates DOM + localStorage + context state', async () => {
+    mockFetchAppConfig('everforest');
+
+    await act(async () => {
+      renderWithProvider();
+    });
+
+    await waitFor(() => {
+      expect(latest!.palette).toBe('everforest');
+    });
+
+    act(() => {
+      latest!.setPalette('catppuccin');
+    });
+
+    await waitFor(() => {
+      expect(latest!.palette).toBe('catppuccin');
+    });
+
+    expect(document.documentElement.getAttribute('data-palette')).toBe('catppuccin');
+    expect(localStorageMock.getItem('palette')).toBe('catppuccin');
+  });
+
+  it('(d) no stored palette → server response is used', async () => {
+    // No palette in localStorage
+    mockFetchAppConfig('radix');
+
+    await act(async () => {
+      renderWithProvider();
+    });
+
+    await waitFor(() => {
+      expect(latest!.palette).toBe('radix');
+    });
+
+    expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+    // localStorage should NOT have been written by server-driven palette
+    expect(localStorageMock.getItem('palette')).toBeNull();
+  });
+});
