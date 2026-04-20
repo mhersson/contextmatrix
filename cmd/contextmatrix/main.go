@@ -2,16 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -21,6 +29,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -55,9 +64,6 @@ func main() {
 
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	if *configPath == "" {
 		resolved := config.FindConfigPath()
 		configPath = &resolved
@@ -65,9 +71,17 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		slog.Error("failed to load config", "error", err)
+		// Use a plain text handler for the startup error since config isn't loaded yet.
+		slog.New(slog.NewTextHandler(os.Stdout, nil)).Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// Register Prometheus metrics early, before building any component that
+	// may observe them.
+	metrics.Register(prometheus.DefaultRegisterer)
+
+	logger := slog.New(cfg.BuildSlogHandler(os.Stdout))
+	slog.SetDefault(logger)
 
 	slog.Info("config loaded", "path", *configPath)
 	slog.Info("boards git auth", "mode", cfg.Boards.GitAuthMode)
@@ -192,7 +206,17 @@ func main() {
 	svc.SetSessionManager(sessionMgr)
 	slog.Info("session log manager initialized")
 
-	// Create router with all API routes
+	// Create MCP server
+	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
+
+	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
+	if cfg.MCPAPIKey != "" {
+		slog.Info("MCP authentication enabled")
+	}
+
+	// Create router with all API routes. MCP is registered on the inner mux
+	// so it shares the same middleware chain as every other route — no
+	// separate wrapping needed here.
 	mux := api.NewRouter(api.RouterConfig{
 		Service:            svc,
 		Bus:                bus,
@@ -208,20 +232,9 @@ func main() {
 		SessionManager:     sessionMgr,
 		Theme:              cfg.Theme,
 		Version:            buildVersion(),
+		MCPHandler:         mcpHandler,
 	})
 
-	// Create MCP server and register on the mux
-	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
-
-	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
-	if cfg.MCPAPIKey != "" {
-		slog.Info("MCP authentication enabled")
-	}
-
-	wrappedMCPHandler := api.WrapMCPHandler(mcpHandler)
-	mux.Handle("POST /mcp", wrappedMCPHandler)
-	mux.Handle("GET /mcp", wrappedMCPHandler)
-	mux.Handle("DELETE /mcp", wrappedMCPHandler)
 	slog.Info("MCP server registered", "endpoint", "/mcp")
 
 	// Embed frontend and create SPA handler
@@ -243,17 +256,50 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 
 	go func() {
 		slog.Info("starting server", "port", cfg.Port)
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server error", "error", err)
 
 			errCh <- err
 		}
 	}()
+
+	var adminServer *http.Server
+
+	if cfg.AdminPort > 0 {
+		adminBind := cfg.AdminBindAddr
+		if adminBind == "" {
+			adminBind = "127.0.0.1"
+		}
+
+		if adminBind != "127.0.0.1" && adminBind != "localhost" && adminBind != "::1" {
+			slog.Warn("admin server bound to non-loopback address — pprof/metrics exposed; restrict via firewall",
+				"addr", adminBind, "port", cfg.AdminPort)
+		}
+
+		adminServer = &http.Server{
+			Addr:              net.JoinHostPort(adminBind, strconv.Itoa(cfg.AdminPort)),
+			Handler:           newAdminMux(),
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+
+		go func() {
+			slog.Info("starting admin server", "addr", adminServer.Addr)
+
+			if err := adminServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("admin server error", "error", err)
+
+				errCh <- err
+			}
+		}()
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -266,10 +312,8 @@ func main() {
 
 	slog.Info("shutting down server")
 
-	// Stop background tasks
 	cancel()
 
-	// Wait for background goroutines to finish
 	if syncer != nil {
 		syncer.Wait()
 	}
@@ -281,13 +325,59 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer shutdownCancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("server shutdown error", "error", err)
-		shutdownCancel()
+	// Shut down both servers concurrently so a long-running admin request
+	// (e.g. /debug/pprof/profile) cannot starve the main server of its
+	// shutdown budget.
+	var wg sync.WaitGroup
+
+	if adminServer != nil {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			if err := adminServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("admin server shutdown error", "error", err)
+			}
+		}()
+	}
+
+	wg.Add(1)
+
+	var mainShutdownErr error
+
+	go func() {
+		defer wg.Done()
+
+		mainShutdownErr = server.Shutdown(shutdownCtx)
+	}()
+
+	wg.Wait()
+
+	if mainShutdownErr != nil {
+		slog.Error("server shutdown error", "error", mainShutdownErr)
 		os.Exit(1)
 	}
 
 	slog.Info("server stopped")
+}
+
+// newAdminMux returns a mux serving /debug/pprof/* and /metrics. The mux is
+// intentionally scoped: it never mounts http.DefaultServeMux so nothing else
+// that imports net/http/pprof (or blindly calls http.Handle) can leak through
+// the admin listener.
+func newAdminMux() http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	return mux
 }
 
 // newSPAHandler wraps the API handler with static file serving and SPA fallback.
@@ -300,6 +390,15 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/mcp" {
 			apiHandler.ServeHTTP(w, r)
+
+			return
+		}
+
+		// Admin endpoints live on a separate listener; serving the SPA shell
+		// for them on the main port would be confusing. 404 explicitly so
+		// operators scraping the wrong port get a clear signal.
+		if r.URL.Path == "/metrics" || strings.HasPrefix(r.URL.Path, "/debug/pprof/") {
+			http.NotFound(w, r)
 
 			return
 		}

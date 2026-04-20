@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // eventHandlers handles SSE streaming endpoints.
@@ -45,7 +46,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	// this connection only, leaving the timeout intact for all other endpoints.
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
-		slog.Debug("SSE could not clear write deadline", "error", err)
+		ctxlog.Logger(r.Context()).Debug("SSE could not clear write deadline", "error", err)
 	}
 
 	// Set SSE headers
@@ -58,12 +59,15 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
-		slog.Debug("SSE initial write failed", "error", err)
+		ctxlog.Logger(r.Context()).Debug("SSE initial write failed", "error", err)
 
 		return
 	}
 
 	flusher.Flush()
+
+	metrics.SSEActiveConnections.Inc()
+	defer metrics.SSEActiveConnections.Dec()
 
 	// Subscribe to event bus
 	ch, unsubscribe := h.bus.Subscribe()
@@ -73,7 +77,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(h.keepaliveInterval)
 	defer ticker.Stop()
 
-	slog.Info("SSE client connected",
+	ctxlog.Logger(r.Context()).Info("SSE client connected",
 		"project_filter", projectFilter,
 		"remote_addr", r.RemoteAddr,
 	)
@@ -82,7 +86,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
-			slog.Info("SSE client disconnected",
+			ctxlog.Logger(r.Context()).Info("SSE client disconnected",
 				"project_filter", projectFilter,
 				"remote_addr", r.RemoteAddr,
 			)
@@ -91,7 +95,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Debug("SSE keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("SSE keepalive write failed", "error", err)
 
 				return
 			}
@@ -111,7 +115,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if err := writeSSEEvent(w, event); err != nil {
-				slog.Debug("SSE event write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("SSE event write failed", "error", err)
 
 				return
 			}

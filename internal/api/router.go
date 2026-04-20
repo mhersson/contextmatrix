@@ -6,23 +6,28 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-const maxRequestBodySize = 1 << 20     // 1 MB
-const mcpMaxBodySize = 5 * 1024 * 1024 // 5 MB
+// maxRequestBodySize caps every inbound request body. MCP card payloads are
+// the largest legitimate input, so the global cap is sized to that envelope.
+const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 
 // Error codes for machine-parseable error responses.
 const (
@@ -70,12 +75,14 @@ type RouterConfig struct {
 	SessionManager     *sessionlog.Manager // optional; enables card-scoped SSE log path
 	Theme              string              // active color palette ("everforest" or "radix")
 	Version            string              // build version string for display
+	MCPHandler         http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
 // corsOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
 // If empty, CORS headers are not set.
-func NewRouter(cfg RouterConfig) *http.ServeMux {
+// Returns http.Handler (wraps mux with metrics and other middleware).
+func NewRouter(cfg RouterConfig) http.Handler {
 	mux := http.NewServeMux()
 
 	// Create handlers
@@ -162,22 +169,72 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 	}
 
-	// Apply middleware chain: recovery -> cors -> logging -> requestID -> bodyLimit -> handler
-	return wrapMux(mux, cfg.CORSOrigin)
-}
-
-// wrapMux wraps the mux with all middleware.
-func wrapMux(mux *http.ServeMux, corsOrigin string) *http.ServeMux {
-	wrapper := http.NewServeMux()
-
-	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, logging, requestID, bodyLimit}
-	if corsOrigin != "" {
-		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(corsOrigin), logging, requestID, bodyLimit}
+	// MCP server routes — registered on the inner mux so they share the
+	// same middleware chain as every other route (recovery, requestID,
+	// observe, bodyLimit, ...).
+	if cfg.MCPHandler != nil {
+		mux.Handle("POST /mcp", cfg.MCPHandler)
+		mux.Handle("GET /mcp", cfg.MCPHandler)
+		mux.Handle("DELETE /mcp", cfg.MCPHandler)
 	}
 
-	wrapper.Handle("/", chain(mux, middlewares...))
+	// Apply middleware chain. First entry is outermost:
+	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> mux
+	// requestID runs before observe so the request_id is in-context when the
+	// request log line fires. observe sits inside recovery so any panic's
+	// stack trace is logged with the request's context.
+	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit}
+	if cfg.CORSOrigin != "" {
+		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit}
+	}
 
-	return wrapper
+	return chain(mux, middlewares...)
+}
+
+// observe records RED metrics and emits a per-request log line. Health probes
+// (/healthz, /readyz) are skipped entirely to avoid log spam. SSE endpoints
+// are logged but excluded from the REST latency histogram because their
+// connection lifetime (minutes to hours) would drown out real latency signal.
+func observe(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		start := time.Now()
+
+		next.ServeHTTP(rw, r)
+
+		dur := time.Since(start)
+
+		ctxlog.Logger(r.Context()).Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.statusCode,
+			"duration_ms", dur.Milliseconds(),
+		)
+
+		// SSE streams would pollute the REST latency histogram and the
+		// path label set — skip them entirely for metrics.
+		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" {
+			return
+		}
+
+		// r.Pattern is set by http.ServeMux on matched routes. Unmatched
+		// routes (404s, bogus paths) collapse to a single "unmatched"
+		// label value so an attacker cannot explode label cardinality by
+		// hitting /foo/<random>.
+		pattern := r.Pattern
+		if pattern == "" {
+			pattern = "unmatched"
+		}
+
+		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, pattern, strconv.Itoa(rw.statusCode)).Inc()
+		metrics.HTTPRequestDuration.WithLabelValues(r.Method, pattern).Observe(dur.Seconds())
+	})
 }
 
 // chain applies middleware in order (first middleware is outermost).
@@ -189,41 +246,24 @@ func chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.
 	return h
 }
 
-// requestID generates and attaches a unique request ID.
+// requestIDPattern bounds client-supplied X-Request-ID to a safe length and
+// charset. Anything else gets a fresh UUID so untrusted input can neither
+// bloat log lines nor smuggle unexpected characters into downstream systems.
+var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
+// requestID honors a client-supplied X-Request-ID header when it matches
+// requestIDPattern, otherwise generates a UUID. The id is echoed in the
+// response header and stashed in a request-scoped logger in context.
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")
-		if id == "" {
+		if !requestIDPattern.MatchString(id) {
 			id = uuid.New().String()
 		}
 
 		w.Header().Set("X-Request-ID", id)
-		next.ServeHTTP(w, r)
-	})
-}
-
-// logging logs each request with timing. Requests to /healthz and /readyz are
-// served but not logged to avoid spamming logs with k8s health check noise.
-func logging(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
-			next.ServeHTTP(w, r)
-
-			return
-		}
-
-		start := time.Now()
-		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(rw, r)
-
-		slog.Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rw.statusCode,
-			"duration", time.Since(start),
-			"request_id", w.Header().Get("X-Request-ID"),
-		)
+		ctx := ctxlog.WithRequestID(r.Context(), id)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -252,7 +292,7 @@ func recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				slog.Error("panic recovered",
+				ctxlog.Logger(r.Context()).Error("panic recovered",
 					"error", err,
 					"stack", string(debug.Stack()),
 					"path", r.URL.Path,
@@ -303,13 +343,6 @@ func bodyLimitN(maxBytes int64) func(http.Handler) http.Handler {
 
 // bodyLimit caps request body size to prevent OOM from large payloads.
 var bodyLimit = bodyLimitN(maxRequestBodySize)
-
-// WrapMCPHandler wraps an MCP handler with the recovery, logging, requestID,
-// and body-size-limit middleware. The body limit is set to mcpMaxBodySize (5 MB)
-// to accommodate large card bodies without exposing an unbounded upload surface.
-func WrapMCPHandler(h http.Handler) http.Handler {
-	return chain(h, recovery, logging, requestID, bodyLimitN(mcpMaxBodySize))
-}
 
 // responseWriter wraps http.ResponseWriter to capture status code.
 type responseWriter struct {

@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a temporary
@@ -114,7 +114,7 @@ func NewFilesystemStore(boardsDir string) (*FilesystemStore, error) {
 		projects:  make(map[string]*projectIndex),
 	}
 
-	if err := store.loadIndex(); err != nil {
+	if err := store.loadIndex(context.Background()); err != nil {
 		return nil, fmt.Errorf("load index: %w", err)
 	}
 
@@ -122,7 +122,7 @@ func NewFilesystemStore(boardsDir string) (*FilesystemStore, error) {
 }
 
 // loadIndex scans the boards directory and builds the in-memory index.
-func (s *FilesystemStore) loadIndex() error {
+func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 	configs, err := board.DiscoverProjects(s.boardsDir)
 	if err != nil {
 		return fmt.Errorf("discover projects: %w", err)
@@ -156,7 +156,7 @@ func (s *FilesystemStore) loadIndex() error {
 			}
 			// Reject symlinks to prevent reads/writes outside the boards directory.
 			if entry.Type()&os.ModeSymlink != 0 {
-				slog.Warn("skipping symlink card file",
+				ctxlog.Logger(ctx).Warn("skipping symlink card file",
 					"path", filepath.Join(tasksDir, entry.Name()),
 				)
 
@@ -167,7 +167,7 @@ func (s *FilesystemStore) loadIndex() error {
 
 			data, err := os.ReadFile(filePath)
 			if err != nil {
-				slog.Warn("skipping unreadable card file",
+				ctxlog.Logger(ctx).Warn("skipping unreadable card file",
 					"path", filePath,
 					"error", err,
 				)
@@ -177,7 +177,7 @@ func (s *FilesystemStore) loadIndex() error {
 
 			card, err := board.ParseCard(data)
 			if err != nil {
-				slog.Warn("skipping unparseable card file",
+				ctxlog.Logger(ctx).Warn("skipping unparseable card file",
 					"path", filePath,
 					"error", err,
 				)
@@ -196,13 +196,13 @@ func (s *FilesystemStore) loadIndex() error {
 
 // ReloadIndex rebuilds the in-memory index from disk.
 // This is used after a git pull brings new/changed card files.
-func (s *FilesystemStore) ReloadIndex() error {
+func (s *FilesystemStore) ReloadIndex(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.projects = make(map[string]*projectIndex)
 
-	return s.loadIndex()
+	return s.loadIndex(ctx)
 }
 
 // buildCardIndex creates a cardIndex from a Card.
@@ -438,7 +438,7 @@ func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter 
 
 		card, err := board.ParseCard(data)
 		if err != nil {
-			slog.Error("skipping corrupt card file", "path", path, "error", err)
+			ctxlog.Logger(ctx).Error("skipping corrupt card file", "path", path, "error", err)
 
 			continue
 		}

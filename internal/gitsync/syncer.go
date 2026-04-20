@@ -266,7 +266,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	}
 
 	// Rebuild the in-memory index from disk (files changed by rebase).
-	if err := s.store.ReloadIndex(); err != nil {
+	if err := s.store.ReloadIndex(ctx); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
 

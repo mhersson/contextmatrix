@@ -12,10 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // flushRecorder is an httptest.ResponseRecorder that supports Flush().
@@ -385,4 +387,41 @@ func TestStreamEvents_SurvivesWriteTimeout(t *testing.T) {
 		"expected at least 2 SSE comment lines (connected + keepalive); connection may have been killed by WriteTimeout")
 	assert.Equal(t, ": connected", sseComments[0])
 	assert.Equal(t, ": keepalive", sseComments[1])
+}
+
+// TestStreamEvents_MetricsTracked verifies that SSEActiveConnections is
+// incremented when a client connects and decremented when it disconnects.
+func TestStreamEvents_MetricsTracked(t *testing.T) {
+	bus := events.NewBus()
+	eh := newEventHandlers(bus)
+	eh.keepaliveInterval = 1 * time.Hour
+
+	baseline := testutil.ToFloat64(metrics.SSEActiveConnections)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+	req = req.WithContext(ctx)
+	rec := newFlushRecorder()
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		eh.streamEvents(rec, req)
+	}()
+
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(metrics.SSEActiveConnections) >= baseline+1
+	}, 2*time.Second, 1*time.Millisecond,
+		"SSEActiveConnections did not increment on connect")
+
+	cancel()
+	wg.Wait()
+
+	after := testutil.ToFloat64(metrics.SSEActiveConnections)
+	assert.InDelta(t, baseline, after, 0.01, "SSEActiveConnections should return to baseline after disconnect")
 }

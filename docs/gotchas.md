@@ -15,15 +15,15 @@
   `ImmediateCommit: true` when `card.AssignedAgent == ""`, triggering an
   immediate commit. MCP tool callers (agents) never set this flag, so their
   commits continue to defer normally.
-- **MCP middleware chain and body limit:** `/mcp` is wrapped via
-  `api.WrapMCPHandler` before being registered on the mux. This applies panic
-  recovery, structured request logging, request-ID propagation, and a **5 MB
-  body-size cap** (`mcpMaxBodySize`). The 5 MB limit is intentionally larger than
-  the 1 MB cap on REST API routes to accommodate large card bodies and activity
-  history in tool call inputs; it is still bounded to prevent unbounded memory
-  growth. Requests with a `Content-Length` exceeding 5 MB are rejected
-  immediately with `413 Payload Too Large` before the body is read. Requests
-  without `Content-Length` are capped during body reads via `http.MaxBytesReader`.
+- **MCP middleware chain and body limit:** `/mcp` is registered on the same
+  inner `http.ServeMux` as the REST API, so it automatically inherits the
+  shared middleware chain (recovery, security headers, CORS when enabled,
+  request ID, observe/metrics+logging, body limit). The body-size cap is
+  **5 MB** (`maxRequestBodySize`) — sized to the largest legitimate MCP card
+  payload and applied uniformly to every route. Requests with a
+  `Content-Length` exceeding 5 MB are rejected with `413 Payload Too Large`
+  before the body is read; requests without `Content-Length` are capped
+  during reads via `http.MaxBytesReader`.
 - **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
   is an absolute deadline measured from when request headers are read — it is
   NOT reset by intermediate writes (keepalive comments, partial event data, etc.).
@@ -102,6 +102,20 @@
   collisions with card IDs.  The only difference from the card-scoped pump is
   that `readProjectUpstream` does not filter by card ID — it accepts every event
   and preserves the originating `CardID` field on `sessionlog.Event`.
+- **`request_id` log correlation:** every HTTP request gets a `request_id`
+  UUID injected into its context by the `requestID` middleware via
+  `ctxlog.WithRequestID(ctx, id)`. All log sites must use `ctxlog.Logger(ctx)`
+  — not `slog.Default()` or a package-level logger — otherwise the log line
+  will not carry the correlation ID. Background goroutines (stall scanner,
+  git-pull ticker) do not go through the middleware; `ctxlog.Logger(ctx)`
+  falls back to `slog.Default()` safely in those paths.
+- **`/metrics` and pprof live on the admin port:** Prometheus scraping
+  (`GET /metrics`) and `/debug/pprof/*` are served only on the admin listener
+  (`admin_port`), which defaults to `127.0.0.1` (`admin_bind_addr`). The main
+  listener never exposes them. There is no authentication on the admin
+  listener — keep it loopback-only, or gate with firewall / NetworkPolicy /
+  service-mesh rules if your scrape setup requires a non-loopback bind. A
+  non-loopback bind logs a warning at startup.
 - **PAT mode requires specific permissions:** when `boards.git_auth_mode: pat`,
   the fine-grained PAT must have `Contents: Read and write` on the boards repo
   **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`

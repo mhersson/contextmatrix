@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 const (
@@ -143,6 +146,13 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 		}
 		// Exponential backoff: 1s, 2s, 4s
 		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		ctxlog.Logger(ctx).Warn("runner webhook transient error, retrying",
+			"url", url,
+			"attempt", attempt+1,
+			"backoff", backoff,
+			"error", lastErr,
+		)
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -164,6 +174,10 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	req.Header.Set(signatureHeader, "sha256="+signature)
 	req.Header.Set(timestampHeader, ts)
 
+	result := "failure"
+
+	defer func() { metrics.RunnerWebhookTotal.WithLabelValues(result).Inc() }()
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
@@ -183,19 +197,21 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 		}
 	}
 
-	var result WebhookResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	var parsed WebhookResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
 
-	if !result.OK {
+	if !parsed.OK {
 		// Runner explicitly rejected — do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
-			body:       result.Error,
+			body:       parsed.Error,
 			clientErr:  true,
 		}
 	}
+
+	result = "success"
 
 	return nil
 }

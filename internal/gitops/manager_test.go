@@ -11,8 +11,12 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 func TestNewManager_InitNewRepo(t *testing.T) {
@@ -918,4 +922,41 @@ func TestNewManager_PATMode_TokenNotInArgs(t *testing.T) {
 		assert.NotContains(t, e, token,
 			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
 	}
+}
+
+// histSampleCount reads the sample count from a prometheus.Histogram via the
+// internal dto representation. This avoids the panic that testutil.ToFloat64
+// triggers on Histograms (which expose multiple metric series).
+func histSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+
+	ch := make(chan prometheus.Metric, 1)
+	h.Collect(ch)
+
+	m := <-ch
+
+	var d dto.Metric
+	require.NoError(t, m.Write(&d))
+
+	return d.GetHistogram().GetSampleCount()
+}
+
+// TestCommitFile_ObservesGitSyncDuration verifies that CommitFile increments
+// the GitSyncDuration histogram sample count.
+func TestCommitFile_ObservesGitSyncDuration(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	before := histSampleCount(t, metrics.GitSyncDuration)
+
+	// Create and commit a file — this must trigger an observation.
+	err = os.WriteFile(filepath.Join(tmpDir, "metric-test.txt"), []byte("data"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile(context.Background(), "metric-test.txt", "metric test commit")
+	require.NoError(t, err)
+
+	after := histSampleCount(t, metrics.GitSyncDuration)
+
+	assert.Greater(t, after, before, "GitSyncDuration histogram should have been observed after CommitFile")
 }

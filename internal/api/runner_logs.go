@@ -3,10 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
@@ -33,11 +34,14 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	cardID := r.URL.Query().Get("card_id")
 	project := r.URL.Query().Get("project")
 
+	metrics.SSEActiveConnections.Inc()
+	defer metrics.SSEActiveConnections.Dec()
+
 	// Clear write deadline — SSE connections are long-lived and must survive
 	// past the server's WriteTimeout (see events.go for the full explanation).
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
-		slog.Debug("runner SSE could not clear write deadline", "error", err)
+		ctxlog.Logger(r.Context()).Debug("runner SSE could not clear write deadline", "error", err)
 	}
 
 	if cardID != "" {
@@ -80,7 +84,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	ch, unsub := h.sessionManager.Subscribe(cardID)
 	defer unsub()
 
-	slog.Info("runner SSE session connected",
+	ctxlog.Logger(r.Context()).Info("runner SSE session connected",
 		"card_id", cardID,
 		"project", project,
 		"remote_addr", r.RemoteAddr,
@@ -129,7 +133,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	for {
 		select {
 		case <-r.Context().Done():
-			slog.Info("runner SSE session: client disconnected",
+			ctxlog.Logger(r.Context()).Info("runner SSE session: client disconnected",
 				"card_id", cardID,
 				"remote_addr", r.RemoteAddr,
 			)
@@ -138,7 +142,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Debug("runner SSE card keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("runner SSE card keepalive write failed", "error", err)
 
 				return
 			}
@@ -182,7 +186,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 
 	// StartProject is idempotent — safe to call on every connection.
 	if err := h.sessionManager.StartProject(r.Context(), project); err != nil {
-		slog.Error("runner SSE: failed to start project session", "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner SSE: failed to start project session", "project", project, "error", err)
 
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
 
@@ -194,7 +198,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	ch, unsub := h.sessionManager.SubscribeProject(project)
 	defer unsub()
 
-	slog.Info("runner SSE project session connected",
+	ctxlog.Logger(r.Context()).Info("runner SSE project session connected",
 		"project", project,
 		"remote_addr", r.RemoteAddr,
 	)
@@ -242,7 +246,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	for {
 		select {
 		case <-r.Context().Done():
-			slog.Info("runner SSE project session: client disconnected",
+			ctxlog.Logger(r.Context()).Info("runner SSE project session: client disconnected",
 				"project", project,
 				"remote_addr", r.RemoteAddr,
 			)
@@ -251,7 +255,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				slog.Debug("runner SSE project keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("runner SSE project keepalive write failed", "error", err)
 
 				return
 			}

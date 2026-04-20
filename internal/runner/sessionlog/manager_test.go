@@ -349,7 +349,7 @@ func TestIdleSweeper(t *testing.T) {
 
 	// Wait past TTL, then trigger sweeper directly (avoids waiting for ticker).
 	time.Sleep(ttl + 20*time.Millisecond)
-	m.sweepIdleSessions()
+	m.sweepIdleSessions(context.Background())
 
 	// Session should be gone.
 	m.mu.Lock()

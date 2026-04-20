@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -18,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
 const (
@@ -576,7 +577,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 
 		attempt++
 		if attempt >= maxUpstreamRetries {
-			slog.Error("sessionlog: project upstream permanently failed, closing session",
+			ctxlog.Logger(ctx).Error("sessionlog: project upstream permanently failed, closing session",
 				"project", project,
 				"error", err,
 				"attempts", attempt,
@@ -612,7 +613,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 		}
 
 		backoff := backoffDuration(attempt)
-		slog.Warn("sessionlog: project upstream error, retrying",
+		ctxlog.Logger(ctx).Warn("sessionlog: project upstream error, retrying",
 			"project", project,
 			"error", err,
 			"attempt", attempt,
@@ -725,7 +726,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		delivered = true
 
 		if shouldWarn {
-			slog.Warn("sessionlog: slow subscriber, event dropped",
+			ctxlog.Logger(ctx).Warn("sessionlog: slow subscriber, event dropped",
 				"project", project,
 				"dropped_total", m.DroppedEvents(),
 			)
@@ -756,14 +757,14 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.sweepIdleSessions()
+				m.sweepIdleSessions(ctx)
 			}
 		}
 	}()
 }
 
 // sweepIdleSessions finds sessions older than sessionTTL and calls Stop on them.
-func (m *Manager) sweepIdleSessions() {
+func (m *Manager) sweepIdleSessions(ctx context.Context) {
 	now := time.Now()
 
 	m.mu.Lock()
@@ -778,7 +779,7 @@ func (m *Manager) sweepIdleSessions() {
 	m.mu.Unlock()
 
 	for _, cardID := range stale {
-		slog.Warn("sessionlog: idle-sweeper force-closing stale session",
+		ctxlog.Logger(ctx).Warn("sessionlog: idle-sweeper force-closing stale session",
 			"card_id", cardID,
 			"ttl", m.sessionTTL,
 		)
@@ -812,7 +813,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 
 		attempt++
 		if attempt >= maxUpstreamRetries {
-			slog.Error("sessionlog: upstream permanently failed, closing session",
+			ctxlog.Logger(ctx).Error("sessionlog: upstream permanently failed, closing session",
 				"card_id", cardID,
 				"error", err,
 				"attempts", attempt,
@@ -849,7 +850,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 		}
 
 		backoff := backoffDuration(attempt)
-		slog.Warn("sessionlog: upstream error, retrying",
+		ctxlog.Logger(ctx).Warn("sessionlog: upstream error, retrying",
 			"card_id", cardID,
 			"error", err,
 			"attempt", attempt,
@@ -971,7 +972,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		delivered = true
 
 		if shouldWarn {
-			slog.Warn("sessionlog: slow subscriber, event dropped",
+			ctxlog.Logger(ctx).Warn("sessionlog: slow subscriber, event dropped",
 				"card_id", cardID,
 				"dropped_total", m.DroppedEvents(),
 			)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -153,14 +153,14 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send trigger webhook.
 	if err := h.runner.Trigger(r.Context(), payload); err != nil {
-		slog.Error("runner webhook failed", "card_id", id, "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner webhook failed", "card_id", id, "project", project, "error", err)
 		// Webhook failed — revert status to failed.
 		// Use context.WithoutCancel so the revert succeeds even when the HTTP client
 		// has already disconnected and r.Context() is cancelled.
 		revertCtx := context.WithoutCancel(r.Context())
 		if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
 			"webhook trigger failed"); revertErr != nil {
-			slog.Error("failed to revert runner status after webhook failure",
+			ctxlog.Logger(r.Context()).Error("failed to revert runner status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
 		}
 
@@ -243,7 +243,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		MessageID: messageID,
 		Content:   body.Content,
 	}); err != nil {
-		slog.Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to send message to runner", "")
 
 		return
@@ -289,7 +289,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	// to this endpoint triggers a second outbound webhook, which the runner would then
 	// re-verify again, and so on.
 	if card.Autonomous {
-		slog.Debug("promote short-circuit: card already autonomous, skipping runner webhook",
+		ctxlog.Logger(r.Context()).Debug("promote short-circuit: card already autonomous, skipping runner webhook",
 			"card_id", id, "project", project)
 
 		fbTrue := true
@@ -348,7 +348,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		CardID:  id,
 		Project: project,
 	}); err != nil {
-		slog.Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to promote runner task", "")
 
 		return
@@ -391,7 +391,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send kill webhook.
 	if err := h.runner.Kill(r.Context(), runner.KillPayload{CardID: id, Project: project}); err != nil {
-		slog.Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
 			"failed to stop runner task", "")
 
@@ -431,7 +431,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 
 	// Send stop-all webhook.
 	if err := h.runner.StopAll(r.Context(), runner.StopAllPayload{Project: project}); err != nil {
-		slog.Error("runner stop-all webhook failed", "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("runner stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
 			"failed to stop all runner tasks", "")
 
@@ -452,7 +452,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 		if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
 			_, err := h.svc.UpdateRunnerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 			if err != nil {
-				slog.Error("failed to update runner status during stop-all",
+				ctxlog.Logger(r.Context()).Error("failed to update runner status during stop-all",
 					"card_id", card.ID, "project", project, "error", err)
 
 				continue

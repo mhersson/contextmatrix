@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -680,7 +683,7 @@ Created externally.
 	assert.Len(t, cards, 1)
 
 	// Reload the index
-	require.NoError(t, store.ReloadIndex())
+	require.NoError(t, store.ReloadIndex(context.Background()))
 
 	// Now we should see both cards
 	cards, err = store.ListCards(ctx, "test-project", CardFilter{})
@@ -994,4 +997,42 @@ updated: 2026-04-01T00:00:00Z
 	require.NoError(t, err)
 	assert.Len(t, cards, 1)
 	assert.Equal(t, "TEST-001", cards[0].ID)
+}
+
+// TestFilesystemStore_CtxlogRequestID verifies that a context enriched with
+// ctxlog.WithRequestID causes storage log output to contain the request_id.
+func TestFilesystemStore_CtxlogRequestID(t *testing.T) {
+	var buf bytes.Buffer
+
+	origLogger := slog.Default()
+
+	t.Cleanup(func() { slog.SetDefault(origLogger) })
+
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+
+	const requestID = "test-req-id-storage-001"
+
+	ctx := ctxlog.WithRequestID(context.Background(), requestID)
+
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	// Write a corrupt card file directly so ListCards triggers an error log.
+	tasksDir := dir + "/test-project/tasks"
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+	require.NoError(t, os.WriteFile(tasksDir+"/TEST-BAD.md", []byte("not valid frontmatter {{{\n"), 0o644))
+
+	// Reload the index so the corrupt file is in the index.
+	require.NoError(t, store.ReloadIndex(ctx))
+
+	// ListCards will encounter the corrupt file and call ctxlog.Logger(ctx).Error.
+	_, _ = store.ListCards(ctx, "test-project", CardFilter{})
+
+	output := buf.String()
+	assert.Contains(t, output, "request_id="+requestID,
+		"log output should contain the request_id from the enriched context")
 }
