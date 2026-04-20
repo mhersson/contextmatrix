@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Card } from '../../types';
+import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
-import { useRunnerLogs } from '../../hooks/useRunnerLogs';
 import { LogLine } from '../RunnerConsole/LogLine';
 
 const MAX_MESSAGE_LENGTH = 8000;
@@ -9,9 +8,10 @@ const NEAR_BOTTOM_THRESHOLD = 50;
 
 interface CardChatProps {
   card: Card;
+  cardLogs: LogEntry[];
 }
 
-export function CardChat({ card }: CardChatProps) {
+export function CardChat({ card, cardLogs }: CardChatProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -19,12 +19,6 @@ export function CardChat({ card }: CardChatProps) {
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
-
-  const { logs: cardLogs } = useRunnerLogs({
-    project: card.project,
-    cardId: card.id,
-    enabled: true,
-  });
 
   // Auto-scroll to bottom unless user has scrolled up
   const handleScroll = () => {

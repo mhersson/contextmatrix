@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
-import type { Card, ProjectConfig, PatchCardInput } from '../../types';
+import type { Card, LogEntry, ProjectConfig, PatchCardInput } from '../../types';
 import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
@@ -49,6 +49,7 @@ function computeMobileEditorHeight(): number {
 interface CardPanelProps {
   card: Card;
   config: ProjectConfig;
+  cardLogs?: LogEntry[];
   onClose: () => void;
   onSave: (updates: PatchCardInput) => Promise<void>;
   onClaim: (agentId: string) => Promise<void>;
@@ -63,6 +64,7 @@ interface CardPanelProps {
 export function CardPanel({
   card,
   config,
+  cardLogs = [],
   onClose,
   onSave,
   onClaim,
@@ -392,7 +394,7 @@ export function CardPanel({
 
             {/* Bottom chat region — fills remaining height */}
             <div className="flex-1 min-h-0 flex flex-col p-4 pt-0" data-testid="body-chat-region">
-              <CardChat card={card} />
+              <CardChat card={card} cardLogs={cardLogs} />
             </div>
           </div>
         ) : (
