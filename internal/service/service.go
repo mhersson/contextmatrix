@@ -2697,6 +2697,7 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 	} else {
 		_, gitErr = s.git.CurrentBranch()
 	}
+
 	results = append(results, CheckResult{
 		Name: "git",
 		OK:   gitErr == nil,
