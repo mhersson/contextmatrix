@@ -60,6 +60,7 @@ const (
 type CardService struct {
 	store             storage.Store
 	git               *gitops.Manager
+	commitQueue       *gitops.CommitQueue
 	lock              *lock.Manager
 	bus               *events.Bus
 	boardsDir         string
@@ -136,6 +137,20 @@ func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
 	s.sessionManager = m
 }
 
+// SetCommitQueue registers a commit queue. When set, all write-path commits
+// are routed through the queue so writeMu is only held across store writes
+// plus job enqueue (not the go-git operation itself). Passing nil reverts to
+// direct Manager.Commit* calls. Must be called before the server starts
+// accepting requests.
+func (s *CardService) SetCommitQueue(q *gitops.CommitQueue) {
+	s.commitQueue = q
+}
+
+// CommitQueue returns the registered commit queue or nil.
+func (s *CardService) CommitQueue() *gitops.CommitQueue {
+	return s.commitQueue
+}
+
 // SetOnCommit registers a callback invoked after each successful git commit.
 func (s *CardService) SetOnCommit(fn func()) {
 	s.onCommit = fn
@@ -160,13 +175,32 @@ func (s *CardService) ClearCaches() {
 
 // LockWrites acquires the write mutex, preventing all card mutations.
 // Exposed for the gitsync layer, which must suspend all writes during
-// pull+rebuild to avoid interleaving with a rebase.
+// pull+rebuild to avoid interleaving with a rebase. If a commit queue is
+// configured, it is also paused and drained so no async commit subprocess
+// races against an external shell rebase/push.
 func (s *CardService) LockWrites() {
 	s.writeMu.Lock()
+
+	if s.commitQueue != nil {
+		s.commitQueue.Pause()
+		// Best-effort drain: give in-flight commits a short window to
+		// finish so the subsequent shell rebase/push does not collide
+		// on .git/index.lock. The lock is already held so new writes
+		// cannot enqueue fresh jobs while we wait.
+		drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_ = s.commitQueue.AwaitIdle(drainCtx)
+
+		cancel()
+	}
 }
 
-// UnlockWrites releases the write mutex. Paired with LockWrites.
+// UnlockWrites releases the write mutex and resumes the commit queue.
+// Paired with LockWrites.
 func (s *CardService) UnlockWrites() {
+	if s.commitQueue != nil {
+		s.commitQueue.Resume()
+	}
+
 	s.writeMu.Unlock()
 }
 

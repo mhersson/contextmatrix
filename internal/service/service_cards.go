@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -245,12 +246,31 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// true — because a new card is a discrete, durable event. Both the card file
 	// and .board.yaml (next_id increment) must be persisted together so the card
 	// survives a git pull on another machine.
+	//
+	// The commit is routed through the queue (when configured) but awaited
+	// under writeMu because a failed commit triggers rollback of the store
+	// state; releasing the mutex before the await would let another writer
+	// observe transient NextID state.
 	if s.gitAutoCommit {
 		cardPath := s.cardPath(project, cardID)
 		configPath := filepath.Join(project, ".board.yaml")
-
 		msg := commitMessage("", cardID, "created")
-		if gitErr := s.git.CommitFiles(ctx, []string{cardPath, configPath}, msg); gitErr != nil {
+
+		var gitErr error
+
+		if s.commitQueue != nil {
+			gitErr = <-s.commitQueue.Enqueue(gitops.CommitJob{
+				Project: project,
+				Kind:    gitops.CommitKindFiles,
+				Paths:   []string{cardPath, configPath},
+				Message: msg,
+				Ctx:     ctx,
+			})
+		} else {
+			gitErr = s.git.CommitFiles(ctx, []string{cardPath, configPath}, msg)
+		}
+
+		if gitErr != nil {
 			// Rollback: remove the orphaned card file and restore NextID so
 			// the sequence has no gap on the next creation attempt.
 			var rollbackErrs []error
@@ -533,21 +553,26 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Verify card exists
 	_, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("get card: %w", err)
 	}
 
 	// Reject deletion if card has children (subtasks)
 	children, err := s.store.ListCards(ctx, project, storage.CardFilter{Parent: id})
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("check children: %w", err)
 	}
 
 	if len(children) > 0 {
+		s.writeMu.Unlock()
+
 		childIDs := make([]string, len(children))
 		for i, c := range children {
 			childIDs[i] = c.ID
@@ -563,22 +588,53 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 
 	// Delete from store
 	if err := s.store.DeleteCard(ctx, project, id); err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("delete card: %w", err)
 	}
 
 	// Clean up any deferred paths for this card
 	delete(s.deferredPaths, id)
 
-	// Git commit deletion
+	// Enqueue delete commit. Using CommitKindFile here stages the now-absent
+	// path; go-git's Add on a removed file records a deletion.
+	var (
+		commitDone <-chan error
+		notify     bool
+	)
+
 	if s.gitAutoCommit {
 		path := s.cardPath(project, id)
-
 		msg := commitMessage("", id, "deleted")
-		if err := s.git.CommitFile(ctx, path, msg); err != nil {
-			return fmt.Errorf("git commit delete: %w", err)
-		}
 
-		s.notifyCommit()
+		if s.commitQueue != nil {
+			commitDone = s.commitQueue.Enqueue(gitops.CommitJob{
+				Project: project,
+				Kind:    gitops.CommitKindFile,
+				Path:    path,
+				Message: msg,
+				Ctx:     ctx,
+			})
+			notify = true
+		} else {
+			err := s.git.CommitFile(ctx, path, msg)
+
+			done := make(chan error, 1)
+			done <- err
+
+			close(done)
+
+			commitDone = done
+			notify = true
+		}
+	} else {
+		commitDone = noopCommitChan()
+	}
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		return fmt.Errorf("git commit delete: %w", err)
 	}
 
 	// Publish event
@@ -606,16 +662,19 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Load card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("get card: %w", err)
 	}
 
 	// Verify agent ownership.
 	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
@@ -636,11 +695,17 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("update card: %w", err)
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(ctx, project, id, entry.Agent, "log: "+entry.Action); err != nil {
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, entry.Agent, "log: "+entry.Action)
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
@@ -733,21 +798,26 @@ func (s *CardService) applyCardMutation(
 	opts mutationOpts,
 ) (*board.Card, error) {
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	cfg, err := s.getConfig(ctx, project)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
 	oldState := card.State
 
 	if err := apply(card, cfg); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, err
 	}
 
@@ -760,16 +830,22 @@ func (s *CardService) applyCardMutation(
 	enforceTerminalStateInvariants(card, stateChanged)
 
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("validate card: %w", err)
 	}
 
 	if !opts.skipValidators {
 		if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+			s.writeMu.Unlock()
+
 			return nil, err
 		}
 
 		if len(card.DependsOn) > 0 {
 			if cycleID := s.detectDependencyCycle(ctx, project, id, card.DependsOn); cycleID != "" {
+				s.writeMu.Unlock()
+
 				return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
 					Err:     board.ErrDependenciesNotMet,
 					Field:   "depends_on",
@@ -781,27 +857,68 @@ func (s *CardService) applyCardMutation(
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (immediate or deferred).
+	// Git commit (immediate or deferred). Enqueue under writeMu so ordering
+	// is preserved; await after releasing writeMu so a slow commit does not
+	// block concurrent writers.
+	var (
+		commitDone <-chan error
+		notify     bool
+	)
+
 	if opts.immediateCommit && s.gitAutoCommit {
 		cardPath := s.cardPath(project, id)
-
 		msg := commitMessage(opts.commitAgentID, id, opts.commitAction)
-		if err := s.git.CommitFile(ctx, cardPath, msg); err != nil {
-			return nil, fmt.Errorf("git commit: %w", err)
-		}
 
-		s.notifyCommit()
-	} else {
-		if err := s.commitCardChange(ctx, project, id, opts.commitAgentID, opts.commitAction); err != nil {
-			return nil, fmt.Errorf("git commit: %w", err)
+		if s.commitQueue != nil {
+			commitDone = s.commitQueue.Enqueue(gitops.CommitJob{
+				Project: project,
+				Kind:    gitops.CommitKindFile,
+				Path:    cardPath,
+				Message: msg,
+				Ctx:     ctx,
+			})
+			notify = true
+		} else {
+			// Synchronous inline commit for callers without a queue.
+			// Preserves the pre-queue ordering guarantee that the
+			// commit lands before subsequent in-process work (e.g.
+			// parent auto-transitions) runs its own commits.
+			err := s.git.CommitFile(ctx, cardPath, msg)
+
+			done := make(chan error, 1)
+			done <- err
+
+			close(done)
+
+			commitDone = done
+			notify = true
 		}
+	} else {
+		commitDone, notify = s.enqueueCardCommit(ctx, project, id, opts.commitAgentID, opts.commitAction)
 	}
 
 	// Post-commit state-change side effects (flush deferred on not_planned/review).
+	// These run under writeMu because flushDeferredCommit mutates the shared
+	// deferredPaths map; the flush itself is enqueued through the queue so
+	// per-project ordering (main commit → flush) is preserved by the worker.
 	s.applyStateChangeSideEffects(ctx, card, stateChanged)
+
+	// Trigger parent auto-transitions while writeMu is still held so no other
+	// writer can interleave between this card's state change and the parent's.
+	if stateChanged {
+		s.maybeTransitionParent(ctx, card)
+	}
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
+	}
 
 	eventType := events.CardUpdated
 	if stateChanged {
@@ -818,10 +935,6 @@ func (s *CardService) applyCardMutation(
 			"new_state": card.State,
 		},
 	})
-
-	if stateChanged {
-		s.maybeTransitionParent(ctx, card)
-	}
 
 	s.enrichDependenciesMet(ctx, card)
 

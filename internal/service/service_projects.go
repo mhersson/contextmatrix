@@ -87,7 +87,10 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		return nil, fmt.Errorf("create tasks directory: %w", err)
 	}
 
-	// Git commit
+	// Git commit. CommitAll is not routed through the commit queue because
+	// its path is "." (stage everything), which the queue would have to
+	// special-case; for project-level events that fire at most once per
+	// project-lifecycle, serializing via the manager's own mutex is fine.
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
 		if err := s.git.CommitAll(ctx, msg); err != nil {

@@ -140,6 +140,12 @@ func main() {
 
 	slog.Info("card service initialized")
 
+	// Initialize the per-project commit queue so writes do not serialize on
+	// the blocking go-git call under writeMu.
+	commitQueue := gitops.NewCommitQueue(git, 0)
+	svc.SetCommitQueue(commitQueue)
+	slog.Info("commit queue initialized")
+
 	// Create context for background tasks
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -367,7 +373,18 @@ func main() {
 	slog.Info("shutdown: phase=ctx_cancel")
 	cancel()
 
-	// Phase 4: let the git syncers finish any late commit/push triggered by
+	// Phase 4: drain the commit queue so any writes that landed on the
+	// worker channel — but whose go-git commit had not yet started when
+	// ctx was cancelled — still make it to disk before we exit. Running
+	// this before the syncers' Wait ensures the on-disk commits exist to
+	// be pushed by a final push iteration.
+	slog.Info("shutdown: phase=commit_queue_close")
+
+	if err := commitQueue.Close(shutdownCtx); err != nil {
+		slog.Error("commit queue shutdown error", "error", err)
+	}
+
+	// Phase 5: let the git syncers finish any late commit/push triggered by
 	// requests that were in flight when HTTP drain began. Running this after
 	// HTTP drain (not before) ensures those late mutations still get pushed
 	// to the remote before we exit.

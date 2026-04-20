@@ -55,15 +55,18 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	}
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	// Verify agent ownership.
 	if card.AssignedAgent != agentID {
+		s.writeMu.Unlock()
+
 		return nil, lock.ErrAgentMismatch
 	}
 
@@ -93,15 +96,19 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	card.Updated = time.Now()
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(ctx, project, id, agentID, "pushed to "+branch); err != nil {
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "pushed to "+branch)
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
-	// Publish events after releasing the lock is not possible with defer,
-	// so publish here (still under lock — acceptable for in-process bus).
 	s.bus.Publish(events.Event{
 		Type:      events.CardUpdated,
 		Project:   project,
@@ -125,19 +132,24 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	// Verify agent ownership.
 	if card.AssignedAgent != agentID {
+		s.writeMu.Unlock()
+
 		return nil, lock.ErrAgentMismatch
 	}
 
 	if card.ReviewAttempts >= maxReviewAttempts {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("review attempts capped at %d: %w", maxReviewAttempts, ErrReviewAttemptsCapped)
 	}
 
@@ -145,10 +157,16 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 
 	card.Updated = time.Now()
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(ctx, project, id, agentID, "review_attempts incremented"); err != nil {
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "review_attempts incremented")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -172,14 +190,17 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	if err := s.validator.ValidateRunnerStatus(status); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, err
 	}
 
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
@@ -210,21 +231,30 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(ctx, project, cardID, "runner", "runner_status: "+status); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
-	}
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "runner", "runner_status: "+status)
 
 	// Flush deferred commits only on terminal runner statuses (completed,
 	// failed, killed). These occur after the agent has released the card, so
 	// there is no subsequent flush point. Non-terminal statuses (queued,
 	// running) happen during active work and should continue to defer.
+	var flushErr error
 	if status == "failed" || status == "killed" || status == "completed" {
-		if err := s.flushDeferredCommit(ctx, cardID, "runner"); err != nil {
-			ctxlog.Logger(ctx).Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
-		}
+		flushErr = s.flushDeferredCommit(ctx, cardID, "runner")
+	}
+
+	s.writeMu.Unlock()
+
+	if flushErr != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit on runner status update", "card_id", cardID, "error", flushErr)
+	}
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
 	// Session lifecycle hooks — only when a manager is wired.
@@ -278,26 +308,32 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Guard: only human agents (agent_id prefixed with "human:") may promote a card.
 	// Checked before the store load so a rejected call has no side effects.
 	if agentID == "" || !strings.HasPrefix(agentID, "human:") {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrPromoteRequiresHuman)
 	}
 
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	// Guard: cannot promote a card in a terminal state.
 	if card.State == board.StateDone || card.State == board.StateNotPlanned {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrCardTerminal)
 	}
 
 	// Idempotent: if already autonomous, return current card without side effects.
 	if card.Autonomous {
+		s.writeMu.Unlock()
 		s.enrichDependenciesMet(ctx, card)
 
 		return card, nil
@@ -322,10 +358,16 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(ctx, project, cardID, agentID, "promoted to autonomous"); err != nil {
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, agentID, "promoted to autonomous")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 

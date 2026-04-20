@@ -41,21 +41,30 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	}
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Claim via lock manager (returns modified card)
 	card, err := s.lock.Claim(ctx, project, id, agentID)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("claim card: %w", err)
 	}
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer)
-	if err := s.commitCardChange(ctx, project, id, agentID, "claimed"); err != nil {
+	// Enqueue the commit (or record deferred). writeMu stays held only for
+	// the store write + enqueue; the commit itself runs on a worker after
+	// we release the lock, so concurrent writers do not serialize on it.
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "claimed")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -76,27 +85,39 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Release via lock manager (returns modified card)
 	card, err := s.lock.Release(ctx, project, id, agentID)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("release card: %w", err)
 	}
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer)
-	if err := s.commitCardChange(ctx, project, id, agentID, "released"); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+	// Enqueue the release commit.
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "released")
+
+	// Flush any remaining deferred commits (release is the end of a work
+	// session). Flush is still synchronous-under-writeMu because it
+	// involves a shell-git commit + reload that must fully serialize with
+	// subsequent writes on the same card.
+	flushErr := s.flushDeferredCommit(ctx, id, agentID)
+
+	s.writeMu.Unlock()
+
+	if flushErr != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit on release", "card_id", id, "error", flushErr)
 	}
 
-	// Flush any remaining deferred commits (release is the end of a work session)
-	if err := s.flushDeferredCommit(ctx, id, agentID); err != nil {
-		ctxlog.Logger(ctx).Error("flush deferred commit on release", "card_id", id, "error", err)
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
 	// Publish event
@@ -112,25 +133,38 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 }
 
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
+//
+// Heartbeats are the highest-frequency mutation in the system, so the write
+// mutex is released as soon as the store write + commit enqueue have run.
+// The commit itself is awaited after releasing writeMu, which lets
+// heartbeats for different cards run concurrently through the per-project
+// commit queue.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Heartbeat via lock manager (returns modified card)
 	card, err := s.lock.Heartbeat(ctx, project, id, agentID)
 	if err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("heartbeat card: %w", err)
 	}
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("update card: %w", err)
 	}
 
 	// Git commit (or defer, silent, no event)
-	if err := s.commitCardChange(ctx, project, id, agentID, "heartbeat"); err != nil {
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "heartbeat")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
@@ -203,21 +237,25 @@ func (s *CardService) processStalled(ctx context.Context) error {
 // markCardStalled transitions a card to the "stalled" state.
 func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) error {
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 
 	// Re-read card from store to avoid stale data (TOCTOU).
 	card, err := s.store.GetCard(ctx, sc.Project, sc.Card.ID)
 	if err != nil {
+		s.writeMu.Unlock()
 		// Card was deleted between FindStalled and now — skip silently.
 		return nil
 	}
 
 	// Re-check if still stalled: agent may have sent a heartbeat in the meantime.
 	if card.AssignedAgent == "" {
+		s.writeMu.Unlock()
+
 		return nil
 	}
 
 	if card.LastHeartbeat != nil && time.Since(*card.LastHeartbeat) < s.lock.Timeout() {
+		s.writeMu.Unlock()
+
 		return nil
 	}
 
@@ -231,17 +269,25 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, sc.Project, card); err != nil {
+		s.writeMu.Unlock()
+
 		return fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer)
-	if err := s.commitCardChange(ctx, sc.Project, card.ID, "", "stalled (heartbeat timeout)"); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+	commitDone, notify := s.enqueueCardCommit(ctx, sc.Project, card.ID, "", "stalled (heartbeat timeout)")
+
+	// Flush any deferred commits since card is now in a final state. Runs
+	// under writeMu because the flush mutates deferredPaths.
+	flushErr := s.flushDeferredCommit(ctx, card.ID, previousAgent)
+
+	s.writeMu.Unlock()
+
+	if flushErr != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", flushErr)
 	}
 
-	// Flush any deferred commits since card is now in a final state
-	if err := s.flushDeferredCommit(ctx, card.ID, previousAgent); err != nil {
-		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", err)
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		return fmt.Errorf("git commit: %w", err)
 	}
 
 	// Publish event
