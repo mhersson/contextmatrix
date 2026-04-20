@@ -63,7 +63,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
 
-function mockFetchAppConfig(theme: 'everforest' | 'everforest-hard' | 'radix' | 'catppuccin') {
+function mockFetchAppConfig(theme: 'everforest' | 'radix' | 'catppuccin') {
   (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
     ok: true,
     status: 200,
