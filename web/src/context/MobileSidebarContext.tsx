@@ -1,4 +1,4 @@
-import { useState, useCallback, useContext, createContext } from 'react';
+import { useState, useCallback, useMemo, useContext, createContext } from 'react';
 import type { ReactNode } from 'react';
 
 interface MobileSidebarContextValue {
@@ -20,8 +20,13 @@ export function MobileSidebarProvider({ children }: { children: ReactNode }) {
     setIsOpen(false);
   }, []);
 
+  const value = useMemo(
+    () => ({ isOpen, toggle, close }),
+    [isOpen, toggle, close],
+  );
+
   return (
-    <MobileSidebarContext.Provider value={{ isOpen, toggle, close }}>
+    <MobileSidebarContext.Provider value={value}>
       {children}
     </MobileSidebarContext.Provider>
   );
