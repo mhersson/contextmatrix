@@ -38,6 +38,7 @@ export function useRunnerLogs({
   cardId,
 }: UseRunnerLogsOptions): UseRunnerLogsResult {
   const ringBuffer = useRingBuffer(maxEntries);
+  const { append, clear } = ringBuffer;
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -110,7 +111,7 @@ export function useRunnerLogs({
           const marker = makeGapMarker(
             `log stream dropped ${count} event${count !== 1 ? 's' : ''} (server ring-buffer overflow)`,
           );
-          ringBuffer.append([marker]);
+          append([marker]);
           return;
         }
 
@@ -133,7 +134,7 @@ export function useRunnerLogs({
         }
 
         entriesToAdd.push(entry);
-        ringBuffer.append(entriesToAdd);
+        append(entriesToAdd);
       } catch {
         console.error('Failed to parse runner log entry:', event.data);
       }
@@ -163,7 +164,7 @@ export function useRunnerLogs({
         connectRef.current();
       }, delay);
     };
-  }, [project, cardId]);
+  }, [project, cardId, append]);
 
   // Keep connectRef in sync with connect
   useEffect(() => {
@@ -187,5 +188,5 @@ export function useRunnerLogs({
     };
   }, [enabled, connect, disconnect]);
 
-  return { logs: ringBuffer.logs, connected, error, clear: ringBuffer.clear };
+  return { logs: ringBuffer.logs, connected, error, clear };
 }
