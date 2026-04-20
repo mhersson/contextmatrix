@@ -472,6 +472,12 @@ func projectKey(project string) string {
 // StartProject is idempotent: if a project session is already running it
 // returns nil immediately.
 //
+// The provided ctx is not used to drive the pump lifecycle; the upstream pump
+// goroutine runs with its own internal context so it can outlive the caller's
+// request scope (e.g. an HTTP handler whose client disconnected).  The
+// parameter is accepted for API consistency and is reserved for future
+// server-level cancellation.
+//
 // Snapshot-then-live ordering and cancellation guarantees are identical to
 // Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
 // "project:" so project sessions cannot collide with card IDs in the shared

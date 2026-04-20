@@ -261,7 +261,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 
 	// Refresh go-git's in-memory repository state after shell rebase so
 	// that subsequent go-git read operations see the rebased history.
-	if err := s.git.ReloadRepo(); err != nil {
+	if err := s.git.ReloadRepo(ctx); err != nil {
 		slog.Warn("git sync: failed to reload go-git repo after rebase", "error", err)
 	}
 

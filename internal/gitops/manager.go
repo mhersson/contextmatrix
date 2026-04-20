@@ -84,7 +84,7 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 	// If a remote URL is provided but the repo was opened (not cloned),
 	// ensure the origin remote is configured for auto_push/auto_pull.
 	if cloneURL != "" && !mgr.hasRemote() {
-		if addErr := mgr.AddRemote("origin", cloneURL); addErr != nil {
+		if addErr := mgr.AddRemote(context.Background(), "origin", cloneURL); addErr != nil {
 			slog.Warn("failed to add origin remote", "error", addErr)
 		}
 	}
@@ -137,7 +137,11 @@ func (m *Manager) SetAuthor(name, email string) {
 
 // CommitFile stages a specific file and commits it.
 // The path should be relative to the repository root.
-func (m *Manager) CommitFile(path, message string) error {
+func (m *Manager) CommitFile(ctx context.Context, path, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -168,7 +172,11 @@ func (m *Manager) CommitFile(path, message string) error {
 
 // CommitFiles stages specific files and commits them in a single commit.
 // The paths should be relative to the repository root.
-func (m *Manager) CommitFiles(paths []string, message string) error {
+func (m *Manager) CommitFiles(ctx context.Context, paths []string, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -199,7 +207,11 @@ func (m *Manager) CommitFiles(paths []string, message string) error {
 }
 
 // CommitAll stages all changes and commits them.
-func (m *Manager) CommitAll(message string) error {
+func (m *Manager) CommitAll(ctx context.Context, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -307,7 +319,11 @@ func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message 
 
 // ReloadRepo re-opens the go-git repository from disk, refreshing any
 // stale in-memory state caused by shell git operations (push, rebase).
-func (m *Manager) ReloadRepo() error {
+func (m *Manager) ReloadRepo(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -360,7 +376,11 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 }
 
 // AddRemote adds a remote to the repository.
-func (m *Manager) AddRemote(name, url string) error {
+func (m *Manager) AddRemote(ctx context.Context, name, url string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -483,7 +503,11 @@ func (m *Manager) CommitCount() (int, error) {
 }
 
 // DeleteFile removes a file from the working tree and stages the deletion.
-func (m *Manager) DeleteFile(path string) error {
+func (m *Manager) DeleteFile(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

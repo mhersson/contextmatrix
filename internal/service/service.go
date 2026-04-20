@@ -369,7 +369,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	// Git commit
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
-		if err := s.git.CommitAll(msg); err != nil {
+		if err := s.git.CommitAll(ctx, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
@@ -469,7 +469,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		path := filepath.Join(name, ".board.yaml")
 
 		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
-		if err := s.git.CommitFile(path, msg); err != nil {
+		if err := s.git.CommitFile(ctx, path, msg); err != nil {
 			slog.Warn("git commit after project update", "error", err)
 		} else {
 			s.notifyCommit()
@@ -519,7 +519,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	// Git commit
 	if s.gitAutoCommit {
 		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
-		if err := s.git.CommitAll(msg); err != nil {
+		if err := s.git.CommitAll(ctx, msg); err != nil {
 			slog.Warn("git commit after project delete", "error", err)
 		} else {
 			s.notifyCommit()
@@ -708,7 +708,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		configPath := filepath.Join(project, ".board.yaml")
 
 		msg := commitMessage("", cardID, "created")
-		if gitErr := s.git.CommitFiles([]string{cardPath, configPath}, msg); gitErr != nil {
+		if gitErr := s.git.CommitFiles(ctx, []string{cardPath, configPath}, msg); gitErr != nil {
 			// Rollback: remove the orphaned card file and restore NextID so
 			// the sequence has no gap on the next creation attempt.
 			var rollbackErrs []error
@@ -915,13 +915,13 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		cardPath := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "updated")
-		if err := s.git.CommitFile(cardPath, msg); err != nil {
+		if err := s.git.CommitFile(ctx, cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
 		s.notifyCommit()
 	} else {
-		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
+		if err := s.commitCardChange(ctx, project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 	}
@@ -931,7 +931,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
-		if err := s.flushDeferredCommit(id, ""); err != nil {
+		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
 			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
@@ -1135,13 +1135,13 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		cardPath := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "updated")
-		if err := s.git.CommitFile(cardPath, msg); err != nil {
+		if err := s.git.CommitFile(ctx, cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
 		s.notifyCommit()
 	} else {
-		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
+		if err := s.commitCardChange(ctx, project, id, "", "updated"); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 	}
@@ -1151,7 +1151,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
 	// handles the flush.
 	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
-		if err := s.flushDeferredCommit(id, ""); err != nil {
+		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
 			slog.Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
 		}
 	}
@@ -1229,7 +1229,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		path := s.cardPath(project, id)
 
 		msg := commitMessage("", id, "deleted")
-		if err := s.git.CommitFile(path, msg); err != nil {
+		if err := s.git.CommitFile(ctx, path, msg); err != nil {
 			return fmt.Errorf("git commit delete: %w", err)
 		}
 
@@ -1295,7 +1295,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, entry.Agent, "log: "+entry.Action); err != nil {
+	if err := s.commitCardChange(ctx, project, id, entry.Agent, "log: "+entry.Action); err != nil {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
@@ -1365,7 +1365,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, input.AgentID, "usage reported"); err != nil {
+	if err := s.commitCardChange(ctx, project, id, input.AgentID, "usage reported"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -1373,7 +1373,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// subsequent ReleaseCard call to flush deferred paths (e.g. report_usage
 	// called after complete_task).
 	if card.AssignedAgent == "" {
-		if err := s.flushDeferredCommit(id, input.AgentID); err != nil {
+		if err := s.flushDeferredCommit(ctx, id, input.AgentID); err != nil {
 			slog.Error("flush deferred commit on post-release usage report", "card_id", id, "error", err)
 		}
 	}
@@ -1488,7 +1488,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	// Batch-commit all recalculated cards in a single git commit.
 	if s.gitAutoCommit && len(updatedPaths) > 0 {
 		msg := fmt.Sprintf("[contextmatrix] %s: recalculated costs for %d cards", project, result.CardsUpdated)
-		if err := s.git.CommitFiles(updatedPaths, msg); err != nil {
+		if err := s.git.CommitFiles(ctx, updatedPaths, msg); err != nil {
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
 
@@ -1645,7 +1645,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, agentID, "claimed"); err != nil {
+	if err := s.commitCardChange(ctx, project, id, agentID, "claimed"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -1680,12 +1680,12 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(project, id, agentID, "released"); err != nil {
+	if err := s.commitCardChange(ctx, project, id, agentID, "released"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
 	// Flush any remaining deferred commits (release is the end of a work session)
-	if err := s.flushDeferredCommit(id, agentID); err != nil {
+	if err := s.flushDeferredCommit(ctx, id, agentID); err != nil {
 		slog.Error("flush deferred commit on release", "card_id", id, "error", err)
 	}
 
@@ -1725,7 +1725,7 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	}
 
 	// Git commit (or defer, silent, no event)
-	if err := s.commitCardChange(project, id, agentID, "heartbeat"); err != nil {
+	if err := s.commitCardChange(ctx, project, id, agentID, "heartbeat"); err != nil {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
@@ -1826,12 +1826,12 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	}
 
 	// Git commit (or defer)
-	if err := s.commitCardChange(sc.Project, card.ID, "", "stalled (heartbeat timeout)"); err != nil {
+	if err := s.commitCardChange(ctx, sc.Project, card.ID, "", "stalled (heartbeat timeout)"); err != nil {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
 	// Flush any deferred commits since card is now in a final state
-	if err := s.flushDeferredCommit(card.ID, previousAgent); err != nil {
+	if err := s.flushDeferredCommit(ctx, card.ID, previousAgent); err != nil {
 		slog.Error("flush deferred commit after stall", "card_id", card.ID, "error", err)
 	}
 
@@ -2135,13 +2135,13 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 			return nil, fmt.Errorf("update card: %w", err)
 		}
 
-		if err := s.commitCardChange(project, cardID, "", "transitioned to "+state); err != nil {
+		if err := s.commitCardChange(ctx, project, cardID, "", "transitioned to "+state); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
 		// Flush deferred commits when reaching not_planned or review.
 		if card.State == board.StateNotPlanned || card.State == board.StateReview {
-			if err := s.flushDeferredCommit(cardID, ""); err != nil {
+			if err := s.flushDeferredCommit(ctx, cardID, ""); err != nil {
 				slog.Error("flush deferred commit after transition",
 					"card_id", cardID, "state", card.State, "error", err)
 			}
@@ -2168,7 +2168,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 // commitCardChange either commits a card file immediately or records it for a
 // deferred commit, depending on the gitDeferredCommit setting.
 // Caller must hold writeMu.
-func (s *CardService) commitCardChange(project, cardID, agentID, action string) error {
+func (s *CardService) commitCardChange(ctx context.Context, project, cardID, agentID, action string) error {
 	if !s.gitAutoCommit {
 		return nil
 	}
@@ -2182,7 +2182,7 @@ func (s *CardService) commitCardChange(project, cardID, agentID, action string) 
 	}
 
 	msg := commitMessage(agentID, cardID, action)
-	if err := s.git.CommitFile(path, msg); err != nil {
+	if err := s.git.CommitFile(ctx, path, msg); err != nil {
 		return err
 	}
 
@@ -2194,7 +2194,7 @@ func (s *CardService) commitCardChange(project, cardID, agentID, action string) 
 // flushDeferredCommit stages all accumulated deferred paths for cardID and
 // produces a single commit. No-ops if there are no deferred paths.
 // Caller must hold writeMu (or be in a context where no concurrent mutations occur).
-func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
+func (s *CardService) flushDeferredCommit(ctx context.Context, cardID, agentID string) error {
 	if !s.gitAutoCommit || !s.gitDeferredCommit {
 		return nil
 	}
@@ -2217,7 +2217,7 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
 	// Use shell git instead of go-git to avoid stale in-memory state after
 	// shell-based push/rebase operations by the gitsync layer.
-	if err := s.git.CommitFilesShell(context.Background(), unique, msg); err != nil {
+	if err := s.git.CommitFilesShell(ctx, unique, msg); err != nil {
 		return err
 	}
 	// Delete paths only after a successful commit — prevents data loss if
@@ -2225,7 +2225,7 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	delete(s.deferredPaths, cardID)
 	// Refresh go-git's in-memory repo state so subsequent read operations
 	// (e.g. GetLastCommitMessage) see the shell-git commit.
-	if err := s.git.ReloadRepo(); err != nil {
+	if err := s.git.ReloadRepo(ctx); err != nil {
 		slog.Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
 
@@ -2302,7 +2302,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 			return fmt.Errorf("persist parent card: %w", err)
 		}
 
-		if err := s.commitCardChange(parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
+		if err := s.commitCardChange(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
 			slog.Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
 		}
 
@@ -2325,7 +2325,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 	}
 
 	// Flush deferred commits for the parent card
-	if err := s.flushDeferredCommit(parent.ID, ""); err != nil {
+	if err := s.flushDeferredCommit(ctx, parent.ID, ""); err != nil {
 		slog.Error("flush deferred commit for parent auto-transition",
 			"parent_id", parent.ID, "error", err)
 	}
@@ -2438,7 +2438,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(project, id, agentID, "pushed to "+branch); err != nil {
+	if err := s.commitCardChange(ctx, project, id, agentID, "pushed to "+branch); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -2548,7 +2548,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(project, id, agentID, "review_attempts incremented"); err != nil {
+	if err := s.commitCardChange(ctx, project, id, agentID, "review_attempts incremented"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -2613,7 +2613,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(project, cardID, "runner", "runner_status: "+status); err != nil {
+	if err := s.commitCardChange(ctx, project, cardID, "runner", "runner_status: "+status); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -2622,7 +2622,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	// there is no subsequent flush point. Non-terminal statuses (queued,
 	// running) happen during active work and should continue to defer.
 	if status == "failed" || status == "killed" || status == "completed" {
-		if err := s.flushDeferredCommit(cardID, "runner"); err != nil {
+		if err := s.flushDeferredCommit(ctx, cardID, "runner"); err != nil {
 			slog.Error("flush deferred commit on runner status update", "card_id", cardID, "error", err)
 		}
 	}
@@ -2725,7 +2725,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	if err := s.commitCardChange(project, cardID, agentID, "promoted to autonomous"); err != nil {
+	if err := s.commitCardChange(ctx, project, cardID, agentID, "promoted to autonomous"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
