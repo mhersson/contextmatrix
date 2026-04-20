@@ -340,9 +340,12 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 2)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 2)
+		assert.Empty(t, page.NextCursor, "last page should not emit next_cursor")
+		require.NotNil(t, page.Total, "first page should include total")
+		assert.Equal(t, 2, *page.Total)
 	})
 
 	t.Run("filter by type", func(t *testing.T) {
@@ -353,10 +356,13 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.Equal(t, "task", cards[0].Type)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.Equal(t, "task", page.Items[0].Type)
+		// Total reflects the UN-filtered project size.
+		require.NotNil(t, page.Total)
+		assert.Equal(t, 2, *page.Total)
 	})
 
 	t.Run("filter by priority", func(t *testing.T) {
@@ -367,10 +373,10 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.Equal(t, "high", cards[0].Priority)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.Equal(t, "high", page.Items[0].Priority)
 	})
 }
 
@@ -2925,6 +2931,153 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	})
 }
 
+func TestListCards_Pagination(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create 5 cards; limit=2 should yield 3 pages (2 + 2 + 1).
+	for i := 0; i < 5; i++ {
+		_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+			Title:    fmt.Sprintf("Card %d", i),
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("first page includes total, last page omits next_cursor", func(t *testing.T) {
+		seen := map[string]bool{}
+
+		var (
+			cursor   string
+			pageNum  int
+			gotTotal bool
+		)
+
+		for {
+			pageNum++
+
+			url := server.URL + "/api/projects/test-project/cards?limit=2"
+			if cursor != "" {
+				url += "&cursor=" + cursor
+			}
+
+			resp, err := http.Get(url)
+			require.NoError(t, err)
+
+			var page listCardsResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+			closeBody(t, resp.Body)
+
+			if pageNum == 1 {
+				require.NotNil(t, page.Total, "first page must include total")
+				assert.Equal(t, 5, *page.Total)
+
+				gotTotal = true
+			} else {
+				assert.Nil(t, page.Total, "subsequent pages must omit total")
+			}
+
+			for _, c := range page.Items {
+				assert.False(t, seen[c.ID], "duplicate card across pages: %s", c.ID)
+				seen[c.ID] = true
+			}
+
+			if page.NextCursor == "" {
+				break
+			}
+
+			cursor = page.NextCursor
+
+			require.LessOrEqual(t, pageNum, 10, "too many pages; pagination likely looped")
+		}
+
+		assert.True(t, gotTotal)
+		assert.Len(t, seen, 5, "walking cursors should yield every card exactly once")
+	})
+
+	t.Run("limit=1 returns one item plus cursor", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=1")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.NotEmpty(t, page.NextCursor, "not on last page, cursor required")
+	})
+
+	t.Run("invalid cursor returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?cursor=!!!not-base64url")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+	})
+
+	t.Run("negative limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=-1")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("zero limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=0")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("limit above max returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=2001")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("non-numeric limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=abc")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("default limit respected when not specified", func(t *testing.T) {
+		// With 5 cards and default limit of 500, one page should fit everything.
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 5)
+		assert.Empty(t, page.NextCursor)
+	})
+}
+
 func TestListCards_VettedFilter(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
@@ -2957,10 +3110,10 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.True(t, cards[0].Vetted)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.True(t, page.Items[0].Vetted)
 	})
 
 	t.Run("?vetted=false returns only unvetted cards", func(t *testing.T) {
@@ -2971,10 +3124,10 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.False(t, cards[0].Vetted)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.False(t, page.Items[0].Vetted)
 	})
 
 	t.Run("no vetted param returns all cards", func(t *testing.T) {
@@ -2985,9 +3138,9 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 2)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 2)
 	})
 }
 

@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -109,6 +111,140 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 	}
 
 	return cards, nil
+}
+
+// PageOpts controls cursor-based pagination for card listings.
+//
+// Cursors are opaque to clients: the server encodes the last card ID of the
+// previous page as base64url. Callers pass the cursor verbatim on the next
+// request. An empty Cursor asks for the first page. Limit of 0 means "use the
+// default"; callers should validate bounds before calling.
+type PageOpts struct {
+	Limit  int
+	Cursor string
+}
+
+// ListCardsPageResult is the paginated response shape for ListCardsPage.
+//
+// NextCursor is empty when the current page is the last page; otherwise it is
+// the base64url-encoded ID of the last item, suitable for passing back in
+// PageOpts.Cursor. Total is populated only when IncludeTotal is requested (see
+// ListCardsPage doc), derived from the un-filtered project card count — not
+// the filtered page count.
+type ListCardsPageResult struct {
+	Items      []*board.Card
+	NextCursor string
+	Total      int  // UN-filtered project card count; only populated when HasTotal is true.
+	HasTotal   bool // Distinguishes "Total deliberately zero" from "Total not requested".
+}
+
+// ErrInvalidCursor is returned by ListCardsPage when the caller supplies a
+// cursor that is not valid base64url. API handlers should map this to 400.
+var ErrInvalidCursor = errors.New("invalid cursor")
+
+// encodePageCursor returns the base64url encoding of a card ID. Empty id →
+// empty string (no cursor).
+func encodePageCursor(id string) string {
+	if id == "" {
+		return ""
+	}
+
+	return base64.RawURLEncoding.EncodeToString([]byte(id))
+}
+
+// decodePageCursor decodes a client-supplied cursor back to a card ID.
+// Returns ErrInvalidCursor for anything that isn't valid base64url; an empty
+// cursor decodes to an empty id (start of the list).
+func decodePageCursor(cursor string) (string, error) {
+	if cursor == "" {
+		return "", nil
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+
+	return string(raw), nil
+}
+
+// ListCardsPage returns a single page of cards ordered by ID ascending.
+//
+// The card cache underlying store.ListCards returns the full filtered set in
+// nondeterministic (map-iteration) order; this method sorts IDs to give a
+// stable total order, then applies cursor + limit. Total is populated only
+// on the first page (Opts.Cursor == "") and reflects the UN-filtered project
+// card count so clients can show a "X cards total" hint without paying the
+// filter cost on every request.
+//
+// Callers are responsible for limit/cursor validation — this method trusts
+// the inputs and only rejects cursors that fail base64url decoding.
+func (s *CardService) ListCardsPage(
+	ctx context.Context, project string, filter storage.CardFilter, opts PageOpts,
+) (ListCardsPageResult, error) {
+	filter.Parent = strings.ToUpper(filter.Parent)
+
+	cursorID, err := decodePageCursor(opts.Cursor)
+	if err != nil {
+		return ListCardsPageResult{}, err
+	}
+
+	cards, err := s.store.ListCards(ctx, project, filter)
+	if err != nil {
+		return ListCardsPageResult{}, err
+	}
+
+	// Stable ordering by ID ascending. The cache's internal map iteration is
+	// nondeterministic so paging without this sort would silently miss or
+	// duplicate cards as the map reseeds across Go versions.
+	sort.Slice(cards, func(i, j int) bool {
+		return cards[i].ID < cards[j].ID
+	})
+
+	// Skip past the cursor. IDs equal-or-less are on the previous page.
+	start := 0
+	if cursorID != "" {
+		start = sort.Search(len(cards), func(i int) bool {
+			return cards[i].ID > cursorID
+		})
+	}
+
+	page := cards[start:]
+
+	limit := opts.Limit
+	if limit <= 0 || limit > len(page) {
+		limit = len(page)
+	}
+
+	page = page[:limit]
+
+	result := ListCardsPageResult{
+		Items: page,
+	}
+
+	// Only emit next_cursor when more items follow this page.
+	if start+limit < len(cards) {
+		result.NextCursor = encodePageCursor(page[len(page)-1].ID)
+	}
+
+	for _, card := range result.Items {
+		s.enrichDependenciesMet(ctx, card)
+	}
+
+	// Populate Total only on the first page. Derived from the UN-filtered
+	// project size so it survives filter changes between pages; also lets
+	// clients display "showing X of Y" while filtering.
+	if opts.Cursor == "" {
+		unfiltered, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+		if err != nil {
+			return ListCardsPageResult{}, err
+		}
+
+		result.Total = len(unfiltered)
+		result.HasTotal = true
+	}
+
+	return result, nil
 }
 
 // GetCard returns a specific card.
