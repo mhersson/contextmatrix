@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, createContext, useContext } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, createContext, useContext } from 'react';
 
 export type ToastType = 'success' | 'error' | 'info';
 
@@ -50,7 +50,10 @@ export function useToastState() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  return { toasts, showToast, dismissToast };
+  return useMemo<ToastContextValue>(
+    () => ({ toasts, showToast, dismissToast }),
+    [toasts, showToast, dismissToast],
+  );
 }
 
 export function useToast() {

@@ -165,7 +165,21 @@ export function useBoard(
   const { subscribe, connected, error: sseError } = useSSEBus();
 
   useEffect(() => {
-    return subscribe(handleEvent);
+    // Board reacts to card mutations, runner lifecycle, sync pulls that may
+    // bring new card data, and project config updates (to pick up new
+    // transitions). We register one subscriber per pattern instead of a
+    // wildcard so unrelated events (e.g. other projects' activity) do not
+    // reach the handler.
+    const unsubCard = subscribe('card.*', handleEvent);
+    const unsubRunner = subscribe('runner.*', handleEvent);
+    const unsubSync = subscribe('sync.*', handleEvent);
+    const unsubProjectUpdated = subscribe('project.updated', handleEvent);
+    return () => {
+      unsubCard();
+      unsubRunner();
+      unsubSync();
+      unsubProjectUpdated();
+    };
   }, [subscribe, handleEvent]);
 
   const updateCardLocally = useCallback((cardId: string, updates: Partial<Card>) => {

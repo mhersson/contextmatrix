@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
 import type { ProjectConfig } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
@@ -52,15 +52,18 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   const { subscribe, connected } = useSSEBus();
 
   useEffect(() => {
-    return subscribe((event) => {
-      if (event.type.startsWith('project.')) {
-        loadProjects();
-      }
+    return subscribe('project.*', () => {
+      loadProjects();
     });
   }, [subscribe, loadProjects]);
 
+  const value = useMemo(
+    () => ({ projects, loading, error, connected, refreshProjects: loadProjects }),
+    [projects, loading, error, connected, loadProjects],
+  );
+
   return (
-    <ProjectsContext.Provider value={{ projects, loading, error, connected, refreshProjects: loadProjects }}>
+    <ProjectsContext.Provider value={value}>
       {children}
     </ProjectsContext.Provider>
   );
