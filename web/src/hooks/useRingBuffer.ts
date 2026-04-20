@@ -85,6 +85,7 @@ function createRingBufferStore(capacity: number): RingBufferStore {
     },
 
     clear() {
+      if (size === 0) return;
       buf = new Array<LogEntry | undefined>(capacity);
       head = 0;
       size = 0;

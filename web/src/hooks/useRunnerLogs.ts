@@ -178,6 +178,14 @@ export function useRunnerLogs({
     return () => { isMountedRef.current = false; };
   }, []);
 
+  // Clear the buffer when the stream identity changes so entries from the
+  // previous project/card do not bleed into the new stream. Declared before
+  // the connect effect so clear() runs before connect() during the same
+  // commit.
+  useEffect(() => {
+    clear();
+  }, [project, cardId, clear]);
+
   useEffect(() => {
     if (enabled) {
       connect();
