@@ -5600,3 +5600,110 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 		assert.ErrorContains(t, err, "circular dependency")
 	})
 }
+
+func TestHealthCheck_HappyPath(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card to trigger a git commit so CurrentBranch() works on the repo.
+	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Seed Card",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	results := svc.HealthCheck(ctx)
+
+	require.Len(t, results, 3)
+
+	byName := make(map[string]CheckResult, len(results))
+	for _, r := range results {
+		byName[r.Name] = r
+	}
+
+	store, ok := byName["store"]
+	require.True(t, ok, "store check missing")
+	assert.True(t, store.OK)
+	assert.NoError(t, store.Err)
+
+	gitCheck, ok := byName["git"]
+	require.True(t, ok, "git check missing")
+	assert.True(t, gitCheck.OK)
+	assert.NoError(t, gitCheck.Err)
+
+	sessionLog, ok := byName["session_log"]
+	require.True(t, ok, "session_log check missing")
+	assert.True(t, sessionLog.OK)
+	assert.NoError(t, sessionLog.Err)
+}
+
+func TestHealthCheck_StoreError(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Replace the store with a failing implementation.
+	svc.store = &failingStore{}
+
+	results := svc.HealthCheck(ctx)
+
+	require.Len(t, results, 3)
+
+	byName := make(map[string]CheckResult, len(results))
+	for _, r := range results {
+		byName[r.Name] = r
+	}
+
+	store, ok := byName["store"]
+	require.True(t, ok, "store check missing")
+	assert.False(t, store.OK)
+	assert.Error(t, store.Err)
+
+	// session_log must still pass regardless of store failure.
+	sessionLog, ok := byName["session_log"]
+	require.True(t, ok, "session_log check missing")
+	assert.True(t, sessionLog.OK)
+	assert.NoError(t, sessionLog.Err)
+}
+
+// failingStore is a storage.Store implementation whose ListProjects always errors.
+type failingStore struct {
+	storage.Store // embed nil interface — only ListProjects is called by HealthCheck
+}
+
+func (f *failingStore) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
+	return nil, errors.New("store unavailable")
+}
+
+func TestHealthCheck_GitNil(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Remove the git manager to simulate an unconfigured git dependency.
+	svc.git = nil
+
+	results := svc.HealthCheck(ctx)
+
+	require.Len(t, results, 3)
+
+	byName := make(map[string]CheckResult, len(results))
+	for _, r := range results {
+		byName[r.Name] = r
+	}
+
+	gitCheck, ok := byName["git"]
+	require.True(t, ok, "git check missing")
+	assert.False(t, gitCheck.OK)
+	assert.Error(t, gitCheck.Err)
+	assert.ErrorContains(t, gitCheck.Err, "not configured")
+
+	sessionLog, ok := byName["session_log"]
+	require.True(t, ok, "session_log check missing")
+	assert.True(t, sessionLog.OK)
+}
