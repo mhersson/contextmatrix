@@ -483,6 +483,21 @@ long-lived connections past the server's `WriteTimeout`.
 `api.runnerHandlers.streamRunnerLogs` handles both code paths, selected by the
 `card_id` query parameter:
 
+Both paths set `X-Accel-Buffering: no` on the response and write a
+`: keepalive\n\n` SSE comment every 30 seconds per subscription to survive
+Cloudflare/nginx idle timeouts (~100 s).
+
+**SSE payload shapes:**
+
+Normal events:
+```json
+{"type":"text","content":"...","card_id":"PROJ-042","ts":"...","seq":42}
+```
+
+Marker frames:
+- `{"type":"terminal","seq":N}` — session ended; client should stop reconnecting.
+- `{"type":"dropped","seq":N,"count":N}` — ring-buffer overflowed; `count` events evicted.
+
 **Card-scoped path** (`?project=P&card_id=X`):
 
 1. Delegates to the [Session Log Manager](#session-log-manager).
@@ -549,12 +564,16 @@ layer that fixes the reconnect-loses-log-history bug.
   cancels the upstream connection, sends a `terminal` event to all subscribers,
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
-  (250 ms base, 4 s cap, 5 attempts). After all retries are exhausted the
-  session is marked permanently failed: all active and pending subscribers
-  receive a `terminal` event and their channels are closed. Any subsequent
-  `Subscribe` call for that card takes a fast path — it receives an immediate
-  `terminal` event without parking — until `Start` is called again (which clears
-  the failure flag).
+  (250 ms base, 4 s cap, 5 attempts). The `attempt` counter resets to 0
+  whenever a frame is successfully delivered, so transient disconnects during
+  a long-running session do not accumulate toward the permanent-failure limit —
+  a session can tolerate arbitrarily many brief disconnects as long as each
+  reconnection delivers at least one frame. After all retries are exhausted
+  without a successful frame the session is marked permanently failed: all
+  active and pending subscribers receive a `terminal` event and their channels
+  are closed. Any subsequent `Subscribe` call for that card takes a fast path —
+  it receives an immediate `terminal` event without parking — until `Start` is
+  called again (which clears the failure flag).
 - **Slow-subscriber drops**: the fan-out loop is non-blocking. If a subscriber's
   channel (256-entry buffer) is full, the event is dropped. Each drop:
   increments `Manager.DroppedEvents()` (an atomic counter, monotonically

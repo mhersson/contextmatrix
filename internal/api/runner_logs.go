@@ -10,6 +10,9 @@ import (
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
+// defaultRunnerKeepaliveInterval is the keepalive period for runner SSE streams.
+const defaultRunnerKeepaliveInterval = 30 * time.Second
+
 // streamRunnerLogs handles GET /api/runner/logs
 //
 // Two code paths, selected by query parameters:
@@ -46,6 +49,16 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	h.streamProjectSession(w, r, flusher, project)
 }
 
+// runnerKeepaliveInterval returns the configured keepalive interval, falling
+// back to the default when the field is zero.
+func (h *runnerHandlers) runnerKeepaliveInterval() time.Duration {
+	if h.keepaliveInterval > 0 {
+		return h.keepaliveInterval
+	}
+
+	return defaultRunnerKeepaliveInterval
+}
+
 // streamCardSession is the card-scoped SSE path.  It subscribes to the session
 // manager, replays the snapshot, then tails the live event channel until the
 // session terminates or the client disconnects.
@@ -61,6 +74,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
 	ch, unsub := h.sessionManager.Subscribe(cardID)
@@ -78,15 +92,20 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 
 		switch evt.Type {
 		case sessionlog.EventTypeTerminal:
-			payload = map[string]any{"type": "terminal"}
+			payload = map[string]any{"type": "terminal", "seq": evt.Seq}
 		case sessionlog.EventTypeDropped:
-			payload = map[string]any{"type": "dropped"}
+			payload = map[string]any{
+				"type":  "dropped",
+				"seq":   evt.Seq,
+				"count": sessionlog.DroppedMarkerCount(evt),
+			}
 		default:
 			payload = map[string]any{
 				"type":    evt.Type,
 				"content": string(evt.Payload),
 				"card_id": cardID,
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
+				"seq":     evt.Seq,
 			}
 		}
 
@@ -104,6 +123,9 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 		return true
 	}
 
+	ticker := time.NewTicker(h.runnerKeepaliveInterval())
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -113,6 +135,16 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 			)
 
 			return
+
+		case <-ticker.C:
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				slog.Debug("runner SSE card keepalive write failed", "error", err)
+
+				return
+			}
+
+			flusher.Flush()
+
 		case evt, open := <-ch:
 			if !open {
 				// Channel closed by manager (stop or unsubscribe).
@@ -145,6 +177,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
 	// StartProject is idempotent — safe to call on every connection.
@@ -172,15 +205,20 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 
 		switch evt.Type {
 		case sessionlog.EventTypeTerminal:
-			payload = map[string]any{"type": "terminal"}
+			payload = map[string]any{"type": "terminal", "seq": evt.Seq}
 		case sessionlog.EventTypeDropped:
-			payload = map[string]any{"type": "dropped"}
+			payload = map[string]any{
+				"type":  "dropped",
+				"seq":   evt.Seq,
+				"count": sessionlog.DroppedMarkerCount(evt),
+			}
 		default:
 			payload = map[string]any{
 				"type":    evt.Type,
 				"content": string(evt.Payload),
 				"card_id": evt.CardID,
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
+				"seq":     evt.Seq,
 			}
 		}
 
@@ -198,6 +236,9 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 		return true
 	}
 
+	ticker := time.NewTicker(h.runnerKeepaliveInterval())
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -207,6 +248,16 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 			)
 
 			return
+
+		case <-ticker.C:
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+				slog.Debug("runner SSE project keepalive write failed", "error", err)
+
+				return
+			}
+
+			flusher.Flush()
+
 		case evt, open := <-ch:
 			if !open {
 				// Channel closed by manager (stop or unsubscribe).
