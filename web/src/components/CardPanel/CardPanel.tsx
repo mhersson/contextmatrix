@@ -49,7 +49,7 @@ function computeMobileEditorHeight(): number {
 interface CardPanelProps {
   card: Card;
   config: ProjectConfig;
-  cardLogs?: LogEntry[];
+  cardLogs?: readonly LogEntry[];
   onClose: () => void;
   onSave: (updates: PatchCardInput) => Promise<void>;
   onClaim: (agentId: string) => Promise<void>;

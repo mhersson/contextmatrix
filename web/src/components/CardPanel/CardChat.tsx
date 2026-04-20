@@ -8,7 +8,7 @@ const NEAR_BOTTOM_THRESHOLD = 50;
 
 interface CardChatProps {
   card: Card;
-  cardLogs: LogEntry[];
+  cardLogs: readonly LogEntry[];
 }
 
 export function CardChat({ card, cardLogs }: CardChatProps) {
