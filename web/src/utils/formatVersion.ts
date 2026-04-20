@@ -6,13 +6,11 @@ export function formatVersionWithLocalTime(version: string): string {
   const utc = new Date(`${date}T${time}:00Z`);
   if (isNaN(utc.getTime())) return version;
 
-  const local = utc.toLocaleString(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const y = utc.getFullYear();
+  const m = String(utc.getMonth() + 1).padStart(2, '0');
+  const d = String(utc.getDate()).padStart(2, '0');
+  const hh = String(utc.getHours()).padStart(2, '0');
+  const mm = String(utc.getMinutes()).padStart(2, '0');
 
-  return `${local}${rest}`;
+  return `${y}-${m}-${d} ${hh}:${mm}${rest}`;
 }
