@@ -29,13 +29,13 @@
 
 ## Color palettes
 
-The web UI supports four color palettes: **Everforest** (default),
-**Everforest Hard**, **Radix**, and **Catppuccin**.
+The web UI supports three color palettes: **Everforest** (default),
+**Radix**, and **Catppuccin**.
 
 ### Palette selection
 
 Palette is **server-driven** — set `theme` in `config.yaml` to one of
-`"everforest"`, `"everforest-hard"`, `"radix"`, or `"catppuccin"` (env:
+`"everforest"`, `"radix"`, or `"catppuccin"` (env:
 `CONTEXTMATRIX_THEME`). On startup `ThemeProvider` fetches
 `GET /api/app/config` and sets `data-palette="<theme>"` on `<html>` for every
 palette except Everforest, which is the default CSS block (no attribute).
@@ -51,8 +51,10 @@ hardcode hex values in components.
 ### Everforest palette
 
 Defined in `:root` (dark, default) and `[data-theme="light"]` (light) in
-`web/src/index.css`. Dark mode uses `:root` with no `data-theme` attribute;
-`ThemeProvider` removes the attribute entirely for dark mode.
+`web/src/index.css`. Dark mode uses the **Medium** variant (`:root`, no
+`data-theme` attribute); `ThemeProvider` removes the attribute entirely for
+dark mode. Light mode uses the **Hard** variant (`[data-theme="light"]`) for
+higher text-on-background contrast.
 
 ```css
 :root {
@@ -89,13 +91,6 @@ Defined in `:root` (dark, default) and `[data-theme="light"]` (light) in
   --purple: #d699b6; /* special, labels, metadata */
 }
 ```
-
-### Everforest Hard palette
-
-Activated when `data-palette="everforest-hard"` is present on `<html>`. Same
-hues as Everforest Medium, with darker dark-mode backgrounds (e.g. `--bg-dim:
-#1e2326`) and lighter light-mode backgrounds (e.g. `--bg0: #fffbef`) for
-higher text-on-background contrast. Accent colors are unchanged from Medium.
 
 ### Radix palette
 
