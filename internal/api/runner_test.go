@@ -75,6 +75,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		},
 		MCPAPIKey: "test-mcp-key",
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -84,10 +85,12 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -99,6 +102,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -121,6 +125,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 			server.URL+"/api/projects/test-project/cards/"+freshCard.ID+"/run", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -142,6 +147,7 @@ func TestRunCard_RunnerDisabled(t *testing.T) {
 
 	// No runner client → runner disabled.
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -149,10 +155,12 @@ func TestRunCard_RunnerDisabled(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
@@ -171,8 +179,10 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	require.NoError(t, err)
 
 	var receivedPayload runner.TriggerPayload
+
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -182,6 +192,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -190,6 +201,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -231,6 +243,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -238,10 +251,12 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInvalidTransition, apiErr.Code)
@@ -273,6 +288,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -280,10 +296,12 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
@@ -303,6 +321,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -310,6 +329,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/TEST-999/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -340,6 +360,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -347,10 +368,12 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
@@ -405,6 +428,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 			PublicURL: "http://localhost:8080",
 		},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -416,11 +440,13 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 
 	// Fire the request in the background.
 	errCh := make(chan error, 1)
+
 	go func() {
 		resp, doErr := http.DefaultClient.Do(req)
 		if doErr == nil {
 			_ = resp.Body.Close()
 		}
+
 		errCh <- doErr
 	}()
 
@@ -443,9 +469,11 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	for time.Now().Before(deadline) {
 		updated, getErr := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, getErr)
+
 		if updated.RunnerStatus == "failed" {
 			break
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -473,6 +501,7 @@ transitions:
 remote_execution:
   enabled: false
 `
+
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigDisabled)
 	defer cleanup()
 
@@ -494,6 +523,7 @@ remote_execution:
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -501,10 +531,12 @@ remote_execution:
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
@@ -538,6 +570,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -547,10 +580,12 @@ func TestStopCard_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -562,10 +597,12 @@ func TestStopCard_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 		assert.Equal(t, "killed", respCard.RunnerStatus)
@@ -584,6 +621,7 @@ func TestStopCard_RunnerDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -591,10 +629,12 @@ func TestStopCard_RunnerDisabled(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/stop", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
@@ -621,6 +661,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -628,10 +669,12 @@ func TestStopCard_NotRunning(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/stop", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
@@ -651,6 +694,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -658,6 +702,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/TEST-999/stop", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -680,6 +725,7 @@ func TestStopAll_HumanOnly(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -689,10 +735,12 @@ func TestStopAll_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -704,10 +752,12 @@ func TestStopAll_HumanOnly(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 		var result stopAllResponse
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 		assert.Empty(t, result.AffectedCards)
@@ -719,6 +769,7 @@ func TestStopAll_RunnerDisabled(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -726,10 +777,12 @@ func TestStopAll_RunnerDisabled(t *testing.T) {
 		server.URL+"/api/projects/test-project/stop-all", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
@@ -772,6 +825,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -779,10 +833,12 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 		server.URL+"/api/projects/test-project/stop-all", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 	var result stopAllResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 	assert.Len(t, result.AffectedCards, 2)
@@ -814,6 +870,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -821,10 +878,12 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 		server.URL+"/api/projects/test-project/stop-all", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
@@ -844,11 +903,13 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -863,6 +924,7 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -878,11 +940,13 @@ func TestRunnerStatusUpdate_InvalidSignature(t *testing.T) {
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -897,10 +961,12 @@ func TestRunnerStatusUpdate_InvalidSignature(t *testing.T) {
 	req.Header.Set("X-Webhook-Timestamp", ts)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
@@ -911,11 +977,13 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -928,10 +996,12 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 		req.Header.Set("X-Webhook-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
@@ -944,10 +1014,12 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 		req.Header.Set("X-Signature-256", "sha256=abc")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
@@ -961,10 +1033,12 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 		req.Header.Set("X-Webhook-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
@@ -983,11 +1057,13 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1005,10 +1081,12 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 			req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
 			resp, err := http.DefaultClient.Do(req)
+
 			require.NoError(t, err)
 			defer closeBody(t, resp.Body)
 
 			assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
 			var apiErr APIError
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 			assert.Equal(t, ErrCodeValidationError, apiErr.Code)
@@ -1026,6 +1104,7 @@ func TestRunnerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: ""},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1037,10 +1116,12 @@ func TestRunnerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 	req.Header.Set("X-Webhook-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
@@ -1051,11 +1132,13 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1068,10 +1151,12 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
@@ -1092,6 +1177,7 @@ func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(
 	// Set runner_status to running.
 	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
+
 	return svc, bus, cleanup, card
 }
 
@@ -1109,6 +1195,7 @@ func TestMessageCard_HumanOnly(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1118,10 +1205,12 @@ func TestMessageCard_HumanOnly(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -1138,6 +1227,7 @@ func TestMessageCard_RunnerDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1146,10 +1236,12 @@ func TestMessageCard_RunnerDisabled(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
@@ -1171,6 +1263,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1180,6 +1273,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 				Title: "Task " + status, Type: "task", Priority: "medium",
 			})
 			require.NoError(t, err)
+
 			if status != "" {
 				_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, status, "set status")
 				require.NoError(t, err)
@@ -1190,10 +1284,12 @@ func TestMessageCard_NotRunning(t *testing.T) {
 				server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
 
 			resp, err := http.DefaultClient.Do(req)
+
 			require.NoError(t, err)
 			defer closeBody(t, resp.Body)
 
 			assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
 			var apiErr APIError
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 			assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
@@ -1215,6 +1311,7 @@ func TestMessageCard_EmptyContent(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1223,10 +1320,12 @@ func TestMessageCard_EmptyContent(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
@@ -1246,6 +1345,7 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1257,6 +1357,7 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 		strings.NewReader(bodyJSON))
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1268,8 +1369,10 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	defer cleanup()
 
 	var receivedPayload runner.MessagePayload
+
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1279,6 +1382,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1288,10 +1392,12 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+
 	var result messageResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 	assert.True(t, result.OK)
@@ -1320,6 +1426,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1328,10 +1435,12 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
@@ -1341,6 +1450,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 
 func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Card {
 	t.Helper()
+
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Interactive task", Type: "task", Priority: "medium",
@@ -1349,12 +1459,14 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 	require.NoError(t, err)
 	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
 	require.NoError(t, err)
+
 	return card
 }
 
 func TestPromoteCard_HumanOnly(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
+
 	card := newInteractiveRunningCard(t, svc)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1367,6 +1479,7 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1375,10 +1488,12 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -1400,6 +1515,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1413,10 +1529,12 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
@@ -1437,10 +1555,12 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	require.NoError(t, err)
 
 	var promoteCalled int
+
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/promote" {
 			promoteCalled++
 		}
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1450,6 +1570,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1457,11 +1578,13 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	// Guard: already-autonomous card short-circuits before calling the runner webhook.
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should remain autonomous")
@@ -1470,6 +1593,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	// No extra log entry added (idempotent).
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
+
 	for _, entry := range updated.ActivityLog {
 		assert.NotEqual(t, "promoted", entry.Action, "idempotent promote must not add a log entry")
 	}
@@ -1478,13 +1602,16 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 func TestPromoteCard_HappyPath(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
+
 	card := newInteractiveRunningCard(t, svc)
 
 	var promoteCalled int
+
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/promote" {
 			promoteCalled++
 		}
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1494,6 +1621,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1502,10 +1630,12 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
@@ -1523,13 +1653,16 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 
 	// Verify the activity log contains the promote entry with the right agent.
 	var found bool
+
 	for _, entry := range updated.ActivityLog {
 		if entry.Action == "promoted" {
 			found = true
+
 			assert.Equal(t, "human:alice", entry.Agent, "promote log agent must match X-Agent-ID")
 			assert.Equal(t, "Promoted to autonomous mode", entry.Message)
 		}
 	}
+
 	assert.True(t, found, "promote activity log entry must be present")
 }
 
@@ -1540,14 +1673,17 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 	// The runner-side handlePromote is responsible for failing closed (no stdin write).
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
+
 	card := newInteractiveRunningCard(t, svc)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/promote" {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"ok":false,"error":"promote failed"}`))
+
 			return
 		}
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1557,6 +1693,7 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1564,10 +1701,12 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerError, apiErr.Code)
@@ -1591,8 +1730,10 @@ func TestRunCard_Interactive(t *testing.T) {
 		defer cleanup()
 
 		var receivedPayload runner.TriggerPayload
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1602,6 +1743,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			Service: svc, Bus: bus, Runner: runnerClient,
 			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1616,6 +1758,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1633,8 +1776,10 @@ func TestRunCard_Interactive(t *testing.T) {
 		defer cleanup()
 
 		var receivedPayload runner.TriggerPayload
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1644,6 +1789,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			Service: svc, Bus: bus, Runner: runnerClient,
 			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1657,6 +1803,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1674,8 +1821,10 @@ func TestRunCard_Interactive(t *testing.T) {
 		defer cleanup()
 
 		var receivedPayload runner.TriggerPayload
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1685,6 +1834,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			Service: svc, Bus: bus, Runner: runnerClient,
 			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1700,6 +1850,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1716,11 +1867,15 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 		defer cleanup()
 
-		var triggerCount int
-		var receivedPayload runner.TriggerPayload
+		var (
+			triggerCount    int
+			receivedPayload runner.TriggerPayload
+		)
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			triggerCount++
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1730,6 +1885,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			Service: svc, Bus: bus, Runner: runnerClient,
 			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1746,6 +1902,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1813,6 +1970,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 				}
 			}
 		}
+
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer fakeRunner.Close()
@@ -1827,8 +1985,10 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 			PublicURL: "http://localhost:8080",
 		},
 	})
+
 	cmServer := httptest.NewServer(router)
 	defer cmServer.Close()
+
 	cmURL.Store(cmServer.URL)
 
 	// Issue the top-level promote with a 2-second deadline.
@@ -1840,6 +2000,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
 
 	resp, err := topLevelClient.Do(req)
+
 	require.NoError(t, err, "top-level promote must not time out (guard must short-circuit the callback)")
 	defer closeBody(t, resp.Body)
 
@@ -1863,8 +2024,10 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		defer cleanup()
 
 		var capturedPayload runner.TriggerPayload
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1881,6 +2044,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 				OrchestratorOpusModel:   "test-opus-9",
 			},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1893,6 +2057,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1905,8 +2070,10 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		defer cleanup()
 
 		var capturedPayload runner.TriggerPayload
+
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		defer mockRunner.Close()
@@ -1923,6 +2090,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 				OrchestratorOpusModel:   "test-opus-9",
 			},
 		})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
@@ -1936,6 +2104,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 

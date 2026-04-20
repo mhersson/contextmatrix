@@ -34,6 +34,7 @@ func validProjectConfig(name, prefix string) *board.ProjectConfig {
 
 func testCard(id, state string) *board.Card {
 	now := time.Now().UTC().Truncate(time.Second)
+
 	return &board.Card{
 		ID:       id,
 		Title:    "Test " + id,
@@ -48,6 +49,7 @@ func testCard(id, state string) *board.Card {
 
 func setupTestProject(t *testing.T, boardsDir, projectName, prefix string) {
 	t.Helper()
+
 	cfg := validProjectConfig(projectName, prefix)
 	require.NoError(t, board.SaveProjectConfig(boardsDir+"/"+projectName, cfg))
 }
@@ -241,6 +243,7 @@ func TestFilesystemStore_ListCards_NoFilter(t *testing.T) {
 
 	card1 := testCard("TEST-001", "todo")
 	card2 := testCard("TEST-002", "in_progress")
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 
@@ -259,6 +262,7 @@ func TestFilesystemStore_ListCards_FilterByState(t *testing.T) {
 	card1 := testCard("TEST-001", "todo")
 	card2 := testCard("TEST-002", "in_progress")
 	card3 := testCard("TEST-003", "todo")
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -266,6 +270,7 @@ func TestFilesystemStore_ListCards_FilterByState(t *testing.T) {
 	cards, err := store.ListCards(context.Background(), "test-project", CardFilter{State: "todo"})
 	require.NoError(t, err)
 	assert.Len(t, cards, 2)
+
 	for _, c := range cards {
 		assert.Equal(t, "todo", c.State)
 	}
@@ -282,6 +287,7 @@ func TestFilesystemStore_ListCards_FilterByType(t *testing.T) {
 	card1.Type = "bug"
 	card2 := testCard("TEST-002", "todo")
 	card2.Type = "task"
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 
@@ -302,6 +308,7 @@ func TestFilesystemStore_ListCards_FilterByPriority(t *testing.T) {
 	card1.Priority = "high"
 	card2 := testCard("TEST-002", "todo")
 	card2.Priority = "low"
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 
@@ -323,6 +330,7 @@ func TestFilesystemStore_ListCards_FilterByAssignedAgent(t *testing.T) {
 	card2 := testCard("TEST-002", "todo")
 	card2.AssignedAgent = "agent-2"
 	card3 := testCard("TEST-003", "todo")
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -346,6 +354,7 @@ func TestFilesystemStore_ListCards_FilterByLabel(t *testing.T) {
 	card2.Labels = []string{"frontend"}
 	card3 := testCard("TEST-003", "todo")
 	card3.Labels = []string{"backend"}
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -367,6 +376,7 @@ func TestFilesystemStore_ListCards_FilterByParent(t *testing.T) {
 	card2.Parent = "TEST-001"
 	card3 := testCard("TEST-003", "todo")
 	card3.Parent = "TEST-001"
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -394,6 +404,7 @@ func TestFilesystemStore_ListCards_FilterByExternalID(t *testing.T) {
 		ExternalID: "JIRA-456",
 	}
 	card3 := testCard("TEST-003", "todo")
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -419,6 +430,7 @@ func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 	card2.Vetted = false
 	card3 := testCard("TEST-003", "todo")
 	card3.Vetted = true
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -427,6 +439,7 @@ func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: boolPtr(true)})
 		require.NoError(t, err)
 		assert.Len(t, cards, 2)
+
 		for _, c := range cards {
 			assert.True(t, c.Vetted)
 		}
@@ -462,6 +475,7 @@ func TestFilesystemStore_ListCards_MultipleFilters(t *testing.T) {
 	card3 := testCard("TEST-003", "in_progress")
 	card3.Type = "bug"
 	card3.Priority = "high"
+
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card2))
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
@@ -493,17 +507,22 @@ func TestFilesystemStore_ConcurrentCreateAndRead(t *testing.T) {
 	store, err := NewFilesystemStore(dir)
 	require.NoError(t, err)
 
-	const numWriters = 5
-	const cardsPerWriter = 20
-	const numReaders = 10
+	const (
+		numWriters     = 5
+		cardsPerWriter = 20
+		numReaders     = 10
+	)
 
 	var wg sync.WaitGroup
+
 	ctx := context.Background()
 
 	for w := 0; w < numWriters; w++ {
 		wg.Add(1)
+
 		go func(writerID int) {
 			defer wg.Done()
+
 			for i := 0; i < cardsPerWriter; i++ {
 				cardID := "TEST-" + string(rune('A'+writerID)) + "-" + string(rune('0'+i%10)) + string(rune('0'+i/10))
 				card := testCard(cardID, "todo")
@@ -514,8 +533,10 @@ func TestFilesystemStore_ConcurrentCreateAndRead(t *testing.T) {
 
 	for r := 0; r < numReaders; r++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			for i := 0; i < 50; i++ {
 				_, _ = store.ListCards(ctx, "test-project", CardFilter{})
 			}
@@ -526,7 +547,7 @@ func TestFilesystemStore_ConcurrentCreateAndRead(t *testing.T) {
 
 	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
 	require.NoError(t, err)
-	assert.Equal(t, numWriters*cardsPerWriter, len(cards))
+	assert.Len(t, cards, numWriters*cardsPerWriter)
 }
 
 func TestFilesystemStore_LoadExistingCards(t *testing.T) {
@@ -538,6 +559,7 @@ func TestFilesystemStore_LoadExistingCards(t *testing.T) {
 
 	card1 := testCard("TEST-001", "todo")
 	card2 := testCard("TEST-002", "in_progress")
+
 	require.NoError(t, store1.CreateCard(context.Background(), "test-project", card1))
 	require.NoError(t, store1.CreateCard(context.Background(), "test-project", card2))
 
@@ -569,7 +591,7 @@ func TestFilesystemStore_DeleteProject(t *testing.T) {
 
 	// Should be gone from index
 	_, err = store.GetProject(context.Background(), "test-project")
-	assert.ErrorIs(t, err, ErrProjectNotFound)
+	require.ErrorIs(t, err, ErrProjectNotFound)
 
 	// Should be gone from disk
 	projects, err := store.ListProjects(context.Background())
@@ -743,7 +765,7 @@ func TestAtomicWriteFile(t *testing.T) {
 
 	t.Run("writes file with correct content and permissions", func(t *testing.T) {
 		data := []byte("hello world")
-		err := atomicWriteFile(path, data, 0o644)
+		err := atomicWriteFile(path, data)
 		require.NoError(t, err)
 
 		got, err := os.ReadFile(path)
@@ -757,11 +779,11 @@ func TestAtomicWriteFile(t *testing.T) {
 
 	t.Run("overwrites existing file atomically", func(t *testing.T) {
 		original := []byte("original content")
-		err := atomicWriteFile(path, original, 0o644)
+		err := atomicWriteFile(path, original)
 		require.NoError(t, err)
 
 		updated := []byte("updated content that is longer than original")
-		err = atomicWriteFile(path, updated, 0o644)
+		err = atomicWriteFile(path, updated)
 		require.NoError(t, err)
 
 		got, err := os.ReadFile(path)
@@ -770,11 +792,12 @@ func TestAtomicWriteFile(t *testing.T) {
 	})
 
 	t.Run("no temp files left on success", func(t *testing.T) {
-		err := atomicWriteFile(path, []byte("clean"), 0o644)
+		err := atomicWriteFile(path, []byte("clean"))
 		require.NoError(t, err)
 
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
+
 		for _, e := range entries {
 			assert.False(t, strings.HasPrefix(e.Name(), ".tmp-"),
 				"temp file %s should not remain after successful write", e.Name())
@@ -783,26 +806,32 @@ func TestAtomicWriteFile(t *testing.T) {
 
 	t.Run("fails on non-existent directory", func(t *testing.T) {
 		badPath := filepath.Join(dir, "nonexistent", "file.txt")
-		err := atomicWriteFile(badPath, []byte("data"), 0o644)
+		err := atomicWriteFile(badPath, []byte("data"))
 		assert.Error(t, err)
 	})
 
 	t.Run("concurrent writes produce valid content", func(t *testing.T) {
 		target := filepath.Join(dir, "concurrent.txt")
-		const goroutines = 20
-		const iterations = 50
+
+		const (
+			goroutines = 20
+			iterations = 50
+		)
 
 		var wg sync.WaitGroup
 		for g := range goroutines {
 			wg.Add(1)
+
 			go func(id int) {
 				defer wg.Done()
+
 				content := []byte(strings.Repeat(string(rune('A'+id%26)), 1024))
 				for range iterations {
-					_ = atomicWriteFile(target, content, 0o644)
+					_ = atomicWriteFile(target, content)
 				}
 			}(g)
 		}
+
 		wg.Wait()
 
 		// After all writes complete, the file must contain content from

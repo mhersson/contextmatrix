@@ -21,11 +21,11 @@ type createProjectRequest struct {
 
 // updateProjectRequest is the JSON body for PUT /api/projects/{project}.
 type updateProjectRequest struct {
-	Repo        string                   `json:"repo,omitempty"`
-	States      []string                 `json:"states"`
-	Types       []string                 `json:"types"`
-	Priorities  []string                 `json:"priorities"`
-	Transitions map[string][]string      `json:"transitions"`
+	Repo        string                    `json:"repo,omitempty"`
+	States      []string                  `json:"states"`
+	Types       []string                  `json:"types"`
+	Priorities  []string                  `json:"priorities"`
+	Transitions map[string][]string       `json:"transitions"`
 	GitHub      *board.GitHubImportConfig `json:"github,omitempty"`
 }
 
@@ -49,10 +49,12 @@ func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) boar
 			re.Enabled = &enabled
 			cfg.RemoteExecution = &re
 		}
+
 		return cfg
 	}
 	// Runner is globally disabled — force enabled=false so the frontend disables the button.
 	disabled := false
+
 	if cfg.RemoteExecution != nil {
 		// Clone the existing config to avoid mutating the original.
 		re := *cfg.RemoteExecution
@@ -61,14 +63,16 @@ func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) boar
 	} else {
 		cfg.RemoteExecution = &board.RemoteExecutionConfig{Enabled: &disabled}
 	}
+
 	return cfg
 }
 
-// listProjects handles GET /api/projects
+// listProjects handles GET /api/projects.
 func (h *projectHandlers) listProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.svc.ListProjects(r.Context())
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -80,67 +84,75 @@ func (h *projectHandlers) listProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, effective)
 }
 
-// getProject handles GET /api/projects/{project}
+// getProject handles GET /api/projects/{project}.
 func (h *projectHandlers) getProject(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	project, err := h.svc.GetProject(r.Context(), projectName)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, h.effectiveRemoteExecution(*project))
 }
 
-// getProjectUsage handles GET /api/projects/{project}/usage
+// getProjectUsage handles GET /api/projects/{project}/usage.
 func (h *projectHandlers) getProjectUsage(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	usage, err := h.svc.AggregateUsage(r.Context(), projectName)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, usage)
 }
 
-// getProjectDashboard handles GET /api/projects/{project}/dashboard
+// getProjectDashboard handles GET /api/projects/{project}/dashboard.
 func (h *projectHandlers) getProjectDashboard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	dashboard, err := h.svc.GetDashboard(r.Context(), projectName)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, dashboard)
 }
 
-// createProject handles POST /api/projects
+// createProject handles POST /api/projects.
 func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+
 		return
 	}
 
 	if req.Name == "" || req.Prefix == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "name and prefix are required", "")
+
 		return
 	}
 
@@ -155,23 +167,26 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, cfg)
 }
 
-// updateProject handles PUT /api/projects/{project}
+// updateProject handles PUT /api/projects/{project}.
 func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	var req updateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+
 		return
 	}
 
@@ -185,6 +200,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -202,28 +218,32 @@ type recalculateCostsResponse struct {
 	TotalCostRecalculated float64 `json:"total_cost_recalculated"`
 }
 
-// recalculateCosts handles POST /api/projects/{project}/recalculate-costs
+// recalculateCosts handles POST /api/projects/{project}/recalculate-costs.
 func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	var req recalculateCostsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+
 		return
 	}
 
 	if req.DefaultModel == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "default_model is required", "")
+
 		return
 	}
 
 	result, err := h.svc.RecalculateCosts(r.Context(), projectName, req.DefaultModel)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -233,16 +253,18 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// deleteProject handles DELETE /api/projects/{project}
+// deleteProject handles DELETE /api/projects/{project}.
 func (h *projectHandlers) deleteProject(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	if err := h.svc.DeleteProject(r.Context(), projectName); err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 

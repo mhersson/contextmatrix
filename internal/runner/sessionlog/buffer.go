@@ -40,6 +40,7 @@ func droppedMarkerCount(e Event) uint64 {
 	if e.Type != EventTypeDropped || len(e.Payload) < 8 {
 		return 0
 	}
+
 	return binary.LittleEndian.Uint64(e.Payload[:8])
 }
 
@@ -47,6 +48,7 @@ func droppedMarkerCount(e Event) uint64 {
 func encodeDropCount(n uint64) []byte {
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, n)
+
 	return b
 }
 
@@ -130,6 +132,7 @@ func (b *sessionBuffer) append(evt Event) {
 				// Evict one more to make room for the marker.
 				extra := b.events[0]
 				b.events = b.events[1:]
+
 				b.totalBytes -= len(extra.Payload)
 				if extra.Type == EventTypeDropped {
 					droppedNow += droppedMarkerCount(extra)
@@ -137,6 +140,7 @@ func (b *sessionBuffer) append(evt Event) {
 					droppedNow++
 				}
 			}
+
 			marker := Event{
 				Seq:       0,
 				Timestamp: time.Now(),
@@ -145,7 +149,7 @@ func (b *sessionBuffer) append(evt Event) {
 			}
 			// Prepend: insert at index 0.
 			b.events = append(b.events, Event{}) // grow by 1
-			copy(b.events[1:], b.events[:])
+			copy(b.events[1:], b.events)
 			b.events[0] = marker
 			b.totalBytes += len(marker.Payload)
 		}
@@ -161,6 +165,7 @@ func (b *sessionBuffer) snapshot() []Event {
 	if len(b.events) == 0 {
 		return nil
 	}
+
 	out := make([]Event, len(b.events))
 	for i, e := range b.events {
 		if len(e.Payload) > 0 {
@@ -168,8 +173,10 @@ func (b *sessionBuffer) snapshot() []Event {
 			copy(cp, e.Payload)
 			e.Payload = cp
 		}
+
 		out[i] = e
 	}
+
 	return out
 }
 
@@ -232,6 +239,7 @@ func NewManager(opts ...Option) *Manager {
 	for _, o := range opts {
 		o(m)
 	}
+
 	return m
 }
 
@@ -243,6 +251,7 @@ func (m *Manager) getOrCreate(cardID string) *sessionBuffer {
 		b = newSessionBuffer(m.maxEvents, m.maxBytes)
 		m.sessions[cardID] = b
 	}
+
 	return b
 }
 
@@ -251,6 +260,7 @@ func (m *Manager) getOrCreate(cardID string) *sessionBuffer {
 func (m *Manager) Append(cardID string, evt Event) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	b := m.getOrCreate(cardID)
 	b.append(evt)
 }
@@ -260,10 +270,12 @@ func (m *Manager) Append(cardID string, evt Event) {
 func (m *Manager) Snapshot(cardID string) []Event {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	b, ok := m.sessions[cardID]
 	if !ok {
 		return nil
 	}
+
 	return b.snapshot()
 }
 
@@ -279,6 +291,7 @@ func (m *Manager) SnapshotProject(project string) []Event {
 func (m *Manager) Clear(cardID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	delete(m.sessions, cardID)
 	delete(m.failedSessions, cardID)
 }

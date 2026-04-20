@@ -67,7 +67,6 @@ type skillResult struct {
 // modelPattern matches "**Model:** claude-<family>-<version>" in skill files.
 var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+claude-(\w+)-`)
 
-
 // agentConfigPattern matches the full "## Agent Configuration" section
 // (from the heading through the "---" separator) so it can be stripped
 // from the content delivered to agents.
@@ -80,9 +79,9 @@ func parseSkillModel(content string) string {
 	if len(m) < 2 {
 		return ""
 	}
+
 	return m[1]
 }
-
 
 // stripAgentConfig removes the "## Agent Configuration" section from a skill
 // file. This section is metadata for the orchestrator, not instructions for
@@ -102,6 +101,7 @@ func normalizeModelFamily(model string) string {
 	if len(m) >= 2 {
 		return strings.ToLower(m[1])
 	}
+
 	return model
 }
 
@@ -143,6 +143,7 @@ func buildInlineExecutionPrompt(content, cardID, skillName string) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "MANDATORY: After completing the skill instructions above, verify the")
 	fmt.Fprintf(&b, "card state is correct by calling `get_card(card_id='%s')`.\n", cardID)
+
 	return b.String()
 }
 
@@ -171,6 +172,7 @@ func buildDelegationPrompt(model, skillName, getSkillArgs string) string {
 	fmt.Fprintf(&b, "Do NOT read the skill content yourself and execute it — you MUST use the `Agent` tool with model `%s`.\n", model)
 	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool.\n")
 	fmt.Fprintf(&b, "After spawning, if the sub-agent asks the user a question and the user responds, relay their response to the sub-agent using SendMessage. Always include the `summary` parameter (a brief description of the message).\n")
+
 	return b.String()
 }
 
@@ -223,9 +225,9 @@ func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) strin
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
 	fmt.Fprintf(&b, "Do NOT execute the skill inline — the sub-agent writes docs and reports back immediately.\n")
+
 	return b.String()
 }
-
 
 // registerPrompts adds all MCP prompts (slash commands) to the server.
 func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
@@ -303,7 +305,9 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if err != nil {
 			return nil, err
 		}
+
 		text := stripAgentConfig(result.Content)
+
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -325,6 +329,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 			slog.Warn("create-plan: could not look up card for autonomous check, falling back to HITL",
 				"card_id", cardID, "error", findErr)
 		}
+
 		isAutonomous := card != nil && card.Autonomous
 
 		if isAutonomous {
@@ -338,6 +343,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 					"approval at each phase, remove `autonomous: true` from the card first.",
 				cardID, cardID,
 			)
+
 			return &mcp.GetPromptResult{
 				Description: "Create plan and subtasks for a card",
 				Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -350,7 +356,9 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		if err != nil {
 			return nil, err
 		}
+
 		text := stripAgentConfig(result.Content)
+
 		return &mcp.GetPromptResult{
 			Description: "Create plan and subtasks for a card",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -362,18 +370,23 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
 			return nil, err
 		}
+
 		getSkillArgs := fmt.Sprintf("skill_name='execute-task', card_id='%s'", cardID)
+
 		model := result.Model
 		if model == "" {
 			model = defaultModel
 		}
+
 		text := buildDelegationPrompt(model, "execute-task", getSkillArgs)
+
 		return &mcp.GetPromptResult{
 			Description: "Claim and execute a task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -454,6 +467,7 @@ func buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs string) string 
 	fmt.Fprintln(&b, "   - `REVIEW_REJECTED` — if the user wants the work sent back for revision")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Do NOT use SendMessage to spawn sub-agents — use the `Agent` tool with model `%s`.\n", model)
+
 	return b.String()
 }
 
@@ -464,13 +478,16 @@ func buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs string) string 
 func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
 			return nil, err
 		}
+
 		getSkillArgs := fmt.Sprintf("skill_name='review-task', card_id='%s'", cardID)
+
 		model := result.Model
 		if model == "" {
 			model = defaultReviewModel
@@ -481,6 +498,7 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 		// the slash command; automated autonomous workflows use get_skill
 		// directly and never reach here.
 		text := buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs)
+
 		return &mcp.GetPromptResult{
 			Description: "Review a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -492,18 +510,23 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
 			return nil, err
 		}
+
 		getSkillArgs := fmt.Sprintf("skill_name='document-task', card_id='%s'", cardID)
+
 		model := result.Model
 		if model == "" {
 			model = defaultModel
 		}
+
 		text := buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs)
+
 		return &mcp.GetPromptResult{
 			Description: "Write documentation for a completed task",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -515,13 +538,16 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		name := req.Params.Arguments["name"]
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
 			Name: name,
 		}, true)
 		if err != nil {
 			return nil, err
 		}
+
 		text := stripAgentConfig(result.Content)
+
 		return &mcp.GetPromptResult{
 			Description: "Initialize a new project board",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -548,6 +574,7 @@ func startWorkflowPromptHandler(svc *service.CardService, skillsDir string) mcp.
 		if card.Autonomous {
 			return autonomousHandler(ctx, req)
 		}
+
 		return planHandler(ctx, req)
 	}
 }
@@ -557,13 +584,16 @@ func startWorkflowPromptHandler(svc *service.CardService, skillsDir string) mcp.
 func runAutonomousPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, "run-autonomous", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
 			return nil, err
 		}
+
 		text := stripAgentConfig(result.Content)
+
 		return &mcp.GetPromptResult{
 			Description: "Run a card through its full lifecycle autonomously",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
@@ -594,8 +624,10 @@ var validSkillNames = []string{
 // avoid re-injecting it into agents that already have it (e.g. orchestrators
 // calling get_skill multiple times during an autonomous run).
 func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs, includePreamble bool) (skillResult, error) {
-	var content string
-	var err error
+	var (
+		content string
+		err     error
+	)
 
 	switch skillName {
 	case "create-task":
@@ -615,6 +647,7 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
+
 	if err != nil {
 		return skillResult{}, err
 	}
@@ -623,6 +656,7 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 	if includePreamble {
 		prefix = workflowPreamble
 	}
+
 	return skillResult{
 		Content: prefix + content,
 		Model:   parseSkillModel(content),
@@ -634,9 +668,11 @@ func buildCreateTask(skillsDir, description string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	if description != "" {
 		skill = "User description: " + description + "\n\n" + skill
 	}
+
 	return skill, nil
 }
 
@@ -646,16 +682,19 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, fi
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
+
 	skill, err := readSkillFile(skillsDir, filename)
 	if err != nil {
 		return "", err
 	}
+
 	card, project, err := findCard(ctx, svc, cardID)
 	if err != nil {
 		return "", err
 	}
 
 	var parts []string
+
 	parts = append(parts, formatCardContext(card, project))
 
 	if includeFamily && card.Parent != "" {
@@ -663,14 +702,17 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, fi
 		if perr == nil {
 			parts = append(parts, "\n## Parent Card\n"+formatCardBriefWithBody(parent))
 		}
+
 		siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
 		if serr == nil {
 			var lines []string
+
 			for _, s := range siblings {
 				if s.ID != card.ID {
 					lines = append(lines, fmt.Sprintf("- %s [%s] %s", s.ID, s.State, s.Title))
 				}
 			}
+
 			if len(lines) > 0 {
 				parts = append(parts, "\n## Sibling Tasks\n"+strings.Join(lines, "\n"))
 			}
@@ -686,16 +728,19 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, skillsDir,
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
+
 	skill, err := readSkillFile(skillsDir, filename)
 	if err != nil {
 		return "", err
 	}
+
 	card, project, err := findCard(ctx, svc, cardID)
 	if err != nil {
 		return "", err
 	}
 
 	var parts []string
+
 	parts = append(parts, formatCardContext(card, project))
 
 	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
@@ -713,10 +758,12 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
+
 	skill, err := readSkillFile(skillsDir, "run-autonomous.md")
 	if err != nil {
 		return "", err
 	}
+
 	card, project, err := findCard(ctx, svc, cardID)
 	if err != nil {
 		return "", err
@@ -727,6 +774,7 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir
 	}
 
 	var parts []string
+
 	parts = append(parts, formatCardContext(card, project))
 
 	// Inject server-side complexity classification so the skill can route
@@ -754,11 +802,13 @@ func classifyComplexity(card *board.Card, subtasks []*board.Card, subtaskErr err
 	if subtaskErr == nil && len(subtasks) > 0 {
 		return "standard"
 	}
+
 	for _, l := range card.Labels {
 		if l == "simple" {
 			return "simple"
 		}
 	}
+
 	return "standard"
 }
 
@@ -767,17 +817,21 @@ func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, 
 	if err != nil {
 		return "", err
 	}
+
 	projects, perr := svc.ListProjects(ctx)
 	if perr == nil && len(projects) > 0 {
 		var names []string
 		for _, p := range projects {
 			names = append(names, p.Name)
 		}
+
 		skill = "Existing projects on this board: " + strings.Join(names, ", ") + "\n\n" + skill
 	}
+
 	if name != "" {
 		skill = "Suggested project name: " + name + "\n\n" + skill
 	}
+
 	return skill, nil
 }
 
@@ -789,6 +843,7 @@ func readSkillFile(skillsDir, filename string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read skill file %s: %w", filename, err)
 	}
+
 	return string(data), nil
 }
 
@@ -818,39 +873,51 @@ func formatCardContext(c *board.Card, project string) string {
 	fmt.Fprintf(&b, "- **Type:** %s\n", c.Type)
 	fmt.Fprintf(&b, "- **State:** %s\n", c.State)
 	fmt.Fprintf(&b, "- **Priority:** %s\n", c.Priority)
+
 	if c.AssignedAgent != "" {
 		fmt.Fprintf(&b, "- **Assigned Agent:** %s\n", c.AssignedAgent)
 	}
+
 	if c.Parent != "" {
 		fmt.Fprintf(&b, "- **Parent:** %s\n", c.Parent)
 	}
+
 	if len(c.DependsOn) > 0 {
 		fmt.Fprintf(&b, "- **Depends On:** %s\n", strings.Join(c.DependsOn, ", "))
 	}
+
 	if len(c.Labels) > 0 {
 		fmt.Fprintf(&b, "- **Labels:** %s\n", strings.Join(c.Labels, ", "))
 	}
+
 	if c.Autonomous {
 		fmt.Fprintf(&b, "- **Autonomous:** true\n")
 	}
+
 	if c.FeatureBranch {
 		fmt.Fprintf(&b, "- **Feature Branch:** enabled\n")
 	}
+
 	if c.BranchName != "" {
 		fmt.Fprintf(&b, "- **Branch:** %s\n", c.BranchName)
 	}
+
 	if c.CreatePR {
 		fmt.Fprintf(&b, "- **Create PR:** enabled\n")
 	}
+
 	if c.PRUrl != "" {
 		fmt.Fprintf(&b, "- **PR URL:** %s\n", c.PRUrl)
 	}
+
 	if c.ReviewAttempts > 0 {
 		fmt.Fprintf(&b, "- **Review Attempts:** %d\n", c.ReviewAttempts)
 	}
+
 	if c.Body != "" {
 		fmt.Fprintf(&b, "\n### Body\n\n%s\n", c.Body)
 	}
+
 	return b.String()
 }
 
@@ -860,24 +927,31 @@ func formatCardBrief(c *board.Card) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n### %s: %s\n", c.ID, c.Title)
 	fmt.Fprintf(&b, "- State: %s | Type: %s | Priority: %s\n", c.State, c.Type, c.Priority)
+
 	if c.AssignedAgent != "" {
 		fmt.Fprintf(&b, "- Agent: %s\n", c.AssignedAgent)
 	}
+
 	if c.Autonomous {
 		fmt.Fprintf(&b, "- Autonomous: true\n")
 	}
+
 	if c.FeatureBranch {
 		fmt.Fprintf(&b, "- Feature Branch: enabled\n")
 	}
+
 	if c.BranchName != "" {
 		fmt.Fprintf(&b, "- Branch: %s\n", c.BranchName)
 	}
+
 	if c.CreatePR {
 		fmt.Fprintf(&b, "- Create PR: enabled\n")
 	}
+
 	if c.BaseBranch != "" {
 		fmt.Fprintf(&b, "- Base Branch: %s\n", c.BaseBranch)
 	}
+
 	return b.String()
 }
 
@@ -887,5 +961,6 @@ func formatCardBriefWithBody(c *board.Card) string {
 	if c.Body != "" {
 		s += fmt.Sprintf("\n%s\n", c.Body)
 	}
+
 	return s
 }

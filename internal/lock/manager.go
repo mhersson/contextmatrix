@@ -138,6 +138,7 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 	}
 
 	cutoff := time.Now().Add(-m.timeout)
+
 	var stalled []StalledCard
 
 	for _, proj := range projects {
@@ -158,6 +159,7 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 					Project: proj.Name,
 					Card:    card,
 				})
+
 				continue
 			}
 

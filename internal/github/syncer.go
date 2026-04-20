@@ -67,6 +67,7 @@ func (s *Syncer) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			slog.Info("github syncer stopped")
+
 			return
 		case <-ticker.C:
 			s.safeSyncAll(ctx)
@@ -82,6 +83,7 @@ func (s *Syncer) safeSyncAll(ctx context.Context) {
 			slog.Error("github syncer panicked", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
+
 	s.syncAll(ctx)
 }
 
@@ -89,6 +91,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 	projects, err := board.DiscoverProjects(s.boardsDir)
 	if err != nil {
 		slog.Error("github sync: discover projects", "error", err)
+
 		return
 	}
 
@@ -105,6 +108,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 		if owner == "" || repo == "" {
 			slog.Debug("github sync: skipping project, no GitHub repo resolved",
 				"project", cfg.Name)
+
 			continue
 		}
 
@@ -112,10 +116,13 @@ func (s *Syncer) syncAll(ctx context.Context) {
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
 				slog.Warn("github sync: rate limited, stopping this cycle")
+
 				return
 			}
+
 			slog.Error("github sync: project sync failed",
 				"project", cfg.Name, "error", err)
+
 			continue
 		}
 
@@ -131,9 +138,11 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 	if err != nil && !errors.Is(err, ErrRateLimited) {
 		return 0, fmt.Errorf("fetch issues: %w", err)
 	}
+
 	rateLimited := errors.Is(err, ErrRateLimited)
 
 	imported := 0
+
 	for _, issue := range issues {
 		if ctx.Err() != nil {
 			return imported, ctx.Err()
@@ -148,8 +157,10 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 		if err != nil {
 			slog.Error("github sync: check existing card",
 				"project", cfg.Name, "external_id", externalID, "error", err)
+
 			continue
 		}
+
 		if len(existing) > 0 {
 			continue
 		}
@@ -186,6 +197,7 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 		if err != nil {
 			slog.Error("github sync: create card",
 				"project", cfg.Name, "issue", externalID, "error", err)
+
 			continue
 		}
 

@@ -48,13 +48,13 @@ const (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title         string
-	Type          string
-	Priority      string
-	Labels        []string
-	Parent        string
-	Body          string
-	Source        *board.Source // Optional, immutable after creation
+	Title               string
+	Type                string
+	Priority            string
+	Labels              []string
+	Parent              string
+	Body                string
+	Source              *board.Source // Optional, immutable after creation
 	Autonomous          bool
 	UseOpusOrchestrator bool
 	FeatureBranch       bool
@@ -66,17 +66,17 @@ type CreateCardInput struct {
 // Immutable fields (id, project, created, source) are not included.
 // Value types match PUT's full-replacement semantics (omitted = zero value).
 type UpdateCardInput struct {
-	Title           string
-	Type            string
-	State           string
-	Priority        string
-	Labels          []string
-	Parent          string
-	Subtasks        []string
-	DependsOn       []string
-	Context         []string
-	Custom          map[string]any
-	Body            string
+	Title               string
+	Type                string
+	State               string
+	Priority            string
+	Labels              []string
+	Parent              string
+	Subtasks            []string
+	DependsOn           []string
+	Context             []string
+	Custom              map[string]any
+	Body                string
 	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous          bool
 	UseOpusOrchestrator bool
@@ -88,11 +88,11 @@ type UpdateCardInput struct {
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
-	Title           *string
-	State           *string
-	Priority        *string
-	Labels          []string // nil = don't change, empty slice = clear
-	Body            *string
+	Title               *string
+	State               *string
+	Priority            *string
+	Labels              []string // nil = don't change, empty slice = clear
+	Body                *string
 	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous          *bool
 	UseOpusOrchestrator *bool
@@ -151,8 +151,8 @@ type ProjectUsage struct {
 
 // RecalculateCostsResult summarises the outcome of a cost recalculation pass.
 type RecalculateCostsResult struct {
-	CardsUpdated           int     `json:"cards_updated"`
-	TotalCostRecalculated  float64 `json:"total_cost_recalculated"`
+	CardsUpdated          int     `json:"cards_updated"`
+	TotalCostRecalculated float64 `json:"total_cost_recalculated"`
 }
 
 // ActiveAgent describes an agent currently working on a card.
@@ -203,14 +203,14 @@ type CardContext struct {
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 type CardService struct {
-	store               storage.Store
-	git                 *gitops.Manager
-	lock                *lock.Manager
-	bus                 *events.Bus
-	boardsDir           string
-	tokenCosts          map[string]ModelCost
-	gitAutoCommit       bool
-	gitDeferredCommit   bool
+	store             storage.Store
+	git               *gitops.Manager
+	lock              *lock.Manager
+	bus               *events.Bus
+	boardsDir         string
+	tokenCosts        map[string]ModelCost
+	gitAutoCommit     bool
+	gitDeferredCommit bool
 
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
@@ -269,6 +269,7 @@ func NewCardService(
 		templates:         make(map[string]map[string]string),
 	}
 	svc.stalledFn = svc.processStalled
+
 	return svc
 }
 
@@ -296,6 +297,7 @@ func (s *CardService) notifyCommit() {
 func (s *CardService) ClearCaches() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.configs = make(map[string]*board.ProjectConfig)
 	s.templates = make(map[string]map[string]string)
 }
@@ -365,6 +367,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		if err := s.git.CommitAll(msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+
 		s.notifyCommit()
 	}
 
@@ -405,6 +408,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		usedStates := make(map[string]bool)
 		usedTypes := make(map[string]bool)
 		usedPriorities := make(map[string]bool)
+
 		for _, c := range cards {
 			usedStates[c.State] = true
 			usedTypes[c.Type] = true
@@ -419,11 +423,13 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		}
 
 		newTypes := toSet(input.Types)
+
 		for typ := range usedTypes {
 			// Skip built-in subtask type - it's auto-assigned when card has a parent
 			if typ == board.SubtaskType {
 				continue
 			}
+
 			if !newTypes[typ] {
 				return nil, fmt.Errorf("cannot remove type %q: in use by cards: %w", typ, board.ErrInvalidProjectConfig)
 			}
@@ -442,6 +448,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	cfg.States = input.States
 	cfg.Types = input.Types
 	cfg.Priorities = input.Priorities
+
 	cfg.Transitions = input.Transitions
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
@@ -455,6 +462,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	// Git commit
 	if s.gitAutoCommit {
 		path := filepath.Join(name, ".board.yaml")
+
 		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
 		if err := s.git.CommitFile(path, msg); err != nil {
 			slog.Warn("git commit after project update", "error", err)
@@ -493,6 +501,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("count cards: %w", err)
 	}
+
 	if count > 0 {
 		return fmt.Errorf("project %q has %d cards: %w", name, count, storage.ErrProjectHasCards)
 	}
@@ -534,30 +543,37 @@ func toSet(items []string) map[string]bool {
 	for _, item := range items {
 		set[item] = true
 	}
+
 	return set
 }
 
 // ListCards returns all cards in a project matching the filter.
 func (s *CardService) ListCards(ctx context.Context, project string, filter storage.CardFilter) ([]*board.Card, error) {
 	filter.Parent = strings.ToUpper(filter.Parent)
+
 	cards, err := s.store.ListCards(ctx, project, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	for _, card := range cards {
 		s.enrichDependenciesMet(ctx, card)
 	}
+
 	return cards, nil
 }
 
 // GetCard returns a specific card.
 func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return nil, err
 	}
+
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
@@ -574,6 +590,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	cfg, err := s.getConfigLocked(ctx, project)
 	if err != nil {
 		s.mu.Unlock()
+
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
@@ -583,6 +600,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Persist updated NextID
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
 		s.mu.Unlock()
+
 		return nil, fmt.Errorf("save project config: %w", err)
 	}
 
@@ -590,6 +608,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 
 	// Cards with a parent are always subtasks regardless of what the caller passes.
 	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
+
 	cardType := input.Type
 	if parentID != "" {
 		cardType = board.SubtaskType
@@ -598,15 +617,15 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Build card
 	now := time.Now()
 	card := &board.Card{
-		ID:            cardID,
-		Title:         input.Title,
-		Project:       project,
-		Type:          cardType,
-		State:         cfg.States[0], // Default to first state
-		Priority:      input.Priority,
-		Labels:        input.Labels,
-		Parent:        parentID,
-		Source:        input.Source,
+		ID:                  cardID,
+		Title:               input.Title,
+		Project:             project,
+		Type:                cardType,
+		State:               cfg.States[0], // Default to first state
+		Priority:            input.Priority,
+		Labels:              input.Labels,
+		Parent:              parentID,
+		Source:              input.Source,
 		Autonomous:          input.Autonomous,
 		UseOpusOrchestrator: input.UseOpusOrchestrator,
 		FeatureBranch:       input.FeatureBranch,
@@ -664,6 +683,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 					"state", sub.State,
 				)
 				s.enrichDependenciesMet(ctx, sub)
+
 				return sub, nil
 			}
 		}
@@ -681,23 +701,28 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	if s.gitAutoCommit {
 		cardPath := s.cardPath(project, cardID)
 		configPath := filepath.Join(project, ".board.yaml")
+
 		msg := commitMessage("", cardID, "created")
 		if gitErr := s.git.CommitFiles([]string{cardPath, configPath}, msg); gitErr != nil {
 			// Rollback: remove the orphaned card file and restore NextID so
 			// the sequence has no gap on the next creation attempt.
 			var rollbackErrs []error
+
 			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
 				slog.Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
 				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback delete card: %w", delErr))
 			}
+
 			cfg.NextID--
 			if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
 				slog.Error("failed to rollback NextID after git error",
 					"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
 				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback save project: %w", saveErr))
 			}
+
 			return nil, errors.Join(append([]error{fmt.Errorf("git commit: %w", gitErr)}, rollbackErrs...)...)
 		}
+
 		s.notifyCommit()
 	}
 
@@ -710,6 +735,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 			"title":         input.Title,
 		}
 	}
+
 	s.bus.Publish(events.Event{
 		Type:      events.CardCreated,
 		Project:   project,
@@ -719,6 +745,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
@@ -729,6 +756,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	input.Parent = strings.ToUpper(strings.TrimSpace(input.Parent))
 	input.Subtasks = normalizeIDs(input.Subtasks)
 	input.DependsOn = normalizeIDs(input.DependsOn)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -833,6 +861,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	} else {
 		card.CreatePR = input.CreatePR
 	}
+
 	card.Updated = time.Now()
 
 	// Release agent claim when card moves to a terminal state that implies
@@ -879,10 +908,12 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	if input.ImmediateCommit && s.gitAutoCommit {
 		// Human edit: commit immediately regardless of deferred mode.
 		cardPath := s.cardPath(project, id)
+
 		msg := commitMessage("", id, "updated")
 		if err := s.git.CommitFile(cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+
 		s.notifyCommit()
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
@@ -905,6 +936,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	if stateChanged {
 		eventType = events.CardStateChanged
 	}
+
 	s.bus.Publish(events.Event{
 		Type:      eventType,
 		Project:   project,
@@ -922,6 +954,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 	}
 
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
@@ -929,6 +962,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 // Only non-nil fields in the input are updated.
 func (s *CardService) PatchCard(ctx context.Context, project, id string, input PatchCardInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -948,13 +982,16 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	if input.Title != nil && len(*input.Title) > maxTitleLen {
 		return nil, fmt.Errorf("title length %d exceeds limit of %d: %w", len(*input.Title), maxTitleLen, ErrFieldTooLong)
 	}
+
 	if input.Body != nil && len(*input.Body) > maxBodyLen {
 		return nil, fmt.Errorf("body length %d exceeds limit of %d: %w", len(*input.Body), maxBodyLen, ErrFieldTooLong)
 	}
+
 	if input.Labels != nil {
 		if len(input.Labels) > maxLabels {
 			return nil, fmt.Errorf("label count %d exceeds limit of %d: %w", len(input.Labels), maxLabels, ErrFieldTooLong)
 		}
+
 		for _, l := range input.Labels {
 			if len(l) > maxLabelLen {
 				return nil, fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
@@ -970,6 +1007,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	if input.Title != nil {
 		card.Title = *input.Title
 	}
+
 	if input.State != nil {
 		newState := *input.State
 		if newState != oldState {
@@ -985,25 +1023,32 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 					return nil, dependencyError(newState, blockers)
 				}
 			}
+
 			card.State = newState
 			stateChanged = true
 		}
 	}
+
 	if input.Priority != nil {
 		card.Priority = *input.Priority
 	}
+
 	if input.Labels != nil {
 		card.Labels = input.Labels
 	}
+
 	if input.Body != nil {
 		card.Body = *input.Body
 	}
+
 	if input.Autonomous != nil {
 		card.Autonomous = *input.Autonomous
 	}
+
 	if input.UseOpusOrchestrator != nil {
 		card.UseOpusOrchestrator = *input.UseOpusOrchestrator
 	}
+
 	if input.FeatureBranch != nil {
 		card.FeatureBranch = *input.FeatureBranch
 		// BranchName is immutable after first generation — only set when empty.
@@ -1016,15 +1061,19 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 			card.BaseBranch = ""
 		}
 	}
+
 	if input.CreatePR != nil && card.FeatureBranch {
 		card.CreatePR = *input.CreatePR
 	}
+
 	if input.Vetted != nil {
 		card.Vetted = *input.Vetted
 	}
+
 	if input.BaseBranch != nil {
 		card.BaseBranch = *input.BaseBranch
 	}
+
 	card.Updated = time.Now()
 
 	// Release agent claim when card moves to not_planned so the lock manager
@@ -1054,10 +1103,12 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	if input.ImmediateCommit && s.gitAutoCommit {
 		// Human edit: commit immediately regardless of deferred mode.
 		cardPath := s.cardPath(project, id)
+
 		msg := commitMessage("", id, "updated")
 		if err := s.git.CommitFile(cardPath, msg); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
+
 		s.notifyCommit()
 	} else {
 		if err := s.commitCardChange(project, id, "", "updated"); err != nil {
@@ -1080,6 +1131,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	if stateChanged {
 		eventType = events.CardStateChanged
 	}
+
 	s.bus.Publish(events.Event{
 		Type:      eventType,
 		Project:   project,
@@ -1097,12 +1149,14 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	}
 
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
 // DeleteCard removes a card from the project.
 func (s *CardService) DeleteCard(ctx context.Context, project, id string) error {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1117,11 +1171,13 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	if err != nil {
 		return fmt.Errorf("check children: %w", err)
 	}
+
 	if len(children) > 0 {
 		childIDs := make([]string, len(children))
 		for i, c := range children {
 			childIDs[i] = c.ID
 		}
+
 		return fmt.Errorf("delete card: %w", &board.ValidationError{
 			Err:     board.ErrInvalidType,
 			Field:   "id",
@@ -1141,10 +1197,12 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	// Git commit deletion
 	if s.gitAutoCommit {
 		path := s.cardPath(project, id)
+
 		msg := commitMessage("", id, "deleted")
 		if err := s.git.CommitFile(path, msg); err != nil {
 			return fmt.Errorf("git commit delete: %w", err)
 		}
+
 		s.notifyCommit()
 	}
 
@@ -1167,6 +1225,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	if len(entry.Message) > maxLogMessage {
 		return fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
 	}
+
 	if len(entry.Action) > maxLogAction {
 		return fmt.Errorf("action length %d exceeds limit of %d: %w", len(entry.Action), maxLogAction, ErrFieldTooLong)
 	}
@@ -1229,6 +1288,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 // ReportUsage increments token usage counters on a card and recalculates cost.
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1302,6 +1362,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
@@ -1313,6 +1374,7 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 	}
 
 	usage := &ProjectUsage{}
+
 	for _, card := range cards {
 		if card.TokenUsage != nil {
 			usage.PromptTokens += card.TokenUsage.PromptTokens
@@ -1321,6 +1383,7 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 			usage.CardCount++
 		}
 	}
+
 	return usage, nil
 }
 
@@ -1341,15 +1404,18 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	}
 
 	result := &RecalculateCostsResult{}
+
 	var updatedPaths []string
 
 	for _, card := range cards {
 		if card.TokenUsage == nil {
 			continue
 		}
+
 		if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 {
 			continue
 		}
+
 		if card.TokenUsage.EstimatedCostUSD != 0 {
 			continue // already has a cost — don't double-count
 		}
@@ -1365,6 +1431,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 				"model", model,
 				"card_id", card.ID,
 			)
+
 			continue
 		}
 
@@ -1376,6 +1443,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 		if card.TokenUsage.Model == "" && model != "" {
 			card.TokenUsage.Model = model
 		}
+
 		card.Updated = time.Now()
 
 		if err := s.store.UpdateCard(ctx, project, card); err != nil {
@@ -1393,6 +1461,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 		if err := s.git.CommitFiles(updatedPaths, msg); err != nil {
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
+
 		s.notifyCommit()
 	}
 
@@ -1433,6 +1502,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 				aa.LastHeartbeat = *card.LastHeartbeat
 				aa.Since = *card.LastHeartbeat
 			}
+
 			data.ActiveAgents = append(data.ActiveAgents, aa)
 		}
 
@@ -1458,11 +1528,13 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 			if agent == "" {
 				agent = "unassigned"
 			}
+
 			ac, ok := agentCostMap[agent]
 			if !ok {
 				ac = &AgentCost{AgentID: agent}
 				agentCostMap[agent] = ac
 			}
+
 			ac.PromptTokens += card.TokenUsage.PromptTokens
 			ac.CompletionTokens += card.TokenUsage.CompletionTokens
 			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
@@ -1522,6 +1594,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		if err != nil {
 			return nil, fmt.Errorf("get card for vetting check: %w", err)
 		}
+
 		if card.Source != nil && !card.Vetted {
 			return nil, fmt.Errorf("claim card: %w", ErrCardNotVetted)
 		}
@@ -1561,6 +1634,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 // ReleaseCard removes an agent's claim on a card.
 func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1605,6 +1679,7 @@ func (s *CardService) HeartbeatTimeout() time.Duration {
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1639,6 +1714,7 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 			select {
 			case <-ctx.Done():
 				slog.Info("timeout checker stopped")
+
 				return
 			case <-ticker.C:
 				func() {
@@ -1647,6 +1723,7 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 							slog.Error("timeout checker panicked", "panic", r, "stack", string(debug.Stack()))
 						}
 					}()
+
 					if err := s.stalledFn(ctx); err != nil {
 						slog.Error("process stalled cards", "error", err)
 					}
@@ -1700,6 +1777,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	if card.AssignedAgent == "" {
 		return nil
 	}
+
 	if card.LastHeartbeat != nil && time.Since(*card.LastHeartbeat) < s.lock.Timeout() {
 		return nil
 	}
@@ -1752,7 +1830,9 @@ func normalizeIDs(ids []string) []string {
 	if ids == nil {
 		return nil
 	}
+
 	seen := make(map[string]bool, len(ids))
+
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		upper := strings.ToUpper(id)
@@ -1761,6 +1841,7 @@ func normalizeIDs(ids []string) []string {
 			out = append(out, upper)
 		}
 	}
+
 	return out
 }
 
@@ -1803,6 +1884,7 @@ func (s *CardService) getConfigLocked(ctx context.Context, project string) (*boa
 	}
 
 	s.configs[project] = cfg
+
 	return cfg, nil
 }
 
@@ -1818,6 +1900,7 @@ func (s *CardService) getTemplates(project string) (map[string]string, error) {
 
 	// Load from filesystem
 	projectDir := filepath.Join(s.boardsDir, project)
+
 	templates, err := board.LoadTemplates(projectDir)
 	if err != nil {
 		return nil, err
@@ -1842,17 +1925,22 @@ func (s *CardService) checkDependencies(ctx context.Context, project string, dep
 	if len(deps) == 0 {
 		return true, nil
 	}
+
 	var blockers []depStatus
+
 	for _, depID := range deps {
 		dep, err := s.store.GetCard(ctx, project, depID)
 		if err != nil {
 			blockers = append(blockers, depStatus{ID: depID, State: "unknown"})
+
 			continue
 		}
+
 		if dep.State != board.StateDone {
 			blockers = append(blockers, depStatus{ID: depID, State: dep.State})
 		}
 	}
+
 	return len(blockers) == 0, blockers
 }
 
@@ -1862,6 +1950,7 @@ func dependencyError(targetState string, blockers []depStatus) error {
 	for i, b := range blockers {
 		parts[i] = fmt.Sprintf("%s (%s)", b.ID, b.State)
 	}
+
 	return fmt.Errorf("validate transition: %w", &board.ValidationError{
 		Err:     board.ErrDependenciesNotMet,
 		Field:   "state",
@@ -1884,6 +1973,7 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 				Message: fmt.Sprintf("parent card %q does not exist", parent),
 			})
 		}
+
 		if parentCard.Type == board.SubtaskType {
 			return fmt.Errorf("validate card: %w", &board.ValidationError{
 				Err:     board.ErrInvalidType,
@@ -1893,6 +1983,7 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 			})
 		}
 	}
+
 	for _, depID := range dependsOn {
 		if _, err := s.store.GetCard(ctx, project, depID); err != nil {
 			return fmt.Errorf("validate card: %w", &board.ValidationError{
@@ -1903,6 +1994,7 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 			})
 		}
 	}
+
 	return nil
 }
 
@@ -1920,14 +2012,17 @@ func (s *CardService) detectDependencyCycle(ctx context.Context, project, cardID
 		if visited[cur] {
 			return cur
 		}
+
 		visited[cur] = true
 
 		dep, err := s.store.GetCard(ctx, project, cur)
 		if err != nil {
 			continue
 		}
+
 		queue = append(queue, dep.DependsOn...)
 	}
+
 	return ""
 }
 
@@ -1936,6 +2031,7 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 	if len(card.DependsOn) == 0 {
 		return
 	}
+
 	met, _ := s.checkDependencies(ctx, card.Project, card.DependsOn)
 	card.DependenciesMet = &met
 }
@@ -1946,6 +2042,7 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1956,6 +2053,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 
 	if card.State == targetState {
 		s.enrichDependenciesMet(ctx, card)
+
 		return card, nil
 	}
 
@@ -1965,6 +2063,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	}
 
 	validator := s.validator
+
 	path, err := validator.FindShortestPath(cfg, card.State, targetState)
 	if err != nil {
 		return nil, fmt.Errorf("find transition path: %w", err)
@@ -2032,6 +2131,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 
 	s.maybeTransitionParent(ctx, card)
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }
 
@@ -2042,17 +2142,22 @@ func (s *CardService) commitCardChange(project, cardID, agentID, action string) 
 	if !s.gitAutoCommit {
 		return nil
 	}
+
 	path := s.cardPath(project, cardID)
 	if s.gitDeferredCommit {
 		// Accumulate path for later flush; skip the git commit for now.
 		s.deferredPaths[cardID] = append(s.deferredPaths[cardID], path)
+
 		return nil
 	}
+
 	msg := commitMessage(agentID, cardID, action)
 	if err := s.git.CommitFile(path, msg); err != nil {
 		return err
 	}
+
 	s.notifyCommit()
+
 	return nil
 }
 
@@ -2063,12 +2168,14 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	if !s.gitAutoCommit || !s.gitDeferredCommit {
 		return nil
 	}
+
 	paths := s.deferredPaths[cardID]
 	if len(paths) == 0 {
 		return nil
 	}
 	// Deduplicate paths (same file may appear multiple times).
 	seen := make(map[string]bool, len(paths))
+
 	unique := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if !seen[p] {
@@ -2076,6 +2183,7 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 			unique = append(unique, p)
 		}
 	}
+
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
 	// Use shell git instead of go-git to avoid stale in-memory state after
 	// shell-based push/rebase operations by the gitsync layer.
@@ -2090,7 +2198,9 @@ func (s *CardService) flushDeferredCommit(cardID, agentID string) error {
 	if err := s.git.ReloadRepo(); err != nil {
 		slog.Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
+
 	s.notifyCommit()
+
 	return nil
 }
 
@@ -2116,11 +2226,11 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 			"child_id", child.ID,
 			"error", err,
 		)
+
 		return
 	}
 
-	switch child.State {
-	case board.StateInProgress:
+	if child.State == board.StateInProgress {
 		if parent.State == board.StateTodo {
 			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
 				slog.Error("parent auto-transition failed: todo→in_progress",
@@ -2147,6 +2257,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 	}
 
 	validator := s.validator
+
 	path, err := validator.FindShortestPath(cfg, parent.State, targetState)
 	if err != nil {
 		return fmt.Errorf("find transition path from %s to %s: %w", parent.State, targetState, err)
@@ -2197,6 +2308,7 @@ func commitMessage(agentID, cardID, action string) string {
 	if agentID != "" {
 		return fmt.Sprintf("[agent:%s] %s: %s", agentID, cardID, action)
 	}
+
 	return fmt.Sprintf("[contextmatrix] %s: %s", cardID, action)
 }
 
@@ -2209,15 +2321,18 @@ var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 func generateBranchName(cardID, title string) string {
 	slug := strings.ToLower(title)
 	slug = branchNameSlugPattern.ReplaceAllString(slug, "-")
+
 	slug = strings.Trim(slug, "-")
 	if len(slug) > 50 {
 		slug = slug[:50]
 		slug = strings.TrimRight(slug, "-")
 	}
+
 	prefix := strings.ToLower(cardID)
 	if slug == "" {
 		return prefix
 	}
+
 	return prefix + "/" + slug
 }
 
@@ -2228,6 +2343,7 @@ var ErrProtectedBranch = fmt.Errorf("pushing to main/master is never allowed")
 func isProtectedBranch(branch string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(branch))
 	normalized = strings.TrimPrefix(normalized, "refs/heads/")
+
 	return normalized == "main" || normalized == "master"
 }
 
@@ -2273,12 +2389,14 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	if prURL != "" {
 		msg += "; PR: " + prURL
 	}
+
 	entry := board.ActivityEntry{
 		Agent:     agentID,
 		Action:    "pushed",
 		Message:   msg,
 		Timestamp: time.Now(),
 	}
+
 	card.ActivityLog = append(card.ActivityLog, entry)
 	if len(card.ActivityLog) > maxActivityLogEntries {
 		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
@@ -2289,6 +2407,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
 	}
+
 	if err := s.commitCardChange(project, id, agentID, "pushed to "+branch); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
@@ -2319,17 +2438,21 @@ func validateFieldLimits(title, body string, labels []string) error {
 	if len(title) > maxTitleLen {
 		return fmt.Errorf("title length %d exceeds limit of %d: %w", len(title), maxTitleLen, ErrFieldTooLong)
 	}
+
 	if len(body) > maxBodyLen {
 		return fmt.Errorf("body length %d exceeds limit of %d: %w", len(body), maxBodyLen, ErrFieldTooLong)
 	}
+
 	if len(labels) > maxLabels {
 		return fmt.Errorf("label count %d exceeds limit of %d: %w", len(labels), maxLabels, ErrFieldTooLong)
 	}
+
 	for _, l := range labels {
 		if len(l) > maxLabelLen {
 			return fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
 		}
 	}
+
 	return nil
 }
 
@@ -2344,6 +2467,7 @@ func validateAgentIDFormat(agentID string) error {
 	if len(agentID) > maxAgentIDLen {
 		return fmt.Errorf("agent_id length %d exceeds limit of %d: %w", len(agentID), maxAgentIDLen, ErrFieldTooLong)
 	}
+
 	return nil
 }
 
@@ -2366,6 +2490,7 @@ var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
 // ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
 func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -2384,10 +2509,12 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	}
 
 	card.ReviewAttempts++
+
 	card.Updated = time.Now()
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
 	}
+
 	if err := s.commitCardChange(project, id, agentID, "review_attempts incremented"); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
@@ -2410,6 +2537,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 // UpdateRunnerStatus sets the runner_status field on a card.
 func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -2451,6 +2579,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
 	}
+
 	if err := s.commitCardChange(project, cardID, "runner", "runner_status: "+status); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
@@ -2483,6 +2612,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	}
 
 	var eventType events.EventType
+
 	switch status {
 	case "queued":
 		eventType = events.RunnerTriggered
@@ -2495,6 +2625,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	default:
 		eventType = events.CardUpdated
 	}
+
 	s.bus.Publish(events.Event{
 		Type:      eventType,
 		Project:   project,
@@ -2512,6 +2643,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 // Returns ErrCardTerminal if the card is in a terminal state (done/not_planned).
 func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -2528,6 +2660,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	// Idempotent: if already autonomous, return current card without side effects.
 	if card.Autonomous {
 		s.enrichDependenciesMet(ctx, card)
+
 		return card, nil
 	}
 
@@ -2543,6 +2676,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 		Action:    "promoted",
 		Message:   "Promoted to autonomous mode",
 	}
+
 	card.ActivityLog = append(card.ActivityLog, entry)
 	if len(card.ActivityLog) > maxActivityLogEntries {
 		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
@@ -2566,5 +2700,6 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	})
 
 	s.enrichDependenciesMet(ctx, card)
+
 	return card, nil
 }

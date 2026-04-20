@@ -105,7 +105,7 @@ func TestFetchOpenIssues_RateLimitedMidPage(t *testing.T) {
 
 	client := newTestClient(srv)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
-	assert.ErrorIs(t, err, ErrRateLimited)
+	require.ErrorIs(t, err, ErrRateLimited)
 	// The valid data from this page should still be returned.
 	require.Len(t, result, 1)
 	assert.Equal(t, "Valid issue", result[0].Title)
@@ -171,6 +171,7 @@ func TestFetchBranches_BasicResponse(t *testing.T) {
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 		assert.Equal(t, "contextmatrix", r.Header.Get("User-Agent"))
 		assert.Contains(t, r.URL.Path, "/repos/o/r/branches")
+
 		_ = json.NewEncoder(w).Encode(branches)
 	}))
 	defer srv.Close()
@@ -188,6 +189,7 @@ func TestFetchBranches_Pagination(t *testing.T) {
 	page2 := []branchItem{{Name: "feature/bar"}}
 
 	var srv *httptest.Server
+
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page := r.URL.Query().Get("page")
 		if page == "2" {
@@ -210,9 +212,12 @@ func TestFetchBranches_Pagination(t *testing.T) {
 
 	// Test that per_page is correctly sent.
 	reqCount := 0
+
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqCount++
+
 		assert.Equal(t, "100", r.URL.Query().Get("per_page"))
+
 		_ = json.NewEncoder(w).Encode(page1)
 	}))
 	defer srv2.Close()
@@ -312,8 +317,10 @@ func TestParseLinkNext(t *testing.T) {
 func TestNewClientWithBaseURL(t *testing.T) {
 	// Verify that NewClientWithBaseURL causes the client to hit the given base URL.
 	var requestPath string
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestPath = r.URL.Path
+
 		w.Header().Set("X-RateLimit-Remaining", "100")
 		_ = json.NewEncoder(w).Encode([]Issue{})
 	}))
@@ -362,11 +369,11 @@ func TestParseLinkNext_WithCustomHost(t *testing.T) {
 
 	// Different host: rejected (SSRF protection).
 	got = c.parseLinkNext(`<https://evil.com/steal>; rel="next"`)
-	assert.Equal(t, "", got)
+	assert.Empty(t, got)
 
 	// Default github.com host: rejected when enterprise URL is configured.
 	got = c.parseLinkNext(`<https://api.github.com/repos/o/r/issues?page=2>; rel="next"`)
-	assert.Equal(t, "", got)
+	assert.Empty(t, got)
 }
 
 func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
@@ -375,8 +382,10 @@ func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
 	page2 := []Issue{{Number: 2, Title: "Issue Two"}}
 
 	var srv *httptest.Server
+
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "100")
+
 		if r.URL.Query().Get("page") == "2" {
 			_ = json.NewEncoder(w).Encode(page2)
 		} else {

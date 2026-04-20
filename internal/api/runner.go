@@ -40,6 +40,7 @@ type runnerHandlers struct {
 func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can trigger remote execution", "")
+
 		return
 	}
 
@@ -48,12 +49,14 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
 		return
 	}
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -65,6 +68,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		// Tolerate empty body — only parse when there's content.
 		if decodeErr := json.NewDecoder(r.Body).Decode(&runBody); decodeErr != nil {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
+
 			return
 		}
 	}
@@ -72,11 +76,14 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if card.State != board.StateTodo {
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition,
 			"card must be in todo state to run", fmt.Sprintf("current state: %s", card.State))
+
 		return
 	}
+
 	if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
 		writeError(w, http.StatusConflict, ErrCodeRunnerError,
 			"card is already being executed by the runner", fmt.Sprintf("runner_status: %s", card.RunnerStatus))
+
 		return
 	}
 
@@ -84,6 +91,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if !h.isRemoteExecutionEnabled(r, project) {
 		writeError(w, http.StatusForbidden, ErrCodeRunnerDisabled,
 			"remote execution is disabled for this project", "")
+
 		return
 	}
 
@@ -91,12 +99,14 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// both autonomous and HITL (interactive) runs get a feature branch and PR.
 	if !card.FeatureBranch {
 		fb := true
+
 		pr := true
 		if _, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
 			FeatureBranch: &fb,
 			CreatePR:      &pr,
 		}); patchErr != nil {
 			handleServiceError(w, patchErr)
+
 			return
 		}
 	}
@@ -105,6 +115,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -112,15 +123,18 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "queued", "task queued for runner")
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	// Build trigger payload.
 	mcpURL := fmt.Sprintf("%s/mcp", h.runnerCfg.PublicURL)
+
 	model := h.runnerCfg.OrchestratorSonnetModel
 	if card.UseOpusOrchestrator {
 		model = h.runnerCfg.OrchestratorOpusModel
 	}
+
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
@@ -147,8 +161,10 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 			slog.Error("failed to revert runner status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
 		}
+
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
 			"failed to trigger runner", "")
+
 		return
 	}
 
@@ -168,6 +184,7 @@ type messageResponse struct {
 func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can send messages", "")
+
 		return
 	}
 
@@ -176,12 +193,14 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
 		return
 	}
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -189,6 +208,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
 			"card is not currently running",
 			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+
 		return
 	}
 
@@ -197,16 +217,20 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
+
 		return
 	}
 
 	if body.Content == "" {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "content must not be empty", "")
+
 		return
 	}
+
 	if len(body.Content) > maxMessageContentSize {
 		writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge,
 			fmt.Sprintf("content exceeds %d bytes", maxMessageContentSize), "")
+
 		return
 	}
 
@@ -219,6 +243,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		slog.Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to send message to runner", "")
+
 		return
 	}
 
@@ -229,6 +254,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can promote cards", "")
+
 		return
 	}
 
@@ -237,12 +263,14 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
 		return
 	}
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -250,6 +278,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
 			"card is not currently running",
 			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+
 		return
 	}
 
@@ -260,7 +289,9 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	if card.Autonomous {
 		slog.Debug("promote short-circuit: card already autonomous, skipping runner webhook",
 			"card_id", id, "project", project)
+
 		fbTrue := true
+
 		prTrue := true
 		if !card.FeatureBranch || !card.CreatePR {
 			card, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
@@ -269,10 +300,13 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				handleServiceError(w, err)
+
 				return
 			}
 		}
+
 		writeJSON(w, http.StatusOK, card)
+
 		return
 	}
 
@@ -286,11 +320,13 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	// Also ensure feature_branch and create_pr are enabled for autonomous runs.
 	fbTrue := true
+
 	prTrue := true
 	if !updatedCard.FeatureBranch || !updatedCard.CreatePR {
 		updatedCard, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
@@ -299,6 +335,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			handleServiceError(w, err)
+
 			return
 		}
 	}
@@ -310,6 +347,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		slog.Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError, "failed to promote runner task", "")
+
 		return
 	}
 
@@ -320,6 +358,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop runner tasks", "")
+
 		return
 	}
 
@@ -328,12 +367,14 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
 		return
 	}
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -341,6 +382,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
 			"card is not being executed by the runner",
 			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+
 		return
 	}
 
@@ -349,12 +391,14 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		slog.Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
 			"failed to stop runner task", "")
+
 		return
 	}
 
 	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "killed", "task stopped by user")
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -370,6 +414,7 @@ type stopAllResponse struct {
 func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop runner tasks", "")
+
 		return
 	}
 
@@ -377,6 +422,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
 		return
 	}
 
@@ -385,6 +431,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 		slog.Error("runner stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerError,
 			"failed to stop all runner tasks", "")
+
 		return
 	}
 
@@ -392,18 +439,22 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	cards, err := h.svc.ListCards(r.Context(), project, storage.CardFilter{})
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	affected := []string{}
+
 	for _, card := range cards {
 		if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
 			_, err := h.svc.UpdateRunnerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 			if err != nil {
 				slog.Error("failed to update runner status during stop-all",
 					"card_id", card.ID, "project", project, "error", err)
+
 				continue
 			}
+
 			affected = append(affected, card.ID)
 		}
 	}
@@ -424,41 +475,49 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	// Always require HMAC authentication on this endpoint.
 	if h.runnerCfg.APIKey == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
+
 		return
 	}
 
 	sigHeader := r.Header.Get("X-Signature-256")
 	if sigHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
+
 		return
 	}
 
 	tsHeader := r.Header.Get("X-Webhook-Timestamp")
 	if tsHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
+
 		return
 	}
 
 	if !strings.HasPrefix(sigHeader, "sha256=") {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
+
 		return
 	}
+
 	sig := strings.TrimPrefix(sigHeader, "sha256=")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "failed to read request body", "")
+
 		return
 	}
 
 	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, sig, tsHeader, body, runner.DefaultMaxClockSkew) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
+
 		return
 	}
 
 	var req runnerStatusRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
+
 		return
 	}
 
@@ -467,12 +526,14 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	if err := v.ValidateRunnerCallbackStatus(req.RunnerStatus); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
 			"invalid runner callback status", err.Error())
+
 		return
 	}
 
 	card, err := h.svc.UpdateRunnerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.RunnerStatus, req.Message)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -486,8 +547,10 @@ func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project strin
 	if err != nil {
 		return h.runnerCfg.Enabled
 	}
+
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.Enabled != nil {
 		return *projectCfg.RemoteExecution.Enabled
 	}
+
 	return h.runnerCfg.Enabled
 }

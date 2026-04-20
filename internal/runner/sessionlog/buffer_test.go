@@ -22,6 +22,7 @@ func makeEvent(seq uint64, typ string, payload string) Event {
 // TestAppendSnapshot verifies basic round-trip: appended events are returned by Snapshot in order.
 func TestAppendSnapshot(t *testing.T) {
 	m := NewManager()
+
 	const cardID = "PROJ-001"
 
 	m.Append(cardID, makeEvent(1, "log", "hello"))
@@ -45,6 +46,7 @@ func TestSnapshotEmptyCard(t *testing.T) {
 // TestSnapshotDefensiveCopy verifies that mutating the returned slice does not affect the internal buffer.
 func TestSnapshotDefensiveCopy(t *testing.T) {
 	m := NewManager()
+
 	const cardID = "PROJ-002"
 
 	m.Append(cardID, makeEvent(1, "log", "original"))
@@ -65,12 +67,14 @@ func TestSnapshotDefensiveCopy(t *testing.T) {
 // TestEventCountCapEnforcement verifies that exceeding MaxEvents triggers drop-oldest with a marker.
 func TestEventCountCapEnforcement(t *testing.T) {
 	m := NewManager(WithMaxEvents(5))
+
 	const cardID = "PROJ-003"
 
 	// Fill to capacity.
 	for i := range 5 {
 		m.Append(cardID, makeEvent(uint64(i+1), "log", fmt.Sprintf("msg-%d", i+1)))
 	}
+
 	snap := m.Snapshot(cardID)
 	assert.Len(t, snap, 5, "should hold exactly MaxEvents events")
 
@@ -97,6 +101,7 @@ func TestEventCountCapEnforcement(t *testing.T) {
 //     Total droppedNow=3. Result: [M(3), e4, e5, e6].
 func TestDropMarkerCoalescing(t *testing.T) {
 	m := NewManager(WithMaxEvents(4))
+
 	const cardID = "PROJ-004"
 
 	// Fill buffer: events 1, 2, 3, 4.
@@ -124,6 +129,7 @@ func TestDropMarkerCoalescing(t *testing.T) {
 func TestByteCapEnforcement(t *testing.T) {
 	// Cap at 100 bytes total payload.
 	m := NewManager(WithMaxBytes(100), WithMaxEvents(1000))
+
 	const cardID = "PROJ-005"
 
 	// Each event has a 40-byte payload; after 3 (120 bytes) the cap is exceeded.
@@ -138,12 +144,15 @@ func TestByteCapEnforcement(t *testing.T) {
 	// The oldest event(s) should have been dropped to make room.
 	// Verify a dropped marker is present.
 	hasDropped := false
+
 	for _, e := range snap {
 		if e.Type == EventTypeDropped {
 			hasDropped = true
+
 			break
 		}
 	}
+
 	assert.True(t, hasDropped, "should have a dropped marker after byte cap exceeded")
 
 	// Total payload bytes in snapshot must be <= MaxBytes.
@@ -151,12 +160,14 @@ func TestByteCapEnforcement(t *testing.T) {
 	for _, e := range snap {
 		total += len(e.Payload)
 	}
+
 	assert.LessOrEqual(t, total, 100)
 }
 
 // TestClearRemovesSession verifies that Clear removes all events for a card.
 func TestClearRemovesSession(t *testing.T) {
 	m := NewManager()
+
 	const cardID = "PROJ-006"
 
 	m.Append(cardID, makeEvent(1, "log", "hello"))
@@ -178,24 +189,31 @@ func TestClearNonExistentCard(t *testing.T) {
 // TestConcurrentAppendSnapshot exercises concurrent Append and Snapshot under the race detector.
 func TestConcurrentAppendSnapshot(t *testing.T) {
 	m := NewManager(WithMaxEvents(50))
-	const cardID = "PROJ-007"
-	const goroutines = 10
-	const eventsPerGoroutine = 100
+
+	const (
+		cardID             = "PROJ-007"
+		goroutines         = 10
+		eventsPerGoroutine = 100
+	)
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
+
 	for g := range goroutines {
 		go func(g int) {
 			defer wg.Done()
+
 			for i := range eventsPerGoroutine {
 				seq := uint64(g*eventsPerGoroutine + i + 1)
 				m.Append(cardID, makeEvent(seq, "log", fmt.Sprintf("g%d-e%d", g, i)))
+
 				if i%10 == 0 {
 					_ = m.Snapshot(cardID)
 				}
 			}
 		}(g)
 	}
+
 	wg.Wait()
 
 	// Final snapshot must be consistent (no panic, length <= MaxEvents).

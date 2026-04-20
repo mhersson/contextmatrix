@@ -56,9 +56,11 @@ func (g *GitHubConfig) ResolvedAPIBaseURL() string {
 	if v := strings.TrimSpace(g.APIBaseURL); v != "" {
 		return v
 	}
+
 	if g.Host != "" {
 		return "https://api." + g.Host
 	}
+
 	return "https://api.github.com"
 }
 
@@ -69,6 +71,7 @@ func (g *GitHubConfig) AllowedHosts() []string {
 	if g.Host == "" || g.Host == "github.com" {
 		return []string{"github.com"}
 	}
+
 	return []string{"github.com", g.Host}
 }
 
@@ -127,72 +130,90 @@ func (c *Config) Validate() error {
 	if c.Boards.Dir == "" {
 		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
 	}
+
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
+
 	if c.Boards.GitPullInterval != "" {
 		if _, err := time.ParseDuration(c.Boards.GitPullInterval); err != nil {
 			return fmt.Errorf("invalid boards.git_pull_interval %q: %w", c.Boards.GitPullInterval, err)
 		}
 	}
+
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
+
 	if c.Boards.GitAuthMode == "" {
 		c.Boards.GitAuthMode = "ssh"
 	}
+
 	switch c.Boards.GitAuthMode {
 	case "ssh", "pat":
 		// valid
 	default:
 		return fmt.Errorf("invalid boards.git_auth_mode %q: must be \"ssh\" or \"pat\"", c.Boards.GitAuthMode)
 	}
+
 	if c.Boards.GitAuthMode == "pat" {
 		if c.GitHub.Token == "" {
 			return fmt.Errorf("github.token is required when boards.git_auth_mode is \"pat\"")
 		}
+
 		if !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
 			return fmt.Errorf("boards.git_remote_url must start with https:// when boards.git_auth_mode is \"pat\" (got %q)", c.Boards.GitRemoteURL)
 		}
 	}
+
 	if c.GitHub.IssueImporting.Enabled {
 		if c.GitHub.Token == "" {
 			return fmt.Errorf("github.token is required when github.issue_importing.enabled is true")
 		}
+
 		if c.GitHub.IssueImporting.SyncInterval == "" {
 			c.GitHub.IssueImporting.SyncInterval = "5m"
 		}
+
 		interval, err := time.ParseDuration(c.GitHub.IssueImporting.SyncInterval)
 		if err != nil {
 			return fmt.Errorf("invalid github.issue_importing.sync_interval %q: %w", c.GitHub.IssueImporting.SyncInterval, err)
 		}
+
 		if interval < 5*time.Minute {
 			return fmt.Errorf("github.issue_importing.sync_interval must be at least 5m, got %s", c.GitHub.IssueImporting.SyncInterval)
 		}
 	}
+
 	if c.Runner.Enabled {
 		if c.Runner.URL == "" {
 			return fmt.Errorf("runner.url is required when runner is enabled")
 		}
+
 		if c.Runner.APIKey == "" {
 			return fmt.Errorf("runner.api_key is required when runner is enabled")
 		}
+
 		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
 			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
 		}
+
 		if c.Runner.PublicURL == "" {
 			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
 	}
+
 	if c.Theme == "" {
 		c.Theme = "everforest"
 	}
+
 	switch c.Theme {
 	case "everforest", "radix", "catppuccin":
 		// valid
 	default:
 		return fmt.Errorf("invalid theme %q: must be one of \"everforest\", \"radix\", \"catppuccin\"", c.Theme)
 	}
+
 	return nil
 }
 
@@ -231,14 +252,18 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyEnvOverrides(cfg)
+
 			if err := resolvePaths(cfg, path); err != nil {
 				return nil, err
 			}
+
 			if err := cfg.Validate(); err != nil {
 				return nil, err
 			}
+
 			return cfg, nil
 		}
+
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
@@ -265,12 +290,14 @@ func resolvePaths(cfg *Config, configPath string) error {
 	if err != nil {
 		return err
 	}
+
 	cfg.Boards.Dir = boardsDir
 
 	skillsDir, err := expandTilde(cfg.SkillsDir)
 	if err != nil {
 		return err
 	}
+
 	cfg.SkillsDir = skillsDir
 
 	if cfg.SkillsDir == "" {
@@ -289,78 +316,103 @@ func applyEnvOverrides(cfg *Config) {
 			slog.Warn("ignoring invalid CONTEXTMATRIX_PORT", "value", v, "error", err)
 		}
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
 		cfg.Boards.Dir = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT"); v != "" {
 		cfg.Boards.GitAutoCommit = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH"); v != "" {
 		cfg.Boards.GitAutoPush = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL"); v != "" {
 		cfg.Boards.GitAutoPull = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL"); v != "" {
 		cfg.Boards.GitPullInterval = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT"); v != "" {
 		cfg.Boards.GitDeferredCommit = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY"); v != "" {
 		cfg.Boards.GitCloneOnEmpty = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
 		cfg.Boards.GitRemoteURL = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
 		cfg.Boards.GitAuthMode = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
 		cfg.CORSOrigin = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
 		cfg.SkillsDir = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
 		cfg.Theme = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_MCP_API_KEY"); v != "" {
 		cfg.MCPAPIKey = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ENABLED"); v != "" {
 		cfg.Runner.Enabled = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_URL"); v != "" {
 		cfg.Runner.URL = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
 		cfg.Runner.APIKey = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL"); v != "" {
 		cfg.Runner.PublicURL = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {
 		cfg.Runner.OrchestratorSonnetModel = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
 		cfg.Runner.OrchestratorOpusModel = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
 		cfg.GitHub.Token = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
 		cfg.GitHub.Host = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_API_BASE_URL"); v != "" {
 		cfg.GitHub.APIBaseURL = v
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED"); v != "" {
 		cfg.GitHub.IssueImporting.Enabled = v == "true" || v == "1"
 	}
+
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
@@ -381,19 +433,24 @@ func expandTilde(path string) (string, error) {
 	if path == "" {
 		return path, nil
 	}
+
 	if path == "~" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("expand ~: %w", err)
 		}
+
 		return home, nil
 	}
+
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("expand ~: %w", err)
 		}
+
 		return filepath.Join(home, path[2:]), nil
 	}
+
 	return path, nil
 }

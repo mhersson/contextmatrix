@@ -97,12 +97,12 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
 
 	cfg := &board.ProjectConfig{
-		Name:   projectName,
-		Prefix: "TEST",
-		NextID: 1,
-		Repo:   "git@github.com:testorg/testrepo.git",
-		States: []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
-		Types:  []string{"task", "bug", "feature"},
+		Name:       projectName,
+		Prefix:     "TEST",
+		NextID:     1,
+		Repo:       "git@github.com:testorg/testrepo.git",
+		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"},
 		Priorities: []string{"low", "medium", "high", "critical"},
 		Transitions: map[string][]string{
 			"todo":        {"in_progress", "not_planned"},

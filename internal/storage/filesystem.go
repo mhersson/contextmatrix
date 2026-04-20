@@ -16,17 +16,19 @@ import (
 // atomicWriteFile writes data to a file atomically by writing to a temporary
 // file in the same directory, syncing to disk, then renaming over the target.
 // This prevents partial writes from being visible to readers.
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
+
 	tmpName := tmp.Name()
 
 	// Clean up the temp file on any failure path.
 	success := false
+
 	defer func() {
 		if !success {
 			_ = os.Remove(tmpName)
@@ -35,11 +37,13 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("write temp file: %w", err)
 	}
 
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("sync temp file: %w", err)
 	}
 
@@ -47,7 +51,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Chmod(tmpName, perm); err != nil {
+	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
 
@@ -56,6 +60,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 
 	success = true
+
 	return nil
 }
 
@@ -67,6 +72,7 @@ func validatePathComponent(component string) error {
 		filepath.Clean(component) != component {
 		return fmt.Errorf("%w: %q", ErrInvalidPath, component)
 	}
+
 	return nil
 }
 
@@ -132,12 +138,15 @@ func (s *FilesystemStore) loadIndex() error {
 		}
 
 		tasksDir := filepath.Join(projectDir, "tasks")
+
 		entries, err := os.ReadDir(tasksDir)
 		if err != nil {
 			if os.IsNotExist(err) {
 				s.projects[cfg.Name] = idx
+
 				continue
 			}
+
 			return fmt.Errorf("read tasks dir for %s: %w", cfg.Name, err)
 		}
 
@@ -150,16 +159,19 @@ func (s *FilesystemStore) loadIndex() error {
 				slog.Warn("skipping symlink card file",
 					"path", filepath.Join(tasksDir, entry.Name()),
 				)
+
 				continue
 			}
 
 			filePath := filepath.Join(tasksDir, entry.Name())
+
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				slog.Warn("skipping unreadable card file",
 					"path", filePath,
 					"error", err,
 				)
+
 				continue
 			}
 
@@ -169,6 +181,7 @@ func (s *FilesystemStore) loadIndex() error {
 					"path", filePath,
 					"error", err,
 				)
+
 				continue
 			}
 
@@ -186,7 +199,9 @@ func (s *FilesystemStore) loadIndex() error {
 func (s *FilesystemStore) ReloadIndex() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.projects = make(map[string]*projectIndex)
+
 	return s.loadIndex()
 }
 
@@ -219,9 +234,11 @@ func (s *FilesystemStore) cardPath(project, id string) (string, error) {
 	if err := validatePathComponent(project); err != nil {
 		return "", fmt.Errorf("project name: %w", err)
 	}
+
 	if err := validatePathComponent(id); err != nil {
 		return "", fmt.Errorf("card ID: %w", err)
 	}
+
 	return filepath.Join(s.boardsDir, project, "tasks", id+".md"), nil
 }
 
@@ -231,6 +248,7 @@ func (s *FilesystemStore) projectPath(name string) (string, error) {
 	if err := validatePathComponent(name); err != nil {
 		return "", fmt.Errorf("project name: %w", err)
 	}
+
 	return filepath.Join(s.boardsDir, name), nil
 }
 
@@ -239,27 +257,35 @@ func (s *FilesystemStore) matchesFilter(idx *cardIndex, f CardFilter) bool {
 	if f.State != "" && idx.State != f.State {
 		return false
 	}
+
 	if f.Type != "" && idx.Type != f.Type {
 		return false
 	}
+
 	if f.Priority != "" && idx.Priority != f.Priority {
 		return false
 	}
+
 	if f.AssignedAgent != "" && idx.AssignedAgent != f.AssignedAgent {
 		return false
 	}
+
 	if f.Parent != "" && idx.Parent != f.Parent {
 		return false
 	}
+
 	if f.ExternalID != "" && idx.ExternalID != f.ExternalID {
 		return false
 	}
+
 	if f.Label != "" && !slices.Contains(idx.Labels, f.Label) {
 		return false
 	}
+
 	if f.Vetted != nil && idx.Vetted != *f.Vetted {
 		return false
 	}
+
 	return true
 }
 
@@ -272,6 +298,7 @@ func (s *FilesystemStore) ListProjects(_ context.Context) ([]board.ProjectConfig
 	for _, idx := range s.projects {
 		configs = append(configs, *idx.config)
 	}
+
 	return configs, nil
 }
 
@@ -286,6 +313,7 @@ func (s *FilesystemStore) GetProject(_ context.Context, name string) (*board.Pro
 	}
 
 	cfg := *idx.config
+
 	return &cfg, nil
 }
 
@@ -328,6 +356,7 @@ func (s *FilesystemStore) DeleteProject(_ context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+
 	if err := os.RemoveAll(projectDir); err != nil {
 		return fmt.Errorf("remove project directory: %w", err)
 	}
@@ -363,6 +392,7 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 	}
 
 	var paths []string
+
 	for _, cardIdx := range idx.cards {
 		if s.matchesFilter(cardIdx, filter) {
 			paths = append(paths, cardIdx.FilePath)
@@ -375,11 +405,14 @@ func (s *FilesystemStore) ListCards(_ context.Context, project string, filter Ca
 		if err != nil {
 			continue
 		}
+
 		card, err := board.ParseCard(data)
 		if err != nil {
 			slog.Error("skipping corrupt card file", "path", path, "error", err)
+
 			continue
 		}
+
 		cards = append(cards, card)
 	}
 
@@ -397,6 +430,7 @@ func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board
 	if !ok {
 		return nil, ErrProjectNotFound
 	}
+
 	cardIdx, ok := idx.cards[id]
 	if !ok {
 		return nil, ErrCardNotFound
@@ -407,6 +441,7 @@ func (s *FilesystemStore) GetCard(_ context.Context, project, id string) (*board
 		if os.IsNotExist(err) {
 			return nil, ErrCardNotFound
 		}
+
 		return nil, fmt.Errorf("read card file: %w", err)
 	}
 
@@ -427,6 +462,7 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 	if !ok {
 		return ErrProjectNotFound
 	}
+
 	if _, exists := idx.cards[card.ID]; exists {
 		return ErrCardExists
 	}
@@ -440,10 +476,12 @@ func (s *FilesystemStore) CreateCard(_ context.Context, project string, card *bo
 	if err != nil {
 		return err
 	}
+
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		return fmt.Errorf("create tasks directory: %w", err)
 	}
-	if err := atomicWriteFile(filePath, data, 0o644); err != nil {
+
+	if err := atomicWriteFile(filePath, data); err != nil {
 		return fmt.Errorf("write card file: %w", err)
 	}
 
@@ -461,10 +499,12 @@ func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *bo
 	if !ok {
 		return ErrProjectNotFound
 	}
+
 	cardIdx, ok := idx.cards[card.ID]
 	if !ok {
 		return ErrCardNotFound
 	}
+
 	filePath := cardIdx.FilePath
 
 	data, err := board.SerializeCard(card)
@@ -472,7 +512,7 @@ func (s *FilesystemStore) UpdateCard(_ context.Context, project string, card *bo
 		return fmt.Errorf("serialize card: %w", err)
 	}
 
-	if err := atomicWriteFile(filePath, data, 0o644); err != nil {
+	if err := atomicWriteFile(filePath, data); err != nil {
 		return fmt.Errorf("write card file: %w", err)
 	}
 
@@ -490,16 +530,19 @@ func (s *FilesystemStore) DeleteCard(_ context.Context, project, id string) erro
 	if !ok {
 		return ErrProjectNotFound
 	}
+
 	cardIdx, ok := idx.cards[id]
 	if !ok {
 		return ErrCardNotFound
 	}
+
 	filePath := cardIdx.FilePath
 
 	if err := os.Remove(filePath); err != nil {
 		if os.IsNotExist(err) {
 			return ErrCardNotFound
 		}
+
 		return fmt.Errorf("remove card file: %w", err)
 	}
 

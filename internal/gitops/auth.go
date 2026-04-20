@@ -12,6 +12,7 @@ func GitAuthEnv(mode, token string) []string {
 	if mode != "pat" {
 		return nil
 	}
+
 	return []string{
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http.extraheader",

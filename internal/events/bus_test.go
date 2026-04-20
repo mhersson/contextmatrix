@@ -54,6 +54,7 @@ func TestUnsubscribeIdempotent(t *testing.T) {
 
 func TestPublishToSubscriber(t *testing.T) {
 	bus := NewBus()
+
 	ch, unsub := bus.Subscribe()
 	defer unsub()
 
@@ -85,8 +86,10 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 
 	ch1, unsub1 := bus.Subscribe()
 	defer unsub1()
+
 	ch2, unsub2 := bus.Subscribe()
 	defer unsub2()
+
 	ch3, unsub3 := bus.Subscribe()
 	defer unsub3()
 
@@ -171,6 +174,7 @@ func TestPublishNonBlocking(t *testing.T) {
 
 	// Additional publishes should not block (events dropped)
 	done := make(chan struct{})
+
 	go func() {
 		for i := 0; i < 100; i++ {
 			bus.Publish(Event{
@@ -180,6 +184,7 @@ func TestPublishNonBlocking(t *testing.T) {
 				Timestamp: time.Now(),
 			})
 		}
+
 		close(done)
 	}()
 
@@ -201,6 +206,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	)
 
 	var wg sync.WaitGroup
+
 	received := make([]int, numSubscribers)
 	unsubscribers := make([]func(), numSubscribers)
 
@@ -208,9 +214,12 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	for i := 0; i < numSubscribers; i++ {
 		ch, unsub := bus.Subscribe()
 		unsubscribers[i] = unsub
+
 		wg.Add(1)
+
 		go func(idx int, ch <-chan Event) {
 			defer wg.Done()
+
 			for range ch {
 				received[idx]++
 			}
@@ -221,8 +230,10 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	var pubWg sync.WaitGroup
 	for i := 0; i < numPublishers; i++ {
 		pubWg.Add(1)
+
 		go func() {
 			defer pubWg.Done()
+
 			for j := 0; j < numEvents; j++ {
 				bus.Publish(Event{
 					Type:      CardUpdated,
@@ -247,6 +258,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 
 	// Each subscriber should have received events (exact count depends on timing)
 	totalExpected := numPublishers * numEvents
+
 	for i, count := range received {
 		// Due to non-blocking sends, some events may be dropped if buffers fill
 		// But with 64 buffer size and reasonable timing, most should get through
@@ -280,6 +292,7 @@ func TestEventTypes(t *testing.T) {
 
 func TestEventWithNilData(t *testing.T) {
 	bus := NewBus()
+
 	ch, unsub := bus.Subscribe()
 	defer unsub()
 
@@ -349,6 +362,7 @@ func BenchmarkPublish(b *testing.B) {
 	for i := 0; i < 10; i++ {
 		ch, unsub := bus.Subscribe()
 		defer unsub()
+
 		go func(ch <-chan Event) {
 			for range ch {
 				// Consume events
@@ -364,6 +378,7 @@ func BenchmarkPublish(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		bus.Publish(event)
 	}
@@ -373,6 +388,7 @@ func BenchmarkSubscribeUnsubscribe(b *testing.B) {
 	bus := NewBus()
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, unsub := bus.Subscribe()
 		unsub()
@@ -384,7 +400,9 @@ func TestPartialUnsubscribe(t *testing.T) {
 
 	ch1, unsub1 := bus.Subscribe()
 	defer unsub1()
+
 	ch2, unsub2 := bus.Subscribe()
+
 	ch3, unsub3 := bus.Subscribe()
 	defer unsub3()
 

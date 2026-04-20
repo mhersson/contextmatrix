@@ -29,7 +29,7 @@ type GitHubImportConfig struct {
 }
 
 // ProjectConfig represents the configuration of a project board.
-// Stored in boards/{project}/.board.yaml
+// Stored in boards/{project}/.board.yaml.
 type ProjectConfig struct {
 	Name            string                 `yaml:"name" json:"name"`
 	Prefix          string                 `yaml:"prefix" json:"prefix"`
@@ -88,6 +88,7 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 		if os.IsNotExist(err) {
 			return nil, ErrProjectNotFound
 		}
+
 		return nil, fmt.Errorf("read project config: %w", err)
 	}
 
@@ -133,9 +134,11 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 	if cfg.Name == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidProjectConfig)
 	}
+
 	if cfg.Prefix == "" {
 		return fmt.Errorf("%w: prefix is required", ErrInvalidProjectConfig)
 	}
+
 	if cfg.NextID < 1 {
 		return fmt.Errorf("%w: next_id must be >= 1", ErrInvalidProjectConfig)
 	}
@@ -180,6 +183,7 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 func GenerateCardID(cfg *ProjectConfig) string {
 	id := cfg.NextID
 	cfg.NextID++
+
 	return fmt.Sprintf("%s-%03d", cfg.Prefix, id)
 }
 
@@ -196,6 +200,7 @@ func LoadTemplates(dir string) (map[string]string, error) {
 		if os.IsNotExist(err) {
 			return templates, nil
 		}
+
 		return nil, fmt.Errorf("read templates directory: %w", err)
 	}
 
@@ -247,10 +252,12 @@ func DiscoverProjects(boardsDir string) ([]ProjectConfig, error) {
 			if errors.Is(err, ErrProjectNotFound) {
 				continue
 			}
+
 			slog.Warn("skipping project with invalid config",
 				"path", projectPath,
 				"error", err,
 			)
+
 			continue
 		}
 
@@ -261,8 +268,10 @@ func DiscoverProjects(boardsDir string) ([]ProjectConfig, error) {
 				"project", cfg.Name,
 				"error", err,
 			)
+
 			continue
 		}
+
 		cfg.Templates = templates
 
 		projects = append(projects, *cfg)

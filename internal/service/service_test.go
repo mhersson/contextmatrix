@@ -437,7 +437,7 @@ func TestDeleteCard(t *testing.T) {
 
 	// Verify card is gone
 	_, err = svc.GetCard(ctx, "test-project", card.ID)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Verify event
 	select {
@@ -729,6 +729,7 @@ func TestConcurrentCardCreation(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
+
 	cardCount := 10
 	cards := make([]*board.Card, cardCount)
 	errs := make([]error, cardCount)
@@ -736,8 +737,10 @@ func TestConcurrentCardCreation(t *testing.T) {
 	// Create cards concurrently
 	for i := range cardCount {
 		wg.Add(1)
+
 		go func(idx int) {
 			defer wg.Done()
+
 			input := CreateCardInput{
 				Title:    "Concurrent Card",
 				Type:     "task",
@@ -746,6 +749,7 @@ func TestConcurrentCardCreation(t *testing.T) {
 			cards[idx], errs[idx] = svc.CreateCard(ctx, "test-project", input)
 		}(i)
 	}
+
 	wg.Wait()
 
 	// Verify all created successfully
@@ -871,7 +875,7 @@ func TestUpdateCard_BlockedByDependency(t *testing.T) {
 		DependsOn: []string{depCard.ID},
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, board.ErrDependenciesNotMet)
+	require.ErrorIs(t, err, board.ErrDependenciesNotMet)
 	assert.Contains(t, err.Error(), depCard.ID)
 	assert.Contains(t, err.Error(), "todo")
 }
@@ -914,7 +918,7 @@ func TestPatchCard_BlockedByDependency(t *testing.T) {
 		State: &newState,
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, board.ErrDependenciesNotMet)
+	require.ErrorIs(t, err, board.ErrDependenciesNotMet)
 	assert.Contains(t, err.Error(), depCard.ID)
 }
 
@@ -1055,6 +1059,7 @@ func TestListCards_DependenciesMetField(t *testing.T) {
 			require.NotNil(t, c.DependenciesMet)
 			assert.False(t, *c.DependenciesMet)
 		}
+
 		if c.ID == depCard.ID {
 			// No deps, should be nil
 			assert.Nil(t, c.DependenciesMet)
@@ -1139,6 +1144,7 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 // setting the parent's Subtasks field and each child's Parent field.
 func createParentWithSubtasks(t *testing.T, svc *CardService, project string, numSubtasks int) (*board.Card, []*board.Card) {
 	t.Helper()
+
 	ctx := context.Background()
 
 	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
@@ -1159,6 +1165,7 @@ func createParentWithSubtasks(t *testing.T, svc *CardService, project string, nu
 			Parent:   parent.ID,
 		})
 		require.NoError(t, err)
+
 		subtasks[i] = child
 		subtaskIDs[i] = child.ID
 	}
@@ -1172,6 +1179,7 @@ func createParentWithSubtasks(t *testing.T, svc *CardService, project string, nu
 		Subtasks: subtaskIDs,
 	})
 	require.NoError(t, err)
+
 	return updated, subtasks
 }
 
@@ -1325,6 +1333,7 @@ func TestParentAutoTransition_GitCommitForParent(t *testing.T) {
 // field is NOT populated. This reflects how agents typically create subtasks.
 func createParentWithChildrenByParentField(t *testing.T, svc *CardService, project string, numChildren int) (*board.Card, []*board.Card) {
 	t.Helper()
+
 	ctx := context.Background()
 
 	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
@@ -1343,6 +1352,7 @@ func createParentWithChildrenByParentField(t *testing.T, svc *CardService, proje
 			Parent:   parent.ID,
 		})
 		require.NoError(t, err)
+
 		children[i] = child
 	}
 
@@ -1657,6 +1667,7 @@ type captureHandler struct {
 func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 	h.records = append(h.records, r)
+
 	return nil
 }
 func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
@@ -1721,6 +1732,7 @@ func TestReportUsageWarnsUnknownModel(t *testing.T) {
 	// Install a capturing log handler for the duration of this test
 	handler := &captureHandler{}
 	original := slog.Default()
+
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(original)
 
@@ -1743,12 +1755,15 @@ func TestReportUsageWarnsUnknownModel(t *testing.T) {
 
 	// A Warn log entry should have been emitted
 	var warnFound bool
+
 	for _, rec := range handler.records {
 		if rec.Level == slog.LevelWarn {
 			warnFound = true
+
 			break
 		}
 	}
+
 	assert.True(t, warnFound, "expected slog.Warn for unknown model")
 }
 
@@ -1885,6 +1900,7 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
 	return svc, boardsDir
 }
 
@@ -1929,7 +1945,7 @@ func TestCreateProject(t *testing.T) {
 
 	// Verify tasks directory was created
 	_, err = os.Stat(filepath.Join(boardsDir, "my-project", "tasks"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify event
 	select {
@@ -1993,6 +2009,7 @@ func TestCreateProject_MissingStalledState(t *testing.T) {
 func TestUpdateProject(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	ch, unsub := svc.bus.Subscribe()
@@ -2033,6 +2050,7 @@ func TestUpdateProject(t *testing.T) {
 func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// Create a card in "todo" state
@@ -2055,13 +2073,14 @@ func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
 	}
 
 	_, err = svc.UpdateProject(ctx, "test-project", input)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot remove state")
 }
 
 func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -2083,13 +2102,14 @@ func TestUpdateProject_CannotRemoveInUseType(t *testing.T) {
 	}
 
 	_, err = svc.UpdateProject(ctx, "test-project", input)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot remove type")
 }
 
 func TestUpdateProject_SubtaskTypeDoesNotBlockUpdate(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// Create a parent card and a subtask
@@ -2133,6 +2153,7 @@ func TestUpdateProject_NotFound(t *testing.T) {
 func TestUpdateProject_TodoToDone(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// Add todo → done transition so cards can go directly from todo to done
@@ -2160,6 +2181,7 @@ func TestUpdateProject_TodoToDone(t *testing.T) {
 func TestUpdateProject_FrontendNormalization(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// First, set up a project where "done" is a terminal state (no transitions entry)
@@ -2192,6 +2214,7 @@ func TestUpdateProject_FrontendNormalization(t *testing.T) {
 	for k, v := range cfg.Transitions {
 		normalizedTransitions[k] = v
 	}
+
 	for _, s := range cfg.States {
 		if _, ok := normalizedTransitions[s]; !ok {
 			normalizedTransitions[s] = []string{}
@@ -2241,7 +2264,7 @@ func TestDeleteProject(t *testing.T) {
 
 	// Verify gone
 	_, err = svc.GetProject(ctx, "my-project")
-	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
+	require.ErrorIs(t, err, storage.ErrProjectNotFound)
 
 	// Verify event
 	select {
@@ -2255,6 +2278,7 @@ func TestDeleteProject(t *testing.T) {
 func TestDeleteProject_HasCards(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// test-project already has setupTest, create a card
@@ -2310,7 +2334,7 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	// File must exist on disk
 	cardFile := filepath.Join(boardsDir, "test-project", "tasks", card.ID+".md")
 	_, statErr := os.Stat(cardFile)
-	assert.NoError(t, statErr, "card file should exist on disk")
+	require.NoError(t, statErr, "card file should exist on disk")
 
 	// Git repo must have zero commits.
 	// GetLastCommitMessage returns ("", nil) when the repo has no commits.
@@ -2342,6 +2366,7 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 
 	// gitAutoCommit=true, gitDeferredCommit=true
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+
 	return svc, gitMgr
 }
 
@@ -2385,7 +2410,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferredPaths should have entries after updates")
+	assert.Positive(t, pathCount, "deferredPaths should have entries after updates")
 }
 
 // TestDeferredCommitFlushOnDone verifies that transitioning to "done" does NOT
@@ -2430,7 +2455,7 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferredPaths should still have entries before release")
+	assert.Positive(t, pathCount, "deferredPaths should still have entries before release")
 
 	// Release the card — this is where the flush should happen.
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
@@ -2488,6 +2513,7 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 
 	// Wait past the 1ms timeout, then trigger processStalled.
 	time.Sleep(10 * time.Millisecond)
+
 	err = svc.processStalled(ctx)
 	require.NoError(t, err)
 
@@ -2534,6 +2560,7 @@ func TestDeferredCommitNoOpFlush(t *testing.T) {
 func TestDeferredCommitNonDeferredUnchanged(t *testing.T) {
 	svc, _, cleanup := setupTest(t) // setupTest uses gitAutoCommit=true, gitDeferredCommit=false
 	defer cleanup()
+
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -2946,6 +2973,7 @@ func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
+
 	return svc, gitMgr
 }
 
@@ -3308,7 +3336,7 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "task", fresh.Type)
-		require.Equal(t, "", fresh.Parent)
+		require.Empty(t, fresh.Parent)
 
 		// UpdateCard sets parent — type must be auto-forced to "subtask"
 		updated, err := svc.UpdateCard(ctx, "test-project", fresh.ID, UpdateCardInput{
@@ -3344,7 +3372,7 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "task", updated.Type, "type should be reset to first project type when parent is cleared")
-		assert.Equal(t, "", updated.Parent)
+		assert.Empty(t, updated.Parent)
 	})
 }
 
@@ -3487,7 +3515,7 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferredPaths should have entries when ImmediateCommit=false")
+	assert.Positive(t, pathCount, "deferredPaths should have entries when ImmediateCommit=false")
 }
 
 // TestImmediateCommitUpdateCard_WhenDeferredOn verifies that UpdateCard with
@@ -3576,6 +3604,7 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 func TestNotPlannedReleasesAgent(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
+
 	ctx := context.Background()
 
 	// Create and claim a card.
@@ -4023,7 +4052,7 @@ func TestIncrementReviewAttempts_Capped(t *testing.T) {
 	// Next increment should be rejected
 	_, err = svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrReviewAttemptsCapped)
+	require.ErrorIs(t, err, ErrReviewAttemptsCapped)
 
 	// Verify counter stayed at 5
 	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -4051,13 +4080,16 @@ func TestRecordPush_Atomic(t *testing.T) {
 
 	// Verify the activity log was also written
 	hasEntry := false
+
 	for _, entry := range pushed.ActivityLog {
 		if entry.Action == "pushed" {
 			hasEntry = true
+
 			assert.Contains(t, entry.Message, "feat/login")
 			assert.Contains(t, entry.Message, "https://github.com/org/repo/pull/42")
 		}
 	}
+
 	assert.True(t, hasEntry, "expected a 'pushed' activity log entry")
 }
 
@@ -4222,7 +4254,7 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 	svc.writeMu.Lock()
 	err = svc.flushDeferredCommit(card.ID, "test-agent")
 	svc.writeMu.Unlock()
-	assert.Error(t, err, "flush should fail when staging a non-existent file")
+	require.Error(t, err, "flush should fail when staging a non-existent file")
 
 	// The paths should still be in the map — not deleted.
 	svc.writeMu.Lock()
@@ -4394,7 +4426,7 @@ func TestDeferredCommitUpdateRunnerStatusNonTerminal(t *testing.T) {
 	svc.writeMu.Lock()
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
-	assert.Greater(t, pathCount, 0, "deferred paths should accumulate for non-terminal statuses")
+	assert.Positive(t, pathCount, "deferred paths should accumulate for non-terminal statuses")
 
 	// Terminal status: failed — SHOULD flush.
 	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container exited with code 1")
@@ -4648,6 +4680,7 @@ func TestClaimCard_VettingEnforcement(t *testing.T) {
 	// makeCard creates a card with or without an external source.
 	makeCard := func(t *testing.T, svc *CardService, withSource bool) *board.Card {
 		t.Helper()
+
 		input := CreateCardInput{
 			Title:    "Test card",
 			Type:     "task",
@@ -4659,8 +4692,10 @@ func TestClaimCard_VettingEnforcement(t *testing.T) {
 				ExternalID: "1",
 			}
 		}
+
 		card, err := svc.CreateCard(ctx, "test-project", input)
 		require.NoError(t, err)
+
 		return card
 	}
 
@@ -5107,9 +5142,9 @@ func TestPromoteToAutonomous(t *testing.T) {
 		defer cleanup()
 
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:     "Already autonomous",
-			Type:      "task",
-			Priority:  "medium",
+			Title:      "Already autonomous",
+			Type:       "task",
+			Priority:   "medium",
 			Autonomous: true,
 		})
 		require.NoError(t, err)
@@ -5216,6 +5251,7 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 	tickCh := make(chan struct{}, 10)
 
 	callCount := 0
+
 	var mu sync.Mutex
 
 	svc.stalledFn = func(_ context.Context) error {
@@ -5229,6 +5265,7 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 		}
 
 		tickCh <- struct{}{}
+
 		return nil
 	}
 
@@ -5249,9 +5286,9 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 // rollback failure after a git commit error.
 type rollbackFailStore struct {
 	storage.Store
-	deleteErr      error
-	saveErr        error
-	saveCallCount  int
+	deleteErr     error
+	saveErr       error
+	saveCallCount int
 }
 
 func (s *rollbackFailStore) DeleteCard(_ context.Context, _, _ string) error {
@@ -5266,6 +5303,7 @@ func (s *rollbackFailStore) SaveProject(ctx context.Context, cfg *board.ProjectC
 	if s.saveCallCount > 1 {
 		return s.saveErr
 	}
+
 	return s.Store.SaveProject(ctx, cfg)
 }
 
@@ -5319,12 +5357,12 @@ func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
 	require.Error(t, createErr, "expected CreateCard to fail when git commit fails")
 
 	// The returned error must contain the git commit error.
-	assert.ErrorContains(t, createErr, "git commit")
+	require.ErrorContains(t, createErr, "git commit")
 
 	// Crucially, the rollback errors must also be present so callers can
 	// detect a partial-rollback scenario (orphaned card on disk).
-	assert.ErrorContains(t, createErr, "rollback delete card")
-	assert.ErrorContains(t, createErr, delErr.Error())
-	assert.ErrorContains(t, createErr, "rollback save project")
+	require.ErrorContains(t, createErr, "rollback delete card")
+	require.ErrorContains(t, createErr, delErr.Error())
+	require.ErrorContains(t, createErr, "rollback save project")
 	assert.ErrorContains(t, createErr, saveErr.Error())
 }

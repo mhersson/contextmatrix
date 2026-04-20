@@ -24,6 +24,7 @@ const (
 func signPayload(key string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(key))
 	mac.Write(body)
+
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -34,6 +35,7 @@ func signPayloadWithTimestamp(key string, body []byte, ts string) string {
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))
 	mac.Write(body)
+
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -43,6 +45,7 @@ func signPayloadWithTimestamp(key string, body []byte, ts string) string {
 func SignRequestHeaders(key string, body []byte) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	sig := signPayloadWithTimestamp(key, body, ts)
+
 	return "sha256=" + sig, ts
 }
 
@@ -50,6 +53,7 @@ func SignRequestHeaders(key string, body []byte) (sigHeader, tsHeader string) {
 // The signature should be hex-encoded (as produced by signPayload).
 func VerifySignature(key, signature string, body []byte) bool {
 	expected := signPayload(key, body)
+
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
@@ -60,10 +64,13 @@ func VerifySignatureWithTimestamp(key, signature, timestamp string, body []byte,
 	if err != nil {
 		return false
 	}
+
 	age := time.Since(time.Unix(ts, 0))
 	if age < -maxSkew || age > maxSkew {
 		return false
 	}
+
 	expected := signPayloadWithTimestamp(key, body, timestamp)
+
 	return hmac.Equal([]byte(expected), []byte(signature))
 }

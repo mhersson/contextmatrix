@@ -75,11 +75,13 @@ func NewSyncer(
 ) *Syncer {
 	if !git.HasRemote() {
 		slog.Info("git sync disabled: no remote configured")
+
 		return nil
 	}
 
 	if _, err := exec.LookPath("git"); err != nil {
 		slog.Warn("git sync disabled: git binary not found", "error", err)
+
 		return nil
 	}
 
@@ -109,19 +111,25 @@ func (s *Syncer) PullOnStartup(ctx context.Context) error {
 func (s *Syncer) Start(ctx context.Context) {
 	if s.autoPull {
 		s.wg.Add(1)
+
 		go func() {
 			defer s.wg.Done()
+
 			s.periodicPull(ctx)
 		}()
+
 		slog.Info("git sync: periodic pull started", "interval", s.interval)
 	}
 
 	if s.autoPush {
 		s.wg.Add(1)
+
 		go func() {
 			defer s.wg.Done()
+
 			s.pushListener(ctx)
 		}()
+
 		slog.Info("git sync: push listener started")
 	}
 }
@@ -147,9 +155,11 @@ func (s *Syncer) TriggerSync(ctx context.Context) error {
 	if err := s.pullRebase(ctx, "manual"); err != nil {
 		return err
 	}
+
 	if s.autoPush {
 		return s.pushWithRetry(ctx)
 	}
+
 	return nil
 }
 
@@ -166,7 +176,9 @@ func (s *Syncer) Status() SyncStatus {
 		t := s.lastSyncTime
 		status.LastSyncTime = &t
 	}
+
 	status.LastSyncError = s.lastSyncError
+
 	return status
 }
 
@@ -192,6 +204,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	if err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
+
 		return fmt.Errorf("get current branch: %w", err)
 	}
 
@@ -199,11 +212,13 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	if _, err := runGit(ctx, s.repoPath, gitops.GitAuthEnv(s.authMode, s.token), "fetch", "origin"); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
+
 		return fmt.Errorf("git fetch: %w", err)
 	}
 
 	// Check if we need to rebase. Compare local HEAD with remote tracking ref.
 	remote := "origin/" + branch
+
 	behind, err := s.isBehind(ctx, branch, remote)
 	if err != nil {
 		// Remote tracking ref may not exist (e.g., first push hasn't happened).
@@ -211,6 +226,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		slog.Debug("git sync: cannot determine if behind", "error", err)
 		s.setSuccess()
 		s.publishCompleted(trigger, false, time.Since(start))
+
 		return nil
 	}
 
@@ -218,6 +234,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		slog.Debug("git sync: already up to date")
 		s.setSuccess()
 		s.publishCompleted(trigger, false, time.Since(start))
+
 		return nil
 	}
 
@@ -228,6 +245,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	if _, err := runGit(ctx, s.repoPath, authEnv, "rebase", "--autostash", remote); err != nil {
 		// Rebase conflict — abort and report.
 		slog.Error("git sync: rebase conflict, aborting", "error", err)
+
 		_, _ = runGit(ctx, s.repoPath, nil, "rebase", "--abort")
 		conflictErr := fmt.Errorf("rebase conflict: %w", err)
 		s.setError(conflictErr)
@@ -237,6 +255,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 			Timestamp: time.Now(),
 			Data:      map[string]any{"trigger": trigger, "error": conflictErr.Error()},
 		})
+
 		return conflictErr
 	}
 
@@ -250,6 +269,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	if err := s.store.ReloadIndex(); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
+
 		return fmt.Errorf("reload index after pull: %w", err)
 	}
 
@@ -259,6 +279,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	slog.Info("git sync: pull completed", "trigger", trigger, "duration", time.Since(start))
 	s.setSuccess()
 	s.publishCompleted(trigger, true, time.Since(start))
+
 	return nil
 }
 
@@ -274,6 +295,7 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 	s.svc.LockWrites()
 	err := s.git.Push(ctx)
 	s.svc.UnlockWrites()
+
 	if err == nil {
 		return nil
 	}
@@ -284,11 +306,13 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		slog.Error("git sync: push failed", "error", err)
 		s.setError(err)
 		s.publishError("push", err)
+
 		return fmt.Errorf("push: %w", err)
 	}
 
 	// pullRebase acquires writeMu itself — must NOT be called under writeMu.
 	slog.Info("git sync: push rejected (non-fast-forward), pulling first")
+
 	if err := s.pullRebase(ctx, "push_retry"); err != nil {
 		return fmt.Errorf("pull before push retry: %w", err)
 	}
@@ -296,10 +320,12 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 	s.svc.LockWrites()
 	err = s.git.Push(ctx)
 	s.svc.UnlockWrites()
+
 	if err != nil {
 		slog.Error("git sync: push failed after rebase", "error", err)
 		s.setError(err)
 		s.publishError("push", err)
+
 		return fmt.Errorf("push after rebase: %w", err)
 	}
 
@@ -315,6 +341,7 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			slog.Info("git sync: periodic pull stopped")
+
 			return
 		case <-ticker.C:
 			func() {
@@ -323,10 +350,12 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 						slog.Error("git sync: periodic pull panicked", "panic", r, "stack", string(debug.Stack()))
 					}
 				}()
+
 				pull := s.pullHook
 				if pull == nil {
 					pull = s.pullRebase
 				}
+
 				if err := pull(ctx, "periodic"); err != nil {
 					slog.Error("git sync: periodic pull failed", "error", err)
 				}
@@ -341,6 +370,7 @@ func (s *Syncer) pushListener(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			slog.Info("git sync: push listener stopped")
+
 			return
 		case <-s.pushCh:
 			func() {
@@ -349,10 +379,12 @@ func (s *Syncer) pushListener(ctx context.Context) {
 						slog.Error("git sync: push listener panicked", "panic", r, "stack", string(debug.Stack()))
 					}
 				}()
+
 				push := s.pushHook
 				if push == nil {
 					push = s.pushWithRetry
 				}
+
 				if err := push(ctx); err != nil {
 					slog.Error("git sync: push failed", "error", err)
 				}
@@ -369,7 +401,9 @@ func (s *Syncer) isBehind(ctx context.Context, local, remote string) (bool, erro
 	if err != nil {
 		return false, err
 	}
+
 	count := strings.TrimSpace(out)
+
 	return count != "0", nil
 }
 
@@ -377,6 +411,7 @@ func (s *Syncer) isBehind(ctx context.Context, local, remote string) (bool, erro
 func (s *Syncer) setSyncing(syncing bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.syncing = syncing
 }
 
@@ -384,6 +419,7 @@ func (s *Syncer) setSyncing(syncing bool) {
 func (s *Syncer) setSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.lastSyncTime = time.Now()
 	s.lastSyncError = ""
 }
@@ -392,6 +428,7 @@ func (s *Syncer) setSuccess() {
 func (s *Syncer) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.lastSyncTime = time.Now()
 	s.lastSyncError = err.Error()
 }
@@ -430,6 +467,7 @@ func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (
 	}
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -440,6 +478,7 @@ func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (
 		if output == "" {
 			output = strings.TrimSpace(stdout.String())
 		}
+
 		return "", fmt.Errorf("%s: %s", err, output)
 	}
 

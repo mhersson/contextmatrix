@@ -44,6 +44,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	require.NoError(t, os.MkdirAll(projectDir, 0o755))
 	// Git doesn't track empty dirs; add a .gitkeep so tasks/ is preserved.
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".gitkeep"), nil, 0o644))
+
 	cfg := &board.ProjectConfig{
 		Name:       "test-project",
 		Prefix:     "TEST",
@@ -86,12 +87,15 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 // run executes a command and fails the test on error.
 func run(t *testing.T, dir string, name string, args ...string) string {
 	t.Helper()
+
 	cmd := exec.Command(name, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
+
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "command %s %v failed: %s", name, args, string(out))
+
 	return string(out)
 }
 
@@ -264,7 +268,7 @@ func TestPullRebase_Conflict(t *testing.T) {
 
 	// Pull should detect conflict, abort rebase, and return error.
 	err = syncer.pullRebase(ctx, "test")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rebase conflict")
 
 	// Should have emitted sync.conflict event.
@@ -348,11 +352,13 @@ func drainEvents(ch <-chan events.Event, out *[]events.Event) {
 // assertHasEventType asserts that at least one event has the given type.
 func assertHasEventType(t *testing.T, evts []events.Event, typ events.EventType) {
 	t.Helper()
+
 	for _, e := range evts {
 		if e.Type == typ {
 			return
 		}
 	}
+
 	t.Errorf("expected event type %q, got: %v", typ, evts)
 }
 
@@ -361,7 +367,7 @@ func assertHasEventType(t *testing.T, evts []events.Event, typ events.EventType)
 func TestNewSyncer_SSHMode(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 	assert.Equal(t, "ssh", syncer.authMode)
-	assert.Equal(t, "", syncer.token)
+	assert.Empty(t, syncer.token)
 	assert.Nil(t, gitops.GitAuthEnv(syncer.authMode, syncer.token),
 		"ssh mode must produce nil auth env")
 }
@@ -425,6 +431,7 @@ func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
 		if e == "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token {
 			continue // correct placement
 		}
+
 		assert.NotContains(t, e, token,
 			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
 	}
@@ -458,6 +465,7 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	syncer.svc.LockWrites()
 
 	pushDone := make(chan error, 1)
+
 	go func() {
 		pushDone <- syncer.pushWithRetry(ctx)
 	}()
@@ -483,11 +491,15 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 
 	// After pushWithRetry returns, writeMu must be free.
 	lockAcquired := make(chan struct{}, 1)
+
 	go func() {
 		syncer.svc.LockWrites()
+
 		lockAcquired <- struct{}{}
+
 		syncer.svc.UnlockWrites()
 	}()
+
 	select {
 	case <-lockAcquired:
 		// Good: lock is not leaked.
@@ -524,6 +536,7 @@ func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
 	// pushWithRetry should detect non-fast-forward, call pullRebase (which
 	// needs writeMu), then retry the push — all without deadlocking.
 	done := make(chan error, 1)
+
 	go func() {
 		done <- syncer.pushWithRetry(ctx)
 	}()
@@ -539,11 +552,15 @@ func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
 
 	// writeMu must be free after return.
 	lockAcquired := make(chan struct{}, 1)
+
 	go func() {
 		syncer.svc.LockWrites()
+
 		lockAcquired <- struct{}{}
+
 		syncer.svc.UnlockWrites()
 	}()
+
 	select {
 	case <-lockAcquired:
 		// Good.
@@ -572,6 +589,7 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 
 	var callCount int
+
 	done := make(chan struct{})
 
 	syncer.pullHook = func(_ context.Context, _ string) error {
@@ -584,6 +602,7 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 		case done <- struct{}{}:
 		default:
 		}
+
 		return nil
 	}
 
@@ -594,8 +613,10 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 	syncer.interval = 10 * time.Millisecond
 
 	syncer.wg.Add(1)
+
 	go func() {
 		defer syncer.wg.Done()
+
 		syncer.periodicPull(ctx)
 	}()
 
@@ -627,12 +648,15 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 		callCount++
 		if callCount == 1 {
 			defer close(firstDone)
+
 			panic("injected push panic")
 		}
+
 		select {
 		case done <- struct{}{}:
 		default:
 		}
+
 		return nil
 	}
 
@@ -640,8 +664,10 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 	defer cancel()
 
 	syncer.wg.Add(1)
+
 	go func() {
 		defer syncer.wg.Done()
+
 		syncer.pushListener(ctx)
 	}()
 

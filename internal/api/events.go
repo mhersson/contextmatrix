@@ -34,6 +34,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "streaming not supported", "")
+
 		return
 	}
 
@@ -54,10 +55,13 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Flush headers and send initial keepalive to trigger client onopen
 	flusher.Flush()
+
 	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
 		slog.Debug("SSE initial write failed", "error", err)
+
 		return
 	}
+
 	flusher.Flush()
 
 	// Subscribe to event bus
@@ -81,13 +85,16 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 				"project_filter", projectFilter,
 				"remote_addr", r.RemoteAddr,
 			)
+
 			return
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
 				slog.Debug("SSE keepalive write failed", "error", err)
+
 				return
 			}
+
 			flusher.Flush()
 
 		case event, ok := <-ch:
@@ -104,8 +111,10 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 			if err := writeSSEEvent(w, event); err != nil {
 				slog.Debug("SSE event write failed", "error", err)
+
 				return
 			}
+
 			flusher.Flush()
 		}
 	}
@@ -117,6 +126,8 @@ func writeSSEEvent(w io.Writer, event events.Event) error {
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
+
 	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+
 	return err
 }

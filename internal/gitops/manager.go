@@ -67,6 +67,7 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 			slog.Info("initializing new git repository", "path", absPath)
 			repo, err = git.PlainInit(absPath, false)
 		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +83,7 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 
 	// If a remote URL is provided but the repo was opened (not cloned),
 	// ensure the origin remote is configured for auto_push/auto_pull.
-	if cloneURL != "" && !mgr.hasRemote("origin") {
+	if cloneURL != "" && !mgr.hasRemote() {
 		if addErr := mgr.AddRemote("origin", cloneURL); addErr != nil {
 			slog.Warn("failed to add origin remote", "error", addErr)
 		}
@@ -105,11 +106,14 @@ func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error)
 	if len(authEnv) > 0 {
 		cmd.Env = append(os.Environ(), authEnv...)
 	}
+
 	var stderr bytes.Buffer
+
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		output := strings.TrimSpace(stderr.String())
+
 		return nil, fmt.Errorf("clone repository: %s: %s", err, output)
 	}
 
@@ -119,6 +123,7 @@ func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error)
 	}
 
 	slog.Info("boards repository cloned successfully", "path", targetDir)
+
 	return repo, nil
 }
 
@@ -126,6 +131,7 @@ func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error)
 func (m *Manager) SetAuthor(name, email string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.author = object.Signature{Name: name, Email: email}
 }
 
@@ -228,8 +234,9 @@ func (m *Manager) Pull(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.hasRemote("origin") {
+	if !m.hasRemote() {
 		slog.Warn("no remote 'origin' configured, skipping pull")
+
 		return nil
 	}
 
@@ -252,8 +259,9 @@ func (m *Manager) Push(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.hasRemote("origin") {
+	if !m.hasRemote() {
 		slog.Warn("no remote 'origin' configured, skipping push")
+
 		return nil
 	}
 
@@ -313,7 +321,9 @@ func (m *Manager) reloadRepo() error {
 	if err != nil {
 		return fmt.Errorf("reload repository: %w", err)
 	}
+
 	m.repo = repo
+
 	return nil
 }
 
@@ -331,6 +341,7 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	}
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -341,6 +352,7 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 		if output == "" {
 			output = strings.TrimSpace(stdout.String())
 		}
+
 		return fmt.Errorf("%s: %s", err, output)
 	}
 
@@ -363,19 +375,20 @@ func (m *Manager) AddRemote(name, url string) error {
 	return nil
 }
 
-// hasRemote checks if a remote with the given name exists.
+// hasRemote checks if an "origin" remote exists.
 // Must be called with mu held.
-func (m *Manager) hasRemote(name string) bool {
+func (m *Manager) hasRemote() bool {
 	remotes, err := m.repo.Remotes()
 	if err != nil {
 		return false
 	}
 
 	for _, r := range remotes {
-		if r.Config().Name == name {
+		if r.Config().Name == "origin" {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -388,7 +401,8 @@ func (m *Manager) RepoPath() string {
 func (m *Manager) HasRemote() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.hasRemote("origin")
+
+	return m.hasRemote()
 }
 
 // CurrentBranch returns the short name of the currently checked-out branch.
@@ -400,6 +414,7 @@ func (m *Manager) CurrentBranch() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get HEAD: %w", err)
 	}
+
 	return head.Name().Short(), nil
 }
 
@@ -460,6 +475,7 @@ func (m *Manager) CommitCount() (int, error) {
 	count := 0
 	_ = iter.ForEach(func(_ *object.Commit) error {
 		count++
+
 		return nil
 	})
 

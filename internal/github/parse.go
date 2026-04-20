@@ -20,10 +20,12 @@ func ParseGitHubRepo(rawURL string, allowedHosts []string) (owner, repo, host st
 		prefix := "git@" + h + ":"
 		if path, matched := strings.CutPrefix(rawURL, prefix); matched {
 			path = strings.TrimSuffix(path, ".git")
+
 			o, r, valid := splitOwnerRepo(path)
 			if valid {
 				return o, r, h, true
 			}
+
 			return "", "", "", false
 		}
 	}
@@ -39,10 +41,12 @@ func ParseGitHubRepo(rawURL string, allowedHosts []string) (owner, repo, host st
 		if hostname == h {
 			path := strings.TrimPrefix(u.Path, "/")
 			path = strings.TrimSuffix(path, ".git")
+
 			o, r, valid := splitOwnerRepo(path)
 			if valid {
 				return o, r, h, true
 			}
+
 			return "", "", "", false
 		}
 	}
@@ -55,5 +59,6 @@ func splitOwnerRepo(path string) (owner, repo string, ok bool) {
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}
+
 	return parts[0], parts[1], true
 }

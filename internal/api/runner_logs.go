@@ -23,6 +23,7 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "streaming not supported", "")
+
 		return
 	}
 
@@ -38,6 +39,7 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 
 	if cardID != "" {
 		h.streamCardSession(w, r, flusher, cardID, project)
+
 		return
 	}
 
@@ -51,6 +53,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	if h.sessionManager == nil {
 		// Session manager not configured — return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
+
 		return
 	}
 
@@ -72,6 +75,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	// writeEvent formats a sessionlog.Event as an SSE data frame and flushes.
 	writeEvent := func(evt sessionlog.Event) bool {
 		var payload map[string]any
+
 		switch evt.Type {
 		case sessionlog.EventTypeTerminal:
 			payload = map[string]any{"type": "terminal"}
@@ -85,14 +89,18 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
 			}
 		}
+
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return false
 		}
+
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
 			return false
 		}
+
 		flusher.Flush()
+
 		return true
 	}
 
@@ -103,15 +111,18 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 				"card_id", cardID,
 				"remote_addr", r.RemoteAddr,
 			)
+
 			return
 		case evt, open := <-ch:
 			if !open {
 				// Channel closed by manager (stop or unsubscribe).
 				return
 			}
+
 			if !writeEvent(evt) {
 				return
 			}
+
 			if evt.Type == sessionlog.EventTypeTerminal {
 				return
 			}
@@ -126,6 +137,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	if h.sessionManager == nil {
 		// Session manager not configured — return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
+
 		return
 	}
 
@@ -138,8 +150,11 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	// StartProject is idempotent — safe to call on every connection.
 	if err := h.sessionManager.StartProject(r.Context(), project); err != nil {
 		slog.Error("runner SSE: failed to start project session", "project", project, "error", err)
+
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
+
 		flusher.Flush()
+
 		return
 	}
 
@@ -154,6 +169,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	// writeEvent formats a sessionlog.Event as an SSE data frame and flushes.
 	writeEvent := func(evt sessionlog.Event) bool {
 		var payload map[string]any
+
 		switch evt.Type {
 		case sessionlog.EventTypeTerminal:
 			payload = map[string]any{"type": "terminal"}
@@ -167,14 +183,18 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
 			}
 		}
+
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return false
 		}
+
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
 			return false
 		}
+
 		flusher.Flush()
+
 		return true
 	}
 
@@ -185,15 +205,18 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 				"project", project,
 				"remote_addr", r.RemoteAddr,
 			)
+
 			return
 		case evt, open := <-ch:
 			if !open {
 				// Channel closed by manager (stop or unsubscribe).
 				return
 			}
+
 			if !writeEvent(evt) {
 				return
 			}
+
 			if evt.Type == sessionlog.EventTypeTerminal {
 				return
 			}

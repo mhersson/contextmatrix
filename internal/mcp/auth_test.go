@@ -10,6 +10,7 @@ import (
 
 func TestMCPAuthMiddleware(t *testing.T) {
 	const apiKey = "test-secret-key"
+
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -61,6 +62,7 @@ func TestMCPAuthMiddleware(t *testing.T) {
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
+
 			w := httptest.NewRecorder()
 
 			handler.ServeHTTP(w, req)

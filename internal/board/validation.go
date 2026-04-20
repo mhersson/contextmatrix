@@ -77,6 +77,7 @@ func (v *Validator) ValidateType(cfg *ProjectConfig, cardType string) error {
 	if cardType == SubtaskType {
 		return nil
 	}
+
 	if !slices.Contains(cfg.Types, cardType) {
 		return &ValidationError{
 			Err:     ErrInvalidType,
@@ -86,6 +87,7 @@ func (v *Validator) ValidateType(cfg *ProjectConfig, cardType string) error {
 			Message: fmt.Sprintf("invalid type %q; valid types: %v", cardType, cfg.Types),
 		}
 	}
+
 	return nil
 }
 
@@ -101,6 +103,7 @@ func (v *Validator) ValidateState(cfg *ProjectConfig, cardState string) error {
 			Message: fmt.Sprintf("invalid state %q; valid states: %v", cardState, cfg.States),
 		}
 	}
+
 	return nil
 }
 
@@ -116,6 +119,7 @@ func (v *Validator) ValidatePriority(cfg *ProjectConfig, cardPriority string) er
 			Message: fmt.Sprintf("invalid priority %q; valid priorities: %v", cardPriority, cfg.Priorities),
 		}
 	}
+
 	return nil
 }
 
@@ -136,6 +140,7 @@ func (v *Validator) ValidateTransition(cfg *ProjectConfig, fromState, toState st
 			Message: fmt.Sprintf("invalid source state %q; valid states: %v", fromState, cfg.States),
 		}
 	}
+
 	if !slices.Contains(cfg.States, toState) {
 		return &ValidationError{
 			Err:     ErrInvalidState,
@@ -178,6 +183,7 @@ func (v *Validator) ValidateSource(card *Card) error {
 	if card.Source == nil || card.Source.ExternalURL == "" {
 		return nil
 	}
+
 	parsed, err := url.Parse(card.Source.ExternalURL)
 	if err != nil {
 		return &ValidationError{
@@ -187,6 +193,7 @@ func (v *Validator) ValidateSource(card *Card) error {
 			Message: fmt.Sprintf("invalid source.external_url %q: %v", card.Source.ExternalURL, err),
 		}
 	}
+
 	scheme := strings.ToLower(parsed.Scheme)
 	if scheme != "http" && scheme != "https" {
 		return &ValidationError{
@@ -197,6 +204,7 @@ func (v *Validator) ValidateSource(card *Card) error {
 			Message: fmt.Sprintf("invalid source.external_url %q: scheme must be http or https", card.Source.ExternalURL),
 		}
 	}
+
 	return nil
 }
 
@@ -207,18 +215,23 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 	if err := v.ValidateType(cfg, card.Type); err != nil {
 		return err
 	}
+
 	if err := v.ValidateState(cfg, card.State); err != nil {
 		return err
 	}
+
 	if err := v.ValidatePriority(cfg, card.Priority); err != nil {
 		return err
 	}
+
 	if err := v.ValidateAutonomousFields(card); err != nil {
 		return err
 	}
+
 	if err := v.ValidateSource(card); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -240,6 +253,7 @@ func (v *Validator) ValidateRunnerStatus(status string) error {
 			Message: fmt.Sprintf("invalid runner_status %q; valid values: %v", status, validRunnerStatuses[1:]),
 		}
 	}
+
 	return nil
 }
 
@@ -255,6 +269,7 @@ func (v *Validator) ValidateRunnerCallbackStatus(status string) error {
 			Message: fmt.Sprintf("invalid runner callback status %q; valid values: %v", status, validRunnerCallbackStatuses),
 		}
 	}
+
 	return nil
 }
 
@@ -269,6 +284,7 @@ func (v *Validator) ValidateAutonomousFields(card *Card) error {
 			Message: "create_pr requires feature_branch to be enabled",
 		}
 	}
+
 	return nil
 }
 
@@ -304,6 +320,7 @@ func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []s
 	result := make([]string, len(explicit)+1)
 	copy(result, explicit)
 	result[len(explicit)] = StateStalled
+
 	return result
 }
 
@@ -315,6 +332,7 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 	if err := v.ValidateState(cfg, fromState); err != nil {
 		return nil, err
 	}
+
 	if err := v.ValidateState(cfg, toState); err != nil {
 		return nil, err
 	}
@@ -335,6 +353,7 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 			if _, seen := visited[next]; seen {
 				continue
 			}
+
 			visited[next] = current
 			if next == toState {
 				// Reconstruct path
@@ -346,8 +365,10 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 					path[i], path[j] = path[j], path[i]
 				}
+
 				return path, nil
 			}
+
 			queue = append(queue, next)
 		}
 	}

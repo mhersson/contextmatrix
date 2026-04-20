@@ -1,7 +1,6 @@
 package board
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -52,7 +51,7 @@ func TestValidateType(t *testing.T) {
 			err := v.ValidateType(cfg, tt.cardType)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantSentinel)
+				require.ErrorIs(t, err, tt.wantSentinel)
 
 				var ve *ValidationError
 				require.ErrorAs(t, err, &ve)
@@ -88,7 +87,7 @@ func TestValidateState(t *testing.T) {
 			err := v.ValidateState(cfg, tt.cardState)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantSentinel)
+				require.ErrorIs(t, err, tt.wantSentinel)
 
 				var ve *ValidationError
 				require.ErrorAs(t, err, &ve)
@@ -125,7 +124,7 @@ func TestValidatePriority(t *testing.T) {
 			err := v.ValidatePriority(cfg, tt.priority)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantSentinel)
+				require.ErrorIs(t, err, tt.wantSentinel)
 
 				var ve *ValidationError
 				require.ErrorAs(t, err, &ve)
@@ -196,8 +195,8 @@ func TestValidateTransition_StalledRules(t *testing.T) {
 		// FROM stalled follows Transitions["stalled"]
 		{"stalled to todo", "stalled", "todo", false},
 		{"stalled to in_progress", "stalled", "in_progress", false},
-		{"stalled to review", "stalled", "review", true},  // not in Transitions["stalled"]
-		{"stalled to done", "stalled", "done", true},      // not in Transitions["stalled"]
+		{"stalled to review", "stalled", "review", true}, // not in Transitions["stalled"]
+		{"stalled to done", "stalled", "done", true},     // not in Transitions["stalled"]
 
 		// stalled to stalled is same-state (valid)
 		{"stalled to stalled", "stalled", "stalled", false},
@@ -207,8 +206,8 @@ func TestValidateTransition_StalledRules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := v.ValidateTransition(cfg, tt.from, tt.to)
 			if tt.wantErr {
-				assert.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidTransition)
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidTransition)
 			} else {
 				assert.NoError(t, err)
 			}
@@ -228,9 +227,9 @@ func TestValidateTransition_NotPlannedRules(t *testing.T) {
 	}{
 		// not_planned follows normal transition rules (only explicit transitions)
 		// In test config, only todo does NOT list not_planned, so todo->not_planned fails
-		{"todo to not_planned", "todo", "not_planned", true},           // not in Transitions["todo"]
+		{"todo to not_planned", "todo", "not_planned", true},               // not in Transitions["todo"]
 		{"in_progress to not_planned", "in_progress", "not_planned", true}, // not in Transitions["in_progress"]
-		{"done to not_planned", "done", "not_planned", true},           // not in Transitions["done"]
+		{"done to not_planned", "done", "not_planned", true},               // not in Transitions["done"]
 
 		// FROM not_planned follows Transitions["not_planned"]
 		{"not_planned to todo", "not_planned", "todo", false},
@@ -245,8 +244,8 @@ func TestValidateTransition_NotPlannedRules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := v.ValidateTransition(cfg, tt.from, tt.to)
 			if tt.wantErr {
-				assert.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidTransition)
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidTransition)
 			} else {
 				assert.NoError(t, err)
 			}
@@ -285,7 +284,7 @@ func TestValidateTransition_InvalidStates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := v.ValidateTransition(cfg, tt.from, tt.to)
 			require.Error(t, err)
-			assert.ErrorIs(t, err, ErrInvalidState)
+			require.ErrorIs(t, err, ErrInvalidState)
 
 			var ve *ValidationError
 			require.ErrorAs(t, err, &ve)
@@ -344,7 +343,8 @@ func TestValidateCard(t *testing.T) {
 		card.Source = &Source{System: "jira", ExternalURL: "javascript:alert(1)"}
 		err := v.ValidateCard(cfg, &card)
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrInvalidExternalURL)
+		require.ErrorIs(t, err, ErrInvalidExternalURL)
+
 		var ve *ValidationError
 		require.ErrorAs(t, err, &ve)
 		assert.Equal(t, "source.external_url", ve.Field)
@@ -469,7 +469,7 @@ func TestFindShortestPath_NoPath(t *testing.T) {
 
 	path, err := v.FindShortestPath(cfg, "b", "a")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNoPath)
+	require.ErrorIs(t, err, ErrNoPath)
 	assert.Nil(t, path)
 }
 
@@ -514,11 +514,11 @@ func TestValidationError_Unwrap(t *testing.T) {
 		Message: "invalid type",
 	}
 
-	assert.True(t, errors.Is(ve, ErrInvalidType))
-	assert.False(t, errors.Is(ve, ErrInvalidState))
+	require.ErrorIs(t, ve, ErrInvalidType)
+	require.NotErrorIs(t, ve, ErrInvalidState)
 
 	var unwrapped *ValidationError
-	assert.True(t, errors.As(ve, &unwrapped))
+	require.ErrorAs(t, ve, &unwrapped)
 	assert.Equal(t, "type", unwrapped.Field)
 }
 
@@ -567,7 +567,8 @@ func TestValidateAutonomousFields(t *testing.T) {
 			err := v.ValidateAutonomousFields(&tt.card)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidAutonomousConfig)
+				require.ErrorIs(t, err, ErrInvalidAutonomousConfig)
+
 				var ve *ValidationError
 				require.ErrorAs(t, err, &ve)
 				assert.Equal(t, "create_pr", ve.Field)
@@ -633,10 +634,11 @@ func TestValidateSource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			card := &Card{Source: tt.source}
+
 			err := v.ValidateSource(card)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantSentinel)
+				require.ErrorIs(t, err, tt.wantSentinel)
 
 				var ve *ValidationError
 				require.ErrorAs(t, err, &ve)
@@ -717,9 +719,10 @@ func TestValidateRunnerStatus(t *testing.T) {
 
 	t.Run("rejects invalid status", func(t *testing.T) {
 		err := v.ValidateRunnerStatus("invalid")
-		assert.Error(t, err)
+		require.Error(t, err)
+
 		var ve *ValidationError
-		assert.ErrorAs(t, err, &ve)
+		require.ErrorAs(t, err, &ve)
 		assert.Equal(t, "runner_status", ve.Field)
 	})
 }

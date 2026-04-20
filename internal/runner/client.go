@@ -135,6 +135,7 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 		case <-time.After(backoff):
 		}
 	}
+
 	return fmt.Errorf("runner webhook failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -144,6 +145,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(signatureHeader, "sha256="+signature)
 	req.Header.Set(timestampHeader, ts)
@@ -152,6 +154,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -170,6 +173,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
+
 	if !result.OK {
 		// Runner explicitly rejected — do not retry.
 		return &webhookError{
@@ -199,5 +203,6 @@ func isClientError(err error) bool {
 	if errors.As(err, &we) {
 		return we.clientErr || (we.statusCode >= 400 && we.statusCode < 500)
 	}
+
 	return false
 }

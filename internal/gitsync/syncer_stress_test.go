@@ -3,7 +3,6 @@ package gitsync
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,13 +23,13 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		numCards      = 10
-		goroutines    = 100  // goroutines per run; each does 10 heartbeats
+		numCards       = 10
+		goroutines     = 100 // goroutines per run; each does 10 heartbeats
 		heartbeatsEach = 10  // heartbeats per goroutine
-		semSize       = 8   // bounded concurrency under -race
-		testDuration  = 5 * time.Second
-		pushInterval  = 100 * time.Millisecond
-		minSuccessful = 3   // floor: at least this many pushes must succeed
+		semSize        = 8   // bounded concurrency under -race
+		testDuration   = 5 * time.Second
+		pushInterval   = 100 * time.Millisecond
+		minSuccessful  = 3 // floor: at least this many pushes must succeed
 	)
 
 	// --- Seed cards and claim each with a unique agent ---
@@ -58,10 +57,10 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	sem := make(chan struct{}, semSize)
 
 	var (
-		hbMu  sync.Mutex
+		hbMu   sync.Mutex
 		hbErrs []error
 
-		pushMu sync.Mutex
+		pushMu   sync.Mutex
 		pushErrs []error
 		pushOK   int
 	)
@@ -69,16 +68,20 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	// Ticker goroutine: push every pushInterval for the full test window.
 	var pushWg sync.WaitGroup
 	pushWg.Add(1)
+
 	go func() {
 		defer pushWg.Done()
+
 		ticker := time.NewTicker(pushInterval)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-stressCtx.Done():
 				return
 			case <-ticker.C:
 				err := syncer.pushWithRetry(stressCtx)
+
 				pushMu.Lock()
 				if err == nil {
 					pushOK++
@@ -94,10 +97,12 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	var hbWg sync.WaitGroup
 	for i := range goroutines {
 		hbWg.Add(1)
+
 		go func(goroutineIdx int) {
 			defer hbWg.Done()
 
 			sem <- struct{}{} // acquire semaphore slot
+
 			defer func() { <-sem }()
 
 			cardIdx := goroutineIdx % numCards
@@ -111,7 +116,9 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 					if stressCtx.Err() != nil {
 						return
 					}
+
 					hbMu.Lock()
+
 					hbErrs = append(hbErrs, err)
 					hbMu.Unlock()
 				}
@@ -129,9 +136,9 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	// No heartbeat error must contain index.lock strings.
 	for _, err := range hbErrs {
 		msg := err.Error()
-		assert.False(t, strings.Contains(msg, "index.lock"),
+		assert.NotContains(t, msg, "index.lock",
 			"heartbeat error contains index.lock: %v", err)
-		assert.False(t, strings.Contains(msg, "unable to lock"),
+		assert.NotContains(t, msg, "unable to lock",
 			"heartbeat error contains 'unable to lock': %v", err)
 	}
 
@@ -141,9 +148,9 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	// No push error must mention index.lock.
 	for _, err := range pushErrs {
 		msg := err.Error()
-		assert.False(t, strings.Contains(msg, "index.lock"),
+		assert.NotContains(t, msg, "index.lock",
 			"push error contains index.lock: %v", err)
-		assert.False(t, strings.Contains(msg, "unable to lock"),
+		assert.NotContains(t, msg, "unable to lock",
 			"push error contains 'unable to lock': %v", err)
 	}
 

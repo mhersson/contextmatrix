@@ -200,7 +200,7 @@ func TestSaveProjectConfig_ValidatesBeforeWrite(t *testing.T) {
 	}
 
 	err := SaveProjectConfig(dir, cfg)
-	assert.ErrorIs(t, err, ErrInvalidProjectConfig)
+	require.ErrorIs(t, err, ErrInvalidProjectConfig)
 
 	// File should not have been created
 	_, err = os.Stat(filepath.Join(dir, ".board.yaml"))
@@ -373,6 +373,7 @@ func TestLoadTemplates_AllTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, templates, 3)
+
 	for name, expectedContent := range templateContents {
 		assert.Equal(t, expectedContent, templates[name])
 	}
@@ -476,6 +477,7 @@ func TestDiscoverProjects_MultipleProjects(t *testing.T) {
 	for i, p := range projects {
 		names[i] = p.Name
 	}
+
 	assert.Contains(t, names, "alpha")
 	assert.Contains(t, names, "beta")
 	assert.Contains(t, names, "gamma")
@@ -575,6 +577,7 @@ func TestDiscoverProjects_SkipsInvalidConfigs(t *testing.T) {
 	invalidDir := filepath.Join(boardsDir, "invalid")
 	err = os.MkdirAll(invalidDir, 0755)
 	require.NoError(t, err)
+
 	yaml := `name: invalid
 prefix: INV
 next_id: 1

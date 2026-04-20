@@ -30,6 +30,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "", "path to config file")
+
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -45,6 +46,7 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
 	slog.Info("config loaded", "path", *configPath)
 	slog.Info("boards git auth", "mode", cfg.Boards.GitAuthMode)
 
@@ -61,11 +63,13 @@ func main() {
 	if cfg.Boards.GitCloneOnEmpty {
 		cloneURL = cfg.Boards.GitRemoteURL
 	}
+
 	git, err := gitops.NewManager(cfg.Boards.Dir, cloneURL, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
 	if err != nil {
 		slog.Error("failed to create git manager", "error", err)
 		os.Exit(1)
 	}
+
 	slog.Info("git manager initialized", "repo_path", cfg.Boards.Dir)
 
 	// Initialize storage
@@ -74,10 +78,12 @@ func main() {
 		slog.Error("failed to create storage", "error", err)
 		os.Exit(1)
 	}
+
 	slog.Info("storage initialized", "boards_dir", cfg.Boards.Dir)
 
 	// Initialize event bus
 	bus := events.NewBus()
+
 	slog.Info("event bus initialized")
 
 	// Initialize lock manager
@@ -95,6 +101,7 @@ func main() {
 
 	// Initialize card service
 	svc := service.NewCardService(store, git, lockMgr, bus, cfg.Boards.Dir, tokenCosts, cfg.Boards.GitAutoCommit, cfg.Boards.GitDeferredCommit)
+
 	slog.Info("card service initialized")
 
 	// Create context for background tasks
@@ -106,17 +113,21 @@ func main() {
 
 	// Initialize git sync
 	var syncer *gitsync.Syncer
+
 	if git.HasRemote() {
 		pullInterval, _ := cfg.PullIntervalDuration()
+
 		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.Boards.Dir,
 			cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
 		if syncer != nil {
 			if err := syncer.PullOnStartup(ctx); err != nil {
 				slog.Warn("initial pull failed", "error", err)
 			}
+
 			if cfg.Boards.GitAutoPush {
 				svc.SetOnCommit(syncer.NotifyCommit)
 			}
+
 			syncer.Start(ctx)
 			slog.Info("git sync initialized",
 				"auto_pull", cfg.Boards.GitAutoPull,
@@ -128,6 +139,7 @@ func main() {
 
 	// Start GitHub issue syncer if configured
 	var ghSyncer *ghimport.Syncer
+
 	if cfg.GitHub.IssueImporting.Enabled {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
 		ghClient := ghimport.NewClientWithBaseURL(cfg.GitHub.Token, cfg.GitHub.ResolvedAPIBaseURL())
@@ -174,10 +186,12 @@ func main() {
 
 	// Create MCP server and register on the mux
 	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
+
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
 	if cfg.MCPAPIKey != "" {
 		slog.Info("MCP authentication enabled")
 	}
+
 	wrappedMCPHandler := api.WrapMCPHandler(mcpHandler)
 	mux.Handle("POST /mcp", wrappedMCPHandler)
 	mux.Handle("GET /mcp", wrappedMCPHandler)
@@ -188,8 +202,10 @@ func main() {
 	distFS, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
 		slog.Error("failed to create dist filesystem", "error", err)
-		os.Exit(1)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
 	}
+
 	handler := newSPAHandler(mux, distFS)
 
 	server := &http.Server{
@@ -202,16 +218,20 @@ func main() {
 	}
 
 	errCh := make(chan error, 1)
+
 	go func() {
 		slog.Info("starting server", "port", cfg.Port)
+
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
+
 			errCh <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
 	select {
 	case <-quit:
 	case err := <-errCh:
@@ -227,6 +247,7 @@ func main() {
 	if syncer != nil {
 		syncer.Wait()
 	}
+
 	if ghSyncer != nil {
 		ghSyncer.Wait()
 	}
@@ -236,6 +257,7 @@ func main() {
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "error", err)
+		shutdownCancel()
 		os.Exit(1)
 	}
 
@@ -248,9 +270,11 @@ func main() {
 // for client-side routing.
 func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(fsys))
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/healthz" || r.URL.Path == "/mcp" {
 			apiHandler.ServeHTTP(w, r)
+
 			return
 		}
 
@@ -259,8 +283,10 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 		if path == "" {
 			path = "index.html"
 		}
+
 		if _, err := fs.Stat(fsys, path); err == nil {
 			fileServer.ServeHTTP(w, r)
+
 			return
 		}
 

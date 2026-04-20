@@ -12,37 +12,37 @@ import (
 
 // Card represents a task card with YAML frontmatter and markdown body.
 type Card struct {
-	ID            string          `yaml:"id"              json:"id"`
-	Title         string          `yaml:"title"           json:"title"`
-	Project       string          `yaml:"project"         json:"project"`
-	Type          string          `yaml:"type"            json:"type"`
-	State         string          `yaml:"state"           json:"state"`
-	Priority      string          `yaml:"priority"        json:"priority"`
-	AssignedAgent string          `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
-	LastHeartbeat *time.Time      `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
-	Parent        string          `yaml:"parent,omitempty"         json:"parent,omitempty"`
-	Subtasks      []string        `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
-	DependsOn       []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
-	DependenciesMet *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
-	Context       []string        `yaml:"context,omitempty"        json:"context,omitempty"`
-	Labels        []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
-	Source        *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
-	Custom         map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
+	ID                  string          `yaml:"id"              json:"id"`
+	Title               string          `yaml:"title"           json:"title"`
+	Project             string          `yaml:"project"         json:"project"`
+	Type                string          `yaml:"type"            json:"type"`
+	State               string          `yaml:"state"           json:"state"`
+	Priority            string          `yaml:"priority"        json:"priority"`
+	AssignedAgent       string          `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
+	LastHeartbeat       *time.Time      `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
+	Parent              string          `yaml:"parent,omitempty"         json:"parent,omitempty"`
+	Subtasks            []string        `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
+	DependsOn           []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
+	DependenciesMet     *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
+	Context             []string        `yaml:"context,omitempty"        json:"context,omitempty"`
+	Labels              []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
+	Source              *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
+	Custom              map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous"`
 	UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
 	Vetted              bool            `yaml:"vetted,omitempty"               json:"vetted"`
-	FeatureBranch  bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
-	CreatePR       bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
-	BranchName     string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
-	BaseBranch     string          `yaml:"base_branch,omitempty"     json:"base_branch,omitempty"`
-	PRUrl          string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
-	ReviewAttempts int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
-	RunnerStatus   string          `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`
-	TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
-	Created        time.Time       `yaml:"created"                   json:"created"`
-	Updated        time.Time       `yaml:"updated"                   json:"updated"`
-	ActivityLog    []ActivityEntry `yaml:"activity_log,omitempty"    json:"activity_log,omitempty"`
-	Body           string          `yaml:"-"                         json:"body"`
+	FeatureBranch       bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
+	CreatePR            bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
+	BranchName          string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
+	BaseBranch          string          `yaml:"base_branch,omitempty"     json:"base_branch,omitempty"`
+	PRUrl               string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
+	ReviewAttempts      int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
+	RunnerStatus        string          `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`
+	TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
+	Created             time.Time       `yaml:"created"                   json:"created"`
+	Updated             time.Time       `yaml:"updated"                   json:"updated"`
+	ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"    json:"activity_log,omitempty"`
+	Body                string          `yaml:"-"                         json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.
@@ -118,6 +118,7 @@ func ParseCard(data []byte) (*Card, error) {
 	if len(body) > 0 && body[0] == '\n' {
 		body = body[1:]
 	}
+
 	card.Body = string(body)
 
 	return &card, nil
@@ -135,6 +136,7 @@ func SerializeCard(card *Card) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal card: %w", err)
 	}
+
 	buf.Write(yamlData)
 
 	// Write closing delimiter

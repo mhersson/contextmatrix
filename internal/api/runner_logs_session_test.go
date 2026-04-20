@@ -31,13 +31,17 @@ type sseTestEvent struct {
 // the client disconnects.  readyCh is closed once the HTTP headers are sent.
 func fakeRunnerServer(t *testing.T, eventCh <-chan sseTestEvent, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
+
 	var once sync.Once
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
 			return
 		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
@@ -50,13 +54,16 @@ func fakeRunnerServer(t *testing.T, eventCh <-chan sseTestEvent, readyCh chan st
 				"content": evt.Content,
 				"card_id": evt.CardID,
 			}
+
 			b, err := json.Marshal(payload)
 			if err != nil {
 				return
 			}
+
 			if _, err = fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
 				return
 			}
+
 			flusher.Flush()
 		}
 		// Channel closed — hold the connection until the client disconnects.
@@ -68,19 +75,25 @@ func fakeRunnerServer(t *testing.T, eventCh <-chan sseTestEvent, readyCh chan st
 // raw JSON strings from each "data:" line, plus a cancel function to disconnect.
 func connectSSEClient(t *testing.T, url string) (<-chan string, context.CancelFunc) {
 	t.Helper()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan string, 64)
+
 	go func() {
 		defer close(ch)
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return
 		}
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return
 		}
+
 		defer func() { _ = resp.Body.Close() }()
+
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -95,12 +108,14 @@ func connectSSEClient(t *testing.T, url string) (<-chan string, context.CancelFu
 			}
 		}
 	}()
+
 	return ch, cancel
 }
 
 // drainNStr reads at most n strings from ch within timeout.
 func drainNStr(ch <-chan string, n int, timeout time.Duration) []string {
 	deadline := time.After(timeout)
+
 	var out []string
 	for len(out) < n {
 		select {
@@ -108,19 +123,23 @@ func drainNStr(ch <-chan string, n int, timeout time.Duration) []string {
 			if !ok {
 				return out
 			}
+
 			out = append(out, s)
 		case <-deadline:
 			return out
 		}
 	}
+
 	return out
 }
 
 // parseJSONMap unmarshals a raw JSON string into a map for field assertions.
 func parseJSONMap(t *testing.T, raw string) map[string]any {
 	t.Helper()
+
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(raw), &m))
+
 	return m
 }
 
@@ -134,11 +153,14 @@ func parseJSONMap(t *testing.T, raw string) map[string]any {
 //  5. Stop the session. Client B receives a terminal event and the channel closes.
 //  6. After Stop, Snapshot is empty.
 func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
-	const cardID = "SESS-001"
-	const project = "alpha"
+	const (
+		cardID  = "SESS-001"
+		project = "alpha"
+	)
 
 	upstreamCh := make(chan sseTestEvent, 32)
 	readyCh := make(chan struct{})
+
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
@@ -162,6 +184,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 
 	// Wire the handler and expose it via an httptest server.
 	rh := &runnerHandlers{sessionManager: mgr}
+
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rh.streamRunnerLogs(w, r)
 	}))
@@ -172,6 +195,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	// Client A connects, receives the 1 buffered event (snapshot), then disconnects.
 	chA, cancelA := connectSSEClient(t, clientURL)
 	gotA := drainNStr(chA, 1, 5*time.Second)
+
 	cancelA()
 	require.Len(t, gotA, 1, "client A should receive the question event")
 	m := parseJSONMap(t, gotA[0])
@@ -180,6 +204,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 
 	// Emit 2 more events while no client is attached.
 	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "thinking…", CardID: cardID}
+
 	upstreamCh <- sseTestEvent{Seq: 3, Type: "tool_call", Content: "tool X", CardID: cardID}
 
 	// Wait until all 3 events are buffered.
@@ -190,6 +215,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	// Client B connects — should replay the full 3-event snapshot.
 	chB, cancelB := connectSSEClient(t, clientURL)
 	defer cancelB()
+
 	gotB := drainNStr(chB, 3, 5*time.Second)
 	require.Len(t, gotB, 3, "client B should replay all 3 buffered events")
 
@@ -221,12 +247,15 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 // TestStreamCardSession_CrossCardFilter verifies that events for a different
 // card ID (Y) are NOT buffered into card X's session.
 func TestStreamCardSession_CrossCardFilter(t *testing.T) {
-	const cardX = "SESS-X01"
-	const cardY = "SESS-Y01"
-	const project = "beta"
+	const (
+		cardX   = "SESS-X01"
+		cardY   = "SESS-Y01"
+		project = "beta"
+	)
 
 	upstreamCh := make(chan sseTestEvent, 32)
 	readyCh := make(chan struct{})
+
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
@@ -280,12 +309,15 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 //  7. mgr.StopProject("P"); assert client B gets a terminal event or channel close.
 //  8. Assert mgr.SnapshotProject("P") is empty after Stop.
 func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
-	const cardX = "PROJ-X01"
-	const cardY = "PROJ-Y01"
-	const project = "proj-p"
+	const (
+		cardX   = "PROJ-X01"
+		cardY   = "PROJ-Y01"
+		project = "proj-p"
+	)
 
 	upstreamCh := make(chan sseTestEvent, 32)
 	readyCh := make(chan struct{})
+
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
@@ -301,7 +333,9 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Emit events for both cards X and Y.
 	upstreamCh <- sseTestEvent{Seq: 1, Type: "user", Content: "msg-x-1", CardID: cardX}
+
 	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "msg-y-1", CardID: cardY}
+
 	upstreamCh <- sseTestEvent{Seq: 3, Type: "tool_call", Content: "msg-x-2", CardID: cardX}
 
 	// Wait until all 3 events are buffered.
@@ -311,6 +345,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Wire the handler and expose it via an httptest server.
 	rh := &runnerHandlers{sessionManager: mgr}
+
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rh.streamRunnerLogs(w, r)
 	}))
@@ -321,6 +356,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	// Client A connects, receives the 3 buffered events (snapshot), then disconnects.
 	chA, cancelA := connectSSEClient(t, clientURL)
 	gotA := drainNStr(chA, 3, 5*time.Second)
+
 	cancelA()
 	require.Len(t, gotA, 3, "client A should receive all 3 snapshot events")
 
@@ -335,6 +371,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 
 	// Emit 2 more events while no client is attached.
 	upstreamCh <- sseTestEvent{Seq: 4, Type: "text", Content: "msg-y-2", CardID: cardY}
+
 	upstreamCh <- sseTestEvent{Seq: 5, Type: "text", Content: "msg-x-3", CardID: cardX}
 
 	// Wait until all 5 events are buffered.
@@ -345,6 +382,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	// Client B connects — should replay the full 5-event snapshot.
 	chB, cancelB := connectSSEClient(t, clientURL)
 	defer cancelB()
+
 	gotB := drainNStr(chB, 5, 5*time.Second)
 	require.Len(t, gotB, 5, "client B should replay all 5 buffered events")
 

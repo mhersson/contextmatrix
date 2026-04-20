@@ -43,6 +43,7 @@ func setupTestStore(t *testing.T) (*storage.FilesystemStore, string) {
 
 func createTestCard(t *testing.T, store storage.Store, project string, id string, agent string) *board.Card {
 	t.Helper()
+
 	now := time.Now()
 
 	card := &board.Card{
@@ -122,7 +123,7 @@ func TestClaim_AlreadyClaimed_DifferentAgent(t *testing.T) {
 	card, err := mgr.Claim(ctx, "test-project", "TEST-001", "agent-2")
 
 	assert.Nil(t, card)
-	assert.ErrorIs(t, err, ErrAlreadyClaimed)
+	require.ErrorIs(t, err, ErrAlreadyClaimed)
 	assert.Contains(t, err.Error(), "agent-1")
 }
 
@@ -160,7 +161,7 @@ func TestRelease_Success(t *testing.T) {
 	card, err := mgr.Release(ctx, "test-project", "TEST-001", "agent-1")
 	require.NoError(t, err)
 
-	assert.Equal(t, "", card.AssignedAgent)
+	assert.Empty(t, card.AssignedAgent)
 	assert.Nil(t, card.LastHeartbeat)
 }
 
@@ -191,7 +192,7 @@ func TestRelease_AgentMismatch(t *testing.T) {
 	card, err := mgr.Release(ctx, "test-project", "TEST-001", "agent-2")
 
 	assert.Nil(t, card)
-	assert.ErrorIs(t, err, ErrAgentMismatch)
+	require.ErrorIs(t, err, ErrAgentMismatch)
 	assert.Contains(t, err.Error(), "agent-1")
 }
 
@@ -312,6 +313,7 @@ func TestFindStalled_WithStalledCards(t *testing.T) {
 	// Re-initialize store to reload from disk (get the stalled card's old heartbeat)
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
+
 	mgr := NewManager(store, 100*time.Millisecond)
 
 	stalled, err := mgr.FindStalled(ctx)
@@ -345,6 +347,7 @@ func TestFindStalled_ClaimedNoHeartbeat(t *testing.T) {
 	// Re-initialize store to reload from disk
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
+
 	mgr := NewManager(store, 30*time.Minute)
 
 	stalled, err := mgr.FindStalled(ctx)
@@ -380,6 +383,7 @@ func TestFindStalled_MultipleProjects(t *testing.T) {
 
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	oldTime := time.Now().Add(-1 * time.Hour)
@@ -417,6 +421,7 @@ func TestFindStalled_MultipleProjects(t *testing.T) {
 	// Re-initialize store to reload from disk
 	store, err = storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
+
 	mgr := NewManager(store, 100*time.Millisecond)
 
 	stalled, err := mgr.FindStalled(ctx)
@@ -429,6 +434,7 @@ func TestFindStalled_MultipleProjects(t *testing.T) {
 	for _, s := range stalled {
 		projects[s.Project] = true
 	}
+
 	assert.True(t, projects["project-alpha"])
 	assert.True(t, projects["project-beta"])
 }
@@ -437,6 +443,7 @@ func TestFindStalled_EmptyStore(t *testing.T) {
 	boardsDir := t.TempDir()
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
+
 	mgr := NewManager(store, 30*time.Minute)
 	ctx := context.Background()
 
@@ -499,11 +506,7 @@ func TestSentinelErrors(t *testing.T) {
 	// Verify sentinel errors can be used with errors.Is
 	wrapped := errors.New("test")
 
-	assert.False(t, errors.Is(wrapped, ErrAlreadyClaimed))
-	assert.False(t, errors.Is(wrapped, ErrNotClaimed))
-	assert.False(t, errors.Is(wrapped, ErrAgentMismatch))
-
-	assert.True(t, errors.Is(ErrAlreadyClaimed, ErrAlreadyClaimed))
-	assert.True(t, errors.Is(ErrNotClaimed, ErrNotClaimed))
-	assert.True(t, errors.Is(ErrAgentMismatch, ErrAgentMismatch))
+	require.NotErrorIs(t, wrapped, ErrAlreadyClaimed)
+	require.NotErrorIs(t, wrapped, ErrNotClaimed)
+	assert.NotErrorIs(t, wrapped, ErrAgentMismatch)
 }

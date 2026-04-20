@@ -22,13 +22,17 @@ import (
 // readyCh is closed once the handler is invoked (after headers are flushed).
 func sseServer(t *testing.T, events []Event, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
+
 	var once sync.Once
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
 			return
 		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
@@ -46,9 +50,11 @@ func sseServer(t *testing.T, events []Event, readyCh chan struct{}) *httptest.Se
 			if err != nil {
 				return
 			}
+
 			if _, err = fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				return
 			}
+
 			flusher.Flush()
 		}
 		// Hold open until client disconnects.
@@ -60,12 +66,15 @@ func sseServer(t *testing.T, events []Event, readyCh chan struct{}) *httptest.Se
 // open without sending any events, until the client disconnects.
 func sseServerInfinite(t *testing.T) *httptest.Server {
 	t.Helper()
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
 			return
 		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
@@ -84,12 +93,14 @@ func newTestEvents(n int) []Event {
 			Payload:   fmt.Appendf(nil, "msg-%d", i+1),
 		}
 	}
+
 	return evts
 }
 
 // drainN reads at most n events from ch within timeout, returning what arrived.
 func drainN(ch <-chan Event, n int, timeout time.Duration) []Event {
 	deadline := time.After(timeout)
+
 	var out []Event
 	for len(out) < n {
 		select {
@@ -97,11 +108,13 @@ func drainN(ch <-chan Event, n int, timeout time.Duration) []Event {
 			if !ok {
 				return out
 			}
+
 			out = append(out, evt)
 		case <-deadline:
 			return out
 		}
 	}
+
 	return out
 }
 
@@ -117,6 +130,7 @@ func stopThenClose(m *Manager, cardID string, srv *httptest.Server) {
 // - A late subscriber receives events via snapshot.
 func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	const cardID = "MGR-001"
+
 	events := newTestEvents(3)
 
 	readyCh := make(chan struct{})
@@ -137,6 +151,7 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	// Receive 3 live events.
 	got := drainN(ch, len(events), 5*time.Second)
 	require.Len(t, got, len(events), "expected all events via live channel")
+
 	for i, evt := range got {
 		assert.Equal(t, events[i].Seq, evt.Seq)
 		assert.Equal(t, string(events[i].Payload), string(evt.Payload))
@@ -158,8 +173,11 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 // TestMultipleConcurrentSubscribers verifies that all concurrent subscribers
 // receive every event.
 func TestMultipleConcurrentSubscribers(t *testing.T) {
-	const cardID = "MGR-002"
-	const numSubs = 5
+	const (
+		cardID  = "MGR-002"
+		numSubs = 5
+	)
+
 	events := newTestEvents(10)
 
 	// Gate the server: send events only after all subscribers are registered.
@@ -181,8 +199,10 @@ func TestMultipleConcurrentSubscribers(t *testing.T) {
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				return
 			}
+
 			flusher.Flush()
 		}
+
 		<-r.Context().Done()
 	}))
 
@@ -193,6 +213,7 @@ func TestMultipleConcurrentSubscribers(t *testing.T) {
 
 	// Register all subscribers before unblocking the server.
 	channels := make([]<-chan Event, numSubs)
+
 	unsubs := make([]func(), numSubs)
 	for i := range numSubs {
 		channels[i], unsubs[i] = m.Subscribe(cardID)
@@ -221,6 +242,7 @@ func TestStopDrainsSubscribers(t *testing.T) {
 
 	ch1, unsub1 := m.Subscribe(cardID)
 	defer unsub1()
+
 	ch2, unsub2 := m.Subscribe(cardID)
 	defer unsub2()
 
@@ -228,7 +250,9 @@ func TestStopDrainsSubscribers(t *testing.T) {
 	require.Eventually(t, func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+
 		_, ok := m.activeSessions[cardID]
+
 		return ok
 	}, 2*time.Second, 5*time.Millisecond)
 
@@ -288,6 +312,7 @@ func TestSessionCapEnforcement(t *testing.T) {
 	defer srv.Close()
 
 	m := NewManager(WithRunnerConfig(srv.URL, "test-key"), WithMaxSessions(maxSess))
+
 	t.Cleanup(func() {
 		for i := range maxSess {
 			m.Stop(fmt.Sprintf("CAP-%03d", i))
@@ -307,8 +332,10 @@ func TestSessionCapEnforcement(t *testing.T) {
 
 // TestIdleSweeper verifies that sessions older than the TTL are force-closed.
 func TestIdleSweeper(t *testing.T) {
-	const cardID = "SWEEP-001"
-	const ttl = 100 * time.Millisecond
+	const (
+		cardID = "SWEEP-001"
+		ttl    = 100 * time.Millisecond
+	)
 
 	srv := sseServerInfinite(t)
 	defer srv.Close()
@@ -352,6 +379,7 @@ func TestUpstreamRetryAndError(t *testing.T) {
 	// The pump retries with backoffs: 250ms, 500ms, 1s, 2s (4 retries = ~3.75s).
 	// Use a generous timeout to avoid flakiness.
 	var gotTerminal bool
+
 	select {
 	case evt, ok := <-ch:
 		if !ok || evt.Type == EventTypeTerminal {
@@ -360,6 +388,7 @@ func TestUpstreamRetryAndError(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("timed out waiting for terminal event after upstream errors")
 	}
+
 	assert.True(t, gotTerminal)
 
 	// Session should no longer be active.
@@ -373,6 +402,7 @@ func TestUpstreamRetryAndError(t *testing.T) {
 // receives live events once the session begins.
 func TestSubscribeBeforeStart(t *testing.T) {
 	const cardID = "MGR-005"
+
 	events := newTestEvents(2)
 
 	readyCh := make(chan struct{})
@@ -430,14 +460,17 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				flusher, ok := w.(http.Flusher)
 				if !ok {
 					http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
 					return
 				}
+
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
 				flusher.Flush()
 
 				for r.Context().Err() == nil {
 					seq := liveSeq.Add(1)
+
 					payload, err := json.Marshal(sseJSONPayload{
 						Seq:  seq,
 						Type: "log",
@@ -445,9 +478,11 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 					if err != nil {
 						return
 					}
+
 					if _, err = fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 						return
 					}
+
 					flusher.Flush()
 				}
 			}))
@@ -484,7 +519,9 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 
 			// Drain the channel for drainTimeout. Collect all events that arrive.
 			var received []Event
+
 			deadline := time.After(drainTimeout)
+
 		drain:
 			for {
 				select {
@@ -492,6 +529,7 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 					if !ok {
 						break drain
 					}
+
 					received = append(received, evt)
 				case <-deadline:
 					break drain
@@ -505,12 +543,16 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 
 			// Assertion 1: Seq values must be strictly non-decreasing (ignoring markers).
 			// Any violation means a live event arrived before snapshot events.
-			var prevSeq uint64
-			var seenLive bool
+			var (
+				prevSeq  uint64
+				seenLive bool
+			)
+
 			for _, evt := range received {
 				if isMarker(evt) {
 					continue
 				}
+
 				isLive := evt.Seq > snapshotSize
 				if isLive {
 					seenLive = true
@@ -519,27 +561,33 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				if seenLive && !isLive {
 					t.Errorf("iter %d: snapshot event (Seq=%d) arrived after live event on subscriber channel — ordering violated",
 						iter, evt.Seq)
+
 					break
 				}
 				// Seq must be non-decreasing within each segment.
 				if evt.Seq < prevSeq {
 					t.Errorf("iter %d: Seq decreased: got %d after %d",
 						iter, evt.Seq, prevSeq)
+
 					break
 				}
+
 				prevSeq = evt.Seq
 			}
 
 			// Assertion 2: No duplicate Seq values on the channel (ignoring markers).
 			seen := make(map[uint64]int)
+
 			for i, evt := range received {
 				if isMarker(evt) {
 					continue
 				}
+
 				if first, dup := seen[evt.Seq]; dup {
 					t.Errorf("iter %d: duplicate Seq=%d at positions %d and %d",
 						iter, evt.Seq, first, i)
 				}
+
 				seen[evt.Seq] = i
 			}
 		})
@@ -570,9 +618,9 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 // Seq 257..1000 depending on timing). Subtask 2 (CTXMAX-305) will make it pass.
 func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 	const (
-		cardID     = "TAIL-001"
-		numEvents  = 1000
-		readDelay  = 100 * time.Microsecond
+		cardID      = "TAIL-001"
+		numEvents   = 1000
+		readDelay   = 100 * time.Microsecond
 		testTimeout = 2 * time.Second
 	)
 
@@ -597,24 +645,33 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 	type result struct {
 		events []Event
 	}
+
 	done := make(chan result, 1)
+
 	go func() {
 		var collected []Event
+
 		deadline := time.After(testTimeout)
+
 		for len(collected) < numEvents {
 			select {
 			case evt, ok := <-ch:
 				if !ok {
 					done <- result{events: collected}
+
 					return
 				}
+
 				collected = append(collected, evt)
+
 				time.Sleep(readDelay)
 			case <-deadline:
 				done <- result{events: collected}
+
 				return
 			}
 		}
+
 		done <- result{events: collected}
 	}()
 
@@ -632,8 +689,10 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 	for _, evt := range received {
 		if evt.Seq < prevSeq {
 			t.Errorf("Seq decreased: got %d after %d (ordering violated)", evt.Seq, prevSeq)
+
 			break
 		}
+
 		prevSeq = evt.Seq
 	}
 
@@ -643,16 +702,19 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 		if first, dup := gotSeqs[evt.Seq]; dup {
 			t.Errorf("duplicate Seq=%d at positions %d and %d", evt.Seq, first, i)
 		}
+
 		gotSeqs[evt.Seq] = i
 	}
 
 	// Check exact set equality: every expected Seq must be present.
 	var missing []uint64
+
 	for seq := range wantSeqs {
 		if _, ok := gotSeqs[seq]; !ok {
 			missing = append(missing, seq)
 		}
 	}
+
 	if len(missing) > 0 {
 		// Sort for a deterministic diagnostic message.
 		slices.Sort(missing)
@@ -662,11 +724,13 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 
 	// Check no unexpected extra events.
 	var unexpected []uint64
+
 	for seq := range gotSeqs {
 		if _, ok := wantSeqs[seq]; !ok {
 			unexpected = append(unexpected, seq)
 		}
 	}
+
 	if len(unexpected) > 0 {
 		slices.Sort(unexpected)
 		t.Errorf("unexpected extra Seq values: %v", unexpected[:min(len(unexpected), 10)])
@@ -702,6 +766,7 @@ func TestSubscribeUnsubUnblocksSnapshot(t *testing.T) {
 	// Grab the subscriber so we can observe snapDone.
 	// The subscriber is in pendingSubs because no session was started.
 	m.mu.Lock()
+
 	var sub *subscriber
 	if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
 		sub = subs[0]
@@ -753,7 +818,9 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 	require.Eventually(t, func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+
 		_, ok := m.activeSessions[cardID]
+
 		return ok
 	}, 2*time.Second, 5*time.Millisecond)
 
@@ -763,6 +830,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 
 	// Grab the subscriber to observe snapDone.
 	m.mu.Lock()
+
 	var sub *subscriber
 	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
 		sub = sess.subs[len(sess.subs)-1]
@@ -773,8 +841,10 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 
 	// Call Stop — this should unblock the snapshot goroutine and then close ch.
 	stopDone := make(chan struct{})
+
 	go func() {
 		defer close(stopDone)
+
 		m.Stop(cardID)
 		srv.Close()
 	}()
@@ -826,7 +896,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 	const (
 		cardID      = "DRAIN-CONCURRENT-001"
-		latePending = 5  // events appended to sub.pending while goroutine is blocked
+		latePending = 5 // events appended to sub.pending while goroutine is blocked
 		testTimeout = 5 * time.Second
 	)
 
@@ -842,20 +912,24 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 
 	// Grab the subscriber from pendingSubs while holding the lock.
 	m.mu.Lock()
+
 	var sub *subscriber
 	if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
 		sub = subs[0]
 	}
+
 	require.NotNil(t, sub, "expected subscriber in pendingSubs")
 
 	// Fill sub.ch to capacity so the goroutine blocks on its first pending send.
 	var allEvents []Event
+
 	for i := range subscriberChanBuf {
 		evt := Event{
 			Seq:     uint64(i + 1),
 			Type:    "log",
 			Payload: fmt.Appendf(nil, "ch-%d", i+1),
 		}
+
 		allEvents = append(allEvents, evt)
 		sub.ch <- evt
 	}
@@ -887,23 +961,28 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 	}
 
 	injected := make(chan struct{})
+
 	go func() {
 		// The snapshot goroutine unlocks m.mu when it blocks on a full-channel send.
 		// We acquire m.mu here to inject late events — this races with the goroutine
 		// re-acquiring it. The snapshot goroutine is blocked on a full channel, so in
 		// practice we win the lock before it can set sub.primed.
 		defer close(injected)
+
 		m.mu.Lock()
 		defer m.mu.Unlock()
+
 		if sub.primed {
 			// Too late — goroutine already finished. Injection is a no-op.
 			return
 		}
+
 		sub.pending = append(sub.pending, lateEvents...)
 	}()
 
 	// Wait for injection to complete, then drain the channel to unblock the goroutine.
 	<-injected
+
 	allEvents = append(allEvents, lateEvents...)
 
 	// Drain all expected events.
@@ -922,18 +1001,22 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 		if e.Type == EventTypeDropped || e.Type == EventTypeTerminal {
 			continue
 		}
+
 		if first, dup := gotSeqs[e.Seq]; dup {
 			t.Errorf("duplicate Seq=%d at positions %d and %d", e.Seq, first, i)
 		}
+
 		gotSeqs[e.Seq] = i
 	}
 
 	var missing []uint64
+
 	for seq := range wantSeqs {
 		if _, ok := gotSeqs[seq]; !ok {
 			missing = append(missing, seq)
 		}
 	}
+
 	if len(missing) > 0 {
 		slices.Sort(missing)
 		t.Errorf("late-append events lost (%d missing): %v", len(missing), missing)
@@ -970,16 +1053,19 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 			defer unsub()
 
 			m.mu.Lock()
+
 			var sub *subscriber
 			if subs, ok := m.pendingSubs[cardID]; ok && len(subs) > 0 {
 				sub = subs[0]
 			}
+
 			require.NotNil(t, sub, "iter %d: expected subscriber in pendingSubs", iter)
 
 			// If the goroutine already ran with empty pending and set primed=true,
 			// there's nothing to test (no pending events to inject). Skip.
 			if sub.primed {
 				m.mu.Unlock()
+
 				return
 			}
 
@@ -1012,17 +1098,23 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 				appended   []Event
 				appendDone = make(chan struct{})
 			)
+
 			lateSeqBase := seqBase + uint64(eventsPerRound)
+
 			go func() {
 				defer close(appendDone)
+
 				for i := range eventsPerRound {
 					seq := lateSeqBase + uint64(i) + 1
 					evt := Event{Seq: seq, Type: "log", Payload: fmt.Appendf(nil, "late-%d", seq)}
+
 					m.mu.Lock()
 					if !sub.primed {
 						// Goroutine is still draining — this append MUST be delivered.
 						sub.pending = append(sub.pending, evt)
+
 						appendedMu.Lock()
+
 						appended = append(appended, evt)
 						appendedMu.Unlock()
 					}
@@ -1048,9 +1140,11 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 			for i := range subscriberChanBuf {
 				wantSeqs[uint64(i+1)] = struct{}{}
 			}
+
 			for i := range eventsPerRound {
 				wantSeqs[seqBase+uint64(i)+1] = struct{}{}
 			}
+
 			appendedMu.Lock()
 			for _, e := range appended {
 				wantSeqs[e.Seq] = struct{}{}
@@ -1062,18 +1156,22 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 				if e.Type == EventTypeDropped || e.Type == EventTypeTerminal {
 					continue
 				}
+
 				if first, dup := gotSeqs[e.Seq]; dup {
 					t.Errorf("iter %d: duplicate Seq=%d at positions %d and %d", iter, e.Seq, first, i)
 				}
+
 				gotSeqs[e.Seq] = i
 			}
 
 			var missing []uint64
+
 			for seq := range wantSeqs {
 				if _, ok := gotSeqs[seq]; !ok {
 					missing = append(missing, seq)
 				}
 			}
+
 			if len(missing) > 0 {
 				slices.Sort(missing)
 				t.Errorf("iter %d: late-append events lost (%d missing): first few: %v",
@@ -1107,13 +1205,17 @@ func TestBackoffDuration(t *testing.T) {
 // sessions that must accept all cards under a project.
 func sseServerWithCardIDs(t *testing.T, events []sseJSONPayload, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
+
 	var once sync.Once
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
 			return
 		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
@@ -1126,11 +1228,14 @@ func sseServerWithCardIDs(t *testing.T, events []sseJSONPayload, readyCh chan st
 			if err != nil {
 				return
 			}
+
 			if _, err = fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				return
 			}
+
 			flusher.Flush()
 		}
+
 		<-r.Context().Done()
 	}))
 }
@@ -1169,10 +1274,12 @@ func TestSubscribeProject_SnapshotThenLive(t *testing.T) {
 
 	// Verify Seq is monotonically non-decreasing.
 	var prevSeq uint64
+
 	for _, evt := range got {
 		if evt.Type == EventTypeDropped || evt.Type == EventTypeTerminal {
 			continue
 		}
+
 		assert.GreaterOrEqual(t, evt.Seq, prevSeq, "Seq must be non-decreasing")
 		prevSeq = evt.Seq
 	}
@@ -1207,6 +1314,7 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	srv := sseServerWithCardIDs(t, payloads, readyCh)
 
 	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
 	defer func() {
 		m.StopProject(project)
 		srv.Close()
@@ -1224,13 +1332,16 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 
 	// Verify they arrived in Seq order.
 	var prevSeq uint64
+
 	for _, evt := range got {
 		if evt.Type == EventTypeDropped || evt.Type == EventTypeTerminal {
 			continue
 		}
+
 		assert.GreaterOrEqual(t, evt.Seq, prevSeq, "Seq must be non-decreasing")
 		prevSeq = evt.Seq
 	}
+
 	assert.Equal(t, uint64(4), prevSeq, "all 4 events should have arrived")
 }
 
@@ -1242,6 +1353,7 @@ func TestStartProject_Idempotent(t *testing.T) {
 	srv := sseServerInfinite(t)
 
 	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
 	defer func() {
 		m.StopProject(project)
 		srv.Close()
@@ -1277,6 +1389,7 @@ func TestProjectKeyNamespacing(t *testing.T) {
 	srv := sseServerInfinite(t)
 
 	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
 	defer func() {
 		m.Stop(cardID)
 		m.StopProject(project)
@@ -1302,6 +1415,7 @@ func TestProjectKeyNamespacing(t *testing.T) {
 // causing upstream retries to exhaust maxUpstreamRetries and trigger permanent failure.
 func sseServerAlways500(t *testing.T) *httptest.Server {
 	t.Helper()
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -1371,11 +1485,15 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	// Goroutine leak check: run 10 iterations, each triggers a new failure.
 	// After each failure the goroutine count must settle back to baseline.
 	baselineGoroutines := runtime.NumGoroutine()
+
 	for i := range 10 {
 		const gcID = "PFAIL-GC"
+
 		m2 := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
 		ch2, unsub2 := m2.Subscribe(gcID)
 		defer unsub2()
+
 		require.NoError(t, m2.Start(context.Background(), gcID, ""))
 		// Wait for terminal.
 		select {
@@ -1390,6 +1508,7 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	// Give goroutines time to exit.
 	runtime.GC()
 	time.Sleep(100 * time.Millisecond)
+
 	finalGoroutines := runtime.NumGoroutine()
 	// Allow some slack (test framework goroutines can fluctuate).
 	assert.LessOrEqual(t, finalGoroutines, baselineGoroutines+5,
@@ -1410,6 +1529,7 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 	// Subscribe and start; wait for permanent failure.
 	firstCh, firstUnsub := m.Subscribe(cardID)
 	defer firstUnsub()
+
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
 	const timeout = 20 * time.Second
@@ -1454,6 +1574,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 
 	firstCh, firstUnsub := m.Subscribe(cardID)
 	defer firstUnsub()
+
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
 	const timeout = 20 * time.Second
@@ -1464,6 +1585,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for initial terminal event")
 	}
+
 	failSrv.Close()
 
 	// Verify failedSessions flag is set.
@@ -1475,6 +1597,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	// Phase 2: Restart with a working server.
 	readyCh := make(chan struct{})
 	events := newTestEvents(3)
+
 	goodSrv := sseServer(t, events, readyCh)
 	defer goodSrv.Close()
 
@@ -1491,6 +1614,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	// Subscribe and receive live events.
 	liveCh, liveUnsub := m.Subscribe(cardID)
 	defer liveUnsub()
+
 	<-readyCh
 
 	got := drainN(liveCh, len(events), 5*time.Second)
@@ -1547,7 +1671,8 @@ func TestSlowSubscriberDropCounter_Direct(t *testing.T) {
 	default:
 		t.Fatal("pre-filled log event was unexpectedly consumed")
 	}
-	assert.Equal(t, 0, len(ch), "channel should be empty after drain")
+
+	assert.Empty(t, ch, "channel should be empty after drain")
 }
 
 // TestSlowSubscriberDropCounter_Pump verifies the end-to-end observable drop path
@@ -1565,7 +1690,7 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 		// instead we control the flow by reading only a fraction of events
 		// before the overflow occurs.
 		N = subscriberChanBuf // fill the subscriber channel
-		K = 20               // additional events to stream; some will be dropped
+		K = 20                // additional events to stream; some will be dropped
 	)
 
 	// Build all N+K events.
@@ -1600,6 +1725,7 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 	// Since the pump may have already finished processing by now, we also
 	// directly call notifyDrop to guarantee a marker arrives.
 	m.mu.Lock()
+
 	var sub *subscriber
 	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
 		sub = sess.subs[0]
@@ -1616,7 +1742,9 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 
 	// Drain channel events looking for a drop marker.
 	var gotDropMarker bool
+
 	deadline := time.After(time.Second)
+
 drainLoop:
 	for {
 		select {
@@ -1624,16 +1752,20 @@ drainLoop:
 			if !ok {
 				break drainLoop
 			}
+
 			if evt.Type == EventTypeDropped {
 				// Fan-out drop markers carry nil payload (distinct from buffer-eviction markers).
 				assert.Nil(t, evt.Payload, "fan-out drop marker must have nil payload")
+
 				gotDropMarker = true
+
 				break drainLoop
 			}
 		case <-deadline:
 			break drainLoop
 		}
 	}
+
 	assert.True(t, gotDropMarker, "subscriber channel should contain at least one EventTypeDropped marker")
 }
 
@@ -1654,6 +1786,7 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 		firstCh, firstUnsub := m.Subscribe(cardIDStop)
 		defer firstUnsub()
+
 		require.NoError(t, m.Start(context.Background(), cardIDStop, ""))
 
 		const timeout = 20 * time.Second
@@ -1686,6 +1819,7 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 		firstCh, firstUnsub := m.Subscribe(cardIDClear)
 		defer firstUnsub()
+
 		require.NoError(t, m.Start(context.Background(), cardIDClear, ""))
 
 		const timeout = 20 * time.Second

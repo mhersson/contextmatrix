@@ -1,0 +1,81 @@
+version: "2"
+linters:
+  default: none
+  enable:
+  # Enabled by default -- Few false positives
+  - errcheck
+  - govet
+  - ineffassign
+  - staticcheck
+  - unused
+
+  # The following are additionally enabled
+  - containedctx
+  - gocritic
+  - godot
+  - gosec
+  - misspell
+  - nakedret
+  - nlreturn # new line before return
+  - noctx # check requests for context
+  - revive
+  - testifylint # use proper testify methods
+  - unconvert # Remove unnecessary type conversions
+  - unparam
+  - whitespace
+  - wsl_v5
+  settings:
+    nakedret:
+      max-func-lines: 5
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+  exclusions:
+    generated: lax
+    presets:
+    - common-false-positives
+    - std-error-handling
+    - comments
+    rules:
+    # G706: structured slog logging is safe — values are key-value pairs, not format strings
+    - linters: [gosec]
+      text: "G706"
+    # G118: context cancel stored in a struct and called on session stop (false positive)
+    - linters: [gosec]
+      text: "G118"
+    # G703: os.Stat path check in config lookup is not user-controlled
+    - linters: [gosec]
+      text: "G703"
+    # G301/G302/G306: board task files use standard UNIX permissions (not sensitive data)
+    - linters: [gosec]
+      text: "G301|G302|G306"
+    # Test fixtures legitimately use hardcoded credentials, variable URLs, and int conversions
+    - linters: [gosec]
+      text: "G101|G107|G115"
+      path: "_test\\.go$"
+    # noctx in tests: test HTTP helpers use context.Background() implicitly
+    - linters: [noctx]
+      path: "_test\\.go$"
+    # empty drain loops (for range ch {}) are idiomatic in tests
+    - linters: [revive]
+      text: "empty-block"
+      path: "_test\\.go$"
+    # unused parameters in test helpers (e.g. http.HandlerFunc signatures)
+    - linters: [revive]
+      text: "unused-parameter"
+      path: "_test\\.go$"
+    # test helpers with a single call site don't need flexible params
+    - linters: [unparam]
+      path: "_test\\.go$"
+    # internal/api.APIError — internal package, stutter rule doesn't apply
+    - linters: [revive]
+      text: "exported"
+      path: "internal/api/router\\.go$"
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 8
+  fix: true
+formatters:
+  enable:
+  - goimports

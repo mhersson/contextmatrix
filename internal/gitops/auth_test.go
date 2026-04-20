@@ -25,12 +25,14 @@ func TestGitAuthEnv_UnknownMode(t *testing.T) {
 
 func TestGitAuthEnv_PATMode_FourEntries(t *testing.T) {
 	const token = "ghp_supersecrettoken"
+
 	env := GitAuthEnv("pat", token)
 	require.Len(t, env, 4, "pat mode must return exactly 4 env entries")
 }
 
 func TestGitAuthEnv_PATMode_RequiredEntries(t *testing.T) {
 	const token = "ghp_supersecrettoken"
+
 	env := GitAuthEnv("pat", token)
 	require.NotNil(t, env)
 
@@ -42,16 +44,20 @@ func TestGitAuthEnv_PATMode_RequiredEntries(t *testing.T) {
 
 func TestGitAuthEnv_PATMode_BearerHeaderExact(t *testing.T) {
 	const token = "ghp_supersecrettoken"
+
 	env := GitAuthEnv("pat", token)
 	require.NotNil(t, env)
 
 	var headerValue string
+
 	for _, e := range env {
 		if strings.HasPrefix(e, "GIT_CONFIG_VALUE_0=") {
 			headerValue = strings.TrimPrefix(e, "GIT_CONFIG_VALUE_0=")
+
 			break
 		}
 	}
+
 	assert.Equal(t, "Authorization: Bearer "+token, headerValue,
 		"http.extraheader value must be exactly 'Authorization: Bearer <token>'")
 }
@@ -66,6 +72,7 @@ func TestGitAuthEnv_PATMode_PromptSuppressed(t *testing.T) {
 func TestGitAuthEnv_PATMode_TokenNotInKey(t *testing.T) {
 	// The token must only appear in GIT_CONFIG_VALUE_0, never in a key name.
 	const token = "ghp_supersecrettoken"
+
 	env := GitAuthEnv("pat", token)
 	require.NotNil(t, env)
 

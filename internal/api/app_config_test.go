@@ -12,11 +12,11 @@ import (
 
 func TestGetAppConfig(t *testing.T) {
 	tests := []struct {
-		name          string
-		theme         string
-		wantTheme     string
-		wantStatus    int
-		wantCTHeader  string
+		name         string
+		theme        string
+		wantTheme    string
+		wantStatus   int
+		wantCTHeader string
 	}{
 		{
 			name:         "everforest theme",

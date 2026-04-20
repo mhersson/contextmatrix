@@ -81,13 +81,14 @@ func setupMCP(t *testing.T) *testEnv {
 	// Create skills directory with stub skill files (including Agent Configuration for model parsing)
 	skillsDir := filepath.Join(tmpDir, "skills")
 	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
+
 	skillModels := map[string]string{
-		"create-task.md":   "claude-sonnet-4-6",
-		"create-plan.md":   "claude-sonnet-4-6",
-		"execute-task.md":  "claude-sonnet-4-6",
-		"review-task.md":   "claude-opus-4-6",
-		"document-task.md": "claude-sonnet-4-6",
-		"init-project.md":  "claude-sonnet-4-6",
+		"create-task.md":    "claude-sonnet-4-6",
+		"create-plan.md":    "claude-sonnet-4-6",
+		"execute-task.md":   "claude-sonnet-4-6",
+		"review-task.md":    "claude-opus-4-6",
+		"document-task.md":  "claude-sonnet-4-6",
+		"init-project.md":   "claude-sonnet-4-6",
 		"run-autonomous.md": "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
@@ -110,6 +111,7 @@ func setupMCP(t *testing.T) *testEnv {
 
 	t.Cleanup(func() {
 		_ = session.Close()
+
 		cancel()
 	})
 
@@ -126,11 +128,13 @@ func setupMCP(t *testing.T) *testEnv {
 // callTool is a helper that calls an MCP tool and returns the result.
 func callTool(t *testing.T, env *testEnv, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
+
 	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,
 	})
 	require.NoError(t, err)
+
 	return result
 }
 
@@ -153,8 +157,10 @@ func createTestCard(t *testing.T, env *testEnv, title, typ, priority string) *bo
 		"priority": priority,
 	})
 	require.False(t, result.IsError, "create_card should not error")
+
 	var card board.Card
 	unmarshalResult(t, result, &card)
+
 	return &card
 }
 
@@ -200,6 +206,7 @@ func TestListTools(t *testing.T) {
 	for _, tool := range result.Tools {
 		toolNames[tool.Name] = true
 	}
+
 	for _, name := range expectedTools {
 		assert.True(t, toolNames[name], "missing tool: %s", name)
 	}
@@ -328,8 +335,10 @@ func TestTransitionCard_Invalid(t *testing.T) {
 	if err != nil {
 		// Protocol-level error is also acceptable
 		assert.Contains(t, err.Error(), "transition")
+
 		return
 	}
+
 	require.True(t, result.IsError, "invalid transition should produce an error result")
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
@@ -393,6 +402,7 @@ func TestHeartbeat(t *testing.T) {
 		"project": "test-project",
 		"card_id": "TEST-001",
 	})
+
 	var card board.Card
 	unmarshalResult(t, getResult, &card)
 	assert.Equal(t, "agent-hb", card.AssignedAgent)
@@ -692,6 +702,7 @@ func TestGetTaskContext(t *testing.T) {
 		"parent":   parent.ID,
 	})
 	require.False(t, child1Result.IsError)
+
 	var child1 board.Card
 	unmarshalResult(t, child1Result, &child1)
 
@@ -703,6 +714,7 @@ func TestGetTaskContext(t *testing.T) {
 		"parent":   parent.ID,
 	})
 	require.False(t, child2Result.IsError)
+
 	var child2 board.Card
 	unmarshalResult(t, child2Result, &child2)
 
@@ -764,6 +776,7 @@ func TestGetSubtaskSummary(t *testing.T) {
 			"parent":   parent.ID,
 		})
 	}
+
 	callTool(t, env, "create_card", map[string]any{
 		"project":  "test-project",
 		"title":    "Subtask C",
@@ -901,6 +914,7 @@ func TestCheckAgentHealth_Stalled(t *testing.T) {
 	ctx := context.Background()
 	card, err := env.svc.GetCard(ctx, "test-project", "TEST-002")
 	require.NoError(t, err)
+
 	staleTime := time.Now().Add(-31 * time.Minute)
 	card.LastHeartbeat = &staleTime
 	err = env.store.UpdateCard(ctx, "test-project", card)
@@ -948,6 +962,7 @@ func TestGetReadyTasks(t *testing.T) {
 		"depends_on": []string{taskA.ID},
 	})
 	require.False(t, taskCResult.IsError)
+
 	var taskC board.Card
 	unmarshalResult(t, taskCResult, &taskC)
 
@@ -1027,6 +1042,7 @@ func TestTransitionCard_BlockedByDependency(t *testing.T) {
 		"depends_on": []string{depCard.ID},
 	})
 	require.False(t, result.IsError)
+
 	var card board.Card
 	unmarshalResult(t, result, &card)
 
@@ -1110,6 +1126,7 @@ func TestGetReadyTasks_VettingFilter(t *testing.T) {
 	unvettedCard := createTestCard(t, env, "Unvetted external task", "task", "medium")
 	storedUnvetted, err := env.svc.GetCard(ctx, "test-project", unvettedCard.ID)
 	require.NoError(t, err)
+
 	storedUnvetted.Source = &board.Source{System: "github", ExternalID: "42", ExternalURL: "https://github.com/org/repo/issues/42"}
 	storedUnvetted.Vetted = false
 	require.NoError(t, env.store.UpdateCard(ctx, "test-project", storedUnvetted))
@@ -1118,6 +1135,7 @@ func TestGetReadyTasks_VettingFilter(t *testing.T) {
 	vettedCard := createTestCard(t, env, "Vetted external task", "task", "medium")
 	storedVetted, err := env.svc.GetCard(ctx, "test-project", vettedCard.ID)
 	require.NoError(t, err)
+
 	storedVetted.Source = &board.Source{System: "github", ExternalID: "99", ExternalURL: "https://github.com/org/repo/issues/99"}
 	storedVetted.Vetted = true
 	require.NoError(t, env.store.UpdateCard(ctx, "test-project", storedVetted))
@@ -1150,6 +1168,7 @@ func TestClaimCard_UnvettedExternal(t *testing.T) {
 	card := createTestCard(t, env, "Unvetted import", "task", "medium")
 	stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
+
 	stored.Source = &board.Source{System: "github", ExternalID: "7", ExternalURL: "https://github.com/org/repo/issues/7"}
 	stored.Vetted = false
 	require.NoError(t, env.store.UpdateCard(ctx, "test-project", stored))
@@ -1163,11 +1182,12 @@ func TestClaimCard_UnvettedExternal(t *testing.T) {
 			"agent_id": "agent-x",
 		},
 	})
-
 	if err != nil {
 		assert.Contains(t, err.Error(), "vetted")
+
 		return
 	}
+
 	require.True(t, result.IsError, "claiming unvetted external card should produce an error result")
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
@@ -1197,6 +1217,7 @@ func TestListPrompts(t *testing.T) {
 	for _, p := range result.Prompts {
 		promptNames[p.Name] = true
 	}
+
 	for _, name := range expectedPrompts {
 		assert.True(t, promptNames[name], "missing prompt: %s", name)
 	}
@@ -1254,11 +1275,12 @@ func TestClaimCard_AlreadyClaimed(t *testing.T) {
 			"agent_id": "agent-second",
 		},
 	})
-
 	if err != nil {
 		assert.Contains(t, err.Error(), "claim")
+
 		return
 	}
+
 	require.True(t, result.IsError, "should fail when card already claimed")
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
@@ -1275,11 +1297,11 @@ func TestGetCard_NotFound(t *testing.T) {
 			"card_id": "TEST-999",
 		},
 	})
-
 	if err != nil {
 		// Protocol-level error is acceptable
 		return
 	}
+
 	require.True(t, result.IsError, "get_card for nonexistent card should error")
 }
 
@@ -1361,6 +1383,7 @@ func TestPrompt_CreatePlan_AutonomousRedirect(t *testing.T) {
 
 	// Create a card and mark it autonomous.
 	createTestCard(t, env, "Autonomous feature", "feature", "high")
+
 	autonomous := true
 	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
 		Autonomous: &autonomous,
@@ -1658,6 +1681,7 @@ func TestPrompt_StartWorkflow_Autonomous(t *testing.T) {
 	env := setupMCP(t)
 
 	createTestCard(t, env, "Autonomous feature", "feature", "high")
+
 	autonomous := true
 	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
 		Autonomous: &autonomous,
@@ -1718,6 +1742,7 @@ func TestTool_StartWorkflow_Autonomous(t *testing.T) {
 	env := setupMCP(t)
 
 	createTestCard(t, env, "Autonomous feature", "feature", "high")
+
 	autonomous := true
 	_, err := env.svc.PatchCard(context.Background(), "test-project", "TEST-001", service.PatchCardInput{
 		Autonomous: &autonomous,
@@ -1819,10 +1844,12 @@ func TestAddMultipleLogs(t *testing.T) {
 		"project": "test-project",
 		"card_id": "TEST-001",
 	})
+
 	var card board.Card
 	unmarshalResult(t, getResult, &card)
 
 	require.Len(t, card.ActivityLog, len(entries))
+
 	for i, e := range entries {
 		assert.Equal(t, e.action, card.ActivityLog[i].Action)
 		assert.Equal(t, e.message, card.ActivityLog[i].Message)
@@ -1896,6 +1923,7 @@ func TestCreateProject_MCP(t *testing.T) {
 	// Verify project is listable
 	listResult := callTool(t, env, "list_projects", map[string]any{})
 	require.False(t, listResult.IsError)
+
 	var listOutput listProjectsOutput
 	unmarshalResult(t, listResult, &listOutput)
 	assert.Len(t, listOutput.Projects, 2) // test-project + new-project
@@ -1953,6 +1981,7 @@ func TestDeleteProject_MCP(t *testing.T) {
 
 	// Verify deleted
 	listResult := callTool(t, env, "list_projects", map[string]any{})
+
 	var listOutput listProjectsOutput
 	unmarshalResult(t, listResult, &listOutput)
 	assert.Len(t, listOutput.Projects, 1) // only test-project remains
@@ -2029,6 +2058,7 @@ func TestInitProjectPrompt(t *testing.T) {
 	for _, p := range result.Prompts {
 		promptNames[p.Name] = true
 	}
+
 	assert.True(t, promptNames["init-project"], "init-project prompt should be listed")
 
 	// Get prompt with name argument
@@ -2239,7 +2269,6 @@ func TestParseSkillModel(t *testing.T) {
 		})
 	}
 }
-
 
 func TestStripAgentConfig(t *testing.T) {
 	input := "# Skill\n\n## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Test.\n\n---\n\nInstructions here."
@@ -2616,6 +2645,7 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "skills/create-plan.md must be readable")
+
 	content := string(data)
 
 	// Every gate must call get_card to re-read the autonomous flag.
@@ -2668,6 +2698,7 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "skills/create-plan.md must be readable")
+
 	content := string(data)
 
 	// Remote HITL branch must be present in Phase 9.
@@ -2711,6 +2742,7 @@ func TestCreatePlanSkillIsSelfContained(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "skills/create-plan.md must be readable")
+
 	content := string(data)
 
 	// All 10 phases must be present as top-level headings.
@@ -2822,6 +2854,7 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 			"card_id": card.ID,
 		})
 		require.False(t, getResult.IsError)
+
 		var fetched board.Card
 		unmarshalResult(t, getResult, &fetched)
 		assert.True(t, fetched.Autonomous)
@@ -2836,9 +2869,9 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 
 		// Create card with autonomous already true (requires service-layer direct call).
 		card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title:     "Already autonomous",
-			Type:      "task",
-			Priority:  "medium",
+			Title:      "Already autonomous",
+			Type:       "task",
+			Priority:   "medium",
 			Autonomous: true,
 		})
 		require.NoError(t, err)

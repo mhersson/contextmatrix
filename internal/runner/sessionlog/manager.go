@@ -62,8 +62,8 @@ const (
 type subscriber struct {
 	id       uint64
 	ch       chan Event
-	primed   bool       // true once snapshot drain is complete
-	pending  []Event    // live events buffered while snapshot is draining
+	primed   bool    // true once snapshot drain is complete
+	pending  []Event // live events buffered while snapshot is draining
 	done     chan struct{}
 	doneOnce sync.Once
 	snapDone chan struct{}
@@ -107,9 +107,11 @@ func (m *Manager) ensureActiveSessions() {
 	if m.activeSessions == nil {
 		m.activeSessions = make(map[string]*activeSession)
 	}
+
 	if m.pendingSubs == nil {
 		m.pendingSubs = make(map[string][]*subscriber)
 	}
+
 	if m.failedSessions == nil {
 		m.failedSessions = make(map[string]struct{})
 	}
@@ -154,6 +156,7 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 	// Drain any subscribers that registered before this session was started.
 	if pending := m.pendingSubs[cardID]; len(pending) > 0 {
 		sess.subs = append(sess.subs, pending...)
+
 		delete(m.pendingSubs, cardID)
 	}
 
@@ -191,6 +194,7 @@ func closeSubscriber(subs []*subscriber, terminal Event) {
 		case s.ch <- terminal:
 		default:
 		}
+
 		close(s.ch)
 	}
 }
@@ -201,14 +205,17 @@ func closeSubscriber(subs []*subscriber, terminal Event) {
 // Stop is idempotent: if no session is running for cardID it returns immediately.
 func (m *Manager) Stop(cardID string) {
 	m.mu.Lock()
+
 	sess, ok := m.activeSessions[cardID]
 	if !ok {
 		// No active session, but still clear any permanent-failure flag so that
 		// a future Start can restart the session cleanly.
 		delete(m.failedSessions, cardID)
 		m.mu.Unlock()
+
 		return
 	}
+
 	delete(m.activeSessions, cardID)
 	delete(m.failedSessions, cardID)
 	m.mu.Unlock()
@@ -233,8 +240,9 @@ func (m *Manager) Stop(cardID string) {
 		Timestamp: time.Now(),
 		Type:      EventTypeTerminal,
 	}
-	allSubs := append(subs, pendingSubs...)
-	closeSubscriber(allSubs, terminal)
+
+	subs = append(subs, pendingSubs...)
+	closeSubscriber(subs, terminal)
 
 	m.Clear(cardID)
 }
@@ -293,6 +301,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			close(sub.snapDone)
 			// Close done via doneOnce (idempotent).
 			sub.doneOnce.Do(func() { close(sub.done) })
+
 			terminal := Event{
 				Seq:       0,
 				Timestamp: time.Now(),
@@ -304,8 +313,10 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			case ch <- terminal:
 			default:
 			}
+
 			close(ch)
 			m.mu.Unlock()
+
 			return ch, func() {} // noop unsub — channel already closed
 		}
 	}
@@ -336,9 +347,11 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 		if a.Seq < b.Seq {
 			return -1
 		}
+
 		if a.Seq > b.Seq {
 			return 1
 		}
+
 		return 0
 	})
 
@@ -387,6 +400,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 				// Sent without blocking — continue under the lock.
 			default:
 				m.mu.Unlock()
+
 				select {
 				case ch <- evt:
 				case <-sub.done:
@@ -396,6 +410,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 					// stage more events for it.
 					return
 				}
+
 				m.mu.Lock()
 			}
 		}
@@ -420,6 +435,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 					// removing from sess.subs so the pump won't stage more
 					// events for this subscriber after done is closed.
 					sub.doneOnce.Do(func() { close(sub.done) })
+
 					return
 				}
 			}
@@ -431,6 +447,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 					m.pendingSubs[cardID] = append(pending[:i], pending[i+1:]...)
 					m.mu.Unlock()
 					sub.doneOnce.Do(func() { close(sub.done) })
+
 					return
 				}
 			}
@@ -459,7 +476,7 @@ func projectKey(project string) string {
 // Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
 // "project:" so project sessions cannot collide with card IDs in the shared
 // maps.
-func (m *Manager) StartProject(ctx context.Context, project string) error {
+func (m *Manager) StartProject(_ context.Context, project string) error {
 	key := projectKey(project)
 
 	m.mu.Lock()
@@ -488,6 +505,7 @@ func (m *Manager) StartProject(ctx context.Context, project string) error {
 
 	if pending := m.pendingSubs[key]; len(pending) > 0 {
 		sess.subs = append(sess.subs, pending...)
+
 		delete(m.pendingSubs, key)
 	}
 
@@ -535,6 +553,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 	defer close(sess.done)
 
 	attempt := 0
+
 	for {
 		if ctx.Err() != nil {
 			return
@@ -556,6 +575,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 			// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
 			m.mu.Lock()
 			delete(m.activeSessions, key)
+
 			subs := sess.subs
 			sess.subs = nil
 			// Drain any subscribers that raced between Subscribe and StartProject.
@@ -570,12 +590,14 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 				Type:      EventTypeTerminal,
 				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
 			}
-			allSubs := append(subs, pendingSubs...)
-			closeSubscriber(allSubs, terminal)
+
+			subs = append(subs, pendingSubs...)
+			closeSubscriber(subs, terminal)
 			// Clear the event buffer only; leave failedSessions intact.
 			m.mu.Lock()
 			delete(m.sessions, key)
 			m.mu.Unlock()
+
 			return
 		}
 
@@ -622,8 +644,10 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
 		return fmt.Errorf("upstream connect: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
@@ -661,7 +685,9 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		// subscribers.  No card-ID filter: all project events are accepted.
 		m.mu.Lock()
 		m.getOrCreate(key).append(evt)
+
 		shouldWarn := false
+
 		for _, s := range sess.subs {
 			if !s.primed {
 				s.pending = append(s.pending, evt)
@@ -677,6 +703,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 			}
 		}
 		m.mu.Unlock()
+
 		if shouldWarn {
 			slog.Warn("sessionlog: slow subscriber, event dropped",
 				"project", project,
@@ -689,6 +716,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
 		return fmt.Errorf("scanner: %w", err)
 	}
 
@@ -702,6 +730,7 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(m.sessionTTL / 2)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -716,8 +745,11 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 // sweepIdleSessions finds sessions older than sessionTTL and calls Stop on them.
 func (m *Manager) sweepIdleSessions() {
 	now := time.Now()
+
 	m.mu.Lock()
+
 	var stale []string
+
 	for cardID, sess := range m.activeSessions {
 		if now.Sub(sess.startTime) > m.sessionTTL {
 			stale = append(stale, cardID)
@@ -742,6 +774,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 	defer close(sess.done)
 
 	attempt := 0
+
 	for {
 		if ctx.Err() != nil {
 			return
@@ -764,6 +797,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 			// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
 			m.mu.Lock()
 			delete(m.activeSessions, cardID)
+
 			subs := sess.subs
 			sess.subs = nil
 			// Drain any subscribers that raced between Subscribe and Start.
@@ -778,13 +812,15 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 				Type:      EventTypeTerminal,
 				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
 			}
-			allSubs := append(subs, pendingSubs...)
-			closeSubscriber(allSubs, terminal)
+
+			subs = append(subs, pendingSubs...)
+			closeSubscriber(subs, terminal)
 			// Clear the event buffer only; leave failedSessions intact so that
 			// any concurrent or future Subscribe call can take the fast-path.
 			m.mu.Lock()
 			delete(m.sessions, cardID)
 			m.mu.Unlock()
+
 			return
 		}
 
@@ -831,8 +867,10 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
 		return fmt.Errorf("upstream connect: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
@@ -877,7 +915,9 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		// AND also staged in sub.pending.
 		m.mu.Lock()
 		m.getOrCreate(cardID).append(evt)
+
 		shouldWarn := false
+
 		for _, s := range sess.subs {
 			if !s.primed {
 				// Snapshot goroutine has not finished draining yet.  Stage the
@@ -895,6 +935,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 			}
 		}
 		m.mu.Unlock()
+
 		if shouldWarn {
 			slog.Warn("sessionlog: slow subscriber, event dropped",
 				"card_id", cardID,
@@ -907,6 +948,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+
 		return fmt.Errorf("scanner: %w", err)
 	}
 
@@ -934,12 +976,15 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return Event{}, "", false
 	}
+
 	ts := time.Now()
+
 	if p.Timestamp != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, p.Timestamp); err == nil {
 			ts = parsed
 		}
 	}
+
 	return Event{
 		Seq:       p.Seq,
 		Timestamp: ts,
@@ -958,6 +1003,7 @@ func signSSERequest(apiKey string) (sigHeader, tsHeader string) {
 	mac.Write([]byte("."))
 	// Empty body for GET.
 	sig := hex.EncodeToString(mac.Sum(nil))
+
 	return "sha256=" + sig, ts
 }
 
@@ -968,6 +1014,7 @@ func backoffDuration(attempt int) time.Duration {
 	if d > retryBackoffCap {
 		return retryBackoffCap
 	}
+
 	return d
 }
 
@@ -995,11 +1042,13 @@ func (m *Manager) notifyDrop(s *subscriber) (shouldWarn bool) {
 	// Throttle: emit at most one warn per second globally.
 	now := time.Now().UnixNano()
 	old := m.lastDropWarn.Load()
+
 	const warnIntervalNs = int64(time.Second)
 	if now-old >= warnIntervalNs {
 		if m.lastDropWarn.CompareAndSwap(old, now) {
 			return true
 		}
 	}
+
 	return false
 }

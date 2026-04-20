@@ -47,6 +47,7 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	if apiKey == "" {
 		return wrapped
 	}
+
 	return mcpAuthMiddleware(wrapped, apiKey)
 }
 
@@ -63,6 +64,7 @@ func clearWriteDeadlineForStreaming(next http.Handler) http.Handler {
 				slog.Debug("MCP could not clear write deadline", "error", err)
 			}
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -73,18 +75,24 @@ func mcpAuthMiddleware(next http.Handler, apiKey string) http.Handler {
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
 			http.Error(w, `{"error":"missing Authorization header"}`, http.StatusUnauthorized)
+
 			return
 		}
+
 		const prefix = "Bearer "
 		if !strings.HasPrefix(auth, prefix) {
 			http.Error(w, `{"error":"invalid Authorization format, expected Bearer <key>"}`, http.StatusUnauthorized)
+
 			return
 		}
+
 		token := strings.TrimPrefix(auth, prefix)
 		if subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
 			http.Error(w, `{"error":"invalid API key"}`, http.StatusForbidden)
+
 			return
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }

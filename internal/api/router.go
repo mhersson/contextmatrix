@@ -21,7 +21,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-const maxRequestBodySize = 1 << 20        // 1 MB
+const maxRequestBodySize = 1 << 20     // 1 MB
 const mcpMaxBodySize = 5 * 1024 * 1024 // 5 MB
 
 // Error codes for machine-parseable error responses.
@@ -56,19 +56,19 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service              *service.CardService
-	Bus                  *events.Bus
-	CORSOrigin           string
-	Syncer               Syncer
-	Runner               *runner.Client
-	RunnerCfg            config.RunnerConfig
-	MCPAPIKey            string
-	Port                 int
-	GitHubToken          string
-	GitHubAPIBaseURL     string
-	GitHubAllowedHosts   []string
-	SessionManager       *sessionlog.Manager // optional; enables card-scoped SSE log path
-	Theme                string              // active color palette ("everforest" or "radix")
+	Service            *service.CardService
+	Bus                *events.Bus
+	CORSOrigin         string
+	Syncer             Syncer
+	Runner             *runner.Client
+	RunnerCfg          config.RunnerConfig
+	MCPAPIKey          string
+	Port               int
+	GitHubToken        string
+	GitHubAPIBaseURL   string
+	GitHubAllowedHosts []string
+	SessionManager     *sessionlog.Manager // optional; enables card-scoped SSE log path
+	Theme              string              // active color palette ("everforest" or "radix")
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -164,11 +164,14 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 // wrapMux wraps the mux with all middleware.
 func wrapMux(mux *http.ServeMux, corsOrigin string) *http.ServeMux {
 	wrapper := http.NewServeMux()
+
 	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, logging, requestID, bodyLimit}
 	if corsOrigin != "" {
 		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(corsOrigin), logging, requestID, bodyLimit}
 	}
+
 	wrapper.Handle("/", chain(mux, middlewares...))
+
 	return wrapper
 }
 
@@ -177,6 +180,7 @@ func chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		h = middlewares[i](h)
 	}
+
 	return h
 }
 
@@ -187,6 +191,7 @@ func requestID(next http.Handler) http.Handler {
 		if id == "" {
 			id = uuid.New().String()
 		}
+
 		w.Header().Set("X-Request-ID", id)
 		next.ServeHTTP(w, r)
 	})
@@ -198,6 +203,7 @@ func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
+
 			return
 		}
 
@@ -227,6 +233,7 @@ func corsMiddleware(origin string) func(http.Handler) http.Handler {
 
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
+
 				return
 			}
 
@@ -248,6 +255,7 @@ func recovery(next http.Handler) http.Handler {
 				writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
 			}
 		}()
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -275,11 +283,14 @@ func bodyLimitN(maxBytes int64) func(http.Handler) http.Handler {
 			// Reject immediately when Content-Length is declared and over limit.
 			if r.ContentLength > maxBytes {
 				writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "request body too large", "")
+
 				return
 			}
+
 			if r.Body != nil {
 				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -323,6 +334,7 @@ func (rw *responseWriter) Flush() {
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("failed to encode response", "error", err)
 	}
@@ -358,25 +370,31 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
 	case errors.Is(err, board.ErrDependenciesNotMet):
 		var ve *board.ValidationError
+
 		details := ""
 		if errors.As(err, &ve) {
 			details = ve.Error()
 		}
+
 		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", details)
 	case errors.Is(err, board.ErrInvalidTransition):
 		var ve *board.ValidationError
+
 		details := ""
 		if errors.As(err, &ve) {
 			details = ve.Error()
 		}
+
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", details)
 	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority),
 		errors.Is(err, board.ErrInvalidAutonomousConfig):
 		var ve *board.ValidationError
+
 		details := ""
 		if errors.As(err, &ve) {
 			details = ve.Error()
 		}
+
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
 	case errors.Is(err, service.ErrInvalidPRUrl):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", err.Error())

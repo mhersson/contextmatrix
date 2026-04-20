@@ -12,18 +12,18 @@ import (
 type EventType string
 
 const (
-	CardCreated      EventType = "card.created"
-	CardUpdated      EventType = "card.updated"
-	CardDeleted      EventType = "card.deleted"
-	CardStateChanged EventType = "card.state_changed"
-	CardClaimed      EventType = "card.claimed"
-	CardReleased     EventType = "card.released"
-	CardStalled      EventType = "card.stalled"
-	CardLogAdded        EventType = "card.log_added"
-	CardUsageReported   EventType = "card.usage_reported"
-	ProjectCreated      EventType = "project.created"
-	ProjectUpdated      EventType = "project.updated"
-	ProjectDeleted      EventType = "project.deleted"
+	CardCreated       EventType = "card.created"
+	CardUpdated       EventType = "card.updated"
+	CardDeleted       EventType = "card.deleted"
+	CardStateChanged  EventType = "card.state_changed"
+	CardClaimed       EventType = "card.claimed"
+	CardReleased      EventType = "card.released"
+	CardStalled       EventType = "card.stalled"
+	CardLogAdded      EventType = "card.log_added"
+	CardUsageReported EventType = "card.usage_reported"
+	ProjectCreated    EventType = "project.created"
+	ProjectUpdated    EventType = "project.updated"
+	ProjectDeleted    EventType = "project.deleted"
 
 	SyncStarted   EventType = "sync.started"
 	SyncCompleted EventType = "sync.completed"
@@ -124,5 +124,6 @@ func (b *Bus) Publish(event Event) {
 func (b *Bus) SubscriberCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
 	return len(b.subscribers)
 }

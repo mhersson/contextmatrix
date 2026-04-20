@@ -50,8 +50,10 @@ func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 	// Run handler in goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		eh.streamEvents(rec, req)
 	}()
 
@@ -85,23 +87,28 @@ func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 
 	// Find the data line
 	var dataLine string
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "data: ") {
 			dataLine = line
+
 			break
 		}
 	}
+
 	require.NotEmpty(t, dataLine, "should have received data event")
 
 	jsonData := strings.TrimPrefix(dataLine, "data: ")
+
 	var received events.Event
+
 	err := json.Unmarshal([]byte(jsonData), &received)
 	require.NoError(t, err)
 
 	assert.Equal(t, events.CardCreated, received.Type)
 	assert.Equal(t, "alpha", received.Project)
 	assert.Equal(t, "ALPHA-001", received.CardID)
-	assert.Greater(t, rec.flushed, 0, "should have called Flush")
+	assert.Positive(t, rec.flushed, "should have called Flush")
 }
 
 func TestStreamEvents_FiltersByProject(t *testing.T) {
@@ -118,8 +125,10 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		eh.streamEvents(rec, req)
 	}()
 
@@ -148,9 +157,11 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 	lines := strings.Split(body, "\n")
 
 	var receivedEvents []events.Event
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "data: ") {
 			jsonData := strings.TrimPrefix(line, "data: ")
+
 			var ev events.Event
 			if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
 				receivedEvents = append(receivedEvents, ev)
@@ -177,8 +188,10 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		eh.streamEvents(rec, req)
 	}()
 
@@ -204,9 +217,11 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 	lines := strings.Split(body, "\n")
 
 	var receivedProjects []string
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "data: ") {
 			jsonData := strings.TrimPrefix(line, "data: ")
+
 			var ev events.Event
 			if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
 				receivedProjects = append(receivedProjects, ev.Project)
@@ -231,8 +246,10 @@ func TestStreamEvents_Keepalive(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		eh.streamEvents(rec, req)
 	}()
 
@@ -257,6 +274,7 @@ func TestStreamEvents_ClientDisconnect(t *testing.T) {
 	rec := newFlushRecorder()
 
 	done := make(chan struct{})
+
 	go func() {
 		eh.streamEvents(rec, req)
 		close(done)
@@ -288,11 +306,13 @@ func (m *mockNonFlushingWriter) Header() http.Header {
 	if m.header == nil {
 		m.header = make(http.Header)
 	}
+
 	return m.header
 }
 
 func (m *mockNonFlushingWriter) Write(b []byte) (int, error) {
 	m.body = append(m.body, b...)
+
 	return len(b), nil
 }
 
@@ -332,6 +352,7 @@ func TestStreamEvents_SurvivesWriteTimeout(t *testing.T) {
 	// Connect to the SSE endpoint over a real TCP connection.
 	conn, err := net.DialTimeout("tcp", srv.Listener.Addr().String(), 2*time.Second)
 	require.NoError(t, err)
+
 	defer func() { _ = conn.Close() }()
 
 	// Send a minimal HTTP/1.1 GET request.
@@ -345,7 +366,9 @@ func TestStreamEvents_SurvivesWriteTimeout(t *testing.T) {
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 
 	scanner := bufio.NewScanner(conn)
+
 	var sseComments []string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, ": ") {

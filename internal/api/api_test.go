@@ -31,6 +31,7 @@ import (
 // closeBody is a helper to close response body and check error in tests.
 func closeBody(t *testing.T, body io.Closer) {
 	t.Helper()
+
 	if err := body.Close(); err != nil {
 		t.Errorf("failed to close response body: %v", err)
 	}
@@ -94,10 +95,12 @@ func TestListProjects(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -115,11 +118,13 @@ func TestGetProject(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	t.Run("existing project", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -134,6 +139,7 @@ func TestGetProject(t *testing.T) {
 
 	t.Run("non-existent project", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/nonexistent")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -150,6 +156,7 @@ func TestCreateCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -162,6 +169,7 @@ func TestCreateCard(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -184,6 +192,7 @@ func TestCreateCard(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -199,6 +208,7 @@ func TestCreateCard(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -218,6 +228,7 @@ func TestCreateCard(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		resp, err := http.Post(server.URL+"/api/projects/nonexistent/cards", "application/json", bytes.NewReader(jsonBody))
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -230,6 +241,7 @@ func TestGetCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -243,6 +255,7 @@ func TestGetCard(t *testing.T) {
 
 	t.Run("existing card", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-001")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -256,6 +269,7 @@ func TestGetCard(t *testing.T) {
 
 	t.Run("non-existent card", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-999")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -272,6 +286,7 @@ func TestListCards(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -292,6 +307,7 @@ func TestListCards(t *testing.T) {
 
 	t.Run("list all", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -304,6 +320,7 @@ func TestListCards(t *testing.T) {
 
 	t.Run("filter by type", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?type=task")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -317,6 +334,7 @@ func TestListCards(t *testing.T) {
 
 	t.Run("filter by priority", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?priority=high")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -334,6 +352,7 @@ func TestPatchCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -356,6 +375,7 @@ func TestPatchCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -377,6 +397,7 @@ func TestPatchCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -389,6 +410,7 @@ func TestUpdateCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -414,6 +436,7 @@ func TestUpdateCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -433,6 +456,7 @@ func TestDeleteCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -448,6 +472,7 @@ func TestDeleteCard(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/projects/test-project/cards/TEST-001", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -455,6 +480,7 @@ func TestDeleteCard(t *testing.T) {
 
 		// Verify it's gone
 		getResp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-001")
+
 		require.NoError(t, err)
 		defer closeBody(t, getResp.Body)
 
@@ -465,6 +491,7 @@ func TestDeleteCard(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/projects/test-project/cards/TEST-999", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -477,10 +504,12 @@ func TestCORSHeaders(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, CORSOrigin: "http://localhost:5173"})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -492,10 +521,12 @@ func TestCORSDisabledWhenEmpty(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -507,11 +538,13 @@ func TestCORSPreflight(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, CORSOrigin: "http://localhost:5173"})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	req, _ := http.NewRequest(http.MethodOptions, server.URL+"/api/projects", nil)
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -525,11 +558,13 @@ func TestRequestID(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	t.Run("generates request ID", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -542,6 +577,7 @@ func TestRequestID(t *testing.T) {
 		req.Header.Set("X-Request-ID", "custom-id-123")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -554,10 +590,12 @@ func TestHealthz(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/healthz")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -573,18 +611,23 @@ func TestHealthzNotLogged(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	// Capture log output by replacing the default slog handler.
 	var buf bytes.Buffer
+
 	orig := slog.Default()
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(orig) })
 
 	resp, err := http.Get(server.URL + "/healthz")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	assert.Empty(t, buf.String(), "expected no log output for GET /healthz")
@@ -597,6 +640,7 @@ func TestClaimCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -616,6 +660,7 @@ func TestClaimCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -635,6 +680,7 @@ func TestClaimCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -663,6 +709,7 @@ func TestClaimCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "claude-from-header")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -681,6 +728,7 @@ func TestClaimCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -695,6 +743,7 @@ func TestClaimCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -707,6 +756,7 @@ func TestReleaseCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -729,6 +779,7 @@ func TestReleaseCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -748,6 +799,7 @@ func TestReleaseCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -770,6 +822,7 @@ func TestReleaseCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -786,6 +839,7 @@ func TestHeartbeatCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -799,6 +853,7 @@ func TestHeartbeatCard(t *testing.T) {
 
 	card, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
 	require.NoError(t, err)
+
 	originalHeartbeat := card.LastHeartbeat
 
 	// Wait a moment so heartbeat time differs
@@ -812,6 +867,7 @@ func TestHeartbeatCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -831,6 +887,7 @@ func TestHeartbeatCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -849,6 +906,7 @@ func TestHeartbeatCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -861,6 +919,7 @@ func TestAddLogEntry(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -884,6 +943,7 @@ func TestAddLogEntry(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -910,6 +970,7 @@ func TestAddLogEntry(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -928,6 +989,7 @@ func TestAddLogEntry(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -946,6 +1008,7 @@ func TestAddLogEntry(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -958,6 +1021,7 @@ func TestGetCardContext(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -971,6 +1035,7 @@ func TestGetCardContext(t *testing.T) {
 
 	t.Run("returns card and project", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-001/context")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -985,6 +1050,7 @@ func TestGetCardContext(t *testing.T) {
 
 	t.Run("non-existent card - 404", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-999/context")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -999,6 +1065,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1024,6 +1091,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		// No X-Agent-ID header
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1042,6 +1110,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		// No X-Agent-ID header
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1066,6 +1135,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "owner-agent")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1086,6 +1156,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "wrong-agent")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1110,6 +1181,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		// No X-Agent-ID header
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1128,6 +1200,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "wrong-agent")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1139,6 +1212,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "wrong-agent")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1150,6 +1224,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "owner-agent")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1179,6 +1254,7 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1199,6 +1275,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1214,8 +1291,10 @@ func TestFullCardLifecycle(t *testing.T) {
 		Body:     "## Plan\nIntegration test card",
 	})
 	resp, err := http.Post(baseURL, "application/json", bytes.NewReader(createBody))
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var created board.Card
@@ -1232,8 +1311,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, cardURL+"/claim", bytes.NewReader(claimBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp2, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp2.Body)
+
 	assert.Equal(t, http.StatusOK, resp2.StatusCode)
 
 	var claimed board.Card
@@ -1250,8 +1331,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, cardURL+"/log", bytes.NewReader(logBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp3, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp3.Body)
+
 	assert.Equal(t, http.StatusOK, resp3.StatusCode)
 
 	var logged board.Card
@@ -1266,8 +1349,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Agent-ID", agentID)
 	resp4, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp4.Body)
+
 	assert.Equal(t, http.StatusOK, resp4.StatusCode)
 
 	var inProgress board.Card
@@ -1279,8 +1364,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, cardURL+"/heartbeat", bytes.NewReader(hbBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp5, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp5.Body)
+
 	assert.Equal(t, http.StatusNoContent, resp5.StatusCode)
 
 	// Step 6: Transition in_progress → done
@@ -1290,8 +1377,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Agent-ID", agentID)
 	resp6, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp6.Body)
+
 	assert.Equal(t, http.StatusOK, resp6.StatusCode)
 
 	// Step 7: Release card
@@ -1299,14 +1388,18 @@ func TestFullCardLifecycle(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, cardURL+"/release", bytes.NewReader(releaseBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp7, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp7.Body)
+
 	assert.Equal(t, http.StatusOK, resp7.StatusCode)
 
 	// Step 8: Verify final state via GET
 	resp8, err := http.Get(cardURL)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp8.Body)
+
 	assert.Equal(t, http.StatusOK, resp8.StatusCode)
 
 	var final board.Card
@@ -1327,11 +1420,13 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	// Connect to SSE endpoint
 	sseResp, err := http.Get(server.URL + "/api/events")
+
 	require.NoError(t, err)
 	defer closeBody(t, sseResp.Body)
 
@@ -1339,11 +1434,16 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	assert.Equal(t, "text/event-stream", sseResp.Header.Get("Content-Type"))
 
 	// Read SSE events in a background goroutine
-	var receivedEvents []events.Event
-	var mu sync.Mutex
+	var (
+		receivedEvents []events.Event
+		mu             sync.Mutex
+	)
+
 	readDone := make(chan struct{})
+
 	go func() {
 		defer close(readDone)
+
 		buf := make([]byte, 4096)
 		for {
 			n, readErr := sseResp.Body.Read(buf)
@@ -1353,12 +1453,14 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 						var ev events.Event
 						if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
 							mu.Lock()
+
 							receivedEvents = append(receivedEvents, ev)
 							mu.Unlock()
 						}
 					}
 				}
 			}
+
 			if readErr != nil {
 				return
 			}
@@ -1393,22 +1495,27 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 
 	// Close the SSE connection to stop the reader
 	_ = sseResp.Body.Close()
+
 	<-readDone
 
 	// Verify we received both events
 	mu.Lock()
 	defer mu.Unlock()
+
 	require.GreaterOrEqual(t, len(receivedEvents), 2, "should receive at least CardCreated and CardClaimed events")
 
 	var hasCreated, hasClaimed bool
+
 	for _, ev := range receivedEvents {
 		if ev.Type == events.CardCreated && ev.CardID == "TEST-001" {
 			hasCreated = true
 		}
+
 		if ev.Type == events.CardClaimed && ev.CardID == "TEST-001" {
 			hasClaimed = true
 		}
 	}
+
 	assert.True(t, hasCreated, "should have received CardCreated event")
 	assert.True(t, hasClaimed, "should have received CardClaimed event")
 }
@@ -1419,6 +1526,7 @@ func TestConcurrentAgentClaims(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1434,30 +1542,37 @@ func TestConcurrentAgentClaims(t *testing.T) {
 			Priority: "medium",
 		})
 		require.NoError(t, err)
+
 		cardIDs[i] = card.ID
 	}
 
 	// Spawn goroutines to claim different cards concurrently
 	var wg sync.WaitGroup
+
 	results := make([]int, cardCount) // HTTP status codes
 	for i := range cardCount {
 		wg.Add(1)
+
 		go func(idx int) {
 			defer wg.Done()
+
 			agentID := fmt.Sprintf("agent-%d", idx)
 			body, _ := json.Marshal(agentRequest{AgentID: agentID})
 			req, _ := http.NewRequest(http.MethodPost,
 				server.URL+"/api/projects/test-project/cards/"+cardIDs[idx]+"/claim",
 				bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return
 			}
+
 			closeBody(t, resp.Body)
 			results[idx] = resp.StatusCode
 		}(i)
 	}
+
 	wg.Wait()
 
 	// All should succeed since each targets a different card
@@ -1480,6 +1595,7 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1492,32 +1608,40 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	require.NoError(t, err)
 
 	agentCount := 10
+
 	var wg sync.WaitGroup
+
 	statuses := make([]int, agentCount)
 
 	// All agents try to claim the same card
 	for i := range agentCount {
 		wg.Add(1)
+
 		go func(idx int) {
 			defer wg.Done()
+
 			agentID := fmt.Sprintf("racer-%d", idx)
 			body, _ := json.Marshal(agentRequest{AgentID: agentID})
 			req, _ := http.NewRequest(http.MethodPost,
 				server.URL+"/api/projects/test-project/cards/"+card.ID+"/claim",
 				bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return
 			}
+
 			closeBody(t, resp.Body)
 			statuses[idx] = resp.StatusCode
 		}(i)
 	}
+
 	wg.Wait()
 
 	// Count successes — exactly one agent should win
 	successCount := 0
+
 	for _, status := range statuses {
 		if status == http.StatusOK {
 			successCount++
@@ -1537,6 +1661,7 @@ func TestReportUsageEndpoint(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1548,6 +1673,7 @@ func TestReportUsageEndpoint(t *testing.T) {
 	})
 	resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(createBody))
 	require.NoError(t, err)
+
 	var card board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
 	closeBody(t, resp.Body)
@@ -1563,6 +1689,7 @@ func TestReportUsageEndpoint(t *testing.T) {
 		bytes.NewReader(usageBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1580,6 +1707,7 @@ func TestGetProjectUsage(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1608,6 +1736,7 @@ func TestGetProjectUsage(t *testing.T) {
 
 	// Hit the usage endpoint
 	resp, err := http.Get(server.URL + "/api/projects/test-project/usage")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1625,6 +1754,7 @@ func TestGetProjectDashboard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1650,6 +1780,7 @@ func TestGetProjectDashboard(t *testing.T) {
 
 	// Hit dashboard endpoint.
 	resp, err := http.Get(server.URL + "/api/projects/test-project/dashboard")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1665,8 +1796,10 @@ func TestGetProjectDashboard(t *testing.T) {
 
 	// Nonexistent project returns 404.
 	resp2, err := http.Get(server.URL + "/api/projects/nonexistent/dashboard")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp2.Body)
+
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
 
@@ -1712,11 +1845,13 @@ func validProjectBody() createProjectRequest {
 func TestCreateProject_API(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	body, _ := json.Marshal(validProjectBody())
 	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1732,6 +1867,7 @@ func TestCreateProject_API(t *testing.T) {
 func TestCreateProject_API_Conflict(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1742,14 +1878,17 @@ func TestCreateProject_API_Conflict(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, resp1.StatusCode)
 
 	resp2, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+
 	require.NoError(t, err)
 	defer closeBody(t, resp2.Body)
+
 	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
 }
 
 func TestCreateProject_API_BadRequest(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1757,15 +1896,19 @@ func TestCreateProject_API_BadRequest(t *testing.T) {
 	req.Name = ""
 	body, _ := json.Marshal(req)
 	resp, err := http.Post(server.URL+"/api/projects", "application/json", bytes.NewReader(body))
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestUpdateProject_API(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
+
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1788,6 +1931,7 @@ func TestUpdateProject_API(t *testing.T) {
 	httpReq, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1802,6 +1946,7 @@ func TestUpdateProject_API(t *testing.T) {
 func TestUpdateProject_API_NotFound(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1820,14 +1965,17 @@ func TestUpdateProject_API_NotFound(t *testing.T) {
 	httpReq, _ := http.NewRequest("PUT", server.URL+"/api/projects/nonexistent", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestDeleteProject_API(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1839,21 +1987,27 @@ func TestDeleteProject_API(t *testing.T) {
 
 	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/new-project", nil)
 	resp, err := http.DefaultClient.Do(httpReq)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 	// Verify gone
 	resp2, err := http.Get(server.URL + "/api/projects/new-project")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp2.Body)
+
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
 
 func TestDeleteProject_API_HasCards(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
+
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1867,21 +2021,26 @@ func TestDeleteProject_API_HasCards(t *testing.T) {
 
 	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/test-project", nil)
 	resp, err := http.DefaultClient.Do(httpReq)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
 func TestDeleteProject_API_NotFound(t *testing.T) {
 	svc, bus := emptyTestSetup(t)
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	httpReq, _ := http.NewRequest("DELETE", server.URL+"/api/projects/nonexistent", nil)
 	resp, err := http.DefaultClient.Do(httpReq)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
@@ -1892,6 +2051,7 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1910,10 +2070,12 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -1926,6 +2088,7 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1938,6 +2101,7 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1950,6 +2114,7 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -1962,6 +2127,7 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "claude-7a3f")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -1974,10 +2140,12 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 		assert.True(t, respCard.Autonomous)
@@ -1991,6 +2159,7 @@ func TestReportPush_BranchProtection(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2025,6 +2194,7 @@ func TestReportPush_BranchProtection(t *testing.T) {
 			req.Header.Set("X-Agent-ID", "agent-1")
 
 			resp, err := http.DefaultClient.Do(req)
+
 			require.NoError(t, err)
 			defer closeBody(t, resp.Body)
 
@@ -2038,6 +2208,7 @@ func TestReportPush_InvalidPRUrl_Returns422(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2057,6 +2228,7 @@ func TestReportPush_InvalidPRUrl_Returns422(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -2068,6 +2240,7 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2087,10 +2260,12 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -2106,6 +2281,7 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2124,6 +2300,7 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -2135,6 +2312,7 @@ func TestHumanOnlyFields_PutSet(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2153,10 +2331,12 @@ func TestHumanOnlyFields_PutSet(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "agent-1")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -2172,6 +2352,7 @@ func TestReportPush_AgentMismatch(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2192,10 +2373,12 @@ func TestReportPush_AgentMismatch(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-intruder")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
@@ -2210,6 +2393,7 @@ func TestReportPush_AgentMismatch(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-owner")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2285,10 +2469,12 @@ remote_execution:
 
 		// No runner client passed → runnerEnabled = false
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
 		resp, err := http.Get(server.URL + "/api/projects/test-project")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2310,10 +2496,12 @@ remote_execution:
 		// Passing a non-nil runner client → runnerEnabled = true
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
 		resp, err := http.Get(server.URL + "/api/projects/test-project")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2335,10 +2523,12 @@ remote_execution:
 
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
 		resp, err := http.Get(server.URL + "/api/projects/test-project")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2377,10 +2567,12 @@ remote_execution:
 		defer cleanup()
 
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+
 		server := httptest.NewServer(router)
 		defer server.Close()
 
 		resp, err := http.Get(server.URL + "/api/projects")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2402,6 +2594,7 @@ func TestHumanOnlyFields_Vetted_PatchCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2419,10 +2612,12 @@ func TestHumanOnlyFields_Vetted_PatchCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -2435,10 +2630,12 @@ func TestHumanOnlyFields_Vetted_PatchCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
 		assert.True(t, updated.Vetted)
@@ -2450,6 +2647,7 @@ func TestHumanOnlyFields_Vetted_CreateCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2462,10 +2660,12 @@ func TestHumanOnlyFields_Vetted_CreateCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-importer")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -2477,6 +2677,7 @@ func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2500,10 +2701,12 @@ func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
@@ -2520,6 +2723,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2543,10 +2747,12 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeCardNotVetted, apiErr.Code)
@@ -2562,6 +2768,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2574,6 +2781,7 @@ func TestListCards_VettedFilter(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -2594,6 +2802,7 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 	t.Run("?vetted=true returns only vetted cards", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?vetted=true")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2607,6 +2816,7 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 	t.Run("?vetted=false returns only unvetted cards", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?vetted=false")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2620,6 +2830,7 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 	t.Run("no vetted param returns all cards", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/projects/test-project/cards")
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2639,10 +2850,12 @@ func TestWrapMCPHandler_PanicRecovery(t *testing.T) {
 	})
 
 	wrapped := WrapMCPHandler(panicHandler)
+
 	server := httptest.NewServer(wrapped)
 	defer server.Close()
 
 	resp, err := http.Post(server.URL+"/mcp", "application/json", strings.NewReader(`{}`))
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -2661,11 +2874,13 @@ func TestWrapMCPHandler_BodyLimit(t *testing.T) {
 	})
 
 	wrapped := WrapMCPHandler(okHandler)
+
 	server := httptest.NewServer(wrapped)
 	defer server.Close()
 
 	// 20 MB body — well over the 5 MB MCP limit.
 	const twentyMB = 20 * 1024 * 1024
+
 	bigBody := bytes.Repeat([]byte("x"), twentyMB)
 
 	req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp", bytes.NewReader(bigBody))
@@ -2673,6 +2888,7 @@ func TestWrapMCPHandler_BodyLimit(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 

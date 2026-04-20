@@ -77,10 +77,12 @@ func TestListBranches_NoToken(t *testing.T) {
 
 	// No GitHubToken set — expect 503
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/test-project/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -97,10 +99,12 @@ func TestListBranches_NoGitHubRepo(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/test-project/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -117,10 +121,12 @@ func TestListBranches_NonGitHubRepo(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/gh-project/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -136,10 +142,12 @@ func TestListBranches_ProjectNotFound(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/nonexistent/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -165,10 +173,12 @@ func TestListBranches_Success(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
+
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/gh-project/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -194,10 +204,12 @@ func TestListBranches_FetchError(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
+
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/projects/gh-project/branches")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -207,4 +219,3 @@ func TestListBranches_FetchError(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
 }
-

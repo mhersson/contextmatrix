@@ -50,10 +50,12 @@ func resolveProject(ctx context.Context, svc *service.CardService, project, card
 	if project != "" {
 		return project, nil
 	}
+
 	_, proj, err := findCard(ctx, svc, cardID)
 	if err != nil {
 		return "", fmt.Errorf("resolve project for %s: %w", cardID, err)
 	}
+
 	return proj, nil
 }
 
@@ -201,6 +203,7 @@ func registerListProjects(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, listProjectsOutput{}, fmt.Errorf("list projects: %w", err)
 		}
+
 		return nil, listProjectsOutput{Projects: projects}, nil
 	})
 }
@@ -217,13 +220,16 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 			AssignedAgent: input.Agent,
 			Parent:        input.Parent,
 		}
+
 		cards, err := svc.ListCards(ctx, input.Project, filter)
 		if err != nil {
 			return nil, listCardsOutput{}, fmt.Errorf("list cards: %w", err)
 		}
+
 		if cards == nil {
 			cards = []*board.Card{}
 		}
+
 		return nil, listCardsOutput{Cards: cards}, nil
 	})
 }
@@ -237,10 +243,12 @@ func registerGetCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -258,6 +266,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			Body:     input.Body,
 			Parent:   input.Parent,
 		}
+
 		card, err := svc.CreateCard(ctx, input.Project, svcInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create card: %w", err)
@@ -293,16 +302,19 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		patchInput := service.PatchCardInput{
 			Title:    input.Title,
 			Priority: input.Priority,
 			Labels:   input.Labels,
 			Body:     input.Body,
 		}
+
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("update card %s: %w", input.CardID, err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -323,6 +335,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 			if err != nil {
 				return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 			}
+
 			if card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
 				return nil, nil, fmt.Errorf("card %s is owned by agent %q, not %q", input.CardID, card.AssignedAgent, input.AgentID)
 			}
@@ -331,10 +344,12 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 		patchInput := service.PatchCardInput{
 			State: &input.NewState,
 		}
+
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("transition card %s to %s: %w", input.CardID, input.NewState, err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -348,6 +363,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		card, err := svc.ClaimCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("claim card %s: %w", input.CardID, err)
@@ -355,6 +371,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 		// Auto-transition to in_progress only from todo — claiming a card
 		// in review/done/blocked should not change its state.
 		var transitionErr error
+
 		if card.State == board.StateTodo {
 			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress); err != nil {
 				slog.Warn("claim_card: auto-transition to in_progress failed", "card_id", input.CardID, "error", err)
@@ -364,6 +381,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 				card = transitioned
 			}
 		}
+
 		if transitionErr != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -371,6 +389,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 				},
 			}, card, nil
 		}
+
 		return nil, card, nil
 	})
 }
@@ -384,10 +403,12 @@ func registerReleaseCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		card, err := svc.ReleaseCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("release card %s: %w", input.CardID, err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -401,13 +422,16 @@ func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		if err := svc.HeartbeatCard(ctx, project, input.CardID, input.AgentID); err != nil {
 			return nil, nil, fmt.Errorf("heartbeat card %s: %w", input.CardID, err)
 		}
+
 		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card after heartbeat: %w", err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -421,6 +445,7 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		entry := board.ActivityEntry{
 			Agent:   input.AgentID,
 			Action:  input.Action,
@@ -429,10 +454,12 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 		if err := svc.AddLogEntry(ctx, project, input.CardID, entry); err != nil {
 			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
 		}
+
 		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card after log: %w", err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -446,6 +473,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, getTaskContextOutput{}, err
 		}
+
 		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, getTaskContextOutput{}, fmt.Errorf("get card %s: %w", input.CardID, err)
@@ -480,6 +508,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 						filtered = append(filtered, s)
 					}
 				}
+
 				out.Siblings = filtered
 			}
 		}
@@ -512,7 +541,9 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
 		}
+
 		parentID := card.Parent
+
 		targetState := board.StateReview
 		if parentID != "" {
 			targetState = board.StateDone
@@ -526,6 +557,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		// Release the claim — if this fails, the transition already committed,
 		// so log the error and include a warning rather than failing the whole operation.
 		var releaseWarning string
+
 		card, err = svc.ReleaseCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
 			slog.Warn("complete_task: release failed after transition", "card_id", input.CardID, "error", err)
@@ -544,6 +576,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		if releaseWarning != "" {
 			parts = append(parts, releaseWarning)
 		}
+
 		if targetState == board.StateReview {
 			parts = append(parts, fmt.Sprintf("Card %s transitioned to review.", input.CardID))
 		} else if parentID != "" {
@@ -553,17 +586,21 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
 			if serr == nil {
 				allDone := true
+
 				for _, sib := range siblings {
 					if sib.State != board.StateDone {
 						allDone = false
+
 						break
 					}
 				}
+
 				if allDone {
 					parts = append(parts, fmt.Sprintf("All subtasks done. Parent %s stays in in_progress for documentation.", parentID))
 				}
 			}
 		}
+
 		if len(parts) > 0 {
 			out.NextStep = strings.Join(parts, " ")
 		}
@@ -581,6 +618,7 @@ func registerGetSubtaskSummary(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, getSubtaskSummaryOutput{}, err
 		}
+
 		cards, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: input.ParentID})
 		if err != nil {
 			return nil, getSubtaskSummaryOutput{}, fmt.Errorf("list subtasks: %w", err)
@@ -618,8 +656,10 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 		warningThreshold := timeout / 2
 		now := time.Now()
 
-		var subtasks []AgentHealthStatus
-		var stalledCount, warningCount, activeCount, completedCount int
+		var (
+			subtasks                                                []AgentHealthStatus
+			stalledCount, warningCount, activeCount, completedCount int
+		)
 
 		for _, card := range cards {
 			status := AgentHealthStatus{
@@ -695,16 +735,20 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 		// Filter to unclaimed cards with all dependencies met
 		// ListCards already computes DependenciesMet on each card
 		ready := make([]*board.Card, 0)
+
 		for _, card := range cards {
 			if card.AssignedAgent != "" {
 				continue // already claimed
 			}
+
 			if card.DependenciesMet != nil && !*card.DependenciesMet {
 				continue
 			}
+
 			if card.Source != nil && !card.Vetted {
 				continue // unvetted external cards cannot be claimed by agents
 			}
+
 			ready = append(ready, card)
 		}
 
@@ -730,6 +774,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, err
 		}
+
 		card, err := svc.ReportUsage(ctx, project, input.CardID, service.ReportUsageInput{
 			AgentID:          input.AgentID,
 			Model:            input.Model,
@@ -739,6 +784,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
 		}
+
 		return nil, card, nil
 	})
 }
@@ -762,6 +808,7 @@ func registerRecalculateCosts(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, recalculateCostsOutput{}, fmt.Errorf("recalculate costs: %w", err)
 		}
+
 		return nil, recalculateCostsOutput{
 			CardsUpdated:          result.CardsUpdated,
 			TotalCostRecalculated: result.TotalCostRecalculated,
@@ -815,6 +862,7 @@ func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("create project %s: %w", input.Name, err)
 		}
+
 		return nil, cfg, nil
 	})
 }
@@ -834,6 +882,7 @@ func registerUpdateProject(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("update project %s: %w", input.Project, err)
 		}
+
 		return nil, cfg, nil
 	})
 }
@@ -846,6 +895,7 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 		if err := svc.DeleteProject(ctx, input.Project); err != nil {
 			return nil, deleteProjectOutput{}, fmt.Errorf("delete project %s: %w", input.Project, err)
 		}
+
 		return nil, deleteProjectOutput{Deleted: true}, nil
 	})
 }
@@ -883,12 +933,14 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsD
 		}
 
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, skill, skillArgs{
 			CardID: input.CardID,
 		}, includePreamble)
 		if err != nil {
 			return nil, startWorkflowOutput{}, fmt.Errorf("start workflow: %w", err)
 		}
+
 		content := stripAgentConfig(result.Content)
 
 		// start_workflow always returns inline content — both create-plan
@@ -928,6 +980,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+
 		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
 			Description: input.Description,
@@ -936,6 +989,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)
 		}
+
 		content := stripAgentConfig(result.Content)
 
 		// Server-side inline decision: caller model must match skill model
@@ -980,6 +1034,7 @@ func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardServic
 		CardID  string `json:"card_id" jsonschema:"required,card ID"`
 		AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
 	}
+
 	type output struct {
 		Card *board.Card `json:"card"`
 	}
@@ -1016,6 +1071,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 		}
 
 		branch := strings.TrimSpace(input.Branch)
+
 		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, branch, input.PRUrl)
 		if err != nil {
 			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)

@@ -41,12 +41,14 @@ func TestTriggerSync_Enabled(t *testing.T) {
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/sync", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -63,12 +65,14 @@ func TestTriggerSync_Disabled(t *testing.T) {
 
 	// No syncer → sync disabled.
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/sync", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -89,12 +93,14 @@ func TestTriggerSync_Error(t *testing.T) {
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/sync", nil)
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -117,10 +123,12 @@ func TestGetSyncStatus_Enabled(t *testing.T) {
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/sync")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -138,10 +146,12 @@ func TestGetSyncStatus_Disabled(t *testing.T) {
 
 	// No syncer → disabled.
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: nil})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/sync")
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -159,6 +169,7 @@ func TestRecalculateCosts_Success(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -169,6 +180,7 @@ func TestRecalculateCosts_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -186,6 +198,7 @@ func TestRecalculateCosts_MissingModel(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -196,6 +209,7 @@ func TestRecalculateCosts_MissingModel(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -211,6 +225,7 @@ func TestRecalculateCosts_InvalidJSON(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -220,6 +235,7 @@ func TestRecalculateCosts_InvalidJSON(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -235,6 +251,7 @@ func TestRecalculateCosts_ProjectNotFound(t *testing.T) {
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -245,6 +262,7 @@ func TestRecalculateCosts_ProjectNotFound(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -275,6 +293,7 @@ func TestRecalculateCosts_WithUsageData(t *testing.T) {
 	require.NoError(t, err)
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -285,6 +304,7 @@ func TestRecalculateCosts_WithUsageData(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 

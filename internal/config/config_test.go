@@ -12,9 +12,11 @@ import (
 
 func writeConfigFile(t *testing.T, dir, content string) string {
 	t.Helper()
+
 	path := filepath.Join(dir, "config.yaml")
 	err := os.WriteFile(path, []byte(content), 0o644)
 	require.NoError(t, err)
+
 	return path
 }
 
@@ -329,6 +331,7 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	envBoardsDir := filepath.Join(dir, "env-boards")
+
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 	require.NoError(t, os.MkdirAll(envBoardsDir, 0o755))
 
@@ -514,6 +517,7 @@ func TestHeartbeatDuration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{HeartbeatTimeout: tt.timeout}
+
 			d, err := cfg.HeartbeatDuration()
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -603,21 +607,21 @@ func TestDefaults(t *testing.T) {
 	cfg := defaults()
 
 	assert.Equal(t, 8080, cfg.Port)
-	assert.Equal(t, "", cfg.Boards.Dir)
+	assert.Empty(t, cfg.Boards.Dir)
 	assert.True(t, cfg.Boards.GitAutoCommit)
 	assert.False(t, cfg.Boards.GitAutoPush)
 	assert.False(t, cfg.Boards.GitAutoPull)
 	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
 	assert.False(t, cfg.Boards.GitDeferredCommit)
 	assert.False(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "", cfg.Boards.GitRemoteURL)
+	assert.Empty(t, cfg.Boards.GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
-	assert.Equal(t, "", cfg.SkillsDir)
-	assert.Equal(t, "", cfg.MCPAPIKey)
+	assert.Empty(t, cfg.SkillsDir)
+	assert.Empty(t, cfg.MCPAPIKey)
 	assert.False(t, cfg.Runner.Enabled)
-	assert.Equal(t, "", cfg.Runner.URL)
-	assert.Equal(t, "", cfg.Runner.APIKey)
+	assert.Empty(t, cfg.Runner.URL)
+	assert.Empty(t, cfg.Runner.APIKey)
 }
 
 func TestLoad_RunnerConfig(t *testing.T) {
@@ -657,9 +661,9 @@ func TestLoad_RunnerDisabledByDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, cfg.Runner.Enabled)
-	assert.Equal(t, "", cfg.Runner.URL)
-	assert.Equal(t, "", cfg.Runner.APIKey)
-	assert.Equal(t, "", cfg.MCPAPIKey)
+	assert.Empty(t, cfg.Runner.URL)
+	assert.Empty(t, cfg.Runner.APIKey)
+	assert.Empty(t, cfg.MCPAPIKey)
 }
 
 func TestValidate_RunnerEnabledMissingURL(t *testing.T) {
@@ -874,7 +878,7 @@ func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "", cfg.Boards.GitRemoteURL)
+	assert.Empty(t, cfg.Boards.GitRemoteURL)
 }
 
 func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
@@ -966,7 +970,7 @@ func TestLoad_ExampleFile(t *testing.T) {
 	// GitHub issue importing should be disabled by default in the example file.
 	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
 	assert.Equal(t, "5m", cfg.GitHub.IssueImporting.SyncInterval)
-	assert.Equal(t, "", cfg.GitHub.Token)
+	assert.Empty(t, cfg.GitHub.Token)
 }
 
 // ---------- GitHub issue importing config tests ----------
@@ -1051,7 +1055,7 @@ func TestLoad_GitHubIssueImporting_NoTokenNoError_WhenDisabled(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "", cfg.GitHub.Token)
+	assert.Empty(t, cfg.GitHub.Token)
 	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
 }
 
@@ -1200,9 +1204,9 @@ github:
 func TestDefaults_GitHubIssueImporting(t *testing.T) {
 	cfg := defaults()
 
-	assert.Equal(t, "", cfg.GitHub.Token)
+	assert.Empty(t, cfg.GitHub.Token)
 	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-	assert.Equal(t, "", cfg.GitHub.IssueImporting.SyncInterval)
+	assert.Empty(t, cfg.GitHub.IssueImporting.SyncInterval)
 }
 
 func TestSyncIntervalDuration(t *testing.T) {
@@ -1222,6 +1226,7 @@ func TestSyncIntervalDuration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &IssueImportingConfig{SyncInterval: tt.interval}
+
 			d, err := c.SyncIntervalDuration()
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -1265,8 +1270,8 @@ func TestLoad_GitHubHostAndAPIBaseURL_Defaults(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "", cfg.GitHub.Host)
-	assert.Equal(t, "", cfg.GitHub.APIBaseURL)
+	assert.Empty(t, cfg.GitHub.Host)
+	assert.Empty(t, cfg.GitHub.APIBaseURL)
 }
 
 func TestLoad_GitHubHostAndAPIBaseURL_EnvOverrides(t *testing.T) {
@@ -1371,8 +1376,8 @@ func TestAllowedHosts_CustomHostNotDuplicated(t *testing.T) {
 
 func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
 	cfg := defaults()
-	assert.Equal(t, "", cfg.GitHub.Host)
-	assert.Equal(t, "", cfg.GitHub.APIBaseURL)
+	assert.Empty(t, cfg.GitHub.Host)
+	assert.Empty(t, cfg.GitHub.APIBaseURL)
 }
 
 // ---------- GitAuthMode tests ----------

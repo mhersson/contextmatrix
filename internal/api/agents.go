@@ -26,127 +26,144 @@ type addLogRequest struct {
 	Message string `json:"message"`
 }
 
-// claimCard handles POST /api/projects/{project}/cards/{id}/claim
+// claimCard handles POST /api/projects/{project}/cards/{id}/claim.
 func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
 	card, err := h.svc.ClaimCard(r.Context(), projectName, cardID, agentID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// releaseCard handles POST /api/projects/{project}/cards/{id}/release
+// releaseCard handles POST /api/projects/{project}/cards/{id}/release.
 func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
 	card, err := h.svc.ReleaseCard(r.Context(), projectName, cardID, agentID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// heartbeatCard handles POST /api/projects/{project}/cards/{id}/heartbeat
+// heartbeatCard handles POST /api/projects/{project}/cards/{id}/heartbeat.
 func (h *agentHandlers) heartbeatCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
 	if err := h.svc.HeartbeatCard(r.Context(), projectName, cardID, agentID); err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// addLogEntry handles POST /api/projects/{project}/cards/{id}/log
+// addLogEntry handles POST /api/projects/{project}/cards/{id}/log.
 func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req addLogRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
 	if req.Action == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "action required", "")
+
 		return
 	}
 
 	if req.Message == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "message required", "")
+
 		return
 	}
 
@@ -159,6 +176,7 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.svc.AddLogEntry(r.Context(), projectName, cardID, entry); err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -166,25 +184,28 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// getCardContext handles GET /api/projects/{project}/cards/{id}/context
+// getCardContext handles GET /api/projects/{project}/cards/{id}/context.
 func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	ctx, err := h.svc.GetCardContext(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -199,25 +220,28 @@ type reportUsageRequest struct {
 	CompletionTokens int64  `json:"completion_tokens"`
 }
 
-// reportUsage handles POST /api/projects/{project}/cards/{id}/usage
+// reportUsage handles POST /api/projects/{project}/cards/{id}/usage.
 func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req reportUsageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
@@ -229,6 +253,7 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -250,30 +275,35 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req reportPushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	agentID := extractAgentID(r, req.AgentID)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+
 		return
 	}
 
 	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "branch required", "")
+
 		return
 	}
 
 	card, err := h.svc.RecordPush(r.Context(), projectName, cardID, agentID, branch, req.PRUrl)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -286,5 +316,6 @@ func extractAgentID(r *http.Request, bodyAgentID string) string {
 	if headerID := strings.TrimSpace(r.Header.Get("X-Agent-ID")); headerID != "" {
 		return headerID
 	}
+
 	return strings.TrimSpace(bodyAgentID)
 }

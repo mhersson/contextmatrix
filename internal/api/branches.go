@@ -29,18 +29,21 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 	if h.githubToken == "" {
 		writeError(w, http.StatusServiceUnavailable, "NO_GITHUB_TOKEN",
 			"GitHub token is not configured", "")
+
 		return
 	}
 
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	project, err := h.svc.GetProject(r.Context(), projectName)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
@@ -48,15 +51,18 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeError(w, http.StatusNotFound, "NO_GITHUB_REPO",
 			"project does not have a GitHub repository URL", "")
+
 		return
 	}
 
 	client := h.newBranchClient(h.githubToken, h.githubAPIBaseURL)
+
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
 		slog.Error("failed to fetch branches", "project", projectName, "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError,
 			"failed to fetch branches", "")
+
 		return
 	}
 

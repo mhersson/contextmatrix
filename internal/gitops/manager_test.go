@@ -198,6 +198,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 	cloneMgr, err := NewManager(cloneDir, "", "ssh", "")
 	require.NoError(t, err)
 	cloneMgr.SetAuthor("Clone User", "clone@example.com")
+
 	err = os.WriteFile(filepath.Join(cloneDir, "world.txt"), []byte("world"), 0o644)
 	require.NoError(t, err)
 	err = cloneMgr.CommitFile("world.txt", "second commit")
@@ -320,12 +321,15 @@ func TestAddRemote(t *testing.T) {
 	require.NoError(t, err)
 
 	found := false
+
 	for _, r := range remotes {
 		if r.Config().Name == "origin" {
 			found = true
+
 			assert.Contains(t, r.Config().URLs, "https://github.com/test/repo.git")
 		}
 	}
+
 	assert.True(t, found, "origin remote should exist")
 }
 
@@ -529,8 +533,8 @@ func TestCommitTimestamp(t *testing.T) {
 	commit, err := repo.CommitObject(head.Hash())
 	require.NoError(t, err)
 
-	assert.True(t, !commit.Author.When.Before(before), "commit time should be after test start")
-	assert.True(t, !commit.Author.When.After(after), "commit time should be before test end")
+	assert.False(t, commit.Author.When.Before(before), "commit time should be after test start")
+	assert.False(t, commit.Author.When.After(after), "commit time should be before test end")
 }
 
 func TestConcurrentCommits(t *testing.T) {
@@ -562,6 +566,7 @@ func TestConcurrentCommits(t *testing.T) {
 	count := 0
 	err = commitIter.ForEach(func(c *object.Commit) error {
 		count++
+
 		return nil
 	})
 	require.NoError(t, err)
@@ -712,6 +717,7 @@ func TestReloadRepo(t *testing.T) {
 	// Make a commit via shell git (bypassing go-git).
 	err = os.WriteFile(filepath.Join(tmpDir, "shell.txt"), []byte("shell"), 0o644)
 	require.NoError(t, err)
+
 	cmd := exec.Command("git", "add", "shell.txt")
 	cmd.Dir = tmpDir
 	require.NoError(t, cmd.Run())
@@ -760,6 +766,7 @@ func createBareRepo(t *testing.T) string {
 
 	cmd = exec.Command("git", "commit", "-m", "initial commit")
 	cmd.Dir = work
+
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
@@ -853,7 +860,7 @@ func TestNewManager_SSHMode(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "ssh", mgr.authMode)
-	assert.Equal(t, "", mgr.token)
+	assert.Empty(t, mgr.token)
 	assert.Nil(t, GitAuthEnv(mgr.authMode, mgr.token),
 		"ssh mode must produce nil auth env (preserve caller env)")
 }
@@ -862,6 +869,7 @@ func TestNewManager_SSHMode(t *testing.T) {
 // and that GitAuthEnv returns the expected four entries.
 func TestNewManager_PATMode(t *testing.T) {
 	const token = "ghp_testtoken123"
+
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "pat", token)
 	require.NoError(t, err)
@@ -886,6 +894,7 @@ func TestNewManager_PATMode_TokenNotInArgs(t *testing.T) {
 	}
 
 	const token = "ghp_supersecret_should_not_leak"
+
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "pat", token)
 	require.NoError(t, err)
@@ -905,6 +914,7 @@ func TestNewManager_PATMode_TokenNotInArgs(t *testing.T) {
 		if e == "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token {
 			continue // correct placement
 		}
+
 		assert.NotContains(t, e, token,
 			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
 	}

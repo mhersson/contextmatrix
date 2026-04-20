@@ -16,8 +16,10 @@ import (
 )
 
 func TestClient_Trigger_Success(t *testing.T) {
-	var received TriggerPayload
-	var receivedSig string
+	var (
+		received    TriggerPayload
+		receivedSig string
+	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/trigger", r.URL.Path)
@@ -49,15 +51,16 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sigHeader := r.Header.Get(signatureHeader)
-		require.True(t, strings.HasPrefix(sigHeader, "sha256="))
+		assert.True(t, strings.HasPrefix(sigHeader, "sha256="))
 		sig := strings.TrimPrefix(sigHeader, "sha256=")
 
 		tsHeader := r.Header.Get(timestampHeader)
-		require.NotEmpty(t, tsHeader, "timestamp header should be present")
+		assert.NotEmpty(t, tsHeader, "timestamp header should be present")
 
 		body, _ := io.ReadAll(r.Body)
 		assert.True(t, VerifySignatureWithTimestamp(apiKey, sig, tsHeader, body, DefaultMaxClockSkew),
 			"HMAC signature with timestamp should be valid")
+
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
 	}))
 	defer srv.Close()
@@ -92,6 +95,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 
 	// With base_branch empty: should be omitted from JSON (omitempty).
 	var rawPayload map[string]any
+
 	srvOmit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &rawPayload)
@@ -105,6 +109,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 		Project: "test-project",
 	})
 	require.NoError(t, err)
+
 	_, hasBaseBranch := rawPayload["base_branch"]
 	assert.False(t, hasBaseBranch, "base_branch should be omitted when empty")
 }
@@ -151,8 +156,10 @@ func TestClient_RetryOn500(t *testing.T) {
 		if n < 3 {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"ok":false,"error":"temporary"}`))
+
 			return
 		}
+
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
 	}))
 	defer srv.Close()
@@ -226,8 +233,10 @@ func TestTriggerPayload_InteractiveOmitempty(t *testing.T) {
 }
 
 func TestClient_Message_Success(t *testing.T) {
-	var received MessagePayload
-	var receivedSig, receivedTS string
+	var (
+		received                MessagePayload
+		receivedSig, receivedTS string
+	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/message", r.URL.Path)
@@ -260,8 +269,10 @@ func TestClient_Message_Success(t *testing.T) {
 }
 
 func TestClient_Promote_Success(t *testing.T) {
-	var received PromotePayload
-	var receivedSig, receivedTS string
+	var (
+		received                PromotePayload
+		receivedSig, receivedTS string
+	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/promote", r.URL.Path)
@@ -325,8 +336,8 @@ func TestClient_Promote_NoRetryOn404(t *testing.T) {
 
 func TestClient_RetryOn503(t *testing.T) {
 	tests := []struct {
-		name     string
-		fn       func(c *Client, ctx context.Context) error
+		name string
+		fn   func(c *Client, ctx context.Context) error
 	}{
 		{
 			name: "Message",
@@ -354,6 +365,7 @@ func TestClient_RetryOn503(t *testing.T) {
 			defer srv.Close()
 
 			c := NewClient(srv.URL, "key")
+
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 

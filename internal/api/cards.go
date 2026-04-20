@@ -18,33 +18,33 @@ type cardHandlers struct {
 
 // createCardRequest is the JSON body for creating a card.
 type createCardRequest struct {
-	Title         string       `json:"title"`
-	Type          string       `json:"type"`
-	Priority      string       `json:"priority"`
-	Labels        []string     `json:"labels"`
-	Parent        string       `json:"parent"`
-	Body          string       `json:"body"`
-	Source        *board.Source `json:"source"`
-	Autonomous          bool         `json:"autonomous"`
-	UseOpusOrchestrator bool         `json:"use_opus_orchestrator"`
-	FeatureBranch       bool         `json:"feature_branch"`
-	CreatePR            bool         `json:"create_pr"`
-	Vetted              bool         `json:"vetted"`
+	Title               string        `json:"title"`
+	Type                string        `json:"type"`
+	Priority            string        `json:"priority"`
+	Labels              []string      `json:"labels"`
+	Parent              string        `json:"parent"`
+	Body                string        `json:"body"`
+	Source              *board.Source `json:"source"`
+	Autonomous          bool          `json:"autonomous"`
+	UseOpusOrchestrator bool          `json:"use_opus_orchestrator"`
+	FeatureBranch       bool          `json:"feature_branch"`
+	CreatePR            bool          `json:"create_pr"`
+	Vetted              bool          `json:"vetted"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
 // All fields use value types to match PUT's full-replacement semantics.
 type updateCardRequest struct {
-	Title         string         `json:"title"`
-	Type          string         `json:"type"`
-	State         string         `json:"state"`
-	Priority      string         `json:"priority"`
-	Labels        []string       `json:"labels"`
-	Parent        string         `json:"parent"`
-	Subtasks      []string       `json:"subtasks"`
-	DependsOn     []string       `json:"depends_on"`
-	Context       []string       `json:"context"`
-	Custom        map[string]any `json:"custom"`
+	Title               string         `json:"title"`
+	Type                string         `json:"type"`
+	State               string         `json:"state"`
+	Priority            string         `json:"priority"`
+	Labels              []string       `json:"labels"`
+	Parent              string         `json:"parent"`
+	Subtasks            []string       `json:"subtasks"`
+	DependsOn           []string       `json:"depends_on"`
+	Context             []string       `json:"context"`
+	Custom              map[string]any `json:"custom"`
 	Body                string         `json:"body"`
 	Autonomous          bool           `json:"autonomous"`
 	UseOpusOrchestrator bool           `json:"use_opus_orchestrator"`
@@ -55,10 +55,10 @@ type updateCardRequest struct {
 
 // patchCardRequest is the JSON body for partial card updates.
 type patchCardRequest struct {
-	Title         *string  `json:"title,omitempty"`
-	State         *string  `json:"state,omitempty"`
-	Priority      *string  `json:"priority,omitempty"`
-	Labels        []string `json:"labels,omitempty"`
+	Title               *string  `json:"title,omitempty"`
+	State               *string  `json:"state,omitempty"`
+	Priority            *string  `json:"priority,omitempty"`
+	Labels              []string `json:"labels,omitempty"`
 	Body                *string  `json:"body,omitempty"`
 	Autonomous          *bool    `json:"autonomous,omitempty"`
 	UseOpusOrchestrator *bool    `json:"use_opus_orchestrator,omitempty"`
@@ -71,6 +71,7 @@ type patchCardRequest struct {
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
 func isNonHumanAgent(r *http.Request) bool {
 	agentID := r.Header.Get("X-Agent-ID")
+
 	return agentID != "" && !strings.HasPrefix(agentID, "human:")
 }
 
@@ -94,16 +95,18 @@ func validateAgentOwnership(r *http.Request, card *board.Card) string {
 	return ""
 }
 
-// listCards handles GET /api/projects/{project}/cards
+// listCards handles GET /api/projects/{project}/cards.
 func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	// Build filter from query params
 	var vettedFilter *bool
+
 	if v := r.URL.Query().Get("vetted"); v != "" {
 		b := v == "true"
 		vettedFilter = &b
@@ -118,21 +121,28 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		cfg, err := h.svc.GetProject(r.Context(), projectName)
 		if err != nil {
 			handleServiceError(w, err)
+
 			return
 		}
+
 		if state != "" && !slices.Contains(cfg.States, state) {
 			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
 				"invalid state filter: "+state, "")
+
 			return
 		}
+
 		if typ != "" && !slices.Contains(cfg.Types, typ) && typ != "subtask" {
 			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
 				"invalid type filter: "+typ, "")
+
 			return
 		}
+
 		if priority != "" && !slices.Contains(cfg.Priorities, priority) {
 			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
 				"invalid priority filter: "+priority, "")
+
 			return
 		}
 	}
@@ -151,28 +161,32 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	cards, err := h.svc.ListCards(r.Context(), projectName, filter)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, cards)
 }
 
-// createCard handles POST /api/projects/{project}/cards
+// createCard handles POST /api/projects/{project}/cards.
 func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
+
 		return
 	}
 
 	var req createCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
 	if req.Title == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "title is required", "")
+
 		return
 	}
 
@@ -180,6 +194,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be set via the UI")
+
 		return
 	}
 
@@ -201,44 +216,49 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, card)
 }
 
-// getCard handles GET /api/projects/{project}/cards/{id}
+// getCard handles GET /api/projects/{project}/cards/{id}.
 func (h *cardHandlers) getCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// updateCard handles PUT /api/projects/{project}/cards/{id}
+// updateCard handles PUT /api/projects/{project}/cards/{id}.
 func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req updateCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
@@ -246,10 +266,13 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
+
 	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
+
 		return
 	}
 
@@ -262,6 +285,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.Vetted != existingCard.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be changed via the UI")
+
 		return
 	}
 
@@ -288,25 +312,28 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// patchCard handles PATCH /api/projects/{project}/cards/{id}
+// patchCard handles PATCH /api/projects/{project}/cards/{id}.
 func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
 	var req patchCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+
 		return
 	}
 
@@ -314,6 +341,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) && (req.Autonomous != nil || req.UseOpusOrchestrator != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil || req.BaseBranch != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and base_branch can only be set via the UI")
+
 		return
 	}
 
@@ -321,10 +349,13 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
+
 	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
+
 		return
 	}
 
@@ -346,19 +377,21 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 
 	writeJSON(w, http.StatusOK, card)
 }
 
-// deleteCard handles DELETE /api/projects/{project}/cards/{id}
+// deleteCard handles DELETE /api/projects/{project}/cards/{id}.
 func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	projectName := r.PathValue("project")
 	cardID := r.PathValue("id")
 
 	if projectName == "" || cardID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
 		return
 	}
 
@@ -366,15 +399,19 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
+
 	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
+
 		return
 	}
 
 	if err := h.svc.DeleteCard(r.Context(), projectName, cardID); err != nil {
 		handleServiceError(w, err)
+
 		return
 	}
 

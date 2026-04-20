@@ -148,6 +148,7 @@ func TestParseGitHubRepo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			owner, repo, host, ok := ParseGitHubRepo(tt.url, tt.allowedHosts)
 			assert.Equal(t, tt.wantOK, ok)
+
 			if ok {
 				assert.Equal(t, tt.wantOwner, owner)
 				assert.Equal(t, tt.wantRepo, repo)
