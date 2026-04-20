@@ -5238,6 +5238,72 @@ func TestPromoteToAutonomous(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, storage.ErrCardNotFound)
 	})
+
+	// --- Human-only gate tests ---
+
+	t.Run("rejects non-human agent_id with ErrPromoteRequiresHuman and no mutation", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Agent should not promote", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "agent:foo")
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrPromoteRequiresHuman)
+
+		// Card must be unmodified — no autonomous flag, no log entry.
+		reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, reloaded.Autonomous, "autonomous must not be set after rejected promote")
+		assert.Empty(t, reloaded.ActivityLog, "activity log must be empty after rejected promote")
+	})
+
+	t.Run("rejects empty agent_id with ErrPromoteRequiresHuman", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Empty agent should not promote", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrPromoteRequiresHuman)
+	})
+
+	t.Run("human:alice succeeds on non-terminal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Human promote", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		result, err := svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.NoError(t, err)
+		assert.True(t, result.Autonomous)
+	})
+
+	t.Run("idempotent path succeeds for already-autonomous card when called by human", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Already autonomous idempotent", Type: "task", Priority: "medium",
+			Autonomous: true,
+		})
+		require.NoError(t, err)
+
+		result, err := svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+		require.NoError(t, err)
+		assert.True(t, result.Autonomous)
+		assert.Empty(t, result.ActivityLog, "idempotent promote must not add a log entry")
+	})
 }
 
 func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
@@ -5365,4 +5431,172 @@ func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
 	require.ErrorContains(t, createErr, delErr.Error())
 	require.ErrorContains(t, createErr, "rollback save project")
 	assert.ErrorContains(t, createErr, saveErr.Error())
+}
+
+// TestPatchCard_AgentOwnership verifies that PatchCard enforces agent-ownership
+// via the new AgentID field on PatchCardInput.
+func TestPatchCard_AgentOwnership(t *testing.T) {
+	ctx := context.Background()
+
+	newBody := func(s string) *string { return &s }
+
+	t.Run("mismatched AgentID rejects with ErrAgentMismatch", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Ownership test",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// Claim the card with agent-A.
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-A")
+		require.NoError(t, err)
+
+		// Patch with mismatched agent-B — must be rejected before any mutation.
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID: "agent-B",
+			Body:    newBody("should not be applied"),
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, lock.ErrAgentMismatch)
+
+		// Confirm the body was not mutated.
+		reloaded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.NotContains(t, reloaded.Body, "should not be applied")
+	})
+
+	t.Run("empty AgentID works on claimed card (backward compatible)", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Backward compat",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-A")
+		require.NoError(t, err)
+
+		// Caller omits AgentID — ownership check is skipped.
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Body: newBody("updated by runner"),
+		})
+		require.NoError(t, err)
+		assert.Contains(t, patched.Body, "updated by runner")
+	})
+
+	t.Run("matching AgentID succeeds", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Matching agent",
+			Type:     "task",
+			Priority: "high",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-A")
+		require.NoError(t, err)
+
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID: "agent-A",
+			Body:    newBody("updated by correct agent"),
+		})
+		require.NoError(t, err)
+		assert.Contains(t, patched.Body, "updated by correct agent")
+	})
+}
+
+// TestPatchCard_ReferenceValidation verifies that PatchCard surfaces
+// validateCardReferences and detectDependencyCycle errors. Cards are seeded
+// with bad references via direct store writes to bypass UpdateCard's own checks.
+func TestPatchCard_ReferenceValidation(t *testing.T) {
+	ctx := context.Background()
+
+	newPriority := func(s string) *string { return &s }
+
+	t.Run("stale depends_on reference is rejected", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Has stale dep",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		// Seed a non-existent dependency directly into the store.
+		card.DependsOn = []string{"TEST-999"}
+		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", card))
+
+		// PatchCard (even a no-op field change) must surface the bad reference.
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Priority: newPriority("high"),
+		})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "TEST-999")
+	})
+
+	t.Run("stale parent reference is rejected", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Has stale parent",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		// Seed a non-existent parent directly into the store.
+		card.Parent = "TEST-999"
+		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", card))
+
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Priority: newPriority("high"),
+		})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "TEST-999")
+	})
+
+	t.Run("circular dependency is rejected", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		cardA, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Card A",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		cardB, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Card B",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		// Seed a cycle: A depends on B, B depends on A — written directly to bypass
+		// UpdateCard's own cycle check so we can test PatchCard independently.
+		cardA.DependsOn = []string{cardB.ID}
+		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", cardA))
+		cardB.DependsOn = []string{cardA.ID}
+		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", cardB))
+
+		// PatchCard on A must detect the cycle.
+		_, err = svc.PatchCard(ctx, "test-project", cardA.ID, PatchCardInput{
+			Priority: newPriority("high"),
+		})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "circular dependency")
+	})
 }

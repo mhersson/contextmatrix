@@ -312,10 +312,11 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract agent identity from header.
+	// Extract agent identity from header. Fall back to "human:api" so the
+	// service-layer human-only gate passes when the header is absent (e.g. web UI).
 	agentID := r.Header.Get("X-Agent-ID")
 	if agentID == "" {
-		agentID = "human"
+		agentID = "human:api"
 	}
 
 	// Flip the autonomous flag (idempotent; errors on terminal state).

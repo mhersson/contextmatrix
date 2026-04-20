@@ -143,7 +143,8 @@ Full details with examples: `docs/data-model.md`.
 13. **Promote to autonomous:** `POST /api/projects/{project}/cards/{id}/promote`
     (human-only) flips `autonomous: true`, appends an activity log entry, and
     commits. Idempotent; rejects terminal cards with 409. The `promote_to_autonomous`
-    MCP tool provides the same operation for agent use. The runner's `/promote`
+    MCP tool provides the same operation and is also human-only — `agent_id` must
+    start with `"human:"` or the call is rejected. The runner's `/promote`
     webhook calls this endpoint first (fail-closed) before writing the canned
     stdin message — promotion without a successful API call is a no-op.
 

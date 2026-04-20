@@ -100,6 +100,11 @@ type PatchCardInput struct {
 	CreatePR            *bool
 	Vetted              *bool
 	BaseBranch          *string
+	// AgentID, when non-empty, is checked against the card's AssignedAgent.
+	// If the card is claimed by a different agent, ErrAgentMismatch is returned
+	// before any mutations are applied. Empty AgentID skips the check (backward
+	// compatible for callers like the runner that do not supply an agent ID).
+	AgentID string
 }
 
 // ModelCost defines per-token cost rates for a model.
@@ -978,6 +983,13 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
+	// Verify agent ownership before applying any mutations so a rejected call
+	// produces no side effects. Empty AgentID skips the check for backward-
+	// compatible callers (e.g. the runner) that do not supply an agent ID.
+	if input.AgentID != "" && card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
+	}
+
 	// Validate field length limits for provided fields.
 	if input.Title != nil && len(*input.Title) > maxTitleLen {
 		return nil, fmt.Errorf("title length %d exceeds limit of %d: %w", len(*input.Title), maxTitleLen, ErrFieldTooLong)
@@ -1087,6 +1099,24 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	validator := s.validator
 	if err := validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
+	}
+
+	// Validate parent and depends_on reference existing cards. Mirrors UpdateCard
+	// so the two write paths do not drift.
+	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+		return nil, err
+	}
+
+	// Detect circular dependencies.
+	if len(card.DependsOn) > 0 {
+		if cycleID := s.detectDependencyCycle(ctx, project, id, card.DependsOn); cycleID != "" {
+			return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrDependenciesNotMet,
+				Field:   "depends_on",
+				Value:   cycleID,
+				Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", id, cycleID),
+			})
+		}
 	}
 
 	// Clear runner_status when card reaches a terminal state (before disk write).
@@ -2485,6 +2515,9 @@ var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
 // ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
 var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
 
+// ErrPromoteRequiresHuman is returned when a non-human agent attempts to promote a card to autonomous mode.
+var ErrPromoteRequiresHuman = fmt.Errorf("promote requires human agent (agent_id must start with \"human:\")")
+
 // IncrementReviewAttempts atomically increments the review_attempts counter on a card.
 // Returns lock.ErrAgentMismatch if the caller is not the assigned agent, and
 // ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
@@ -2646,6 +2679,12 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+
+	// Guard: only human agents (agent_id prefixed with "human:") may promote a card.
+	// Checked before the store load so a rejected call has no side effects.
+	if agentID == "" || !strings.HasPrefix(agentID, "human:") {
+		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrPromoteRequiresHuman)
+	}
 
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {

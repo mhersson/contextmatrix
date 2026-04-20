@@ -101,6 +101,7 @@ type createCardInput struct {
 type updateCardInput struct {
 	Project  string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string   `json:"card_id" jsonschema:"required,card ID"`
+	AgentID  string   `json:"agent_id,omitempty" jsonschema:"agent performing the update — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
 	Title    *string  `json:"title,omitempty" jsonschema:"new title"`
 	Priority *string  `json:"priority,omitempty" jsonschema:"new priority"`
 	Labels   []string `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
@@ -110,7 +111,7 @@ type updateCardInput struct {
 type transitionCardInput struct {
 	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition"`
+	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
 	NewState string `json:"new_state" jsonschema:"required,target state"`
 }
 
@@ -304,6 +305,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		}
 
 		patchInput := service.PatchCardInput{
+			AgentID:  input.AgentID,
 			Title:    input.Title,
 			Priority: input.Priority,
 			Labels:   input.Labels,
@@ -329,20 +331,10 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, err
 		}
 
-		// Verify agent authorization: if the card is claimed, only the owning agent may transition it.
-		if input.AgentID != "" {
-			card, err := svc.GetCard(ctx, project, input.CardID)
-			if err != nil {
-				return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
-			}
-
-			if card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
-				return nil, nil, fmt.Errorf("card %s is owned by agent %q, not %q", input.CardID, card.AssignedAgent, input.AgentID)
-			}
-		}
-
+		// Agent-ownership check is now enforced inside PatchCard via AgentID.
 		patchInput := service.PatchCardInput{
-			State: &input.NewState,
+			AgentID: input.AgentID,
+			State:   &input.NewState,
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
@@ -1093,6 +1085,7 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "promote_to_autonomous",
 		Description: "Promote a card to autonomous mode by flipping its autonomous flag to true. " +
+			"Human-only: agent_id must start with \"human:\" or the call is rejected. " +
 			"Idempotent: calling on an already-autonomous card is a no-op. " +
 			"Returns an error if the card is in a terminal state (done/not_planned). " +
 			"Appends an activity log entry and fires an SSE event so the UI updates live.",
