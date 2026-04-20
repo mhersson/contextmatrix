@@ -224,6 +224,26 @@ type Manager struct {
 	sessionTTL     time.Duration
 	runnerURL      string
 	runnerAPIKey   string
+
+	// stopCh is closed by Close to signal the idle sweeper (and any future
+	// long-lived goroutine that needs a manager-scoped shutdown signal) to
+	// exit. stopOnce guards the close so Close can safely be called twice.
+	// Individual pump goroutines are shut down per-session via sess.cancel
+	// from within Close, so they do not need to watch stopCh.
+	stopCh   chan struct{}
+	stopOnce sync.Once
+
+	// pumpWG tracks every goroutine spawned by the manager (pumps + sweeper)
+	// so Close can block until they have all exited. A pump goroutine must
+	// wg.Done() *after* closing sess.done, otherwise Close may return while a
+	// pump is still mid-shutdown.
+	pumpWG sync.WaitGroup
+
+	// closed is set to true once Close has been called. It is guarded by m.mu
+	// and used to reject further Start/StartProject calls so post-shutdown
+	// subscribers receive a clean terminal event instead of starting a new
+	// pump that would never be reaped.
+	closed bool
 }
 
 // DroppedEvents returns the total number of fan-out events dropped because a
@@ -241,6 +261,7 @@ func NewManager(opts ...Option) *Manager {
 		maxBytes:    DefaultMaxBytes,
 		maxSessions: DefaultMaxSessions,
 		sessionTTL:  DefaultSessionTTL,
+		stopCh:      make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(m)

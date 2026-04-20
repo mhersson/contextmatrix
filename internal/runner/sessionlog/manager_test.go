@@ -1942,3 +1942,117 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 		assert.False(t, setAfterClear, "failedSessions should be cleared after Clear")
 	}
 }
+
+// TestClose_DrainsActiveSessions verifies that Close on a manager with multiple
+// active sessions:
+//   - emits a terminal event to every subscriber,
+//   - closes every subscriber channel,
+//   - returns before its context deadline,
+//   - is idempotent on a second call.
+func TestClose_DrainsActiveSessions(t *testing.T) {
+	const (
+		cardA = "CLOSE-A"
+		cardB = "CLOSE-B"
+	)
+
+	srv := sseServerInfinite(t)
+	defer srv.Close()
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+
+	require.NoError(t, m.Start(context.Background(), cardA, ""))
+	require.NoError(t, m.Start(context.Background(), cardB, ""))
+
+	// Also register an idle sweeper so Close has to reap it too.
+	m.StartSweeper(context.Background())
+
+	chA, unsubA := m.Subscribe(cardA)
+	defer unsubA()
+
+	chB, unsubB := m.Subscribe(cardB)
+	defer unsubB()
+
+	// Wait until both pumps are attached before Close so the test actually
+	// exercises the drain path (not a fast-path empty map).
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		_, okA := m.activeSessions[cardA]
+		_, okB := m.activeSessions[cardB]
+
+		return okA && okB
+	}, 2*time.Second, 5*time.Millisecond, "both sessions must be active before Close")
+
+	// Close must complete well under its context deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+
+	require.NoError(t, m.Close(ctx))
+
+	assert.Less(t, time.Since(start), 5*time.Second,
+		"Close should return before the context deadline")
+
+	// Each subscriber should receive a terminal event (or see its channel closed).
+	awaitTerminal := func(t *testing.T, label string, ch <-chan Event) {
+		t.Helper()
+
+		for {
+			select {
+			case evt, ok := <-ch:
+				if !ok {
+					return
+				}
+
+				if evt.Type == EventTypeTerminal {
+					return
+				}
+				// Drop any non-terminal event that arrived mid-stream.
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s: timed out waiting for terminal event", label)
+			}
+		}
+	}
+
+	awaitTerminal(t, "cardA", chA)
+	awaitTerminal(t, "cardB", chB)
+
+	// Both channels must eventually close (terminal event is the last write).
+	drainUntilClosed := func(t *testing.T, label string, ch <-chan Event) {
+		t.Helper()
+
+		timeout := time.After(2 * time.Second)
+
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+			case <-timeout:
+				t.Fatalf("%s: channel never closed after terminal", label)
+			}
+		}
+	}
+
+	drainUntilClosed(t, "cardA", chA)
+	drainUntilClosed(t, "cardB", chB)
+
+	// No active sessions left after Close.
+	m.mu.Lock()
+	active := len(m.activeSessions)
+	closed := m.closed
+	m.mu.Unlock()
+
+	assert.Equal(t, 0, active, "all sessions should be drained after Close")
+	assert.True(t, closed, "manager.closed flag must be set after Close")
+
+	// Idempotent: a second Close is a no-op.
+	require.NoError(t, m.Close(context.Background()))
+
+	// Subsequent Start calls must be rejected.
+	err := m.Start(context.Background(), "POST-CLOSE", "")
+	assert.Error(t, err, "Start after Close must return an error")
+}
