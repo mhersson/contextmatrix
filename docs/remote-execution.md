@@ -18,6 +18,8 @@ Code.
   │  (Console)   │◄────────│  (SSE proxy)      │◄───│  /kill  /stop-all      │
   │  (Chat input)│─────────│  POST /message    │───►│  /message              │
   │  (Promote)   │─────────│  POST /promote    │───►│  /promote              │
+  │              │         │  (release_card    │───►│  /end-session          │
+  │              │         │   → terminal)     │    │                        │
   └──────────────┘         │  POST /mcp        │◄───│  Docker containers     │
                            │  (MCP tools)      │◄───│  (Claude Code)         │
                            └───────────────────┘    └────────────────────────┘
@@ -213,6 +215,46 @@ The runner performs a two-step operation in strict order:
 | 404    | No container tracked for this card                   |
 | 409    | Container is not in interactive mode                 |
 | 502    | ContextMatrix card verification failed (fail closed) |
+
+#### POST {runner_url}/end-session
+
+Sent by ContextMatrix when a card tied to an interactive container reaches a
+terminal state (`done` or `not_planned`) and is released. Closes the
+container's stdin so `claude`, running with `--input-format stream-json`,
+receives EOF and exits; the container then terminates through the normal
+`waitAndCleanup` path. HMAC-signed identically to `/kill`.
+
+```json
+{
+  "card_id": "PROJ-042",
+  "project": "my-project"
+}
+```
+
+Sent by an event-bus subscriber in CM that listens for `card.released` and
+`card.state_changed`. The subscriber fires only when all three hold:
+
+1. `card.runner_status` is `queued` or `running` (this is the container's
+   top-level card — subtasks never have `runner_status` set).
+2. `card.assigned_agent` is empty (the card has actually been released).
+3. `card.state` is `done` or `not_planned`.
+
+This prevents the container from exiting on intermediate `release_card` calls
+an orchestrator makes between subtasks. The webhook is idempotent on the
+runner side: a second call returns 409 (`ErrNoStdinAttached`) because the
+stdin writer is nil'd on first close. The subscriber logs the failure but
+does not fail the release; the runner's container timeout and
+`CleanupOrphans` on next runner start are the safety net.
+
+The runner emits a `system` `LogEntry` with content
+`"session ended (stdin closed)"` before returning.
+
+**Error responses:**
+
+| Status | Condition                                                      |
+| ------ | -------------------------------------------------------------- |
+| 404    | No container tracked for this card                             |
+| 409    | Container is not in interactive mode, or stdin already closed  |
 
 ### Runner → ContextMatrix: SSE Log Stream
 

@@ -54,6 +54,14 @@ type PromotePayload struct {
 	Project string `json:"project"`
 }
 
+// EndSessionPayload is sent to the runner to close the stdin of an interactive
+// container so claude exits on EOF. Used when a released card reaches a
+// terminal state.
+type EndSessionPayload struct {
+	CardID  string `json:"card_id"`
+	Project string `json:"project"`
+}
+
 // StopAllPayload is sent to the runner to stop all tasks.
 type StopAllPayload struct {
 	Project string `json:"project,omitempty"`
@@ -105,6 +113,12 @@ func (c *Client) Message(ctx context.Context, p MessagePayload) error {
 // Promote sends a promote webhook to signal that an interactive task may proceed.
 func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
 	return c.send(ctx, c.baseURL+"/promote", p)
+}
+
+// EndSession sends an end-session webhook so the runner closes the container's
+// stdin; claude receives EOF and exits, ending the interactive session.
+func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
+	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
 // send marshals payload, signs it, and POSTs to url with retries.

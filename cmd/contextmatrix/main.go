@@ -175,6 +175,9 @@ func main() {
 	if cfg.Runner.Enabled {
 		runnerClient = runner.NewClient(cfg.Runner.URL, cfg.Runner.APIKey)
 		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
+
+		runner.StartEndSessionSubscriber(ctx, bus, svc, runnerClient, slog.Default())
+		slog.Info("end-session subscriber started")
 	}
 
 	// Create session log manager and start its idle sweeper.
