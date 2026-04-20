@@ -54,6 +54,21 @@ var (
 		Name: "stall_cards_marked_total",
 		Help: "Cards transitioned to stalled by the heartbeat scanner.",
 	})
+
+	// CardCacheSize tracks the total number of cards resident in the
+	// FilesystemStore in-memory card cache across all projects.
+	CardCacheSize = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "card_cache_size",
+		Help: "Total cards currently held in the in-memory card cache.",
+	})
+
+	// CardCacheMissTotal counts GetCard requests that missed the cache and
+	// fell back to disk. Under normal operation this should be near zero;
+	// elevated values suggest cache invalidation or a race during reload.
+	CardCacheMissTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "card_cache_miss_total",
+		Help: "GetCard requests that missed the in-memory cache and read from disk.",
+	})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -69,6 +84,8 @@ func Register(reg prometheus.Registerer) {
 		GitSyncDuration,
 		StallScanDuration,
 		StallCardsMarked,
+		CardCacheSize,
+		CardCacheMissTotal,
 	}
 
 	for _, c := range collectors {

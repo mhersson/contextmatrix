@@ -11,6 +11,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a temporary
@@ -76,38 +77,26 @@ func validatePathComponent(component string) error {
 	return nil
 }
 
-// cardIndex stores metadata for a single card for fast filtering.
-type cardIndex struct {
-	ID            string
-	Title         string
-	Project       string
-	Type          string
-	State         string
-	Priority      string
-	AssignedAgent string
-	Parent        string
-	Labels        []string
-	ExternalID    string
-	Vetted        bool
-	FilePath      string
-}
-
-// projectIndex stores all cards for a project.
+// projectIndex holds the config and an in-memory copy of every card in a
+// project. cards stores full *board.Card values so that reads never need to
+// touch disk in steady state. paths maps card ID → file path so writes and
+// cache-miss fallbacks can locate the on-disk file.
 type projectIndex struct {
 	config *board.ProjectConfig
-	cards  map[string]*cardIndex
+	cards  map[string]*board.Card
+	paths  map[string]string
 }
 
 // FilesystemStore implements Store using the local filesystem.
 // Cards are stored as markdown files with YAML frontmatter.
-// An in-memory index enables fast filtering without reading files.
+// An in-memory cache of full cards enables reads without disk I/O.
 type FilesystemStore struct {
 	boardsDir string
 	mu        sync.RWMutex
 	projects  map[string]*projectIndex
 }
 
-// NewFilesystemStore creates a new FilesystemStore and loads the index.
+// NewFilesystemStore creates a new FilesystemStore and loads the cache.
 func NewFilesystemStore(boardsDir string) (*FilesystemStore, error) {
 	store := &FilesystemStore{
 		boardsDir: boardsDir,
@@ -118,10 +107,72 @@ func NewFilesystemStore(boardsDir string) (*FilesystemStore, error) {
 		return nil, fmt.Errorf("load index: %w", err)
 	}
 
+	store.updateCacheSizeMetric()
+
 	return store, nil
 }
 
-// loadIndex scans the boards directory and builds the in-memory index.
+// copyCard returns a deep copy of the card so that callers cannot mutate the
+// cached value. All slice, map, and pointer fields are cloned.
+func copyCard(c *board.Card) *board.Card {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+
+	if c.LastHeartbeat != nil {
+		ts := *c.LastHeartbeat
+		cp.LastHeartbeat = &ts
+	}
+
+	if c.Subtasks != nil {
+		cp.Subtasks = slices.Clone(c.Subtasks)
+	}
+
+	if c.DependsOn != nil {
+		cp.DependsOn = slices.Clone(c.DependsOn)
+	}
+
+	if c.DependenciesMet != nil {
+		v := *c.DependenciesMet
+		cp.DependenciesMet = &v
+	}
+
+	if c.Context != nil {
+		cp.Context = slices.Clone(c.Context)
+	}
+
+	if c.Labels != nil {
+		cp.Labels = slices.Clone(c.Labels)
+	}
+
+	if c.Source != nil {
+		src := *c.Source
+		cp.Source = &src
+	}
+
+	if c.Custom != nil {
+		cp.Custom = make(map[string]any, len(c.Custom))
+		for k, v := range c.Custom {
+			cp.Custom[k] = v
+		}
+	}
+
+	if c.TokenUsage != nil {
+		tu := *c.TokenUsage
+		cp.TokenUsage = &tu
+	}
+
+	if c.ActivityLog != nil {
+		cp.ActivityLog = slices.Clone(c.ActivityLog)
+	}
+
+	return &cp
+}
+
+// loadIndex scans the boards directory and builds the in-memory cache.
+// Callers must hold s.mu.Lock unless the store is still being constructed.
 func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 	configs, err := board.DiscoverProjects(s.boardsDir)
 	if err != nil {
@@ -134,7 +185,8 @@ func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 
 		idx := &projectIndex{
 			config: cfg,
-			cards:  make(map[string]*cardIndex),
+			cards:  make(map[string]*board.Card),
+			paths:  make(map[string]string),
 		}
 
 		tasksDir := filepath.Join(projectDir, "tasks")
@@ -185,7 +237,8 @@ func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 				continue
 			}
 
-			idx.cards[card.ID] = s.buildCardIndex(card, filePath)
+			idx.cards[card.ID] = card
+			idx.paths[card.ID] = filePath
 		}
 
 		s.projects[cfg.Name] = idx
@@ -194,7 +247,7 @@ func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 	return nil
 }
 
-// ReloadIndex rebuilds the in-memory index from disk.
+// ReloadIndex rebuilds the in-memory cache from disk.
 // This is used after a git pull brings new/changed card files.
 func (s *FilesystemStore) ReloadIndex(ctx context.Context) error {
 	s.mu.Lock()
@@ -202,30 +255,24 @@ func (s *FilesystemStore) ReloadIndex(ctx context.Context) error {
 
 	s.projects = make(map[string]*projectIndex)
 
-	return s.loadIndex(ctx)
+	if err := s.loadIndex(ctx); err != nil {
+		return err
+	}
+
+	s.updateCacheSizeMetric()
+
+	return nil
 }
 
-// buildCardIndex creates a cardIndex from a Card.
-func (s *FilesystemStore) buildCardIndex(card *board.Card, filePath string) *cardIndex {
-	idx := &cardIndex{
-		ID:            card.ID,
-		Title:         card.Title,
-		Project:       card.Project,
-		Type:          card.Type,
-		State:         card.State,
-		Priority:      card.Priority,
-		AssignedAgent: card.AssignedAgent,
-		Parent:        card.Parent,
-		Labels:        card.Labels,
-		Vetted:        card.Vetted,
-		FilePath:      filePath,
+// updateCacheSizeMetric recomputes card_cache_size from the in-memory state.
+// Callers must hold s.mu (read or write).
+func (s *FilesystemStore) updateCacheSizeMetric() {
+	total := 0
+	for _, idx := range s.projects {
+		total += len(idx.cards)
 	}
 
-	if card.Source != nil {
-		idx.ExternalID = card.Source.ExternalID
-	}
-
-	return idx
+	metrics.CardCacheSize.Set(float64(total))
 }
 
 // cardPath returns the filesystem path for a card after validating that the
@@ -252,37 +299,39 @@ func (s *FilesystemStore) projectPath(name string) (string, error) {
 	return filepath.Join(s.boardsDir, name), nil
 }
 
-// matchesFilter checks if a card index matches the filter criteria.
-func (s *FilesystemStore) matchesFilter(idx *cardIndex, f CardFilter) bool {
-	if f.State != "" && idx.State != f.State {
+// matchesFilter checks if a cached card matches the filter criteria.
+func (s *FilesystemStore) matchesFilter(c *board.Card, f CardFilter) bool {
+	if f.State != "" && c.State != f.State {
 		return false
 	}
 
-	if f.Type != "" && idx.Type != f.Type {
+	if f.Type != "" && c.Type != f.Type {
 		return false
 	}
 
-	if f.Priority != "" && idx.Priority != f.Priority {
+	if f.Priority != "" && c.Priority != f.Priority {
 		return false
 	}
 
-	if f.AssignedAgent != "" && idx.AssignedAgent != f.AssignedAgent {
+	if f.AssignedAgent != "" && c.AssignedAgent != f.AssignedAgent {
 		return false
 	}
 
-	if f.Parent != "" && idx.Parent != f.Parent {
+	if f.Parent != "" && c.Parent != f.Parent {
 		return false
 	}
 
-	if f.ExternalID != "" && idx.ExternalID != f.ExternalID {
+	if f.ExternalID != "" {
+		if c.Source == nil || c.Source.ExternalID != f.ExternalID {
+			return false
+		}
+	}
+
+	if f.Label != "" && !slices.Contains(c.Labels, f.Label) {
 		return false
 	}
 
-	if f.Label != "" && !slices.Contains(idx.Labels, f.Label) {
-		return false
-	}
-
-	if f.Vetted != nil && idx.Vetted != *f.Vetted {
+	if f.Vetted != nil && c.Vetted != *f.Vetted {
 		return false
 	}
 
@@ -348,7 +397,8 @@ func (s *FilesystemStore) SaveProject(ctx context.Context, cfg *board.ProjectCon
 	} else {
 		s.projects[cfg.Name] = &projectIndex{
 			config: cfg,
-			cards:  make(map[string]*cardIndex),
+			cards:  make(map[string]*board.Card),
+			paths:  make(map[string]string),
 		}
 	}
 
@@ -378,6 +428,7 @@ func (s *FilesystemStore) DeleteProject(ctx context.Context, name string) error 
 	}
 
 	delete(s.projects, name)
+	s.updateCacheSizeMetric()
 
 	return nil
 }
@@ -400,10 +451,8 @@ func (s *FilesystemStore) ProjectCardCount(ctx context.Context, name string) (in
 }
 
 // ListCards returns all cards in a project matching the filter.
-// RLock is held for the entire operation (index scan + file reads) to prevent
-// TOCTOU races where files are deleted between the index scan and the read.
-// If the context is cancelled during the file-read loop, ListCards returns the
-// partial result collected so far along with the context error.
+// Results are deep copies of the cached cards; mutating a returned card does
+// not affect subsequent reads. No disk I/O is performed in steady state.
 func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter CardFilter) ([]*board.Card, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -417,60 +466,61 @@ func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter 
 		return nil, ErrProjectNotFound
 	}
 
-	var paths []string
+	cards := make([]*board.Card, 0, len(idx.cards))
 
-	for _, cardIdx := range idx.cards {
-		if s.matchesFilter(cardIdx, filter) {
-			paths = append(paths, cardIdx.FilePath)
-		}
-	}
-
-	cards := make([]*board.Card, 0, len(paths))
-	for _, path := range paths {
+	for _, c := range idx.cards {
 		if err := ctx.Err(); err != nil {
 			return cards, err
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
+		if s.matchesFilter(c, filter) {
+			cards = append(cards, copyCard(c))
 		}
-
-		card, err := board.ParseCard(data)
-		if err != nil {
-			ctxlog.Logger(ctx).Error("skipping corrupt card file", "path", path, "error", err)
-
-			continue
-		}
-
-		cards = append(cards, card)
 	}
 
 	return cards, nil
 }
 
-// GetCard returns a specific card.
-// RLock is held for the entire operation (index lookup + file read) to prevent
-// TOCTOU races where files are deleted between the index lookup and the read.
+// GetCard returns a deep copy of the requested card from the cache.
+// On cache miss — a rare window during the boot scan or a concurrent reload —
+// the canonical on-disk file is read as a fallback so callers never see a
+// transient ErrCardNotFound for a card that exists on disk.
 func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	idx, ok := s.projects[project]
 	if !ok {
+		s.mu.RUnlock()
+
 		return nil, ErrProjectNotFound
 	}
 
-	cardIdx, ok := idx.cards[id]
-	if !ok {
-		return nil, ErrCardNotFound
+	if cached, ok := idx.cards[id]; ok {
+		card := copyCard(cached)
+
+		s.mu.RUnlock()
+
+		return card, nil
 	}
 
-	data, err := os.ReadFile(cardIdx.FilePath)
+	s.mu.RUnlock()
+
+	// Cache miss: fall through to disk. This keeps read semantics robust
+	// during the narrow window where the cache is being rebuilt after a
+	// git rebase or boot scan.
+	metrics.CardCacheMissTotal.Inc()
+	ctxlog.Logger(ctx).Debug("card cache miss", "project", project, "id", id)
+
+	filePath, err := s.cardPath(project, id)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrCardNotFound
@@ -523,7 +573,10 @@ func (s *FilesystemStore) CreateCard(ctx context.Context, project string, card *
 		return fmt.Errorf("write card file: %w", err)
 	}
 
-	idx.cards[card.ID] = s.buildCardIndex(card, filePath)
+	idx.cards[card.ID] = copyCard(card)
+	idx.paths[card.ID] = filePath
+
+	s.updateCacheSizeMetric()
 
 	return nil
 }
@@ -542,12 +595,21 @@ func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *
 		return ErrProjectNotFound
 	}
 
-	cardIdx, ok := idx.cards[card.ID]
-	if !ok {
+	if _, ok := idx.cards[card.ID]; !ok {
 		return ErrCardNotFound
 	}
 
-	filePath := cardIdx.FilePath
+	filePath, ok := idx.paths[card.ID]
+	if !ok {
+		// Should not happen — cards and paths are kept in sync — but fall
+		// back to the canonical path so we don't lose the update.
+		fp, err := s.cardPath(project, card.ID)
+		if err != nil {
+			return err
+		}
+
+		filePath = fp
+	}
 
 	data, err := board.SerializeCard(card)
 	if err != nil {
@@ -558,7 +620,8 @@ func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *
 		return fmt.Errorf("write card file: %w", err)
 	}
 
-	idx.cards[card.ID] = s.buildCardIndex(card, filePath)
+	idx.cards[card.ID] = copyCard(card)
+	idx.paths[card.ID] = filePath
 
 	return nil
 }
@@ -577,22 +640,29 @@ func (s *FilesystemStore) DeleteCard(ctx context.Context, project, id string) er
 		return ErrProjectNotFound
 	}
 
-	cardIdx, ok := idx.cards[id]
-	if !ok {
+	if _, ok := idx.cards[id]; !ok {
 		return ErrCardNotFound
 	}
 
-	filePath := cardIdx.FilePath
-
-	if err := os.Remove(filePath); err != nil {
-		if os.IsNotExist(err) {
-			return ErrCardNotFound
+	filePath, ok := idx.paths[id]
+	if !ok {
+		fp, err := s.cardPath(project, id)
+		if err != nil {
+			return err
 		}
 
-		return fmt.Errorf("remove card file: %w", err)
+		filePath = fp
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("remove card file: %w", err)
+		}
 	}
 
 	delete(idx.cards, id)
+	delete(idx.paths, id)
+	s.updateCacheSizeMetric()
 
 	return nil
 }

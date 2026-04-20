@@ -60,6 +60,8 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 		{"gitsync_duration_seconds", dto.MetricType_HISTOGRAM},
 		{"stall_scan_duration_seconds", dto.MetricType_HISTOGRAM},
 		{"stall_cards_marked_total", dto.MetricType_COUNTER},
+		{"card_cache_size", dto.MetricType_GAUGE},
+		{"card_cache_miss_total", dto.MetricType_COUNTER},
 	}
 
 	mfs, err := reg.Gather()
