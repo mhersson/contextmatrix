@@ -476,7 +476,7 @@ func projectKey(project string) string {
 // Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
 // "project:" so project sessions cannot collide with card IDs in the shared
 // maps.
-func (m *Manager) StartProject(_ context.Context, project string) error {
+func (m *Manager) StartProject(ctx context.Context, project string) error {
 	key := projectKey(project)
 
 	m.mu.Lock()
@@ -493,7 +493,7 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 			m.maxSessions, project)
 	}
 
-	pumpCtx, cancel := context.WithCancel(context.Background())
+	pumpCtx, cancel := context.WithCancel(ctx)
 	sess := &activeSession{
 		cancel:    cancel,
 		startTime: time.Now(),
