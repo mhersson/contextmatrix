@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { LogEntry } from '../types';
+import { useRingBuffer } from './useRingBuffer';
 
 interface UseRunnerLogsOptions {
   project: string;
@@ -11,7 +12,7 @@ interface UseRunnerLogsOptions {
 }
 
 interface UseRunnerLogsResult {
-  logs: LogEntry[];
+  logs: readonly LogEntry[];
   connected: boolean;
   error: string | null;
   clear: () => void;
@@ -36,7 +37,8 @@ export function useRunnerLogs({
   maxEntries = 5000,
   cardId,
 }: UseRunnerLogsOptions): UseRunnerLogsResult {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const ringBuffer = useRingBuffer(maxEntries);
+  const { append, clear } = ringBuffer;
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -44,16 +46,10 @@ export function useRunnerLogs({
   const reconnectTimeoutRef = useRef<number | null>(null);
   const connectRef = useRef<() => void>(() => {});
   const isMountedRef = useRef(true);
-  const maxEntriesRef = useRef(maxEntries);
   /** Last seen seq number; null means no message received yet. */
   const lastSeqRef = useRef<number | null>(null);
   /** Set to true when a terminal frame is received — suppresses reconnects. */
   const terminalRef = useRef(false);
-
-  // Keep maxEntriesRef in sync
-  useEffect(() => {
-    maxEntriesRef.current = maxEntries;
-  }, [maxEntries]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current !== null) {
@@ -115,12 +111,7 @@ export function useRunnerLogs({
           const marker = makeGapMarker(
             `log stream dropped ${count} event${count !== 1 ? 's' : ''} (server ring-buffer overflow)`,
           );
-          setLogs((prev) => {
-            const next = [...prev, marker];
-            return next.length > maxEntriesRef.current
-              ? next.slice(next.length - maxEntriesRef.current)
-              : next;
-          });
+          append([marker]);
           return;
         }
 
@@ -143,13 +134,7 @@ export function useRunnerLogs({
         }
 
         entriesToAdd.push(entry);
-
-        setLogs((prev) => {
-          const next = [...prev, ...entriesToAdd];
-          return next.length > maxEntriesRef.current
-            ? next.slice(next.length - maxEntriesRef.current)
-            : next;
-        });
+        append(entriesToAdd);
       } catch {
         console.error('Failed to parse runner log entry:', event.data);
       }
@@ -179,7 +164,7 @@ export function useRunnerLogs({
         connectRef.current();
       }, delay);
     };
-  }, [project, cardId]);
+  }, [project, cardId, append]);
 
   // Keep connectRef in sync with connect
   useEffect(() => {
@@ -193,6 +178,14 @@ export function useRunnerLogs({
     return () => { isMountedRef.current = false; };
   }, []);
 
+  // Clear the buffer when the stream identity changes so entries from the
+  // previous project/card do not bleed into the new stream. Declared before
+  // the connect effect so clear() runs before connect() during the same
+  // commit.
+  useEffect(() => {
+    clear();
+  }, [project, cardId, clear]);
+
   useEffect(() => {
     if (enabled) {
       connect();
@@ -203,9 +196,5 @@ export function useRunnerLogs({
     };
   }, [enabled, connect, disconnect]);
 
-  const clear = useCallback(() => {
-    setLogs([]);
-  }, []);
-
-  return { logs, connected, error, clear };
+  return { logs: ringBuffer.logs, connected, error, clear };
 }

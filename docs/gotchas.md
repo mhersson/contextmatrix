@@ -74,7 +74,11 @@
   is to share a single `EventSource` for the whole app via `SSEProvider` and fan
   events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
   Never open more than one `EventSource` per distinct URL; use the subscriber
-  API for additional consumers of the same stream.
+  API for additional consumers of the same stream. For runner logs specifically,
+  `ProjectShell` owns a single card-scoped `useRunnerLogs` call (enabled only
+  while the selected card is a HITL running session) and passes the resulting
+  `LogEntry[]` array down to `CardChat` as a prop — `CardChat` does not open
+  its own `EventSource`.
 - **`sessionlog.Manager` fan-out invariants:** `readUpstream` (card-scoped) and
   `readProjectUpstream` (project-scoped) both append to the ring buffer and fan
   out to subscribers under a single `m.mu` lock.  These two operations must stay

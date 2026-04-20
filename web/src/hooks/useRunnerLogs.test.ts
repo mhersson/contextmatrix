@@ -293,3 +293,85 @@ describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
     expect(FakeEventSource.instances.length).toBeGreaterThan(countBefore);
   });
 });
+
+describe('useRunnerLogs — stream identity changes', () => {
+  it('clears buffer when cardId changes so entries from previous card do not bleed', () => {
+    const { result, rerender } = renderHook(
+      ({ cardId }: { cardId: string }) =>
+        useRunnerLogs({ project: 'proj', enabled: true, cardId }),
+      { initialProps: { cardId: 'CARD-A' } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'a-1', card_id: 'CARD-A', ts, seq: 1 });
+    });
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'a-2', card_id: 'CARD-A', ts, seq: 2 });
+    });
+
+    expect(result.current.logs).toHaveLength(2);
+    expect(result.current.logs[0].content).toBe('a-1');
+
+    // Switch to a different card — buffer must be cleared before new stream fills.
+    act(() => { rerender({ cardId: 'CARD-B' }); });
+    expect(result.current.logs).toHaveLength(0);
+
+    act(() => { latestES().simulateOpen(); });
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'b-1', card_id: 'CARD-B', ts, seq: 10 });
+    });
+
+    // Only the new card's entry should be visible; previous card's entries must be gone.
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].content).toBe('b-1');
+  });
+
+  it('clears buffer when project changes', () => {
+    const { result, rerender } = renderHook(
+      ({ project }: { project: string }) =>
+        useRunnerLogs({ project, enabled: true }),
+      { initialProps: { project: 'proj-1' } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'from-1', card_id: 'X-1', ts, seq: 1 });
+    });
+    expect(result.current.logs).toHaveLength(1);
+
+    act(() => { rerender({ project: 'proj-2' }); });
+    expect(result.current.logs).toHaveLength(0);
+  });
+
+  it('does NOT emit a spurious seq gap marker on the first message after a card switch', () => {
+    const { result, rerender } = renderHook(
+      ({ cardId }: { cardId: string }) =>
+        useRunnerLogs({ project: 'proj', enabled: true, cardId }),
+      { initialProps: { cardId: 'CARD-A' } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+    // Push entries on card A, advancing seq high.
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'CARD-A', ts, seq: 100 });
+    });
+
+    // Switch to card B whose first message has seq=1 — must NOT trigger a gap.
+    act(() => { rerender({ cardId: 'CARD-B' }); });
+    act(() => { latestES().simulateOpen(); });
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'b', card_id: 'CARD-B', ts, seq: 1 });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].type).toBe('text');
+    expect(result.current.logs[0].content).toBe('b');
+  });
+});

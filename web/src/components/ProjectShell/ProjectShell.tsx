@@ -133,6 +133,18 @@ export function ProjectShell() {
     [cards]
   );
 
+  // Card-scoped log stream for CardChat — enabled only when a HITL session is running.
+  // This avoids opening a second EventSource from inside CardChat itself.
+  const isHITLCardRunning = useMemo(
+    () => currentSelectedCard?.runner_status === 'running' && !(currentSelectedCard?.autonomous ?? false),
+    [currentSelectedCard?.runner_status, currentSelectedCard?.autonomous],
+  );
+  const { logs: selectedCardLogs } = useRunnerLogs({
+    project: project || '',
+    cardId: currentSelectedCard?.id,
+    enabled: !!isHITLCardRunning,
+  });
+
   useKeyboardShortcuts(
     useMemo(
       () => [
@@ -232,6 +244,7 @@ export function ProjectShell() {
       {currentSelectedCard && config && (
         <CardPanel
           card={currentSelectedCard} config={config}
+          cardLogs={selectedCardLogs}
           onClose={() => setSelectedCard(null)} onSave={handleCardSave}
           onClaim={handleClaim} onRelease={handleRelease}
           onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
