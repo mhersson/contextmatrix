@@ -125,12 +125,18 @@ func (m *Manager) ensureActiveSessions() {
 // Start is idempotent: if a session is already running for cardID, it returns
 // nil immediately.
 //
-// The provided ctx is used only as a root cancellation signal; the upstream
-// pump goroutine runs with its own internal context so it can outlive the
-// caller's request scope.
+// The provided ctx is not used to drive the pump lifecycle — the upstream pump
+// goroutine runs under its own internal context so it can outlive any caller
+// request scope (HTTP handlers in particular). The pump is terminated only by
+// Stop, upstream permanent failure, or Close. The parameter is preserved for
+// API symmetry and future per-call cancellation.
 func (m *Manager) Start(_ context.Context, cardID, project string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.closed {
+		return fmt.Errorf("sessionlog: manager closed, cannot start session for %s", cardID)
+	}
 
 	m.ensureActiveSessions()
 
@@ -144,7 +150,10 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 			m.maxSessions, cardID)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Pump context is rooted at Background so it cannot be cancelled by an
+	// HTTP handler's request scope. Cancellation flows through sess.cancel,
+	// which Stop/Close invoke explicitly.
+	pumpCtx, cancel := context.WithCancel(context.Background())
 	sess := &activeSession{
 		cancel:    cancel,
 		startTime: time.Now(),
@@ -163,7 +172,13 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 
 	m.activeSessions[cardID] = sess
 
-	go m.runPump(ctx, cardID, project, sess)
+	m.pumpWG.Add(1)
+
+	go func() {
+		defer m.pumpWG.Done()
+
+		m.runPump(pumpCtx, cardID, project, sess)
+	}()
 
 	return nil
 }
@@ -197,6 +212,69 @@ func closeSubscriber(subs []*subscriber, terminal Event) {
 		}
 
 		close(s.ch)
+	}
+}
+
+// Close gracefully shuts the manager down:
+//
+//  1. Marks the manager closed so subsequent Start/StartProject calls return
+//     an error instead of launching new pumps.
+//  2. Snapshots all active sessions and calls Stop on each, which emits a
+//     terminal event to every subscriber, cancels the pump context, and
+//     closes subscriber channels.
+//  3. Closes stopCh so the idle sweeper exits on its next select.
+//  4. Waits on the pump WaitGroup for every goroutine to return, bounded by
+//     ctx's deadline. If the deadline hits first, the method returns a
+//     wrapped context error but the manager is still marked closed so
+//     callers don't retry.
+//
+// Close is idempotent: subsequent calls return nil immediately.
+func (m *Manager) Close(ctx context.Context) error {
+	m.mu.Lock()
+
+	if m.closed {
+		m.mu.Unlock()
+
+		return nil
+	}
+
+	m.closed = true
+
+	// Snapshot active session IDs while holding the lock so Stop can
+	// re-acquire it safely.
+	cardIDs := make([]string, 0, len(m.activeSessions))
+	for id := range m.activeSessions {
+		cardIDs = append(cardIDs, id)
+	}
+	m.mu.Unlock()
+
+	// Drain each session — emits a terminal event to subscribers, cancels the
+	// pump's session context, and waits for the pump goroutine to close
+	// sess.done. Running sequentially avoids thundering-herd scanner allocations
+	// and keeps terminal-event ordering deterministic.
+	for _, cardID := range cardIDs {
+		m.Stop(cardID)
+	}
+
+	// Signal the idle sweeper (and any other manager-scoped goroutine that
+	// watches stopCh) to exit. Guarded by stopOnce so Close is idempotent
+	// even if a prior Close raced us past the closed check.
+	m.stopOnce.Do(func() { close(m.stopCh) })
+
+	// Wait for every tracked goroutine (pumps + sweeper) to return, bounded by
+	// the caller's context deadline.
+	done := make(chan struct{})
+
+	go func() {
+		m.pumpWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("sessionlog: close timed out waiting for pumps: %w", ctx.Err())
 	}
 }
 
@@ -473,11 +551,10 @@ func projectKey(project string) string {
 // StartProject is idempotent: if a project session is already running it
 // returns nil immediately.
 //
-// The provided ctx is not used to drive the pump lifecycle; the upstream pump
-// goroutine runs with its own internal context so it can outlive the caller's
-// request scope (e.g. an HTTP handler whose client disconnected).  The
-// parameter is accepted for API consistency and is reserved for future
-// server-level cancellation.
+// The provided ctx is not used to drive the pump lifecycle — the upstream pump
+// goroutine runs under its own internal context so it can outlive the caller's
+// request scope (e.g. an HTTP handler whose client disconnected). The pump is
+// terminated only by StopProject, upstream permanent failure, or Close.
 //
 // Snapshot-then-live ordering and cancellation guarantees are identical to
 // Start/Subscribe for card-scoped sessions.  The internal key is prefixed with
@@ -488,6 +565,10 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.closed {
+		return fmt.Errorf("sessionlog: manager closed, cannot start project session for %s", project)
+	}
 
 	m.ensureActiveSessions()
 
@@ -500,6 +581,9 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 			m.maxSessions, project)
 	}
 
+	// Pump context is rooted at Background so it cannot be cancelled by an
+	// HTTP handler's request scope. Cancellation flows through sess.cancel,
+	// which StopProject/Close invoke explicitly.
 	pumpCtx, cancel := context.WithCancel(context.Background())
 	sess := &activeSession{
 		cancel:    cancel,
@@ -518,7 +602,13 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 
 	m.activeSessions[key] = sess
 
-	go m.runProjectPump(pumpCtx, project, key, sess)
+	m.pumpWG.Add(1)
+
+	go func() {
+		defer m.pumpWG.Done()
+
+		m.runProjectPump(pumpCtx, project, key, sess)
+	}()
 
 	return nil
 }
@@ -746,15 +836,21 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 
 // StartSweeper launches a background goroutine that periodically scans for
 // sessions that have exceeded sessionTTL and force-closes them.  The goroutine
-// exits when ctx is cancelled.
+// exits when ctx is cancelled or Close is called on the Manager.
 func (m *Manager) StartSweeper(ctx context.Context) {
+	m.pumpWG.Add(1)
+
 	go func() {
+		defer m.pumpWG.Done()
+
 		ticker := time.NewTicker(m.sessionTTL / 2)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-m.stopCh:
 				return
 			case <-ticker.C:
 				m.sweepIdleSessions(ctx)

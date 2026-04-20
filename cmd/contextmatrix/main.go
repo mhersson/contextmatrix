@@ -310,25 +310,26 @@ func main() {
 		slog.Error("server failed, initiating shutdown", "error", err)
 	}
 
-	slog.Info("shutting down server")
+	slog.Info("shutdown: initiated")
 
-	cancel()
+	shutdownStart := time.Now()
 
-	if syncer != nil {
-		syncer.Wait()
-	}
-
-	if ghSyncer != nil {
-		ghSyncer.Wait()
-	}
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 25s gives long-lived SSE streams time to emit a terminal frame and
+	// in-flight mutations time to commit+push before systemd sends SIGKILL
+	// (default systemd TimeoutStopSec is 90s).
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer shutdownCancel()
 
-	// Shut down both servers concurrently so a long-running admin request
-	// (e.g. /debug/pprof/profile) cannot starve the main server of its
-	// shutdown budget.
-	var wg sync.WaitGroup
+	// Phase 1: stop accepting new HTTP connections and drain in-flight
+	// requests. Main and admin servers shut down concurrently so a long
+	// pprof profile on the admin listener cannot starve the main server of
+	// its shutdown budget.
+	slog.Info("shutdown: phase=http_drain")
+
+	var (
+		wg              sync.WaitGroup
+		mainShutdownErr error
+	)
 
 	if adminServer != nil {
 		wg.Add(1)
@@ -344,8 +345,6 @@ func main() {
 
 	wg.Add(1)
 
-	var mainShutdownErr error
-
 	go func() {
 		defer wg.Done()
 
@@ -354,12 +353,44 @@ func main() {
 
 	wg.Wait()
 
+	// Phase 2: drain active runner SSE sessions. HTTP is no longer accepting
+	// new connections, so closing these pumps is safe — every subscriber
+	// receives a terminal SSE event instead of a mid-stream EOF.
+	slog.Info("shutdown: phase=sessionlog_close")
+
+	if err := sessionMgr.Close(shutdownCtx); err != nil {
+		slog.Error("session manager shutdown error", "error", err)
+	}
+
+	// Phase 3: signal the rest of the app (timeout checker, syncers'
+	// periodic loops, runner subscribers) to wind down.
+	slog.Info("shutdown: phase=ctx_cancel")
+	cancel()
+
+	// Phase 4: let the git syncers finish any late commit/push triggered by
+	// requests that were in flight when HTTP drain began. Running this after
+	// HTTP drain (not before) ensures those late mutations still get pushed
+	// to the remote before we exit.
+	slog.Info("shutdown: phase=syncers_wait")
+
+	if syncer != nil {
+		syncer.Wait()
+	}
+
+	if ghSyncer != nil {
+		ghSyncer.Wait()
+	}
+
+	// gitops.Manager has no Close method today; if it grows one, call it
+	// here after the syncers have finished pushing.
+
+	duration := time.Since(shutdownStart)
+	slog.Info("shutdown: complete", "duration", duration)
+
 	if mainShutdownErr != nil {
 		slog.Error("server shutdown error", "error", mainShutdownErr)
 		os.Exit(1)
 	}
-
-	slog.Info("server stopped")
 }
 
 // newAdminMux returns a mux serving /debug/pprof/* and /metrics. The mux is
