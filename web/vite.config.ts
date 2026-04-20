@@ -13,7 +13,19 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 2048 // kb
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-md-editor') || id.includes('react-markdown-preview')) return 'md-editor'
+            if (id.includes('@dnd-kit')) return 'dnd-kit'
+            if (id.includes('react-router')) return 'react-router'
+            if (id.match(/[\\/]react[\\/]|[\\/]react-dom[\\/]/)) return 'react'
+            return 'vendor'
+          }
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',

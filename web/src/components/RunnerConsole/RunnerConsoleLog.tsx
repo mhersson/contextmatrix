@@ -12,13 +12,26 @@ const NEAR_BOTTOM_THRESHOLD = 50;
 export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
+  // Throttle scroll measurements to once per animation frame so fast native
+  // scroll events do not queue up O(n) work in the React render loop.
+  const rafIdRef = useRef<number | null>(null);
 
   const handleScroll = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const el = containerRef.current;
+      if (!el) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
+    });
   };
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;

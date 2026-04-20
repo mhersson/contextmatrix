@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import MDEditor from '@uiw/react-md-editor';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../../hooks/useTheme';
+
+// Lazy-load MDEditor so the ~5 MB editor chunk ships as its own bundle
+// and is only fetched when a CardPanel is actually opened.
+const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 
 // Approximate height above editor on mobile: header + title + type/priority +
 // agent + description label + spacing.
@@ -135,14 +138,26 @@ export function CardPanelEditor({
         </button>
       </div>
       {!collapsed && (
-        <MDEditor
-          value={body}
-          onChange={(val) => onChange(val || '')}
-          preview="edit"
-          height={editorHeight}
-          visibleDragbar={false}
-          previewOptions={{ skipHtml: true }}
-        />
+        <Suspense
+          fallback={
+            <textarea
+              value={body}
+              onChange={(e) => onChange(e.target.value)}
+              style={{ height: editorHeight }}
+              className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
+              aria-label="Description (loading rich editor...)"
+            />
+          }
+        >
+          <MDEditor
+            value={body}
+            onChange={(val) => onChange(val || '')}
+            preview="edit"
+            height={editorHeight}
+            visibleDragbar={false}
+            previewOptions={{ skipHtml: true }}
+          />
+        </Suspense>
       )}
     </div>
   );

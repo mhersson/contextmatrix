@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import MDEditor from '@uiw/react-md-editor';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { ParentSearch } from './ParentSearch';
 import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import type { Card, ProjectConfig } from '../../types';
+
+// Lazy-load MDEditor so the ~5 MB editor chunk is not shipped with the initial bundle.
+const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 
 interface CreateCardFormProps {
   title: string;
@@ -227,14 +229,26 @@ export function CreateCardForm({
       {/* Body */}
       <div data-color-mode={theme}>
         <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
-        <MDEditor
-          value={body}
-          onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
-          preview="edit"
-          height={200}
-          visibleDragbar={false}
-          previewOptions={{ skipHtml: true }}
-        />
+        <Suspense
+          fallback={
+            <textarea
+              value={body}
+              onChange={(e) => { setBody(e.target.value); setBodyDirty(true); }}
+              style={{ height: 200 }}
+              className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
+              aria-label="Description (loading rich editor...)"
+            />
+          }
+        >
+          <MDEditor
+            value={body}
+            onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
+            preview="edit"
+            height={200}
+            visibleDragbar={false}
+            previewOptions={{ skipHtml: true }}
+          />
+        </Suspense>
       </div>
     </div>
   );

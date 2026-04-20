@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
@@ -12,13 +12,27 @@ import { useRunnerLogs } from '../../hooks/useRunnerLogs';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
-import { Dashboard } from '../Dashboard';
-import { ProjectSettings } from '../ProjectSettings/ProjectSettings';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
+
+// Lazy-load secondary routes — only downloaded when the user navigates to them.
+const Dashboard = lazy(() =>
+  import('../Dashboard').then((m) => ({ default: m.Dashboard }))
+);
+const ProjectSettings = lazy(() =>
+  import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
+);
+
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center h-full" style={{ color: 'var(--grey1)' }}>
+      <div className="text-sm">Loading...</div>
+    </div>
+  );
+}
 
 export function ProjectShell() {
   const { project } = useParams<{ project: string }>();
@@ -177,40 +191,42 @@ export function ProjectShell() {
           style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}
           className={`overflow-hidden ${isDragging ? '' : 'transition-all duration-300'}`}
         >
-          <Routes>
-            <Route
-              index
-              element={
-                project && config ? (
-                  <Board
-                    cards={cards} config={config} loading={loading} error={error}
-                    onCardClick={handleCardClick} onCardMove={handleCardMove}
-                    onCreateCard={handleOpenCreate} flashCardId={flashCardId}
-                    onParentClick={handleSubtaskClick}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div style={{ color: 'var(--grey1)' }}>
-                      {loading ? 'Loading board...' : error || 'Project not found'}
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route
+                index
+                element={
+                  project && config ? (
+                    <Board
+                      cards={cards} config={config} loading={loading} error={error}
+                      onCardClick={handleCardClick} onCardMove={handleCardMove}
+                      onCreateCard={handleOpenCreate} flashCardId={flashCardId}
+                      onParentClick={handleSubtaskClick}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div style={{ color: 'var(--grey1)' }}>
+                        {loading ? 'Loading board...' : error || 'Project not found'}
+                      </div>
                     </div>
-                  </div>
-                )
-              }
-            />
-            <Route path="dashboard" element={<Dashboard project={project || ''} />} />
-            <Route
-              path="settings"
-              element={
-                <ProjectSettings
-                  project={project || ''}
-                  onUpdated={handleProjectUpdated}
-                  onDeleted={handleProjectDeleted}
-                  showToast={showToast}
-                />
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+                  )
+                }
+              />
+              <Route path="dashboard" element={<Dashboard project={project || ''} />} />
+              <Route
+                path="settings"
+                element={
+                  <ProjectSettings
+                    project={project || ''}
+                    onUpdated={handleProjectUpdated}
+                    onDeleted={handleProjectDeleted}
+                    showToast={showToast}
+                  />
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </div>
         {consoleOpen && (
           <>

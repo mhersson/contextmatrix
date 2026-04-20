@@ -112,7 +112,7 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
     vi.restoreAllMocks();
   });
 
-  it('switching to a type WITH a template populates the body when body is not dirty', () => {
+  it('switching to a type WITH a template populates the body when body is not dirty', async () => {
     const onBodyChange = vi.fn();
     // Start with 'bug' (no template) so we can switch to 'task' (has template)
     render(
@@ -131,12 +131,12 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
     // Body should be populated with the task template
     expect(onBodyChange).toHaveBeenCalledWith('## Task template\n');
 
-    // Editor should reflect the template content
-    const editor = screen.getByTestId('md-editor');
+    // Editor should reflect the template content (MDEditor is lazy-loaded).
+    const editor = await screen.findByTestId('md-editor');
     expect(editor).toHaveValue('## Task template\n');
   });
 
-  it('switching to a type WITH NO template clears the body when body is not dirty', () => {
+  it('switching to a type WITH NO template clears the body when body is not dirty', async () => {
     const onBodyChange = vi.fn();
     // Start with 'task' (has template, body pre-populated, not dirty)
     render(
@@ -156,11 +156,11 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
     expect(onBodyChange).toHaveBeenCalledWith('');
 
     // Editor should be empty
-    const editor = screen.getByTestId('md-editor');
+    const editor = await screen.findByTestId('md-editor');
     expect(editor).toHaveValue('');
   });
 
-  it('switching to a type WITH NO template does NOT clear the body when body IS dirty', () => {
+  it('switching to a type WITH NO template does NOT clear the body when body IS dirty', async () => {
     const onBodyChange = vi.fn();
     const userContent = 'my custom description';
 
@@ -181,7 +181,7 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
     expect(onBodyChange).not.toHaveBeenCalled();
 
     // Editor should still show the user's content
-    const editor = screen.getByTestId('md-editor');
+    const editor = await screen.findByTestId('md-editor');
     expect(editor).toHaveValue(userContent);
   });
 
@@ -208,25 +208,28 @@ describe('CreateCardForm — handleTypeChange template behavior', () => {
 describe('CreateCardForm — MDEditor preview skipHtml XSS prevention', () => {
   const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
 
-  it('does not render iframe in the preview pane', () => {
+  it('does not render iframe in the preview pane', async () => {
     const { container } = render(
       <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
     );
+    // Wait for lazy MDEditor to mount.
+    await screen.findByTestId('md-preview');
     expect(container.querySelector('iframe')).toBeNull();
   });
 
-  it('does not render script in the preview pane', () => {
+  it('does not render script in the preview pane', async () => {
     const { container } = render(
       <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
     );
+    await screen.findByTestId('md-preview');
     expect(container.querySelector('script')).toBeNull();
   });
 
-  it('still renders plain text content in the preview pane', () => {
+  it('still renders plain text content in the preview pane', async () => {
     render(
       <ControlledForm initialBody={xssBody} initialBodyDirty={true} />,
     );
-    const preview = screen.getByTestId('md-preview');
+    const preview = await screen.findByTestId('md-preview');
     expect(preview.textContent).toContain('hello');
   });
 });
