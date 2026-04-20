@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
+import { PaletteSelector } from './PaletteSelector';
 import { SyncIndicator } from './SyncIndicator';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import type { SyncStatus } from '../../types';
@@ -103,6 +104,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
             Stop All
           </button>
         )}
+        <PaletteSelector />
         <ThemeToggle />
         <SyncIndicator status={syncStatus} onClick={onSyncClick} />
         <div className="flex items-center gap-2">

@@ -19,8 +19,9 @@
   `NS_BINDING_ABORTED` when too many connections hit concurrently (see
   `docs/gotchas.md`).
 - `vite.config.ts` must proxy `/api` → `http://localhost:8080` for dev mode.
-- No `localStorage` usage except: theme preference, human agent ID, last
-  selected project, collapsed column/card state.
+- No `localStorage` usage except: theme preference, palette preference
+  (`palette` key), human agent ID, last selected project, collapsed
+  column/card state.
 - Theme state is managed via `ThemeProvider` (in `web/src/hooks/useTheme.ts`)
   wrapping the app root. Components consume it with `useTheme()`. The markdown
   editor (`@uiw/react-md-editor`) receives `data-color-mode={theme}` so it
@@ -34,12 +35,19 @@ The web UI supports three color palettes: **Everforest** (default),
 
 ### Palette selection
 
-Palette is **server-driven** — set `theme` in `config.yaml` to one of
-`"everforest"`, `"radix"`, or `"catppuccin"` (env:
-`CONTEXTMATRIX_THEME`). On startup `ThemeProvider` fetches
-`GET /api/app/config` and sets `data-palette="<theme>"` on `<html>` for every
-palette except Everforest, which is the default CSS block (no attribute).
-Palette is not stored in localStorage.
+The server config (`theme` in `config.yaml`, env: `CONTEXTMATRIX_THEME`) sets
+the **default** palette. On startup `ThemeProvider` fetches
+`GET /api/app/config` and applies `data-palette="<theme>"` on `<html>` for
+every palette except Everforest, which is the default CSS block (no attribute).
+
+Users can override the palette via the **PaletteSelector** dropdown in
+`AppHeader` (next to the dark/light toggle). Selecting a palette calls
+`setPalette()` from `useTheme`, which updates `data-palette` and writes the
+choice to `localStorage` under the key `palette`. On subsequent page loads,
+`ThemeProvider` reads this stored value first; if present and valid it applies
+immediately and skips the server default. The stored value must be one of
+`"everforest"`, `"radix"`, `"catppuccin"` — invalid values are ignored and
+fall back to the server default.
 
 Dark/light mode is **user-toggleable** (sun/moon button) and orthogonal to
 palette. Dark mode: no `data-theme` attribute. Light mode: `data-theme="light"`.
