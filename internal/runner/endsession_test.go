@@ -18,10 +18,14 @@ import (
 )
 
 type fakeCardGetter struct {
+	mu    sync.RWMutex
 	cards map[string]*board.Card
 }
 
 func (f *fakeCardGetter) GetCard(_ context.Context, project, id string) (*board.Card, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	c, ok := f.cards[project+"/"+id]
 	if !ok {
 		return nil, errors.New("not found")
@@ -30,6 +34,17 @@ func (f *fakeCardGetter) GetCard(_ context.Context, project, id string) (*board.
 	cp := *c
 
 	return &cp, nil
+}
+
+// setAgent updates AssignedAgent under the fake's lock, so tests can safely
+// mutate card state while the subscriber may be reading it concurrently.
+func (f *fakeCardGetter) setAgent(project, id, agent string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if c, ok := f.cards[project+"/"+id]; ok {
+		c.AssignedAgent = agent
+	}
 }
 
 type fakeClient struct {
@@ -174,7 +189,7 @@ func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T)
 	assertNoCall(t, fc)
 
 	// Now release the card and expect a call.
-	cg.cards["proj/C-001"].AssignedAgent = ""
+	cg.setAgent("proj", "C-001", "")
 
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 	waitForCalls(t, fc, 1)
