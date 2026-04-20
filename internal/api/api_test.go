@@ -71,7 +71,7 @@ transitions:
 	require.NoError(t, err)
 
 	// Seed an initial commit so HEAD exists and CurrentBranch() works.
-	require.NoError(t, git.CommitFile("test-project/.board.yaml", "init: seed boards repo"))
+	require.NoError(t, git.CommitFile(context.Background(), "test-project/.board.yaml", "init: seed boards repo"))
 
 	// Initialize store
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -691,7 +691,7 @@ transitions:
 	require.NoError(t, err)
 
 	// Seed an initial commit so HEAD exists and git check passes.
-	require.NoError(t, git.CommitFile("test-project/.board.yaml", "init: seed boards repo"))
+	require.NoError(t, git.CommitFile(context.Background(), "test-project/.board.yaml", "init: seed boards repo"))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
