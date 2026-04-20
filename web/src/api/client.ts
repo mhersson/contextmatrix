@@ -17,6 +17,14 @@ import type {
 
 const BASE_URL = '/api';
 
+// Wire shape for GET /api/projects/:project/cards. Not exported — callers see
+// the flat Card[] returned by getCards().
+interface CardPage {
+  items: Card[];
+  next_cursor?: string;
+  total?: number;
+}
+
 class APIClient {
   private agentId: string | null = null;
 
@@ -99,21 +107,44 @@ class APIClient {
   }
 
   // Cards
+  //
+  // The server paginates GET /api/projects/:project/cards via a cursor envelope
+  // (items / next_cursor / total). This helper walks every page transparently
+  // and returns the flat list existing callers (useBoard, etc.) already expect.
+  // The default per-request limit matches the server default (500) so small
+  // projects still complete in a single round-trip.
   async getCards(project: string, filter?: CardFilter): Promise<Card[]> {
-    const params = new URLSearchParams();
+    const baseParams = new URLSearchParams();
     if (filter) {
-      if (filter.state) params.set('state', filter.state);
-      if (filter.type) params.set('type', filter.type);
-      if (filter.priority) params.set('priority', filter.priority);
-      if (filter.agent) params.set('agent', filter.agent);
-      if (filter.label) params.set('label', filter.label);
-      if (filter.parent) params.set('parent', filter.parent);
-      if (filter.external_id) params.set('external_id', filter.external_id);
-      if (filter.vetted !== undefined) params.set('vetted', String(filter.vetted));
+      if (filter.state) baseParams.set('state', filter.state);
+      if (filter.type) baseParams.set('type', filter.type);
+      if (filter.priority) baseParams.set('priority', filter.priority);
+      if (filter.agent) baseParams.set('agent', filter.agent);
+      if (filter.label) baseParams.set('label', filter.label);
+      if (filter.parent) baseParams.set('parent', filter.parent);
+      if (filter.external_id) baseParams.set('external_id', filter.external_id);
+      if (filter.vetted !== undefined) baseParams.set('vetted', String(filter.vetted));
     }
-    const query = params.toString();
-    const path = `/projects/${project}/cards${query ? `?${query}` : ''}`;
-    return this.request<Card[]>(path);
+
+    const all: Card[] = [];
+    let cursor: string | null = null;
+    // Cap iterations as a sanity bound against a pathological server response
+    // (e.g. a cursor that never advances). 200 pages × 500 items = 100k cards.
+    for (let i = 0; i < 200; i++) {
+      const params = new URLSearchParams(baseParams);
+      if (cursor) {
+        params.set('cursor', cursor);
+      }
+      const query = params.toString();
+      const path = `/projects/${project}/cards${query ? `?${query}` : ''}`;
+      const page = await this.request<CardPage>(path);
+      all.push(...page.items);
+      if (!page.next_cursor) {
+        return all;
+      }
+      cursor = page.next_cursor;
+    }
+    return all;
   }
 
   async getCard(project: string, id: string): Promise<Card> {

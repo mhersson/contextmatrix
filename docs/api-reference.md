@@ -7,7 +7,7 @@ GET    /api/projects/{project}
 PUT    /api/projects/{project}                            # update project config
 DELETE /api/projects/{project}                            # delete project (requires 0 cards)
 
-GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=
+GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=&limit=&cursor=
 POST   /api/projects/{project}/cards
 GET    /api/projects/{project}/cards/{id}
 PUT    /api/projects/{project}/cards/{id}
@@ -212,6 +212,49 @@ livenessProbe:
 | `priority`    | priority name    | Filter by priority                                                                             |
 | `external_id` | external ID      | Filter by `source.external_id` (idempotent import check)                                       |
 | `vetted`      | `true` / `false` | Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
+| `limit`       | 1–2000           | Maximum items in the response page. Default `500`. Out-of-range values return 400.             |
+| `cursor`      | opaque string    | Page continuation token from the previous response's `next_cursor`. Opaque to clients.         |
+
+### Card list response envelope
+
+`GET /api/projects/{project}/cards` returns a JSON object (not a bare array):
+
+```json
+{
+  "items": [ { "id": "PROJ-001", "...": "..." } ],
+  "next_cursor": "UFJPSi0wMDE",
+  "total": 1234
+}
+```
+
+- `items` — page of cards, ordered by ID ascending. Always present (may be `[]`).
+- `next_cursor` — opaque base64url token; pass back in `?cursor=` to fetch the
+  next page. Omitted when the current page is the last page.
+- `total` — total un-filtered card count for the project. Emitted **only on the
+  first page** (when the request has no `cursor`). Callers can use it for
+  "showing X of Y" indicators even while a filter is active.
+
+Cursors encode the last card ID of the page and are stable across filter
+changes — callers must treat them as opaque. Invalid cursors (not valid
+base64url) return 400 `BAD_REQUEST`.
+
+Ordering is by card ID ascending. The server sorts before slicing, so walking
+`next_cursor` to exhaustion is guaranteed to visit every matching card exactly
+once even though the underlying store iterates a map.
+
+```bash
+# First page — 1 item, includes total.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1"
+# → {"items":[{"id":"ALPHA-001", ...}],"next_cursor":"QUxQSEEtMDAx","total":3}
+
+# Follow-up pages use cursor.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAx"
+# → {"items":[{"id":"ALPHA-002", ...}],"next_cursor":"QUxQSEEtMDAy"}
+
+# Last page — next_cursor omitted.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAy"
+# → {"items":[{"id":"ALPHA-003", ...}]}
+```
 
 ## App Endpoints
 

@@ -2,14 +2,36 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
+
+// Card list pagination bounds. Enforced in listCards; clients that exceed the
+// max receive 400. Default is on the generous side because the web UI's board
+// view currently fetches everything at once — raising it shifts this endpoint
+// to cursor-based paging only when clients opt in.
+const (
+	defaultCardPageLimit = 500
+	maxCardPageLimit     = 2000
+)
+
+// listCardsResponse is the envelope returned by GET /api/projects/{project}/cards.
+//
+// Items is always emitted; NextCursor is omitted when no more pages exist;
+// Total is populated only on the first page (cursor == "") so subsequent
+// pages do not pay the O(n) unfiltered-count query.
+type listCardsResponse struct {
+	Items      []*board.Card `json:"items"`
+	NextCursor string        `json:"next_cursor,omitempty"`
+	Total      *int          `json:"total,omitempty"`
+}
 
 // cardHandlers contains handlers for card-related endpoints.
 type cardHandlers struct {
@@ -158,14 +180,71 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		Vetted:        vettedFilter,
 	}
 
-	cards, err := h.svc.ListCards(r.Context(), projectName, filter)
+	// Pagination: parse limit and cursor from query string. Both are optional;
+	// defaults mirror the pre-pagination behaviour (one page of up to
+	// defaultCardPageLimit cards). Out-of-range limit / malformed cursor
+	// produce 400 before any service work.
+	limit, ok := parseCardPageLimit(w, r.URL.Query().Get("limit"))
+	if !ok {
+		return
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	page, err := h.svc.ListCardsPage(r.Context(), projectName, filter, service.PageOpts{
+		Limit:  limit,
+		Cursor: cursor,
+	})
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidCursor) {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid cursor", "")
+
+			return
+		}
+
 		handleServiceError(w, err)
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, cards)
+	resp := listCardsResponse{
+		Items:      page.Items,
+		NextCursor: page.NextCursor,
+	}
+	if page.HasTotal {
+		total := page.Total
+		resp.Total = &total
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// parseCardPageLimit reads the ?limit= query parameter, enforces bounds, and
+// writes a 400 error to w if the value is invalid. Returns (limit, true) on
+// success or (0, false) if the caller should abort — in which case the
+// response has already been written.
+func parseCardPageLimit(w http.ResponseWriter, raw string) (int, bool) {
+	if raw == "" {
+		return defaultCardPageLimit, true
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"invalid limit", "limit must be an integer")
+
+		return 0, false
+	}
+
+	if n < 1 || n > maxCardPageLimit {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"limit out of range",
+			"limit must be between 1 and "+strconv.Itoa(maxCardPageLimit))
+
+		return 0, false
+	}
+
+	return n, true
 }
 
 // createCard handles POST /api/projects/{project}/cards.
