@@ -75,6 +75,7 @@ type listCardsInput struct {
 	Label   string `json:"label,omitempty" jsonschema:"filter by label"`
 	Agent   string `json:"agent,omitempty" jsonschema:"filter by assigned agent"`
 	Parent  string `json:"parent,omitempty" jsonschema:"filter by parent card ID"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
 }
 type listCardsOutput struct {
 	Cards []*board.Card `json:"cards"`
@@ -83,6 +84,7 @@ type listCardsOutput struct {
 type getCardInput struct {
 	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
 }
 
 type createCardInput struct {
@@ -132,6 +134,7 @@ type addLogInput struct {
 type getTaskContextInput struct {
 	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
 }
 type getTaskContextOutput struct {
 	Card     *board.Card          `json:"card"`
@@ -231,6 +234,10 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 			cards = []*board.Card{}
 		}
 
+		// Redact unvetted card bodies for non-human callers so prompt-injection
+		// payloads from imported external cards cannot reach agent context.
+		cards = redactCardsForAgent(cards, input.AgentID)
+
 		return nil, listCardsOutput{Cards: cards}, nil
 	})
 }
@@ -249,6 +256,10 @@ func registerGetCard(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
+
+		// Redact unvetted card body for non-human callers so prompt-injection
+		// payloads from imported external cards cannot reach agent context.
+		card = redactCardForAgent(card, input.AgentID)
 
 		return nil, card, nil
 	})
@@ -477,7 +488,10 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 		}
 
 		out := getTaskContextOutput{
-			Card:   card,
+			// Redact unvetted card body for non-human callers — get_task_context
+			// is the primary prompt-injection vector because its response is fed
+			// straight into agent context.
+			Card:   redactCardForAgent(card, input.AgentID),
 			Config: cfg,
 		}
 
@@ -485,7 +499,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 		if card.Parent != "" {
 			parent, err := svc.GetCard(ctx, project, card.Parent)
 			if err == nil {
-				out.Parent = parent
+				out.Parent = redactCardForAgent(parent, input.AgentID)
 			}
 		}
 
@@ -501,7 +515,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 					}
 				}
 
-				out.Siblings = filtered
+				out.Siblings = redactCardsForAgent(filtered, input.AgentID)
 			}
 		}
 

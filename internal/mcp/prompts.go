@@ -914,8 +914,13 @@ func formatCardContext(c *board.Card, project string) string {
 		fmt.Fprintf(&b, "- **Review Attempts:** %d\n", c.ReviewAttempts)
 	}
 
-	if c.Body != "" {
-		fmt.Fprintf(&b, "\n### Body\n\n%s\n", c.Body)
+	// Skill prompts always flow into agent (non-human) context, so redact
+	// unvetted bodies to block prompt-injection payloads from externally
+	// imported cards. The empty agent ID is non-human by definition —
+	// redactUnvettedBody substitutes the placeholder for unvetted cards.
+	body := redactUnvettedBody(c, "")
+	if body != "" {
+		fmt.Fprintf(&b, "\n### Body\n\n%s\n", body)
 	}
 
 	return b.String()
@@ -956,10 +961,14 @@ func formatCardBrief(c *board.Card) string {
 }
 
 // formatCardBriefWithBody formats a card as a brief summary including the full body.
+// Unvetted bodies are redacted to a placeholder to block prompt injection from
+// externally imported cards — skill prompts always flow into agent context.
 func formatCardBriefWithBody(c *board.Card) string {
 	s := formatCardBrief(c)
-	if c.Body != "" {
-		s += fmt.Sprintf("\n%s\n", c.Body)
+
+	body := redactUnvettedBody(c, "")
+	if body != "" {
+		s += fmt.Sprintf("\n%s\n", body)
 	}
 
 	return s
