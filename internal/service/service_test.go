@@ -49,30 +49,43 @@ func testProject() *board.ProjectConfig {
 func setupTest(t *testing.T) (*CardService, string, func()) {
 	t.Helper()
 
+	return setupTestTB(t)
+}
+
+// setupTestTB is the testing.TB-typed variant used by both setupTest and
+// benchmarks.
+func setupTestTB(tb testing.TB) (*CardService, string, func()) {
+	tb.Helper()
+
 	// Create temp directory
-	tmpDir := t.TempDir()
+	tmpDir := tb.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(tb, os.MkdirAll(boardsDir, 0755))
 
 	// Create test project
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
-	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+	require.NoError(tb, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(tb, board.SaveProjectConfig(projectDir, testProject()))
 
 	// Create dependencies
 	store, err := storage.NewFilesystemStore(boardsDir)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
+	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
+	svc.SetCommitQueue(commitQueue)
+
 	cleanup := func() {
-		// Cleanup handled by t.TempDir()
+		// Drain the queue so deferred commit workers do not leak into
+		// subsequent tests that share goroutine inspectors.
+		_ = commitQueue.Close(context.Background())
 	}
 
 	return svc, tmpDir, cleanup
@@ -1141,7 +1154,12 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
-	return svc, tmpDir, func() {}
+	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
+	svc.SetCommitQueue(commitQueue)
+
+	return svc, tmpDir, func() {
+		_ = commitQueue.Close(context.Background())
+	}
 }
 
 // createParentWithSubtasks creates a parent card and the given number of subtask cards,

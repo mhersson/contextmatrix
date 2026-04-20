@@ -62,6 +62,9 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 		{"stall_cards_marked_total", dto.MetricType_COUNTER},
 		{"card_cache_size", dto.MetricType_GAUGE},
 		{"card_cache_miss_total", dto.MetricType_COUNTER},
+		{"contextmatrix_commit_queue_depth", dto.MetricType_GAUGE},
+		{"contextmatrix_commit_duration_seconds", dto.MetricType_HISTOGRAM},
+		{"contextmatrix_commit_errors_total", dto.MetricType_COUNTER},
 	}
 
 	mfs, err := reg.Gather()

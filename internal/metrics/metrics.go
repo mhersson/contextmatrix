@@ -69,6 +69,29 @@ var (
 		Name: "card_cache_miss_total",
 		Help: "GetCard requests that missed the in-memory cache and read from disk.",
 	})
+
+	// CommitQueueDepth tracks buffered (not yet picked up) commit jobs across
+	// all per-project worker goroutines. A sustained non-zero value indicates
+	// commits are arriving faster than go-git can service them.
+	CommitQueueDepth = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "contextmatrix_commit_queue_depth",
+		Help: "Buffered commit jobs awaiting a worker.",
+	})
+
+	// CommitDuration records how long each commit takes once a worker picks
+	// it up. Distinct from GitSyncDuration (which is still observed inside
+	// Manager) so dashboards can distinguish queue wait time from commit time.
+	CommitDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "contextmatrix_commit_duration_seconds",
+		Help:    "Duration of an individual commit operation executed by the commit queue.",
+		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60},
+	})
+
+	// CommitErrorsTotal counts commit failures returned by the queue worker.
+	CommitErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "contextmatrix_commit_errors_total",
+		Help: "Commit failures reported by the commit queue worker.",
+	})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -86,6 +109,9 @@ func Register(reg prometheus.Registerer) {
 		StallCardsMarked,
 		CardCacheSize,
 		CardCacheMissTotal,
+		CommitQueueDepth,
+		CommitDuration,
+		CommitErrorsTotal,
 	}
 
 	for _, c := range collectors {
