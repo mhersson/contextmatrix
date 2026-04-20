@@ -250,7 +250,7 @@ export interface LogEntry {
 }
 
 export interface AppConfig {
-  theme: 'everforest' | 'everforest-hard' | 'radix' | 'catppuccin';
+  theme: 'everforest' | 'radix' | 'catppuccin';
 }
 
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {

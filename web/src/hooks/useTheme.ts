@@ -4,9 +4,9 @@ import { createElement } from 'react';
 import { api } from '../api/client';
 
 type Theme = 'dark' | 'light';
-type Palette = 'everforest' | 'everforest-hard' | 'radix' | 'catppuccin';
+type Palette = 'everforest' | 'radix' | 'catppuccin';
 
-const VALID_PALETTES: readonly Palette[] = ['everforest', 'everforest-hard', 'radix', 'catppuccin'];
+const VALID_PALETTES: readonly Palette[] = ['everforest', 'radix', 'catppuccin'];
 
 const STORAGE_KEY = 'theme';
 
