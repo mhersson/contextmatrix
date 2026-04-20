@@ -870,13 +870,10 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 
 	card.Updated = time.Now()
 
-	// Release agent claim when card moves to a terminal state that implies
-	// the work is no longer active (not_planned is purely manual — the agent
-	// claim must be cleared so the lock manager won't treat it as stalled).
-	if stateChanged && card.State == board.StateNotPlanned {
-		card.AssignedAgent = ""
-		card.LastHeartbeat = nil
-	}
+	// Release agent claim on not_planned and clear runner_status on terminal
+	// states. Must happen before validate+persist so the written card reflects
+	// the invariants.
+	enforceTerminalStateInvariants(card, stateChanged)
 
 	// Validate updated card
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
@@ -898,11 +895,6 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 				Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", id, cycleID),
 			})
 		}
-	}
-
-	// Clear runner_status when card reaches a terminal state (before disk write).
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateNotPlanned) {
-		card.RunnerStatus = ""
 	}
 
 	// Persist card
@@ -927,15 +919,8 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 		}
 	}
 
-	// Flush deferred commit when card reaches not_planned or review — no agent
-	// will release the card in these states so this is the only flush point.
-	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
-	// handles the flush.
-	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
-		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
-			ctxlog.Logger(ctx).Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
-		}
-	}
+	// Post-commit state-change side effects (flush deferred on not_planned/review).
+	s.applyStateChangeSideEffects(ctx, card, stateChanged)
 
 	// Publish event
 	eventType := events.CardUpdated
@@ -1089,12 +1074,10 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 
 	card.Updated = time.Now()
 
-	// Release agent claim when card moves to not_planned so the lock manager
-	// won't flag the card as stalled.
-	if stateChanged && card.State == board.StateNotPlanned {
-		card.AssignedAgent = ""
-		card.LastHeartbeat = nil
-	}
+	// Release agent claim on not_planned and clear runner_status on terminal
+	// states. Must happen before validate+persist so the written card reflects
+	// the invariants.
+	enforceTerminalStateInvariants(card, stateChanged)
 
 	// Validate updated card
 	validator := s.validator
@@ -1120,11 +1103,6 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		}
 	}
 
-	// Clear runner_status when card reaches a terminal state (before disk write).
-	if stateChanged && (card.State == board.StateDone || card.State == board.StateNotPlanned) {
-		card.RunnerStatus = ""
-	}
-
 	// Persist card
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
@@ -1147,15 +1125,8 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 		}
 	}
 
-	// Flush deferred commit when card reaches not_planned or review — no agent
-	// will release the card in these states so this is the only flush point.
-	// For done/stalled: ReleaseCard (done) or markCardStalled (stalled)
-	// handles the flush.
-	if stateChanged && (card.State == board.StateNotPlanned || card.State == board.StateReview) {
-		if err := s.flushDeferredCommit(ctx, id, ""); err != nil {
-			ctxlog.Logger(ctx).Error("flush deferred commit after state change", "card_id", id, "state", card.State, "error", err)
-		}
-	}
+	// Post-commit state-change side effects (flush deferred on not_planned/review).
+	s.applyStateChangeSideEffects(ctx, card, stateChanged)
 
 	// Publish event
 	eventType := events.CardUpdated
@@ -2123,16 +2094,10 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		card.State = state
 		card.Updated = time.Now()
 
-		// Release agent claim when card moves to not_planned.
-		if card.State == board.StateNotPlanned {
-			card.AssignedAgent = ""
-			card.LastHeartbeat = nil
-		}
-
-		// Clear runner_status on terminal states.
-		if card.State == board.StateDone || card.State == board.StateNotPlanned {
-			card.RunnerStatus = ""
-		}
+		// State-change invariants: release claim on not_planned, clear
+		// runner_status on terminal states. Each step in the path is a state
+		// change, so pass stateChanged=true.
+		enforceTerminalStateInvariants(card, true)
 
 		if err := validator.ValidateCard(cfg, card); err != nil {
 			return nil, fmt.Errorf("validate card: %w", err)
@@ -2146,13 +2111,8 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
-		// Flush deferred commits when reaching not_planned or review.
-		if card.State == board.StateNotPlanned || card.State == board.StateReview {
-			if err := s.flushDeferredCommit(ctx, cardID, ""); err != nil {
-				ctxlog.Logger(ctx).Error("flush deferred commit after transition",
-					"card_id", cardID, "state", card.State, "error", err)
-			}
-		}
+		// Flush deferred commits on not_planned/review.
+		s.applyStateChangeSideEffects(ctx, card, true)
 
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,
@@ -2196,6 +2156,59 @@ func (s *CardService) commitCardChange(ctx context.Context, project, cardID, age
 	s.notifyCommit()
 
 	return nil
+}
+
+// enforceTerminalStateInvariants clears fields that must be reset when a card
+// enters a terminal-ish state. Called before persisting a state change.
+//
+//   - not_planned: release agent claim so the lock manager won't treat the card
+//     as stalled. not_planned is a manual terminal state — no agent will be
+//     active on it.
+//   - done / not_planned: clear runner_status — the runner is no longer
+//     associated with a finished card.
+//
+// Safe to call regardless of stateChanged — it only acts when the card's
+// current state is one of the targets. But callers should pass stateChanged
+// so we only mutate when there is actually a transition.
+func enforceTerminalStateInvariants(card *board.Card, stateChanged bool) {
+	if !stateChanged {
+		return
+	}
+
+	if card.State == board.StateNotPlanned {
+		card.AssignedAgent = ""
+		card.LastHeartbeat = nil
+	}
+
+	if card.State == board.StateDone || card.State == board.StateNotPlanned {
+		card.RunnerStatus = ""
+	}
+}
+
+// applyStateChangeSideEffects runs post-commit side effects that fire when a
+// card's State has changed. Currently this flushes any accumulated deferred
+// commits when the card reaches a state where no subsequent Release or
+// markCardStalled call will trigger a flush on its own — namely not_planned
+// and review.
+//
+// Errors are logged (not returned) so a flush failure never blocks the caller's
+// primary mutation, which has already been persisted and committed. Safe to
+// call when stateChanged is false — no-op in that case.
+//
+// Caller must hold writeMu.
+func (s *CardService) applyStateChangeSideEffects(ctx context.Context, card *board.Card, stateChanged bool) {
+	if !stateChanged {
+		return
+	}
+
+	if card.State != board.StateNotPlanned && card.State != board.StateReview {
+		return
+	}
+
+	if err := s.flushDeferredCommit(ctx, card.ID, ""); err != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit after state change",
+			"card_id", card.ID, "state", card.State, "error", err)
+	}
 }
 
 // flushDeferredCommit stages all accumulated deferred paths for cardID and
@@ -2305,6 +2318,10 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 		parent.State = state
 		parent.Updated = time.Now()
 
+		// State-change invariants: release claim on not_planned, clear
+		// runner_status on terminal states.
+		enforceTerminalStateInvariants(parent, true)
+
 		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {
 			return fmt.Errorf("persist parent card: %w", err)
 		}
@@ -2312,6 +2329,9 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 		if err := s.commitCardChange(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
 			ctxlog.Logger(ctx).Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
 		}
+
+		// Flush deferred commits on not_planned/review.
+		s.applyStateChangeSideEffects(ctx, parent, true)
 
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,
@@ -2329,12 +2349,6 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 			"old_state", oldState,
 			"new_state", state,
 		)
-	}
-
-	// Flush deferred commits for the parent card
-	if err := s.flushDeferredCommit(ctx, parent.ID, ""); err != nil {
-		ctxlog.Logger(ctx).Error("flush deferred commit for parent auto-transition",
-			"parent_id", parent.ID, "error", err)
 	}
 
 	return nil
