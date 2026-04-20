@@ -45,8 +45,8 @@
   _before_ building Go binary. SPA routing requires a fallback to `index.html`
   for all non-API, non-file routes.
 - **404 handling is React Router's job:** `newSPAHandler` returns `index.html`
-  for every path that isn't an `/api/` prefix, `/healthz`, `/mcp`, or a real
-  static file. The Go layer never returns a 404 for UI paths. Unknown routes are
+  for every path that isn't an `/api/` prefix, `/healthz`, `/readyz`, `/mcp`,
+  or a real static file. The Go layer never returns a 404 for UI paths. Unknown routes are
   caught by `<Route path="*" element={<NotFound />} />` placed as the last route
   in both `App.tsx` (top-level) and `ProjectShell.tsx` (nested project routes).
   If you add a new `Routes` subtree, add its own catch-all or users will see a
@@ -58,11 +58,12 @@
   like `"30m"` with `gopkg.in/yaml.v3`. Either use a custom type with
   `UnmarshalYAML`, or store as string in config and parse with
   `time.ParseDuration()` at load time.
-- **`/healthz` requests are not logged:** the HTTP logging middleware skips
-  `slog.Info` for `GET /healthz` to prevent k8s liveness/readiness probe traffic
-  from spamming logs. The endpoint still responds normally — only the log line
-  is suppressed. If you expect to see probe traffic in logs for debugging, hit
-  any other path or check the endpoint directly with `curl`.
+- **`/healthz` and `/readyz` requests are not logged:** the HTTP logging
+  middleware skips `slog.Info` for `GET /healthz` and `GET /readyz` to prevent
+  k8s liveness/readiness probe traffic from spamming logs. Both endpoints still
+  respond normally — only the log line is suppressed. If you expect to see probe
+  traffic in logs for debugging, hit any other path or check the endpoints
+  directly with `curl`.
 - **Firefox per-origin SSE connection limit:** Firefox's connection manager
   cancels in-flight requests to the same origin with `NS_BINDING_ABORTED` /
   "connection interrupted while the page was loading" when a new navigation-

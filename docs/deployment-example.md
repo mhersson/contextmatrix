@@ -38,7 +38,7 @@ flowchart TB
     end
 
     browser --> proxy
-    proxy -- "block /mcp + /healthz" --> cm_svc
+    proxy -- "block /mcp + /healthz + /readyz" --> cm_svc
     agents -- "MCP tools" --> cm_svc
     cm_svc --> boards
     cm_svc -- "clone on startup" --> boards_remote
@@ -264,7 +264,8 @@ Internet → [Reverse Proxy + Auth + TLS] → ContextMatrix :8080
 from the LAN:
 
 - `/mcp*` — MCP endpoint (agent access)
-- `/healthz` — health check
+- `/healthz` — liveness probe
+- `/readyz` — readiness probe
 
 ### Cloudflare Tunnel example
 
@@ -272,7 +273,7 @@ A Cloudflare Tunnel with Access provides authentication without exposing any
 ports:
 
 - **Cloudflare Access** — requires SSO/email authentication for all requests
-- **WAF rules** — block `/mcp*` and `/healthz` at the edge
+- **WAF rules** — block `/mcp*`, `/healthz`, and `/readyz` at the edge
 - The tunnel connects outbound from your network — no inbound firewall rules
   needed
 

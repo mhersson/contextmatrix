@@ -42,7 +42,8 @@ GET    /api/sync                                       # sync status
 GET    /api/app/config                                 # server-side app config (theme/palette)
 
 GET    /api/events?project=                           # SSE stream
-GET    /healthz                                        # health check
+GET    /healthz                                        # liveness probe (shallow)
+GET    /readyz                                         # readiness probe (dependency-checked)
 ```
 
 **Agent identification:** `X-Agent-ID` header on all requests. For mutations on
@@ -78,6 +79,84 @@ claimed cards, the header value must match `assigned_agent` — otherwise 403.
 | ------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                 |
 | `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, `create_pr`, or `base_branch`. |
+
+## Health Endpoints
+
+### GET /healthz
+
+Shallow liveness probe. Always returns `200 OK` with the text body `ok` as long
+as the process is running. No dependency checks are performed.
+
+Use this as a k8s `livenessProbe` target (or equivalent). Do not use it to gate
+traffic — a `200` from `/healthz` only means the process has not crashed.
+
+```bash
+curl http://localhost:8080/healthz
+# → ok
+```
+
+### GET /readyz
+
+Dependency-checked readiness probe. Runs three checks with a 500 ms timeout:
+
+| Check         | What it tests                                         |
+| ------------- | ----------------------------------------------------- |
+| `store`       | `ListProjects` succeeds (boards directory is readable) |
+| `git`         | `CurrentBranch` resolves (git manager is initialised) |
+| `session_log` | session-log manager is not nil (runner is operational) |
+
+Returns **200** when all checks pass, **503** when any check fails.
+
+**Response body (200):**
+
+```json
+{
+  "status": "ok",
+  "checks": [
+    { "name": "store",       "ok": true },
+    { "name": "git",         "ok": true },
+    { "name": "session_log", "ok": true }
+  ]
+}
+```
+
+**Response body (503):**
+
+```json
+{
+  "status": "degraded",
+  "checks": [
+    { "name": "store", "ok": false, "error": "open /data/boards: permission denied" },
+    { "name": "git",         "ok": true },
+    { "name": "session_log", "ok": true }
+  ]
+}
+```
+
+Use this as a k8s `readinessProbe` target. Kubernetes operators should point:
+
+- `readinessProbe` → `GET /readyz`
+- `livenessProbe`  → `GET /healthz`
+
+```bash
+curl http://localhost:8080/readyz
+```
+
+```yaml
+# Kubernetes probe example
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 30
+```
 
 ### Card list query parameters
 

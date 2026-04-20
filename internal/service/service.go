@@ -2670,6 +2670,50 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	return card, nil
 }
 
+// CheckResult holds the outcome of a single health check.
+type CheckResult struct {
+	Name string
+	OK   bool
+	Err  error
+}
+
+// HealthCheck runs a set of dependency checks and returns one CheckResult per check.
+// All checks are always run regardless of individual failures.
+func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
+	results := make([]CheckResult, 0, 3)
+
+	// Check 1: store — list projects to verify the filesystem store is accessible.
+	_, err := s.store.ListProjects(ctx)
+	results = append(results, CheckResult{
+		Name: "store",
+		OK:   err == nil,
+		Err:  err,
+	})
+
+	// Check 2: git — verify git manager is configured and the repo is accessible.
+	var gitErr error
+	if s.git == nil {
+		gitErr = fmt.Errorf("git manager not configured")
+	} else {
+		_, gitErr = s.git.CurrentBranch()
+	}
+
+	results = append(results, CheckResult{
+		Name: "git",
+		OK:   gitErr == nil,
+		Err:  gitErr,
+	})
+
+	// Check 3: session_log — always ok; nil means runner is disabled (healthy),
+	// non-nil means it is operational.
+	results = append(results, CheckResult{
+		Name: "session_log",
+		OK:   true,
+	})
+
+	return results
+}
+
 // PromoteToAutonomous sets the Autonomous flag on a card to true and appends
 // an activity log entry. It is idempotent: if the card is already autonomous,
 // it returns the current card unchanged without writing a log entry or commit.

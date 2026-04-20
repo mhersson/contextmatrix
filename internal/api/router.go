@@ -96,6 +96,10 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	// Health check
 	mux.HandleFunc("GET /healthz", handleHealthz)
 
+	// Readiness check
+	rdhz := &readinessHandlers{svc: cfg.Service}
+	mux.HandleFunc("GET /readyz", rdhz.handleReadyz)
+
 	// SSE events
 	mux.HandleFunc("GET /api/events", eh.streamEvents)
 
@@ -198,11 +202,11 @@ func requestID(next http.Handler) http.Handler {
 	})
 }
 
-// logging logs each request with timing. Requests to /healthz are served but
-// not logged to avoid spamming logs with k8s health check noise.
+// logging logs each request with timing. Requests to /healthz and /readyz are
+// served but not logged to avoid spamming logs with k8s health check noise.
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			next.ServeHTTP(w, r)
 
 			return

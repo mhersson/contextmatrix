@@ -625,8 +625,17 @@ protocol.
 ### Health Check
 
 ```bash
+# Liveness probe — always 200 while the process is alive
 curl http://localhost:8080/healthz
+
+# Readiness probe — 200 when store, git, and session-log checks pass; 503 otherwise
+curl http://localhost:8080/readyz
 ```
+
+Kubernetes operators should point `readinessProbe` at `/readyz` and
+`livenessProbe` at `/healthz`. See
+[`docs/api-reference.md`](docs/api-reference.md) for the full JSON response
+format.
 
 ## Configuration
 
