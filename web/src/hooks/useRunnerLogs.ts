@@ -20,6 +20,16 @@ interface UseRunnerLogsResult {
 const MAX_RECONNECT_DELAY = 30000;
 const INITIAL_RECONNECT_DELAY = 1000;
 
+/** Build a gap marker LogEntry with the given message. */
+function makeGapMarker(message: string): LogEntry {
+  return {
+    ts: new Date().toISOString(),
+    card_id: '',
+    type: 'gap',
+    content: message,
+  };
+}
+
 export function useRunnerLogs({
   project,
   enabled,
@@ -35,6 +45,10 @@ export function useRunnerLogs({
   const connectRef = useRef<() => void>(() => {});
   const isMountedRef = useRef(true);
   const maxEntriesRef = useRef(maxEntries);
+  /** Last seen seq number; null means no message received yet. */
+  const lastSeqRef = useRef<number | null>(null);
+  /** Set to true when a terminal frame is received — suppresses reconnects. */
+  const terminalRef = useRef(false);
 
   // Keep maxEntriesRef in sync
   useEffect(() => {
@@ -59,6 +73,10 @@ export function useRunnerLogs({
       eventSourceRef.current.close();
     }
 
+    // Reset per-connection state on a fresh intentional connect.
+    lastSeqRef.current = null;
+    terminalRef.current = false;
+
     let url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
     if (cardId) {
       url += `&card_id=${encodeURIComponent(cardId)}`;
@@ -74,14 +92,60 @@ export function useRunnerLogs({
 
     es.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(event.data) as Record<string, unknown>;
+
         if (data.type === 'error') {
-          setError(data.content || 'Unknown error');
+          setError((data.content as string) || 'Unknown error');
           return;
         }
-        const entry = data as LogEntry;
+
+        if (data.type === 'terminal') {
+          // Server session ended — stop reconnecting.
+          terminalRef.current = true;
+          if (reconnectTimeoutRef.current !== null) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          setConnected(false);
+          return;
+        }
+
+        if (data.type === 'dropped') {
+          const count = typeof data.count === 'number' ? data.count : 0;
+          const marker = makeGapMarker(
+            `log stream dropped ${count} event${count !== 1 ? 's' : ''} (server ring-buffer overflow)`,
+          );
+          setLogs((prev) => {
+            const next = [...prev, marker];
+            return next.length > maxEntriesRef.current
+              ? next.slice(next.length - maxEntriesRef.current)
+              : next;
+          });
+          return;
+        }
+
+        // Normal log entry — check for seq gap before appending.
+        const entry = data as unknown as LogEntry;
+        const seq = typeof data.seq === 'number' ? (data.seq as number) : null;
+
+        const entriesToAdd: LogEntry[] = [];
+
+        if (seq !== null && lastSeqRef.current !== null && seq > lastSeqRef.current + 1) {
+          entriesToAdd.push(
+            makeGapMarker(
+              `seq gap detected: expected ${lastSeqRef.current + 1}, got ${seq} (${seq - lastSeqRef.current - 1} missing)`,
+            ),
+          );
+        }
+
+        if (seq !== null) {
+          lastSeqRef.current = seq;
+        }
+
+        entriesToAdd.push(entry);
+
         setLogs((prev) => {
-          const next = [...prev, entry];
+          const next = [...prev, ...entriesToAdd];
           return next.length > maxEntriesRef.current
             ? next.slice(next.length - maxEntriesRef.current)
             : next;
@@ -96,11 +160,18 @@ export function useRunnerLogs({
       es.close();
       eventSourceRef.current = null;
 
+      // Do not reconnect after a clean terminal frame.
+      if (terminalRef.current) {
+        return;
+      }
+
       const delay = reconnectDelayRef.current;
       setError((prev) => prev ?? `Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         if (!isMountedRef.current) return;
+        // Guard again — terminal may have arrived while timer was pending.
+        if (terminalRef.current) return;
         reconnectDelayRef.current = Math.min(
           reconnectDelayRef.current * 2,
           MAX_RECONNECT_DELAY

@@ -240,13 +240,15 @@ export interface StopAllResponse {
 
 export type RunnerStatus = NonNullable<Card['runner_status']>;
 
-export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system' | 'user';
+export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system' | 'user' | 'gap';
 
 export interface LogEntry {
   ts: string;
   card_id: string;
   type: LogEntryType;
   content: string;
+  /** Sequence number from server, used for gap detection. */
+  seq?: number;
 }
 
 export interface AppConfig {

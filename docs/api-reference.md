@@ -372,24 +372,44 @@ performed server-side toward the runner.
   receives all events buffered since the console was first opened. Returns 204
   if the session manager is unavailable.
 
-**Response:** `Content-Type: text/event-stream`. Each event carries a JSON
-`LogEntry`:
+**Response:** `Content-Type: text/event-stream`. The server sets
+`X-Accel-Buffering: no` on all SSE responses to bypass nginx proxy buffering.
+A `: keepalive\n\n` comment is written every 30 seconds per subscription to
+survive Cloudflare/nginx idle timeouts (~100 s).
+
+Each normal event carries a JSON payload:
 
 ```json
 {
   "ts": "2026-04-08T12:34:56.789Z",
   "card_id": "PROJ-042",
-  "project": "my-project",
   "type": "text",
-  "content": "Planning the implementation..."
+  "content": "Planning the implementation...",
+  "seq": 42
 }
 ```
 
-`type` is one of: `text`, `thinking`, `tool_call`, `stderr`, `system`, `user`,
-`terminal` (session ended), `dropped` (events were evicted from the buffer).
+Marker frames have a distinct shape:
+
+| Frame type | Payload shape | Meaning |
+| ---------- | ------------- | ------- |
+| `terminal` | `{"type":"terminal","seq":N}` | Session ended; no further events |
+| `dropped` | `{"type":"dropped","seq":N,"count":N}` | Server ring-buffer overflowed; `count` events were evicted |
+
+`type` for normal events is one of: `text`, `thinking`, `tool_call`, `stderr`,
+`system`, `user`.
 
 The connection is closed when the browser disconnects or the session receives a
 terminal event.
+
+**Client behaviour (`useRunnerLogs`):**
+
+- Tracks last-seen `seq`; if an incoming `seq > lastSeq + 1`, inserts a
+  client-side gap marker (`type: 'gap'`) indicating the number of missing
+  events.
+- `dropped` frames render as gap markers (not as ordinary log lines).
+- `terminal` frames clear `connected` and stop the reconnect loop — no further
+  reconnect is attempted after a clean session end.
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full log streaming
 architecture, `LogEntry` type details, and session manager configuration.

@@ -44,6 +44,12 @@ func droppedMarkerCount(e Event) uint64 {
 	return binary.LittleEndian.Uint64(e.Payload[:8])
 }
 
+// DroppedMarkerCount is the exported form of droppedMarkerCount, for use by
+// packages that need to decode a dropped-marker event's count (e.g., API handlers).
+func DroppedMarkerCount(e Event) uint64 {
+	return droppedMarkerCount(e)
+}
+
 // encodeDropCount encodes a drop count as an 8-byte little-endian payload.
 func encodeDropCount(n uint64) []byte {
 	b := make([]byte, 8)

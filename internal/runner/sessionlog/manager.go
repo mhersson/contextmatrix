@@ -559,9 +559,13 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 			return
 		}
 
-		err := m.readProjectUpstream(ctx, project, key, sess)
+		delivered, err := m.readProjectUpstream(ctx, project, key, sess)
 		if ctx.Err() != nil {
 			return
+		}
+
+		if delivered {
+			attempt = 0
 		}
 
 		attempt++
@@ -624,7 +628,12 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 // Unlike readUpstream (which filters by card ID), this function accepts every
 // event for the project and buffers them under the project key.  This allows
 // SubscribeProject to replay all project events to reconnecting clients.
-func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, sess *activeSession) error {
+// readProjectUpstream returns (delivered, err) where delivered is true if at
+// least one frame was successfully buffered and fanned out during this
+// connection.  Callers use the delivered flag to reset the retry-attempt
+// counter so that transient disconnects after successful frames do not
+// accumulate toward the permanent-failure threshold.
+func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, sess *activeSession) (bool, error) {
 	upstreamURL := m.runnerURL + "/logs"
 	if project != "" {
 		upstreamURL += "?project=" + url.QueryEscape(project)
@@ -632,7 +641,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return false, fmt.Errorf("create request: %w", err)
 	}
 
 	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey)
@@ -642,25 +651,27 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 	resp, err := sseHTTPClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 
-		return fmt.Errorf("upstream connect: %w", err)
+		return false, fmt.Errorf("upstream connect: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1<<20)
 
+	var delivered bool
+
 	for scanner.Scan() {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return delivered, ctx.Err()
 		}
 
 		line := scanner.Text()
@@ -704,6 +715,9 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		}
 		m.mu.Unlock()
 
+		// Mark that at least one frame was successfully delivered.
+		delivered = true
+
 		if shouldWarn {
 			slog.Warn("sessionlog: slow subscriber, event dropped",
 				"project", project,
@@ -714,13 +728,13 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 
 	if err := scanner.Err(); err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return delivered, ctx.Err()
 		}
 
-		return fmt.Errorf("scanner: %w", err)
+		return delivered, fmt.Errorf("scanner: %w", err)
 	}
 
-	return fmt.Errorf("upstream closed connection")
+	return delivered, fmt.Errorf("upstream closed connection")
 }
 
 // StartSweeper launches a background goroutine that periodically scans for
@@ -780,10 +794,14 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 			return
 		}
 
-		err := m.readUpstream(ctx, cardID, project, sess)
+		delivered, err := m.readUpstream(ctx, cardID, project, sess)
 		if ctx.Err() != nil {
 			// Cancelled externally (Stop called) — clean exit without retrying.
 			return
+		}
+
+		if delivered {
+			attempt = 0
 		}
 
 		attempt++
@@ -847,7 +865,12 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 // maintain compatibility with current runner versions that stream all project
 // events.  Events for other cards are filtered out before appending to the
 // per-card buffer.
-func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess *activeSession) error {
+//
+// It returns (delivered, err) where delivered is true if at least one frame
+// was successfully buffered and fanned out.  Callers use this to reset the
+// retry-attempt counter so transient disconnects after successful frames do
+// not accumulate toward the permanent-failure threshold.
+func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess *activeSession) (bool, error) {
 	upstreamURL := m.runnerURL + "/logs"
 	if project != "" {
 		upstreamURL += "?project=" + url.QueryEscape(project)
@@ -855,7 +878,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return false, fmt.Errorf("create request: %w", err)
 	}
 
 	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey)
@@ -865,25 +888,27 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 	resp, err := sseHTTPClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 
-		return fmt.Errorf("upstream connect: %w", err)
+		return false, fmt.Errorf("upstream connect: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1<<20)
 
+	var delivered bool
+
 	for scanner.Scan() {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return delivered, ctx.Err()
 		}
 
 		line := scanner.Text()
@@ -936,6 +961,9 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		}
 		m.mu.Unlock()
 
+		// Mark that at least one frame was successfully delivered.
+		delivered = true
+
 		if shouldWarn {
 			slog.Warn("sessionlog: slow subscriber, event dropped",
 				"card_id", cardID,
@@ -946,13 +974,13 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 
 	if err := scanner.Err(); err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return delivered, ctx.Err()
 		}
 
-		return fmt.Errorf("scanner: %w", err)
+		return delivered, fmt.Errorf("scanner: %w", err)
 	}
 
-	return fmt.Errorf("upstream closed connection")
+	return delivered, fmt.Errorf("upstream closed connection")
 }
 
 // sseHTTPClient is a dedicated client for long-lived SSE upstream connections.

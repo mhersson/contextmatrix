@@ -7,6 +7,7 @@ export const TYPE_COLORS: Record<LogEntryType, string> = {
   stderr: 'var(--yellow)',
   system: 'var(--green)',
   user: 'var(--blue)',
+  gap: 'var(--orange)',
 };
 
 const CARD_BADGE_COLORS = [

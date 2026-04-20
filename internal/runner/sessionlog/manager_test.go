@@ -1181,6 +1181,103 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 	}
 }
 
+// TestAttemptResetOnSuccessfulFrame verifies that the attempt counter is reset
+// to zero after a successful frame delivery, preventing transient disconnects
+// from accumulating and wrongly terminating a healthy session.
+//
+// Setup:
+//   - A server that sends exactly one event per connection then closes.
+//   - The pump reconnects after each close; maxUpstreamRetries=5 would terminate
+//     the session after 5 accumulated failures without the reset.
+//   - We run reconnectCycles=10 cycles (> maxUpstreamRetries), each with one
+//     successful frame, then a final hold-open connection to keep the session alive.
+//
+// Without the fix, the session terminates as "permanently failed" after 5 cycles.
+// With the fix, attempt resets to 0 after each frame, so the session remains active.
+func TestAttemptResetOnSuccessfulFrame(t *testing.T) {
+	const (
+		cardID          = "RESET-ATTEMPT-001"
+		reconnectCycles = 10 // > maxUpstreamRetries (5)
+	)
+
+	var (
+		connMu  sync.Mutex
+		connIdx int
+	)
+
+	// Event to send on each connection.
+	evt := sseJSONPayload{
+		Seq:  1,
+		Type: "log",
+	}
+	payload, err := json.Marshal(evt)
+	require.NoError(t, err)
+
+	// holdOpen is closed to let the final connection stay open after all cycles.
+	holdOpen := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "not supported", http.StatusInternalServerError)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		connMu.Lock()
+		idx := connIdx
+		connIdx++
+		connMu.Unlock()
+
+		if idx < reconnectCycles {
+			// Send one frame then close — triggers a reconnect.
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+
+			flusher.Flush()
+
+			return // close connection
+		}
+
+		// Final connection: hold open until test finishes.
+		<-holdOpen
+	}))
+
+	defer func() {
+		close(holdOpen)
+		srv.Close()
+	}()
+
+	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	defer m.Stop(cardID)
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+
+	// Wait until all reconnect cycles have completed (connIdx > reconnectCycles).
+	// Each cycle takes at most retryBackoffCap (4s) but with resets the backoff
+	// restarts from retryBackoffBase (250ms) each time, so cycles are fast.
+	// Generous timeout: reconnectCycles * retryBackoffCap = 10 * 4s = 40s max.
+	require.Eventually(t, func() bool {
+		connMu.Lock()
+		defer connMu.Unlock()
+
+		return connIdx > reconnectCycles
+	}, 60*time.Second, 50*time.Millisecond,
+		"expected all %d reconnect cycles to complete", reconnectCycles)
+
+	// The session must still be active — not terminated as a permanent failure.
+	m.mu.Lock()
+	_, active := m.activeSessions[cardID]
+	_, failed := m.failedSessions[cardID]
+	m.mu.Unlock()
+
+	assert.True(t, active, "session must still be active after %d reconnect cycles with successful frames", reconnectCycles)
+	assert.False(t, failed, "session must NOT be in failedSessions after %d reconnect cycles with successful frames", reconnectCycles)
+}
+
 // TestBackoffDuration spot-checks the exponential back-off helper.
 func TestBackoffDuration(t *testing.T) {
 	cases := []struct {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -28,12 +29,13 @@ const (
 
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
-	svc            *service.CardService
-	runner         *runner.Client // nil when runner is disabled
-	runnerCfg      config.RunnerConfig
-	mcpAPIKey      string
-	port           int
-	sessionManager *sessionlog.Manager // nil when session manager is not configured
+	svc               *service.CardService
+	runner            *runner.Client // nil when runner is disabled
+	runnerCfg         config.RunnerConfig
+	mcpAPIKey         string
+	port              int
+	sessionManager    *sessionlog.Manager // nil when session manager is not configured
+	keepaliveInterval time.Duration       // zero → use default (30s)
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
