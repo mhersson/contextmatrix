@@ -26,10 +26,11 @@ own repos, and report progress back through the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
   triggers a fast path that skips planning and review entirely.
-- **Remote execution + HITL** — click "Run Now" to launch a task in a sandboxed
-  Docker container. Tick "Interactive" to start a Human-in-the-Loop session:
-  chat with the agent in real time via a per-card chat pane, then promote the
-  session to fully autonomous with a single button.
+- **Remote execution + HITL** — the **Autonomous mode** checkbox controls the
+  execution mode. Click **"Run Auto"** to launch a fully autonomous run in a
+  sandboxed Docker container, or uncheck the checkbox and click **"Run HITL"**
+  for a Human-in-the-Loop session: chat with the agent in real time via a
+  per-card chat pane, then promote to fully autonomous with a single button.
 - **GitHub issue import** — periodically fetches open issues from GitHub and
   creates cards automatically. Imported cards show a GitHub icon badge and
   trigger a toast notification in the web UI.
@@ -332,19 +333,21 @@ Reserved labels for details.
 
 ## Remote Execution
 
-Remote execution lets you trigger tasks from the web UI. A **"Run Now"** button
-appears on any card in `todo` state when runner integration is enabled. Clicking
-it sends a signed webhook to
+Remote execution lets you trigger tasks from the web UI. When runner integration
+is enabled, cards in `todo` state show a run button — **"Run Auto"** when the
+**Autonomous mode** checkbox is checked, or **"Run HITL"** when unchecked.
+Clicking it sends a signed webhook to
 **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** (a
 separate binary), which spawns a disposable Docker container running Claude Code
 in headless mode. The container connects back to ContextMatrix via MCP tools.
 
-**Interactive (HITL) mode:** an **Interactive** checkbox next to Run Now starts
-the container in Human-in-the-Loop mode. Claude Code introduces itself and waits
-for your first message. A per-card chat pane appears in the web UI while the
-container is running, letting you converse with the agent in real time. A
-**Switch to Autonomous** button promotes the session — the agent finishes the
-workflow, creates a feature branch, and opens a PR without further input.
+**HITL mode:** uncheck the **Autonomous mode** checkbox and click **"Run
+HITL"**. The agent begins planning immediately — a priming message instructs it
+to start the `create-plan` workflow without waiting for user input. A per-card
+chat pane appears in the web UI while the container is running, letting you
+approve or redirect the agent at each gate (plan approval, subtask execution,
+review). A **Switch to Autonomous** button promotes the session so the agent
+skips remaining gates and finishes without further input.
 
 Each container is sandboxed from the host machine — no access to your filesystem
 or other processes. When the task finishes (or fails), the container is
@@ -359,7 +362,7 @@ sequenceDiagram
     participant R as contextmatrix-runner
     participant D as Docker Container
 
-    UI->>CM: Run Now
+    UI->>CM: Run Auto / Run HITL
     CM->>R: HMAC-signed webhook
     R->>D: Spawn container
     D->>CM: Connect via MCP
@@ -389,10 +392,9 @@ remote_execution:
   runner_image: "ghcr.io/org/custom-runner:latest"
 ```
 
-For autonomous (non-interactive) runs, triggering automatically enables
-`feature_branch` and `create_pr` on the card, so the container works on a
-dedicated branch and opens a pull request. Interactive runs defer this until
-"Switch to Autonomous" is clicked.
+Triggering a run automatically enables `feature_branch` and `create_pr` on the
+card for both autonomous and HITL runs, so the container always works on a
+dedicated branch and opens a pull request.
 
 Cards track execution state via `runner_status`: `queued` → `running` →
 `failed`/`killed`. The web UI shows status badges and pulsing indicators for

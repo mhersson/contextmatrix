@@ -1,7 +1,8 @@
 # Remote Execution
 
 Remote execution allows autonomous tasks to be triggered from the ContextMatrix
-web UI via a **"Run Now" button**. The workflow is executed by a separate binary
+web UI via a **run button** ("Run Auto" or "Run HITL" depending on the
+Autonomous mode checkbox). The workflow is executed by a separate binary
 (**contextmatrix-runner**) that spawns disposable Docker containers with Claude
 Code.
 
@@ -13,7 +14,7 @@ Code.
                       │                                                  ▼
   ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────────┐
   │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-runner   │
-  │  (Run Now)   │─────────│  (REST API)       │───►│  /trigger              │
+  │  (Run btn)   │─────────│  (REST API)       │───►│  /trigger              │
   │  (Console)   │◄────────│  (SSE proxy)      │◄───│  /kill  /stop-all      │
   │  (Chat input)│─────────│  POST /message    │───►│  /message              │
   │  (Promote)   │─────────│  POST /promote    │───►│  /promote              │
@@ -27,7 +28,7 @@ Code.
 
 **Message paths:**
 
-- **Run Now / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to
+- **Run Auto / Run HITL / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to
   runner.
 - **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies
   as `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
@@ -78,7 +79,7 @@ All requests are `POST` with `Content-Type: application/json`.
 
 #### POST {runner_url}/trigger
 
-Sent when a user clicks "Run Now" on a parent or standalone card.
+Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
 
 ```json
 {
@@ -110,7 +111,7 @@ input is required to begin. See [Interactive Mode](#interactive-mode) for
 details.
 
 **Note:** `feature_branch` and `create_pr` are auto-enabled on the card for
-**all** "Run Now" triggers — both autonomous and HITL runs. This ensures a
+**all** run triggers — both autonomous and HITL runs. This ensures a
 feature branch and PR are always created regardless of the execution mode chosen
 at launch.
 
@@ -364,7 +365,7 @@ Optional but recommended. When `mcp_api_key` is set in ContextMatrix config:
 ### Human-Only Controls
 
 - Only humans (no `X-Agent-ID` header or `human:*` prefix) can:
-  - Click "Run Now" (trigger remote execution)
+  - Click "Run Auto" / "Run HITL" (trigger remote execution)
   - Click "Stop" (kill a running container)
   - Click "Stop All" (kill all containers for a project)
   - Set `autonomous`, `feature_branch`, `create_pr` flags
@@ -392,12 +393,12 @@ Resolution order:
 `GET /api/projects/{project}` always return `remote_execution.enabled` as the
 resolved value — global disabled overrides any per-project setting. Clients do
 not need to consult the global config separately; the response value is
-authoritative for whether the "Run Now" button should be enabled.
+authoritative for whether the run button should be enabled.
 
 ### Global Kill Switch
 
 Set `runner.enabled: false` in `config.yaml` to disable remote execution
-entirely. The "Run Now" button will not appear in the UI, and trigger endpoints
+entirely. The run button will not appear in the UI, and trigger endpoints
 return 503.
 
 ## Interactive Mode
@@ -442,7 +443,7 @@ Web UI (promote btn) → CM POST /api/runner/promote
 
 ### Feature Branch Flags
 
-`feature_branch` and `create_pr` are auto-enabled on the card whenever "Run Now"
+`feature_branch` and `create_pr` are auto-enabled on the card whenever a run
 is triggered — for both autonomous and HITL runs. The `/promote` endpoint
 additionally sets `autonomous: true` when the user switches a running
 interactive session to autonomous mode.
@@ -709,7 +710,7 @@ Runner status is cleared when a card transitions to `done` or `not_planned`.
 | Stop (card)                  | Single card          | Kills specific container, sets `runner_status: killed` |
 | Stop All                     | All cards in project | Kills all containers for the project                   |
 | `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
-| Per-project `enabled: false` | Single project       | Hides Run Now for that project                         |
+| Per-project `enabled: false` | Single project       | Hides run button for that project                     |
 
 ## See Also
 

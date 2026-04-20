@@ -277,7 +277,7 @@ immediately. The user provides approval at the skill's built-in gates (plan
 approval, subtask execution decision, review) via the chat input.
 
 Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
-enabled on the card for all "Run Now" triggers (both autonomous and HITL).
+enabled on the card for all run triggers (both autonomous and HITL).
 
 Returns the updated card with `runner_status: "queued"`.
 
