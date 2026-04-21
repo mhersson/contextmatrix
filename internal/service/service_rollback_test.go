@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +38,10 @@ func (f *failingCommitter) CommitFiles(_ context.Context, _ []string, _ string) 
 }
 
 func (f *failingCommitter) CommitFilesShell(_ context.Context, _ []string, _ string) error {
+	return f.record()
+}
+
+func (f *failingCommitter) CommitAll(_ context.Context, _ string) error {
 	return f.record()
 }
 
@@ -308,6 +314,14 @@ func (s *selectiveFailingCommitter) CommitFilesShell(ctx context.Context, paths 
 	return s.inner.CommitFilesShell(ctx, paths, message)
 }
 
+func (s *selectiveFailingCommitter) CommitAll(ctx context.Context, message string) error {
+	if contains(message, s.pattern) {
+		return s.err
+	}
+
+	return s.inner.CommitAll(ctx, message)
+}
+
 func (s *selectiveFailingCommitter) ReloadRepo(ctx context.Context) error {
 	return s.inner.ReloadRepo(ctx)
 }
@@ -336,6 +350,221 @@ func (r *realCommitter) CommitFilesShell(ctx context.Context, paths []string, me
 	return r.mgr.CommitFilesShell(ctx, paths, message)
 }
 
+func (r *realCommitter) CommitAll(ctx context.Context, message string) error {
+	return r.mgr.CommitAll(ctx, message)
+}
+
 func (r *realCommitter) ReloadRepo(ctx context.Context) error {
 	return r.mgr.ReloadRepo(ctx)
+}
+
+// TestUpdateProject_RollbackOnCommitFailure verifies that when the git
+// commit for an UpdateProject write fails, the store (cache + disk) is
+// restored to the pre-update config so cache, disk, and git stay in sync.
+func TestUpdateProject_RollbackOnCommitFailure(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Capture baseline config from the store before any mutation.
+	pre, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+
+	preStates := append([]string(nil), pre.States...)
+	preTypes := append([]string(nil), pre.Types...)
+	preRepo := pre.Repo
+
+	// Swap in a failing queue so the next project commit fails.
+	sentinel := errors.New("commit boom")
+	failing := &failingCommitter{err: sentinel}
+	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
+
+	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
+	svc.SetCommitQueue(failQueue)
+
+	// Attempt an update that SHOULD fail and rollback.
+	input := UpdateProjectInput{
+		Repo:       "git@example.com:mutated.git",
+		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature", "chore"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"review", "todo"},
+			"review":      {"done", "in_progress"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	}
+
+	_, err = svc.UpdateProject(ctx, "test-project", input)
+	require.Error(t, err, "commit failure must propagate to caller")
+	require.ErrorIs(t, err, sentinel)
+	assert.Contains(t, err.Error(), "git commit")
+
+	// Cache + disk must read as pre-update.
+	reloaded, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, preStates, reloaded.States, "states should be rolled back")
+	assert.Equal(t, preTypes, reloaded.Types, "types should be rolled back")
+	assert.Equal(t, preRepo, reloaded.Repo, "repo should be rolled back")
+
+	// On-disk config must match the rolled-back state. Open a fresh store
+	// so we bypass any cache and read straight from disk.
+	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, preStates, onDisk.States, "on-disk states must match pre-update snapshot")
+	assert.Equal(t, preTypes, onDisk.Types, "on-disk types must match pre-update snapshot")
+	assert.Equal(t, preRepo, onDisk.Repo, "on-disk repo must match pre-update snapshot")
+
+	// Confirm the failing committer was actually invoked.
+	failing.mu.Lock()
+	calls := failing.calls
+	failing.mu.Unlock()
+	assert.Positive(t, calls, "failing committer should have been called")
+}
+
+// TestUpdateProject_HappyPathNoRollback sanity-checks that a successful
+// UpdateProject commit does not trip the rollback path.
+func TestUpdateProject_HappyPathNoRollback(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	input := UpdateProjectInput{
+		Repo:       "git@example.com:updated.git",
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature", "chore"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	}
+
+	cfg, err := svc.UpdateProject(ctx, "test-project", input)
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Types, "chore")
+	assert.Equal(t, "git@example.com:updated.git", cfg.Repo)
+
+	// On-disk must reflect the update.
+	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Contains(t, onDisk.Types, "chore")
+	assert.Equal(t, "git@example.com:updated.git", onDisk.Repo)
+}
+
+// TestDeleteProject_RollbackOnCommitFailure verifies that when the git
+// commit for a DeleteProject write fails, the project directory and the
+// store index are restored so cache, disk, and git stay consistent.
+func TestDeleteProject_RollbackOnCommitFailure(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a template file so the snapshot-and-restore path exercises
+	// more than just .board.yaml.
+	tmplDir := filepath.Join(svc.boardsDir, "test-project", "templates")
+	require.NoError(t, os.MkdirAll(tmplDir, 0o755))
+
+	tmplPath := filepath.Join(tmplDir, "task.md")
+	tmplContents := []byte("# Template body\nFrom rollback test\n")
+	require.NoError(t, os.WriteFile(tmplPath, tmplContents, 0o644))
+
+	// Baseline on-disk config to compare against after rollback.
+	preCfg, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+
+	// Swap in a failing queue.
+	sentinel := errors.New("commit boom")
+	failing := &failingCommitter{err: sentinel}
+	failQueue := gitops.NewCommitQueueWithCommitter(failing, 0)
+
+	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
+	svc.SetCommitQueue(failQueue)
+
+	err = svc.DeleteProject(ctx, "test-project")
+	require.Error(t, err, "commit failure must propagate to caller")
+	require.ErrorIs(t, err, sentinel)
+	assert.Contains(t, err.Error(), "git commit")
+
+	// Project should still be retrievable from the service (cache restored).
+	reloaded, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err, "project should still exist after failed delete")
+	assert.Equal(t, preCfg.Name, reloaded.Name)
+	assert.Equal(t, preCfg.Prefix, reloaded.Prefix)
+	assert.Equal(t, preCfg.States, reloaded.States)
+
+	// On-disk .board.yaml must be back.
+	boardPath := filepath.Join(svc.boardsDir, "test-project", ".board.yaml")
+
+	info, err := os.Stat(boardPath)
+	require.NoError(t, err, ".board.yaml should be restored on disk")
+	assert.False(t, info.IsDir())
+
+	// Template file must be back with the same contents.
+	restoredTmpl, err := os.ReadFile(tmplPath)
+	require.NoError(t, err, "template file should be restored on disk")
+	assert.Equal(t, tmplContents, restoredTmpl, "template contents must match pre-delete snapshot")
+
+	// A fresh store opened on the same dir must still see the project
+	// (confirms on-disk layout is a valid project).
+	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	assert.Equal(t, preCfg.Name, onDisk.Name)
+
+	// Failing committer must have been exercised.
+	failing.mu.Lock()
+	calls := failing.calls
+	failing.mu.Unlock()
+	assert.Positive(t, calls, "failing committer should have been called")
+}
+
+// TestDeleteProject_HappyPathNoRollback sanity-checks that a successful
+// DeleteProject commit does not leak snapshot state back to disk.
+func TestDeleteProject_HappyPathNoRollback(t *testing.T) {
+	svc, boardsDir := setupEmptyTest(t)
+	ctx := context.Background()
+
+	// Wire a real commit queue so the DeleteProject routes through it on
+	// the happy path (matching production setup).
+	gitMgr := svc.git
+	queue := gitops.NewCommitQueue(gitMgr, 0)
+
+	t.Cleanup(func() { _ = queue.Close(context.Background()) })
+	svc.SetCommitQueue(queue)
+
+	// Create a project. CreateProject auto-commits via CommitAll directly
+	// (not through the queue) — this is fine for test setup.
+	input := validCreateProjectInput()
+	_, err := svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+
+	// Delete it. Should commit cleanly.
+	err = svc.DeleteProject(ctx, "my-project")
+	require.NoError(t, err)
+
+	// On-disk project dir must be gone.
+	_, statErr := os.Stat(filepath.Join(boardsDir, "my-project"))
+	assert.True(t, os.IsNotExist(statErr), "project directory must be removed")
+
+	// Service layer must not find the project anymore.
+	_, err = svc.GetProject(ctx, "my-project")
+	assert.ErrorIs(t, err, storage.ErrProjectNotFound)
 }
