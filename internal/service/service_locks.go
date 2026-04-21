@@ -260,7 +260,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
-	if card.LastHeartbeat != nil && time.Since(*card.LastHeartbeat) < s.lock.Timeout() {
+	if card.LastHeartbeat != nil && s.clk.Now().Sub(*card.LastHeartbeat) < s.lock.Timeout() {
 		s.writeMu.Unlock()
 
 		return nil

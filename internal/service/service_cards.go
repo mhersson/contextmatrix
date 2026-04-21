@@ -235,12 +235,12 @@ func (s *CardService) ListCardsPage(
 	// project size so it survives filter changes between pages; also lets
 	// clients display "showing X of Y" while filtering.
 	if opts.Cursor == "" {
-		unfiltered, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+		total, err := s.store.ProjectCardCount(ctx, project)
 		if err != nil {
 			return ListCardsPageResult{}, err
 		}
 
-		result.Total = len(unfiltered)
+		result.Total = total
 		result.HasTotal = true
 	}
 
