@@ -387,8 +387,13 @@ func writeError(w http.ResponseWriter, status int, code, message, details string
 	})
 }
 
-// handleServiceError maps service/storage errors to HTTP responses.
-func handleServiceError(w http.ResponseWriter, err error) {
+// handleServiceError maps service/storage errors to HTTP responses. The raw
+// error is logged once at the top with the request's correlation ID so that
+// operators keep full context even when the client-facing message is
+// sanitized or generic.
+func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
+	ctxlog.Logger(r.Context()).Error("service error", "error", err.Error())
+
 	switch {
 	case errors.Is(err, storage.ErrProjectNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
