@@ -116,7 +116,7 @@ func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error)
 	if err := cmd.Run(); err != nil {
 		output := strings.TrimSpace(stderr.String())
 
-		return nil, fmt.Errorf("clone repository: %s: %s", err, output)
+		return nil, fmt.Errorf("git clone: %w (%s)", err, output)
 	}
 
 	repo, err := git.PlainOpen(targetDir)
@@ -392,7 +392,7 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 			output = strings.TrimSpace(stdout.String())
 		}
 
-		return fmt.Errorf("%s: %s", err, output)
+		return fmt.Errorf("git %s: %w (%s)", args[0], err, output)
 	}
 
 	return nil
@@ -516,11 +516,14 @@ func (m *Manager) CommitCount() (int, error) {
 	}
 
 	count := 0
-	_ = iter.ForEach(func(_ *object.Commit) error {
+
+	if err := iter.ForEach(func(_ *object.Commit) error {
 		count++
 
 		return nil
-	})
+	}); err != nil {
+		return 0, fmt.Errorf("iterate commits: %w", err)
+	}
 
 	return count, nil
 }
