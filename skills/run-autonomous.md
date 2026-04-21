@@ -57,13 +57,13 @@ Hold this claim through the entire lifecycle.
 
 ## Step 1: Create feature branch
 
-If the card has a `branch_name` set, create and switch to the feature branch
-now — before planning or spawning any sub-agents:
+If `feature_branch` is true and `branch_name` is non-empty, create and switch
+to the feature branch now — before planning or spawning any sub-agents:
 
 `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it already
 exists).
 
-If no `branch_name` is set, skip this step.
+Otherwise skip this step.
 
 ## Determine Starting Point
 
@@ -155,28 +155,42 @@ Based on the card's current state and body content:
     5. Call `add_log(card_id=<id>, action='respawned',
        message='Agent stalled, respawning (attempt N)')`.
 
-11. Proceed to Phase 4.
+11. Ensure sub-agent changes are on the feature branch before Phase 4.
+
+    **If no sub-agent used worktree isolation** (single-agent case): changes are
+    already in the working tree, uncommitted. Nothing to aggregate — proceed to
+    step 12.
+
+    **If sub-agents used worktree isolation:** sub-agents committed on their
+    worktree branches. Cherry-pick each worktree branch onto the feature branch:
+    `git cherry-pick <worktree_branch>` for each subtask worktree. Skip any
+    worktree with no commits since `main`. If a dependent subtask's worktree
+    re-applied an earlier subtask's changes (because worktrees branch off
+    `main`, not off your active branch), cherry-pick only the superset — do not
+    cherry-pick the dependencies separately.
+
+12. Proceed to Phase 4.
 
 ## Phase 4: Documentation (always sub-agent)
 
-12. Call `get_skill(skill_name='document-task', card_id='<card_id>',
+13. Call `get_skill(skill_name='document-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-13. Release the parent card claim (`release_card`), spawn a documentation
+14. Release the parent card claim (`release_card`), spawn a documentation
     sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
     reclaim (`claim_card`).
 
 ## Phase 5: Review (follow inline field)
 
-14. Transition the parent card to `review`:
+15. Transition the parent card to `review`:
     `transition_card(card_id='<card_id>', new_state='review')`.
-15. Call `get_skill(skill_name='review-task', card_id='<card_id>',
+16. Call `get_skill(skill_name='review-task', card_id='<card_id>',
     caller_model='<your_model>')`.
-16. If `inline: true`, execute directly. Otherwise, release the parent card
+17. If `inline: true`, execute directly. Otherwise, release the parent card
     claim (`release_card`), then spawn a review sub-agent with the returned
     `model`.
-17. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
+18. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
     (`claim_card`) — the review always releases the claim when done.
-18. Parse the `recommendation`:
+19. Parse the `recommendation`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**: Increment `review_attempts` by updating the card.
@@ -195,8 +209,8 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-19. Call `report_usage` one final time with your remaining token consumption.
-20. If the card has a `branch_name`:
+20. Call `report_usage` one final time with your remaining token consumption.
+21. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
        referencing the card title and summarizing the work. If the card has a
@@ -204,12 +218,12 @@ Based on the card's current state and body content:
        the PR targets the correct branch.
     c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
-21. Transition the card to `done`:
+22. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-22. Release the card claim:
+23. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
-23. Print structured output:
+24. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>

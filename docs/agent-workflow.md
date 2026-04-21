@@ -273,7 +273,7 @@ Phase 1:  Plan Drafting          → inline; drafts plan, updates card body, emi
 Phase 2:  Plan Approval Gate     → get_card autonomous check; HITL presents plan, autonomous skips
 Phase 3:  Subtask Creation       → inline; dedupe then create_card for each subtask
 Phase 4:  Execution Gate         → get_card autonomous check; HITL asks to start, autonomous skips
-Phase 5:  Execution              → claim parent, get_ready_tasks, spawn execute-task sub-agents in parallel
+Phase 5:  Execution              → checkout feature branch (branch_name); claim parent; get_ready_tasks; spawn execute-task sub-agents in parallel; aggregate worktree branches onto feature branch when worktree isolation used
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
 Phase 7:  Review                 → transition to review, inline or sub-agent per inline field
 Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
@@ -288,7 +288,7 @@ phase labels. run-autonomous starts from the correct phase based on card state:
 Step 0:  Claim the card     → claim_card called before any exploration begins
 Phase 1: Plan Drafting      → inline, calls create-plan skill
 Phase 2: Subtask Creation   → inline, orchestrator calls create_card directly
-Phase 3: Execution          → spawns execute-task sub-agents in parallel
+Phase 3: Execution          → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
 Phase 4: Documentation      → spawns document-task sub-agent (parent in in_progress)
 Phase 5: Review             → orchestrator transitions parent to review, follows inline field
 Phase 6: Finalization       → transitions parent to done

@@ -107,8 +107,10 @@ Follow the git workflow based on the card context:
 
 If the parent card shows `autonomous: true`:
 
-- Commit to the current branch. The orchestrator has already created and
-  checked out the feature branch — do **not** create or switch branches.
+- Commit to the current branch. Under `isolation: "worktree"` that is the
+  worktree branch; otherwise it is the feature branch. Never create or switch
+  branches — the orchestrator aggregates worktree branches onto the feature
+  branch after execution.
 - Use conventional commit messages: `type(scope): summary` + blank line +
   bullet-point body of changes. **No card IDs in commit messages** — they are
   internal to ContextMatrix and meaningless to external repo users.

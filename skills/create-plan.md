@@ -182,12 +182,17 @@ execute inline even if `get_skill` returns `inline: true`.** Context isolation
 is required so each subtask runs in its own worktree and does not bloat the
 orchestrator's context.
 
-0. Claim the parent card:
+0. Create or switch to the feature branch. Call `get_card(card_id=<parent_id>)`
+   and read `feature_branch` and `branch_name`. If `feature_branch` is true and
+   `branch_name` is non-empty: `git checkout -b <branch_name>` (or
+   `git checkout <branch_name>` if it already exists). Run unconditionally —
+   both HITL and autonomous paths.
+1. Claim the parent card:
    `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`. Hold this claim
    through the entire execution phase.
-1. Call `get_ready_tasks` for the project to find subtasks with all dependencies
+2. Call `get_ready_tasks` for the project to find subtasks with all dependencies
    met (state `todo`, no unfinished deps).
-2. For each ready task, call
+3. For each ready task, call
    `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
    The response contains `model` (which model to use) and `content` (the full
    prompt). **Never pass `include_preamble: false`** — sub-agents need the
@@ -199,7 +204,7 @@ orchestrator's context.
      parallel. Omit only for a single agent. Spawn all ready tasks **in
      parallel** (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true in the response.
-3. **Monitor sub-agents with health checking.** After spawning agents, enter a
+4. **Monitor sub-agents with health checking.** After spawning agents, enter a
    monitoring loop. **Call `heartbeat` on the parent card every 5 minutes during
    this loop.** **After each `heartbeat`, also call `report_usage` to record
    your own token consumption since the last report:**
@@ -257,35 +262,33 @@ orchestrator's context.
    5. Call
       `add_log(card_id=<id>, action='respawned', message='Agent stalled, respawning (attempt N)')`.
 
-4. When all subtasks are done, ensure their changes are on your active branch
+5. When all subtasks are done, ensure their changes are on your active branch
    before Phase 6.
 
    **If no sub-agent used worktree isolation** (single-agent case): their
    changes are already in your working tree, uncommitted. Nothing to aggregate —
-   proceed to step 5. Phase 9 picks them up at squash time.
+   proceed to step 6. Phase 9 picks them up at squash time.
 
    **If sub-agents used worktree isolation AND the parent is autonomous:**
-   sub-agents committed directly on the pre-created feature branch — nothing to
-   aggregate, proceed to step 5.
+   sub-agents committed on their worktree branches. Cherry-pick each worktree
+   branch onto the feature branch: `git cherry-pick <worktree_branch>` for each
+   subtask worktree. Skip any worktree with no commits since `main`.
 
    **If sub-agents used worktree isolation AND the parent is HITL:** sub-agents
-   left changes uncommitted in their worktrees. Aggregate them:
-   - **Branch setup:** if the parent card has `branch_name` set or
-     `feature_branch: true`, check out that branch (create it off `main` if it
-     does not exist yet). Otherwise work on the current branch — do **not**
-     create a feature branch just to hold the aggregation.
-   - **For each sub-agent worktree that has modified files:** a. In the
-     worktree: `git add -A && git commit -m "wip(<card_id>): <subtask_title>"`.
-     b. From your working tree: `git cherry-pick <worktree_branch>`.
-   - If a dependent subtask's worktree re-applied an earlier subtask's changes
-     (because worktrees branch off `main`, not off your active branch),
-     cherry-pick only the superset — do not cherry-pick the dependencies
-     separately.
+   left changes uncommitted in their worktrees. For each sub-agent worktree
+   that has modified files:
+   a. In the worktree: `git add -A && git commit -m "wip(<card_id>): <subtask_title>"`.
+   b. From your working tree: `git cherry-pick <worktree_branch>`.
 
-   These WIP commits are intermediate; Phase 9 squashes them into a single
+   **Dependent-subtask caveat (both worktree cases):** if a dependent subtask's
+   worktree re-applied an earlier subtask's changes (because worktrees branch
+   off `main`, not off your active branch), cherry-pick only the superset — do
+   not cherry-pick the dependencies separately.
+
+   HITL WIP commits are intermediate; Phase 9 squashes them into a single
    conventional commit before any push.
 
-5. Release your claim on the parent card so the documentation agent can claim
+6. Release your claim on the parent card so the documentation agent can claim
    it: `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 
 ---
