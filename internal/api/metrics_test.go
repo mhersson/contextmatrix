@@ -17,10 +17,11 @@ import (
 )
 
 // TestMetricsEndpoint verifies that after a sample API request hits the
-// observe middleware, http_requests_total and http_request_duration_seconds
-// appear in the promhttp output. A client only reaches /metrics via the
-// admin listener (see cmd/contextmatrix/main.go), but the collector behaves
-// the same when scraped from an isolated test registry.
+// observe middleware, contextmatrix_http_requests_total and
+// contextmatrix_http_request_duration_seconds appear in the promhttp output.
+// A client only reaches /metrics via the admin listener (see
+// cmd/contextmatrix/main.go), but the collector behaves the same when
+// scraped from an isolated test registry.
 func TestMetricsEndpoint(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	metrics.Register(reg)
@@ -57,10 +58,10 @@ func TestMetricsEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	bodyStr := string(body)
-	assert.Contains(t, bodyStr, "http_requests_total",
-		"expected http_requests_total in /metrics output")
-	assert.Contains(t, bodyStr, "http_request_duration_seconds",
-		"expected http_request_duration_seconds in /metrics output")
+	assert.Contains(t, bodyStr, "contextmatrix_http_requests_total",
+		"expected contextmatrix_http_requests_total in /metrics output")
+	assert.Contains(t, bodyStr, "contextmatrix_http_request_duration_seconds",
+		"expected contextmatrix_http_request_duration_seconds in /metrics output")
 	assert.Contains(t, bodyStr, `path="GET /api/projects"`,
 		"expected matched pattern label, got:\n%s", bodyStr)
 }

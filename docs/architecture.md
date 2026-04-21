@@ -46,7 +46,12 @@ write and commit completion. The service layer closes that gap on failure:
   `rollback_failed=true`, the card ID, and both errors is emitted for
   operators; the returned error is the `errors.Join` of the original
   commit error (wrapped with "rollback failed, state inconsistent") and
-  the rollback error.
+  the rollback error. The `contextmatrix_rollback_failures_total` counter
+  increments on every such event. **Alerting:** page on any non-zero
+  rate — each increment is a data-integrity event that leaves the named
+  card's cache + on-disk state diverged and requires manual reconciliation
+  (typically: inspect the error log for the card ID, then re-run the
+  mutation or restore from the git HEAD copy).
 - **Heartbeats are a deliberate exception:** `HeartbeatCard` does not
   roll back. A failed heartbeat commit is self-healing — the next
   heartbeat (typically within the heartbeat interval) produces another
