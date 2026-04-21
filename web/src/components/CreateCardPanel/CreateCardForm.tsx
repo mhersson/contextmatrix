@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useId, useRef, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import { ParentSearch } from './ParentSearch';
@@ -49,6 +49,7 @@ export function CreateCardForm({
   const { theme } = useTheme();
   const titleRef = useRef<HTMLInputElement>(null);
   const [labelInput, setLabelInput] = useState('');
+  const bodyLabelId = useId();
   // Tracks the type the user had selected before a parent was set, so we can restore it on clear.
   const prevTypeRef = useRef<string>(type);
 
@@ -226,15 +227,19 @@ export function CreateCardForm({
 
       {/* Body */}
       <div data-color-mode={theme}>
-        <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
-        <MDEditor
-          value={body}
-          onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
-          preview="edit"
-          height={200}
-          visibleDragbar={false}
-          previewOptions={{ skipHtml: true }}
-        />
+        <span id={bodyLabelId} className="block text-xs text-[var(--grey1)] mb-1">
+          Description
+        </span>
+        <div role="group" aria-labelledby={bodyLabelId}>
+          <MDEditor
+            value={body}
+            onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
+            preview="edit"
+            height={200}
+            visibleDragbar={false}
+            previewOptions={{ skipHtml: true }}
+          />
+        </div>
       </div>
     </div>
   );
