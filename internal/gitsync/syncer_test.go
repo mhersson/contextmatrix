@@ -600,7 +600,12 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 
 	// firstDone closes after the first (panic) call returns (recovered).
 	firstDone := make(chan struct{})
-	done := make(chan struct{})
+	// done is buffered because under heavy concurrent test load the
+	// Eventually loop below may advance the fake clock enough times that
+	// the recovered loop performs multiple successful ticks before the
+	// test's receive happens. A non-blocking send to an unbuffered channel
+	// would be dropped, leaving the test's receive to time out.
+	done := make(chan struct{}, 10)
 
 	syncer.pullHook = func(_ context.Context, _ string) error {
 		mu.Lock()
@@ -613,7 +618,7 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 
 			panic("injected test panic")
 		}
-		// Signal after the second successful call.
+		// Signal after any successful call.
 		select {
 		case done <- struct{}{}:
 		default:
