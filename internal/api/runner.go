@@ -548,6 +548,82 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, card)
 }
 
+// cardAutonomousResponse is the minimal read-only shape returned to the
+// runner's VerifyAutonomous call. Deliberately narrow — only the boolean
+// is needed, and a runner-facing endpoint must not leak unrelated card
+// fields.
+type cardAutonomousResponse struct {
+	Autonomous bool `json:"autonomous"`
+}
+
+// getCardAutonomous handles GET /api/v1/cards/{project}/{id}/autonomous.
+// The runner calls this during /promote to fail-closed confirm the card's
+// autonomous flag before writing the canned stdin message.
+func (h *runnerHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Request) {
+	if !h.authenticateRunnerGet(w, r) {
+		return
+	}
+
+	projectName := r.PathValue("project")
+	cardID := r.PathValue("id")
+
+	if projectName == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
+		return
+	}
+
+	card, err := h.svc.GetCard(r.Context(), projectName, strings.ToUpper(cardID))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, cardAutonomousResponse{Autonomous: card.Autonomous})
+}
+
+// authenticateRunnerGet verifies an HMAC-SHA256 signature over
+// `timestamp + "." + ""` (empty body) on a runner-originated GET. Returns
+// true on success; on failure it writes the 403 response and returns false.
+func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
+	if h.runnerCfg.APIKey == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
+
+		return false
+	}
+
+	sigHeader := r.Header.Get("X-Signature-256")
+	if sigHeader == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
+
+		return false
+	}
+
+	tsHeader := r.Header.Get("X-Webhook-Timestamp")
+	if tsHeader == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
+
+		return false
+	}
+
+	if !strings.HasPrefix(sigHeader, "sha256=") {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
+
+		return false
+	}
+
+	sig := strings.TrimPrefix(sigHeader, "sha256=")
+
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, sig, tsHeader, nil, runner.DefaultMaxClockSkew) {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
+
+		return false
+	}
+
+	return true
+}
+
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,
 // falling back to the global runner config if not set per-project.
 func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {

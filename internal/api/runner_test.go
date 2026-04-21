@@ -3,6 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,6 +25,21 @@ import (
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
+
+// signHMACAt computes an HMAC-SHA256 signature over `ts + "." + body` — the
+// same format as runner.SignRequestHeaders, but lets the test specify the
+// timestamp so we can exercise the clock-skew rejection path without adding
+// a test-only helper to the production runner package.
+func signHMACAt(t *testing.T, key string, body []byte, ts string) string {
+	t.Helper()
+
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(ts))
+	mac.Write([]byte("."))
+	mac.Write(body)
+
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
 
 // boardConfigRemoteExecEnabled is a board config with remote_execution enabled
 // and a repo URL for runner trigger payloads.
@@ -2111,4 +2129,201 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.Equal(t, "test-opus-9", capturedPayload.Model, "use_opus_orchestrator card must use OrchestratorOpusModel")
 	})
+}
+
+// --- GET /api/v1/cards/{project}/{id}/autonomous ---
+//
+// The runner calls this during /promote to confirm the card's autonomous
+// flag. HMAC signing is the primary auth path; a Bearer fallback is kept
+// during the runner-upgrade window (CTXRUN-048).
+
+const testRunnerAPIKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+func setupAutonomousEndpoint(t *testing.T, autonomous bool) (*httptest.Server, string, func()) {
+	t.Helper()
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: autonomous,
+	})
+	require.NoError(t, err)
+
+	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: testRunnerAPIKey},
+	})
+
+	server := httptest.NewServer(router)
+
+	return server, card.ID, func() {
+		server.Close()
+		cleanup()
+	}
+}
+
+func TestGetCardAutonomous_HMAC_Valid(t *testing.T) {
+	for _, autonomous := range []bool{true, false} {
+		t.Run(fmt.Sprintf("autonomous=%v", autonomous), func(t *testing.T) {
+			server, cardID, cleanup := setupAutonomousEndpoint(t, autonomous)
+			defer cleanup()
+
+			sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+
+			req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+			req.Header.Set("X-Signature-256", sig)
+			req.Header.Set("X-Webhook-Timestamp", ts)
+
+			resp, err := http.DefaultClient.Do(req)
+
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var body cardAutonomousResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Equal(t, autonomous, body.Autonomous)
+		})
+	}
+}
+
+func TestGetCardAutonomous_HMAC_BadSignature(t *testing.T) {
+	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req.Header.Set("X-Signature-256", "sha256=0000000000000000000000000000000000000000000000000000000000000000")
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
+}
+
+func TestGetCardAutonomous_HMAC_MissingTimestamp(t *testing.T) {
+	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	sig, _ := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req.Header.Set("X-Signature-256", sig)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGetCardAutonomous_HMAC_ExpiredTimestamp(t *testing.T) {
+	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	// Signed 10 minutes ago — outside DefaultMaxClockSkew (5 min).
+	staleTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+	// Compute the signature over the stale timestamp so the signature
+	// itself is valid — only the clock-skew check should fail.
+	staleSig := signHMACAt(t, testRunnerAPIKey, nil, staleTs)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req.Header.Set("X-Signature-256", staleSig)
+	req.Header.Set("X-Webhook-Timestamp", staleTs)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGetCardAutonomous_BearerRejected(t *testing.T) {
+	// Bearer is not accepted even with the correct shared secret — the
+	// runner must HMAC-sign this endpoint.
+	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req.Header.Set("Authorization", "Bearer "+testRunnerAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGetCardAutonomous_NoAuth(t *testing.T) {
+	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGetCardAutonomous_CardNotFound(t *testing.T) {
+	server, _, cleanup := setupAutonomousEndpoint(t, true)
+	defer cleanup()
+
+	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/TEST-999/autonomous", nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestGetCardAutonomous_RunnerDisabled(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: true,
+	})
+	require.NoError(t, err)
+
+	// Runner intentionally nil — route must not be registered.
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+card.ID+"/autonomous", nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

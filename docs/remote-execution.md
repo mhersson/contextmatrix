@@ -192,11 +192,13 @@ interactive mode. HMAC-signed identically to trigger/kill.
 The runner performs a two-step operation in strict order:
 
 1. **Verify the autonomous flag (fail closed):** Calls
-   `GET {contextmatrix_url}/api/projects/{project}/cards/{id}` and checks that
-   `autonomous == true`. CM already flipped the flag before sending this
-   webhook, so the GET is a read-only confirmation. If the call fails (network
-   error, non-2xx) or `autonomous` is not `true`, the runner returns 502 and
-   does **not** write to stdin — the card remains in interactive mode.
+   `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
+   that the response body `{"autonomous": bool}` is `true`. CM already flipped
+   the flag before sending this webhook, so the GET is a read-only
+   confirmation. The request is HMAC-SHA256-signed over `timestamp + "." + ""`
+   (empty body) using `runner.api_key`. If the call fails (network error,
+   non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
+   **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
    `"promoted to autonomous mode"`, then writes a stream-json user message to
    the container's stdin:
@@ -329,6 +331,26 @@ Valid `runner_status` values: `"running"`, `"failed"`, `"completed"`.
 
 Task completion is **not** reported via this endpoint — the Claude Code instance
 inside the container uses the normal MCP `complete_task` tool.
+
+#### GET /api/v1/cards/{project}/{id}/autonomous
+
+Read-only endpoint called by the runner during `/promote` to fail-closed
+confirm the card's autonomous flag before writing the canned stdin message.
+Returns:
+
+```json
+{"autonomous": true}
+```
+
+**Authentication:** HMAC-SHA256 signature over `timestamp + "." + ""` (empty
+body) with the shared runner secret. Headers:
+
+- `X-Signature-256: sha256=<hex>`
+- `X-Webhook-Timestamp: <unix-seconds>`
+
+Only registered when the runner is enabled on the CM side
+(`runner.enabled: true`). Missing / invalid HMAC returns 403; unknown card
+returns 404.
 
 ### Response Format
 
@@ -478,7 +500,8 @@ Web UI (chat input) → CM POST /api/runner/message
 Web UI (promote btn) → CM POST /api/runner/promote
                       → CM flips card autonomous=true (git commit + SSE event)
                       → Runner POST /promote
-                      → Runner GET /api/.../cards/{id} (verify autonomous==true; 502+stop if fails)
+                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (HMAC-signed;
+                                    502+stop if autonomous != true or request fails)
                       → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
 ```

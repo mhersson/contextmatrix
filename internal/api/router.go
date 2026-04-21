@@ -178,6 +178,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
+		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}
 
 	// MCP server routes — registered on the inner mux so they share the
