@@ -57,14 +57,20 @@ type CommitJob struct {
 // ErrQueueClosed is returned when Enqueue is called after Close.
 var ErrQueueClosed = errors.New("commit queue closed")
 
-// committer is the narrow interface the queue requires from a Manager.
-// Kept here (not exported) so the queue can be unit-tested with a mock.
-type committer interface {
+// Committer is the narrow interface the queue requires from a Manager. It
+// is exported so tests in other packages can wire a failing committer into
+// a CommitQueue via NewCommitQueueWithCommitter.
+type Committer interface {
 	CommitFile(ctx context.Context, path, message string) error
 	CommitFiles(ctx context.Context, paths []string, message string) error
 	CommitFilesShell(ctx context.Context, paths []string, message string) error
 	ReloadRepo(ctx context.Context) error
 }
+
+// committer is kept as an internal alias so existing references in this
+// package (and the queue's mgr field) compile without touching every
+// call site.
+type committer = Committer
 
 // CommitQueue serializes git commits per project via dedicated worker
 // goroutines. It decouples the caller's request path from the on-disk
@@ -85,7 +91,13 @@ type CommitQueue struct {
 	paused   bool
 	pauseCh  chan struct{} // closed when unpaused; non-nil only while paused
 	inflight int           // workers currently executing a commit
-	idleCond *sync.Cond    // signalled when inflight reaches zero
+	// idleCh is closed when inflight transitions from >0 to 0. A fresh
+	// channel is installed (still closed) while idle; when inflight first
+	// transitions from 0 to >0 the channel is replaced with a new open one
+	// that is closed again on the next drop-to-zero. AwaitIdle selects on
+	// the channel + ctx.Done(), so a cancelled context never parks a
+	// goroutine inside a sync.Cond wait.
+	idleCh chan struct{}
 
 	wg sync.WaitGroup
 
@@ -101,16 +113,31 @@ type CommitQueue struct {
 // active projects, which is plenty in practice (cards-per-second per
 // project is tiny compared to this).
 func NewCommitQueue(mgr *Manager, bufferSize int) *CommitQueue {
+	return newCommitQueueFromCommitter(mgr, bufferSize)
+}
+
+// NewCommitQueueWithCommitter constructs a queue backed by any Committer
+// implementation. Intended for cross-package tests that need to inject a
+// fake committer (e.g. one that always fails) to exercise the service
+// layer's commit-failure rollback path.
+func NewCommitQueueWithCommitter(c Committer, bufferSize int) *CommitQueue {
+	return newCommitQueueFromCommitter(c, bufferSize)
+}
+
+func newCommitQueueFromCommitter(c committer, bufferSize int) *CommitQueue {
 	if bufferSize <= 0 {
 		bufferSize = 1024
 	}
 
 	q := &CommitQueue{
-		mgr:      mgr,
+		mgr:      c,
 		workers:  make(map[string]chan CommitJob),
 		queueBuf: bufferSize,
 	}
-	q.idleCond = sync.NewCond(&q.mu)
+	// Start idle: install a pre-closed channel so AwaitIdle returns
+	// immediately while nothing is in flight.
+	q.idleCh = make(chan struct{})
+	close(q.idleCh)
 
 	return q
 }
@@ -130,6 +157,14 @@ func (q *CommitQueue) SetOnCommit(fn func()) {
 //
 // If the queue is closed, Enqueue returns ErrQueueClosed via the channel
 // synchronously (a pre-closed done channel with the error already sent).
+//
+// Non-atomicity contract: Enqueue only runs the git commit. Callers are
+// expected to have already written the new state to the store (cache +
+// disk) before enqueueing, so a successful store write with a failed
+// commit leaves the cache and disk ahead of git. Callers that need the
+// two to stay consistent must roll back their store state when the
+// channel yields a non-nil error. See service.applyCardMutation for the
+// reference rollback pattern.
 func (q *CommitQueue) Enqueue(job CommitJob) <-chan error {
 	if job.Done == nil {
 		job.Done = make(chan error, 1)
@@ -269,21 +304,29 @@ func (q *CommitQueue) waitUnpaused(ctx context.Context) {
 	}
 }
 
-// markBusy increments the in-flight counter.
+// markBusy increments the in-flight counter. On the 0→1 transition it
+// installs a fresh open idle channel so AwaitIdle callers park on the new
+// channel; the previously-closed channel is left for any callers that
+// already captured it (they will observe idle, which is correct — the
+// queue was idle at that instant).
 func (q *CommitQueue) markBusy() {
 	q.mu.Lock()
+	if q.inflight == 0 {
+		q.idleCh = make(chan struct{})
+	}
+
 	q.inflight++
 	q.mu.Unlock()
 }
 
-// markIdle decrements the in-flight counter and signals any AwaitIdle
-// waiters when the count reaches zero.
+// markIdle decrements the in-flight counter and, on the 1→0 transition,
+// closes the current idle channel so AwaitIdle callers unblock.
 func (q *CommitQueue) markIdle() {
 	q.mu.Lock()
 	q.inflight--
 
 	if q.inflight == 0 {
-		q.idleCond.Broadcast()
+		close(q.idleCh)
 	}
 
 	q.mu.Unlock()
@@ -325,32 +368,29 @@ func (q *CommitQueue) Resume() {
 //
 // Typical use: Pause, AwaitIdle(ctx) — by the time this returns, no
 // commit subprocess is racing against an external shell git operation.
+//
+// Implementation note: this waits on the queue's idleCh channel rather
+// than a sync.Cond so a cancelled context returns immediately without
+// leaving a helper goroutine parked in Cond.Wait until the queue
+// naturally drains.
 func (q *CommitQueue) AwaitIdle(ctx context.Context) error {
-	done := make(chan struct{})
-
-	go func() {
-		q.mu.Lock()
-		defer q.mu.Unlock()
-
-		for q.inflight > 0 {
-			q.idleCond.Wait()
-		}
-
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		// Wake the waiter so it exits even though we're returning.
-		// This is best-effort; the waiter goroutine will sit on cond
-		// until the next Broadcast, which happens naturally as jobs
-		// finish.
-		q.mu.Lock()
-		q.idleCond.Broadcast()
+	q.mu.Lock()
+	// Fast path: already idle. idleCh is closed at rest, so the receive
+	// would complete immediately anyway, but taking the fast path keeps
+	// the call allocation-free under the common case.
+	if q.inflight == 0 {
 		q.mu.Unlock()
 
+		return nil
+	}
+
+	ch := q.idleCh
+	q.mu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
 		return ctx.Err()
 	}
 }

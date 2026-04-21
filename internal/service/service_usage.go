@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -58,6 +59,12 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	if card.TokenUsage == nil {
 		card.TokenUsage = &board.TokenUsage{}
 	}
@@ -90,9 +97,10 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer)
+	// Git commit (or defer). On failure roll back to snapshot so cache +
+	// disk stay consistent with git.
 	if err := s.commitCardChange(ctx, project, id, input.AgentID, "usage reported"); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		return nil, s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 	}
 
 	// If the card has no active agent, flush immediately — there is no
@@ -161,7 +169,12 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 
 	result := &RecalculateCostsResult{}
 
-	var updatedPaths []string
+	var (
+		updatedPaths []string
+		// snapshots preserves the pre-mutation state of every card we
+		// wrote so a failed batch commit can restore cache + disk.
+		snapshots []*board.Card
+	)
 
 	for _, card := range cards {
 		if card.TokenUsage == nil {
@@ -191,6 +204,13 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			continue
 		}
 
+		// Snapshot before mutating. store.GetCard returns a deep copy
+		// independent of the one we are about to write back.
+		snapshot, err := s.store.GetCard(ctx, project, card.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get card snapshot %s: %w", card.ID, err)
+		}
+
 		cost := float64(card.TokenUsage.PromptTokens)*rate.Prompt +
 			float64(card.TokenUsage.CompletionTokens)*rate.Completion
 
@@ -206,6 +226,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			return nil, fmt.Errorf("update card %s: %w", card.ID, err)
 		}
 
+		snapshots = append(snapshots, snapshot)
 		updatedPaths = append(updatedPaths, s.cardPath(project, card.ID))
 		result.CardsUpdated++
 		result.TotalCostRecalculated += cost
@@ -215,6 +236,32 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	if s.gitAutoCommit && len(updatedPaths) > 0 {
 		msg := fmt.Sprintf("[contextmatrix] %s: recalculated costs for %d cards", project, result.CardsUpdated)
 		if err := s.git.CommitFiles(ctx, updatedPaths, msg); err != nil {
+			// Batch commit failed: roll each mutated card back to its
+			// pre-mutation snapshot so cache + disk stay consistent
+			// with git. A partial-rollback failure leaves the cache
+			// inconsistent and is reported alongside the commit error.
+			var rollbackErrs []error
+
+			for _, snap := range snapshots {
+				if rbErr := s.store.UpdateCard(ctx, project, snap); rbErr != nil {
+					ctxlog.Logger(ctx).Error("recalculate_costs rollback failed",
+						"project", project,
+						"card_id", snap.ID,
+						"committed", false,
+						"rollback_failed", true,
+						"commit_error", err,
+						"rollback_error", rbErr,
+					)
+					rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback %s: %w", snap.ID, rbErr))
+				}
+			}
+
+			if len(rollbackErrs) > 0 {
+				return nil, errors.Join(
+					append([]error{fmt.Errorf("git commit recalculated costs (rollback failed, state inconsistent): %w", err)}, rollbackErrs...)...,
+				)
+			}
+
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
 
