@@ -39,7 +39,7 @@ func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -53,7 +53,7 @@ func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.ClaimCard(r.Context(), projectName, cardID, agentID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -74,7 +74,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -88,7 +88,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.ReleaseCard(r.Context(), projectName, cardID, agentID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -109,7 +109,7 @@ func (h *agentHandlers) heartbeatCard(w http.ResponseWriter, r *http.Request) {
 
 	var req agentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -122,7 +122,7 @@ func (h *agentHandlers) heartbeatCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.HeartbeatCard(r.Context(), projectName, cardID, agentID); err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -143,7 +143,7 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 
 	var req addLogRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -175,7 +175,7 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.AddLogEntry(r.Context(), projectName, cardID, entry); err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -183,7 +183,7 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 	// Return the updated card so caller can see the new activity log
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -204,7 +204,7 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 
 	ctx, err := h.svc.GetCardContext(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -233,7 +233,7 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 
 	var req reportUsageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -252,7 +252,7 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 		CompletionTokens: req.CompletionTokens,
 	})
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -281,7 +281,7 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 
 	var req reportPushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -302,7 +302,7 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.RecordPush(r.Context(), projectName, cardID, agentID, branch, req.PRUrl)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}

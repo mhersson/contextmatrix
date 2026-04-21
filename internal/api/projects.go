@@ -71,7 +71,7 @@ func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) boar
 func (h *projectHandlers) listProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.svc.ListProjects(r.Context())
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -95,7 +95,7 @@ func (h *projectHandlers) getProject(w http.ResponseWriter, r *http.Request) {
 
 	project, err := h.svc.GetProject(r.Context(), projectName)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -114,7 +114,7 @@ func (h *projectHandlers) getProjectUsage(w http.ResponseWriter, r *http.Request
 
 	usage, err := h.svc.AggregateUsage(r.Context(), projectName)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -133,7 +133,7 @@ func (h *projectHandlers) getProjectDashboard(w http.ResponseWriter, r *http.Req
 
 	dashboard, err := h.svc.GetDashboard(r.Context(), projectName)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -145,7 +145,7 @@ func (h *projectHandlers) getProjectDashboard(w http.ResponseWriter, r *http.Req
 func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -166,7 +166,7 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 		Transitions: req.Transitions,
 	})
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -185,7 +185,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 
 	var req updateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -199,7 +199,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		GitHub:      req.GitHub,
 	})
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -229,7 +229,7 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 
 	var req recalculateCostsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -242,7 +242,7 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 
 	result, err := h.svc.RecalculateCosts(r.Context(), projectName, req.DefaultModel)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -263,7 +263,7 @@ func (h *projectHandlers) deleteProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.svc.DeleteProject(r.Context(), projectName); err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}

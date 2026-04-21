@@ -120,7 +120,7 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	if state != "" || typ != "" || priority != "" {
 		cfg, err := h.svc.GetProject(r.Context(), projectName)
 		if err != nil {
-			handleServiceError(w, err)
+			handleServiceError(w, r, err)
 
 			return
 		}
@@ -160,7 +160,7 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 
 	cards, err := h.svc.ListCards(r.Context(), projectName, filter)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -179,7 +179,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 
 	var req createCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -215,7 +215,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -236,7 +236,7 @@ func (h *cardHandlers) getCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -257,7 +257,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 
 	var req updateCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -265,7 +265,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -311,7 +311,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -332,7 +332,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	var req patchCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -348,7 +348,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -376,7 +376,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -398,7 +398,7 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -410,7 +410,7 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.DeleteCard(r.Context(), projectName, cardID); err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
