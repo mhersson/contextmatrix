@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -41,13 +42,26 @@ type StalledCard struct {
 type Manager struct {
 	store   storage.Store
 	timeout time.Duration
+	clk     clock.Clock
 }
 
 // NewManager creates a lock manager with the given store and heartbeat timeout.
+// Uses clock.Real() as the time source; for tests use NewManagerWithClock.
 func NewManager(store storage.Store, timeout time.Duration) *Manager {
+	return NewManagerWithClock(store, timeout, clock.Real())
+}
+
+// NewManagerWithClock is like NewManager but lets the caller inject a clock.
+// Used by tests to deterministically advance heartbeat cutoffs.
+func NewManagerWithClock(store storage.Store, timeout time.Duration, clk clock.Clock) *Manager {
+	if clk == nil {
+		clk = clock.Real()
+	}
+
 	return &Manager{
 		store:   store,
 		timeout: timeout,
+		clk:     clk,
 	}
 }
 
@@ -66,7 +80,7 @@ func (m *Manager) Claim(ctx context.Context, project, cardID, agentID string) (*
 	}
 
 	// If same agent is re-claiming, just update heartbeat
-	now := time.Now()
+	now := m.clk.Now()
 	card.AssignedAgent = agentID
 	card.LastHeartbeat = &now
 	card.Updated = now
@@ -94,7 +108,7 @@ func (m *Manager) Release(ctx context.Context, project, cardID, agentID string) 
 
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
-	card.Updated = time.Now()
+	card.Updated = m.clk.Now()
 
 	return card, nil
 }
@@ -117,7 +131,7 @@ func (m *Manager) Heartbeat(ctx context.Context, project, cardID, agentID string
 		return nil, fmt.Errorf("%w: card is held by %s", ErrAgentMismatch, card.AssignedAgent)
 	}
 
-	now := time.Now()
+	now := m.clk.Now()
 	card.LastHeartbeat = &now
 	card.Updated = now
 
@@ -137,7 +151,7 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
 
-	cutoff := time.Now().Add(-m.timeout)
+	cutoff := m.clk.Now().Add(-m.timeout)
 
 	var stalled []StalledCard
 
@@ -178,4 +192,11 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 // Timeout returns the configured heartbeat timeout duration.
 func (m *Manager) Timeout() time.Duration {
 	return m.timeout
+}
+
+// Clock returns the clock the manager uses for Now() / cutoff comparisons.
+// Exposed so callers (notably the service layer) can share the same clock
+// source — important in tests where a fake clock is injected.
+func (m *Manager) Clock() clock.Clock {
+	return m.clk
 }
