@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -41,6 +42,10 @@ type Syncer struct {
 	autoPush bool
 	authMode string
 	token    string
+
+	// clk drives the periodic-pull ticker. Defaults to clock.Real();
+	// tests can inject a fake clock via SetClock before calling Start.
+	clk clock.Clock
 
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
@@ -96,8 +101,20 @@ func NewSyncer(
 		autoPush: autoPush,
 		authMode: authMode,
 		token:    token,
+		clk:      clock.Real(),
 		pushCh:   make(chan struct{}, 1),
 	}
+}
+
+// SetClock overrides the clock used to drive the periodic-pull ticker.
+// Must be called before Start; changing the clock after Start has no effect.
+// Used by tests to deterministically fire pull ticks.
+func (s *Syncer) SetClock(c clock.Clock) {
+	if c == nil {
+		c = clock.Real()
+	}
+
+	s.clk = c
 }
 
 // PullOnStartup performs an initial pull+rebase. Errors are returned but
@@ -334,7 +351,7 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 
 // periodicPull runs fetch+rebase at the configured interval.
 func (s *Syncer) periodicPull(ctx context.Context) {
-	ticker := time.NewTicker(s.interval)
+	ticker := s.clk.NewTicker(s.interval)
 	defer ticker.Stop()
 
 	for {
@@ -343,7 +360,7 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 			slog.Info("git sync: periodic pull stopped")
 
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
