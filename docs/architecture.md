@@ -18,6 +18,45 @@ API handler (deserialize, validate)
 The MCP server follows the same path — it calls `CardService` methods, never the
 store or git layer directly.
 
+## Async-commit consistency
+
+Card mutations take an eager-write, async-commit shape:
+
+1. `store.Update*` writes the new card state to the in-memory cache and to
+   disk under `writeMu`.
+2. The git commit is enqueued via `gitops.CommitQueue.Enqueue` (when a queue
+   is wired; otherwise executed inline) and awaited **after** `writeMu` is
+   released so slow go-git operations do not block concurrent writers.
+
+This means cache + disk can be ahead of git for the window between store
+write and commit completion. The service layer closes that gap on failure:
+
+- **Commit success (typical path):** all three substrates (cache, disk,
+  git) converge and the caller sees the new card.
+- **Commit failure:** `applyCardMutation`, `DeleteCard`, `AddLogEntry`,
+  `ClaimCard`, `ReleaseCard`, `markCardStalled`, `RecordPush`,
+  `IncrementReviewAttempts`, `UpdateRunnerStatus`, `PromoteToAutonomous`,
+  and `ReportUsage` snapshot the pre-mutation card via `store.GetCard`
+  (which returns a deep copy) before mutating, then reapply that snapshot
+  via `store.UpdateCard` (or `store.CreateCard` for `DeleteCard`) after
+  a failed commit. The caller receives `fmt.Errorf("git commit: %w", err)`
+  — equivalent to the pre-async behaviour.
+- **Rollback failure (rare):** cache and disk become inconsistent with
+  each other. A `slog.Error` line carrying `committed=false`,
+  `rollback_failed=true`, the card ID, and both errors is emitted for
+  operators; the returned error is the `errors.Join` of the original
+  commit error (wrapped with "rollback failed, state inconsistent") and
+  the rollback error.
+- **Heartbeats are a deliberate exception:** `HeartbeatCard` does not
+  roll back. A failed heartbeat commit is self-healing — the next
+  heartbeat (typically within the heartbeat interval) produces another
+  commit and restores consistency.
+- **Parent auto-transitions are a deliberate exception:** they are
+  fire-and-forget from the child write path (`maybeTransitionParent` →
+  `transitionParentDirect`). A failed commit increments
+  `contextmatrix_parent_autotransition_errors_total` and logs a Warn;
+  the next parent mutation re-commits the state.
+
 ## Component responsibilities
 
 - **Store** (`storage.FilesystemStore`): reads/writes `.md` files and
