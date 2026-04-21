@@ -22,6 +22,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -106,10 +107,25 @@ type CardService struct {
 }
 
 // NewCardService creates a new CardService with the given dependencies.
-// The service uses the clock exposed by the lock manager so both subsystems
-// share the same time source. Tests can pass a lock.Manager constructed via
-// lock.NewManagerWithClock(fake) to drive both the stall cutoff and the
-// timeout-checker ticker off a single fake clock.
+//
+// CLOCK COUPLING (IMPORTANT):
+//
+// The service adopts lockMgr.Clock() as its own time source. This is not a
+// cosmetic choice — stall detection, the timeout-checker ticker, and the
+// lock manager's stall cutoff all compare timestamps against the same
+// monotonic reading. If these subsystems ran on different clocks, a stall
+// could be detected by the ticker but not by the lock manager (or vice
+// versa) and cards would bounce between states.
+//
+// WARNING: Tests that mock time MUST construct the lock.Manager with their
+// fake clock first — via lock.NewManagerWithClock(fake) — and then pass that
+// manager into NewCardService. Passing a real-clock lock.Manager while
+// expecting a fake clock elsewhere will silently produce non-deterministic
+// timing. There is no type-level guard against this; the inferred-from-
+// lockMgr pattern is deliberate to avoid an otherwise redundant parameter.
+//
+// On init we emit a slog.Debug line recording the clock type adopted so
+// misconfigurations show up in logs at startup.
 func NewCardService(
 	store storage.Store,
 	git *gitops.Manager,
@@ -124,6 +140,10 @@ func NewCardService(
 	if clk == nil {
 		clk = clock.Real()
 	}
+
+	slog.Debug("card service: adopting lock manager clock",
+		"clock_type", fmt.Sprintf("%T", clk),
+	)
 
 	svc := &CardService{
 		store:             store,
