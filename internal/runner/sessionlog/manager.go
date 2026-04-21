@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
@@ -102,6 +103,19 @@ func WithRunnerConfig(runnerURL, apiKey string) Option {
 	}
 }
 
+// WithClock overrides the clock used by the manager for the idle-sweeper
+// ticker and upstream reconnect-backoff waits. Tests inject a fake clock
+// to deterministically drive retry attempts without real-time sleeps.
+func WithClock(c clock.Clock) Option {
+	return func(m *Manager) {
+		if c == nil {
+			c = clock.Real()
+		}
+
+		m.clk = c
+	}
+}
+
 // ensureActiveSessions lazily initialises the activeSessions, pendingSubs, and
 // failedSessions maps. Must be called with m.mu held.
 func (m *Manager) ensureActiveSessions() {
@@ -156,7 +170,7 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 	pumpCtx, cancel := context.WithCancel(context.Background())
 	sess := &activeSession{
 		cancel:    cancel,
-		startTime: time.Now(),
+		startTime: m.clk.Now(),
 		done:      make(chan struct{}),
 	}
 
@@ -587,7 +601,7 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 	pumpCtx, cancel := context.WithCancel(context.Background())
 	sess := &activeSession{
 		cancel:    cancel,
-		startTime: time.Now(),
+		startTime: m.clk.Now(),
 		done:      make(chan struct{}),
 	}
 
@@ -713,7 +727,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-m.clk.After(backoff):
 		}
 	}
 }
@@ -837,13 +851,14 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 // StartSweeper launches a background goroutine that periodically scans for
 // sessions that have exceeded sessionTTL and force-closes them.  The goroutine
 // exits when ctx is cancelled or Close is called on the Manager.
+// The sweeper ticker is driven by m.clk.
 func (m *Manager) StartSweeper(ctx context.Context) {
 	m.pumpWG.Add(1)
 
+	ticker := m.clk.NewTicker(m.sessionTTL / 2)
+
 	go func() {
 		defer m.pumpWG.Done()
-
-		ticker := time.NewTicker(m.sessionTTL / 2)
 		defer ticker.Stop()
 
 		for {
@@ -852,7 +867,7 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 				return
 			case <-m.stopCh:
 				return
-			case <-ticker.C:
+			case <-ticker.C():
 				m.sweepIdleSessions(ctx)
 			}
 		}
@@ -861,7 +876,7 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 
 // sweepIdleSessions finds sessions older than sessionTTL and calls Stop on them.
 func (m *Manager) sweepIdleSessions(ctx context.Context) {
-	now := time.Now()
+	now := m.clk.Now()
 
 	m.mu.Lock()
 
@@ -956,7 +971,7 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-m.clk.After(backoff):
 		}
 	}
 }
