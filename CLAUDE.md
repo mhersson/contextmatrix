@@ -17,15 +17,15 @@ but ContextMatrix never touches it.
 
 Read these when working on the relevant area:
 
-| Document                                           | Contents                                                                                                                                                                   |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)     | Component responsibilities, data flow, git repo scope, file layout. Read when modifying service layer, store, git, or lock interactions.                                   |
-| [`docs/agent-workflow.md`](docs/agent-workflow.md) | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. |
-| [`docs/data-model.md`](docs/data-model.md)         | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation.                |
-| [`docs/api-reference.md`](docs/api-reference.md)   | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                                         |
-| [`docs/gotchas.md`](docs/gotchas.md)               | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                                           |
-| [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, security model. Read when working on runner integration or MCP auth.                              |
-| [`web/CLAUDE.md`](web/CLAUDE.md)                   | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                                  |
+| Document                                               | Contents                                                                                                                                                    |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)         | Component responsibilities, data flow, git repo scope, file layout. Read when modifying service layer, store, git, or lock interactions.                    |
+| [`docs/agent-workflow.md`](docs/agent-workflow.md)     | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination.          |
+| [`docs/data-model.md`](docs/data-model.md)             | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation. |
+| [`docs/api-reference.md`](docs/api-reference.md)       | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                          |
+| [`docs/gotchas.md`](docs/gotchas.md)                   | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                            |
+| [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, security model. Read when working on runner integration or MCP auth.                  |
+| [`web/CLAUDE.md`](web/CLAUDE.md)                       | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                   |
 
 ## Architecture
 
@@ -127,9 +127,9 @@ Full details with examples: `docs/data-model.md`.
    clears agent. `stalled` is system-managed; `not_planned` is manual-only.
 8. **`not_planned` state:** built-in like `stalled`, but follows normal
    transition rules — only states that explicitly list `not_planned` in their
-   `.board.yaml` transitions can reach it (no server-side auto-injection).
-   From `not_planned`, only `todo` is allowed. Releases agent claim, flushes
-   deferred commits, excluded from active agent and open task counts.
+   `.board.yaml` transitions can reach it (no server-side auto-injection). From
+   `not_planned`, only `todo` is allowed. Releases agent claim, flushes deferred
+   commits, excluded from active agent and open task counts.
 9. **External source tracking:** `source` field for Jira/GitHub imports,
    immutable after creation.
 10. **Parent auto-transitions:** parent goes `in_progress` when first subtask
@@ -144,11 +144,12 @@ Full details with examples: `docs/data-model.md`.
     crash/restart from producing orphaned duplicate cards.
 13. **Promote to autonomous:** `POST /api/projects/{project}/cards/{id}/promote`
     (human-only) flips `autonomous: true`, appends an activity log entry, and
-    commits. Idempotent; rejects terminal cards with 409. The `promote_to_autonomous`
-    MCP tool provides the same operation and is also human-only — `agent_id` must
-    start with `"human:"` or the call is rejected. The runner's `/promote`
-    webhook calls this endpoint first (fail-closed) before writing the canned
-    stdin message — promotion without a successful API call is a no-op.
+    commits. Idempotent; rejects terminal cards with 409. The
+    `promote_to_autonomous` MCP tool provides the same operation and is also
+    human-only — `agent_id` must start with `"human:"` or the call is rejected.
+    The runner's `/promote` webhook calls this endpoint first (fail-closed)
+    before writing the canned stdin message — promotion without a successful API
+    call is a no-op.
 
 ## Running the project
 
@@ -216,8 +217,8 @@ scripts/install.sh --update-skills
 scripts/install.sh --force
 ```
 
-On a fresh install the script creates `~/.config/contextmatrix/config.yaml`
-from the template. Edit `boards.dir` (and any other fields) before starting the
+On a fresh install the script creates `~/.config/contextmatrix/config.yaml` from
+the template. Edit `boards.dir` (and any other fields) before starting the
 server. Skills are always refreshed from the repo's `skills/` directory even
 without `--update-skills` — that flag simply skips the config.yaml step
 entirely.
@@ -258,6 +259,13 @@ make build  # must build
 
 **NEVER** reference the plan phase or task number in commit messages. Use
 conventional commits:
+
+**ALWAYS** keep the commit messages short, clear and focues. Use bullet points
+in the message body to explain the "what" and "why" of the change, but avoid
+long paragraphs.
+
+**ALWAYS** write conventional commit messages with a type, scope, and concise
+description. For example:
 
 ```
 feat(mcp): Add MCP server with Streamable HTTP transport and tool definitions
