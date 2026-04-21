@@ -236,8 +236,12 @@ func closeSubscriber(subs []*subscriber, terminal Event) {
 //  2. Snapshots all active sessions and calls Stop on each, which emits a
 //     terminal event to every subscriber, cancels the pump context, and
 //     closes subscriber channels.
-//  3. Closes stopCh so the idle sweeper exits on its next select.
-//  4. Waits on the pump WaitGroup for every goroutine to return, bounded by
+//  3. Drains any orphan pendingSubs — subscribers that called Subscribe but
+//     whose session was never Started. Without this, those channels would stay
+//     open until TCP severs, and the HTTP handlers holding them would block
+//     through shutdown.
+//  4. Closes stopCh so the idle sweeper exits on its next select.
+//  5. Waits on the pump WaitGroup for every goroutine to return, bounded by
 //     ctx's deadline. If the deadline hits first, the method returns a
 //     wrapped context error but the manager is still marked closed so
 //     callers don't retry.
@@ -260,6 +264,18 @@ func (m *Manager) Close(ctx context.Context) error {
 	for id := range m.activeSessions {
 		cardIDs = append(cardIDs, id)
 	}
+
+	// Snapshot orphan pending subscribers — those registered via Subscribe
+	// before a session was Started. Stop does not reach them because it only
+	// iterates activeSessions. We flatten into a single slice and clear the
+	// map so no late Subscribe path can re-use an already-drained entry.
+	var orphanPending []*subscriber
+
+	for key, subs := range m.pendingSubs {
+		orphanPending = append(orphanPending, subs...)
+
+		delete(m.pendingSubs, key)
+	}
 	m.mu.Unlock()
 
 	// Drain each session — emits a terminal event to subscribers, cancels the
@@ -268,6 +284,22 @@ func (m *Manager) Close(ctx context.Context) error {
 	// and keeps terminal-event ordering deterministic.
 	for _, cardID := range cardIDs {
 		m.Stop(cardID)
+	}
+
+	// Drain orphan pending subs. They have no pump goroutine to cancel and no
+	// snapshot to flush, so closeSubscriber's snapDone wait returns almost
+	// immediately — the subscribe-path closes snapDone once snapshot delivery
+	// completes, which for an empty pending-bucket subscriber happens as soon
+	// as the snapshot goroutine exits. Lock is already released so the wait
+	// cannot deadlock against a consumer re-entering the manager.
+	if len(orphanPending) > 0 {
+		terminal := Event{
+			Seq:       0,
+			Timestamp: time.Now(),
+			Type:      EventTypeTerminal,
+			Payload:   []byte("manager closed"),
+		}
+		closeSubscriber(orphanPending, terminal)
 	}
 
 	// Signal the idle sweeper (and any other manager-scoped goroutine that
