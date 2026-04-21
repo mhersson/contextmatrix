@@ -68,24 +68,18 @@ func newAsyncTestService(t *testing.T, extraProjects ...string) (*CardService, *
 // waitForCommits polls the git log until at least wantCommits total commits
 // are present or timeout elapses. Useful when assertions immediately follow
 // a mutation that was routed through the async queue.
+//
+// Uses require.Eventually rather than an explicit time.Sleep loop; the commit
+// queue's worker goroutine is scheduled by the Go runtime, not the clock
+// abstraction, so a short real-wallclock poll is the correct primitive.
 func waitForCommits(t *testing.T, svc *CardService, wantCommits int, timeout time.Duration) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		count, err := svc.git.CommitCount()
-		require.NoError(t, err)
 
-		if count >= wantCommits {
-			return
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	count, _ := svc.git.CommitCount()
-	t.Fatalf("timed out waiting for %d commits; have %d", wantCommits, count)
+		return err == nil && count >= wantCommits
+	}, timeout, 10*time.Millisecond, "timed out waiting for %d commits", wantCommits)
 }
 
 // TestAsyncCommit_HeartbeatFanoutAcrossCards verifies that heartbeat commits

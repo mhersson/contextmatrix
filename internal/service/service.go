@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -85,6 +86,10 @@ type CardService struct {
 
 	validator *board.Validator
 
+	// clk is the clock driving the timeout-checker ticker. Defaults to
+	// clock.Real(); tests inject a fake clock via NewCardServiceWithClock.
+	clk clock.Clock
+
 	// sessionManager is optional; when non-nil it is notified of runner lifecycle
 	// transitions (running → Start, terminal → Stop) so the per-card SSE buffer
 	// stays in sync with actual execution state.
@@ -101,20 +106,29 @@ type CardService struct {
 }
 
 // NewCardService creates a new CardService with the given dependencies.
+// The service uses the clock exposed by the lock manager so both subsystems
+// share the same time source. Tests can pass a lock.Manager constructed via
+// lock.NewManagerWithClock(fake) to drive both the stall cutoff and the
+// timeout-checker ticker off a single fake clock.
 func NewCardService(
 	store storage.Store,
 	git *gitops.Manager,
-	lock *lock.Manager,
+	lockMgr *lock.Manager,
 	bus *events.Bus,
 	boardsDir string,
 	tokenCosts map[string]ModelCost,
 	gitAutoCommit bool,
 	gitDeferredCommit bool,
 ) *CardService {
+	clk := lockMgr.Clock()
+	if clk == nil {
+		clk = clock.Real()
+	}
+
 	svc := &CardService{
 		store:             store,
 		git:               git,
-		lock:              lock,
+		lock:              lockMgr,
 		bus:               bus,
 		boardsDir:         boardsDir,
 		tokenCosts:        tokenCosts,
@@ -122,6 +136,7 @@ func NewCardService(
 		gitDeferredCommit: gitDeferredCommit,
 		deferredPaths:     make(map[string][]string),
 		validator:         board.NewValidator(),
+		clk:               clk,
 		configs:           make(map[string]*board.ProjectConfig),
 		templates:         make(map[string]map[string]string),
 	}
