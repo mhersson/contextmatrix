@@ -34,7 +34,7 @@ func (h *syncHandlers) triggerSync(w http.ResponseWriter, r *http.Request) {
 		// to the client so auth hints / filesystem layout don't leak.
 		ctxlog.Logger(r.Context()).Error("sync failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "SYNC_ERROR",
-			"sync failed", sanitizeErrorDetails(err.Error()))
+			"sync failed", sanitizeErrorDetails(err))
 
 		return
 	}

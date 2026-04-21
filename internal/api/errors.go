@@ -1,25 +1,64 @@
 package api
 
-import "regexp"
+import (
+	encodingjson "encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"strings"
+)
 
-// sanitizeErrorDetails returns a short, class-level description of the
-// downstream error encoded in raw so the API never leaks filesystem paths,
-// remote URLs, or transport auth hints to untrusted callers. Callers are
-// expected to log the raw detail before sanitizing so operators still have
-// the full context server-side.
+// sanitizeErrorDetails converts an error into a short, sanitized detail
+// string suitable for inclusion in a client-facing error response body.
 //
-// The classification cascade is intentional — transport/ssh/exec prefixes are
-// checked first because they typically embed host + path. Then we strip any
-// go-git ".git/..." segment (the boards-root leak), then any remaining
-// absolute-path substring. Anything else is passed through unchanged so
-// plain, author-written error messages keep their useful shape.
-func sanitizeErrorDetails(raw string) string {
-	if raw == "" {
+// JSON-decoder errors are mapped to stable, descriptive messages first.
+// For other errors the underlying string is run through a regex cascade
+// that strips filesystem paths, go-git transport hints, and exec leaks
+// before being returned. Anything that doesn't match a sanitization rule is
+// returned unchanged so plain author-written error text keeps its shape.
+//
+// Callers should log the raw error before sanitizing so operators retain
+// the full context server-side.
+func sanitizeErrorDetails(err error) string {
+	if err == nil {
 		return ""
 	}
 
-	// Transport/ssh/exec classes: these always wrap a remote URL or host,
-	// so reply with a stable class label and nothing else.
+	// Typed JSON-decoder errors first: stdlib stable phrasing, no leakage.
+	var syntaxErr *encodingjson.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return fmt.Sprintf("invalid JSON at offset %d", syntaxErr.Offset)
+	}
+
+	var typeErr *encodingjson.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		field := typeErr.Field
+		if field == "" {
+			return fmt.Sprintf("invalid type: expected %s", typeErr.Type)
+		}
+
+		return fmt.Sprintf("invalid type for field %q: expected %s", field, typeErr.Type)
+	}
+
+	if errors.Is(err, io.EOF) {
+		return "request body is empty"
+	}
+
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return "request body ended unexpectedly"
+	}
+
+	raw := err.Error()
+
+	// Catch-all for remaining JSON decoder errors that don't match a typed
+	// error.
+	if strings.HasPrefix(raw, "json: ") {
+		return "invalid JSON body"
+	}
+
+	// Transport / ssh / exec classes always wrap a remote URL or host —
+	// reply with a stable class label and nothing else.
 	if transportPrefixRe.MatchString(raw) {
 		return "git remote unreachable"
 	}

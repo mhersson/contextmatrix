@@ -62,7 +62,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -112,7 +112,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 			FeatureBranch: &fb,
 			CreatePR:      &pr,
 		}); patchErr != nil {
-			handleServiceError(w, patchErr)
+			handleServiceError(w, r, patchErr)
 
 			return
 		}
@@ -121,7 +121,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// Get project config to retrieve repo URL and runner image.
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -129,7 +129,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// Set runner_status to queued.
 	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "queued", "task queued for runner")
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -206,7 +206,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -276,7 +276,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -306,7 +306,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 				CreatePR:      &prTrue,
 			})
 			if err != nil {
-				handleServiceError(w, err)
+				handleServiceError(w, r, err)
 
 				return
 			}
@@ -327,7 +327,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	// Flip the autonomous flag (idempotent; errors on terminal state).
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -342,7 +342,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 			CreatePR:      &prTrue,
 		})
 		if err != nil {
-			handleServiceError(w, err)
+			handleServiceError(w, r, err)
 
 			return
 		}
@@ -381,7 +381,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), project, id)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -405,7 +405,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "killed", "task stopped by user")
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -446,7 +446,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	// Update all active runner cards in this project.
 	cards, err := h.svc.ListCards(r.Context(), project, storage.CardFilter{})
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -540,7 +540,7 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 
 	card, err := h.svc.UpdateRunnerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.RunnerStatus, req.Message)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}

@@ -42,7 +42,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 
 	project, err := h.svc.GetProject(r.Context(), projectName)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
