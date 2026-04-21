@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   closestCorners,
   useSensor,
   useSensors,
@@ -10,6 +11,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { Card, CardFilter, ProjectConfig } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -67,13 +69,18 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
 
   // Both sensor hooks are called unconditionally (React rules of hooks).
-  // isTouchDevice() selects which sensor to pass to useSensors:
+  // isTouchDevice() selects which pointer-style sensor to pass to useSensors:
   // - Touch: 250ms delay distinguishes press-and-hold drag from scroll.
   // - Pointer: 5px distance threshold for immediate mouse drag.
+  // KeyboardSensor is always registered so users can Tab to a card, press
+  // Space to pick up, arrow keys to move, Space to drop, Esc to cancel.
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } });
+  const keyboardSensor = useSensor(KeyboardSensor, {
+    coordinateGetter: sortableKeyboardCoordinates,
+  });
   const touchDevice = isTouchDevice();
-  const sensors = useSensors(touchDevice ? touchSensor : pointerSensor);
+  const sensors = useSensors(touchDevice ? touchSensor : pointerSensor, keyboardSensor);
 
   const hasFilter = Object.values(filter).some(Boolean);
 

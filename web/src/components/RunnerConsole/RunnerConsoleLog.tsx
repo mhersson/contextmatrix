@@ -44,6 +44,10 @@ export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
       <div
         className="flex-1 flex items-center justify-center text-xs"
         style={{ color: error ? 'var(--red)' : 'var(--grey1)' }}
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-label="Runner log"
       >
         {error ?? 'No log entries'}
       </div>
@@ -55,6 +59,10 @@ export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
       ref={containerRef}
       className="flex-1 overflow-y-auto min-h-0"
       onScroll={handleScroll}
+      role="log"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-label="Runner log"
     >
       {logs.map((entry, idx) => (
         <LogLine key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />

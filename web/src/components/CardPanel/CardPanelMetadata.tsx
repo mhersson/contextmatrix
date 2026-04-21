@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import type { Card } from '../../types';
 import { api } from '../../api/client';
 import { AutomationCheckboxes } from './AutomationCheckboxes';
@@ -60,6 +60,8 @@ export function CardPanelMetadata({
 }: CardPanelMetadataProps) {
   const [labelInput, setLabelInput] = useState('');
   const [depStates, setDepStates] = useState<Record<string, string>>({});
+  const labelInputId = useId();
+  const vettedId = useId();
 
   useEffect(() => {
     if (!card.depends_on?.length) return;
@@ -104,14 +106,15 @@ export function CardPanelMetadata({
       {/* Labels */}
       <div>
         <div className="flex items-center gap-1 mb-1">
-          <label className="text-xs text-[var(--grey1)]">Labels</label>
+          <label htmlFor={labelInputId} className="text-xs text-[var(--grey1)]">Labels</label>
           {onToggleLabels && (
             <button
               onClick={onToggleLabels}
               className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
               aria-label={labelsCollapsed ? 'Expand labels' : 'Collapse labels'}
+              aria-expanded={!labelsCollapsed}
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d={labelsCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
               </svg>
@@ -130,6 +133,7 @@ export function CardPanelMetadata({
                   <button
                     onClick={() => removeLabel(label)}
                     className="hover:text-[var(--red)] transition-colors"
+                    aria-label={`Remove label ${label}`}
                   >
                     ×
                   </button>
@@ -138,6 +142,7 @@ export function CardPanelMetadata({
             </div>
             <div className="flex gap-2">
               <input
+                id={labelInputId}
                 type="text"
                 value={labelInput}
                 onChange={(e) => setLabelInput(e.target.value)}
@@ -219,14 +224,15 @@ export function CardPanelMetadata({
       {!card.parent && (
         <div>
           <div className="flex items-center gap-1 mb-2">
-            <label className="text-xs text-[var(--grey1)]">Automation</label>
+            <span className="text-xs text-[var(--grey1)]">Automation</span>
             {onToggleAutomation && (
               <button
                 onClick={onToggleAutomation}
                 className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
                 aria-label={automationCollapsed ? 'Expand automation' : 'Collapse automation'}
+                aria-expanded={!automationCollapsed}
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d={automationCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
                 </svg>
@@ -261,9 +267,10 @@ export function CardPanelMetadata({
       {/* External Import */}
       {card.source && (
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-2">External Import</label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <div className="block text-xs text-[var(--grey1)] mb-2">External Import</div>
+          <label htmlFor={vettedId} className="flex items-center gap-2 cursor-pointer">
             <input
+              id={vettedId}
               type="checkbox"
               checked={editedVetted}
               onChange={(e) => onVettedChange(e.target.checked)}

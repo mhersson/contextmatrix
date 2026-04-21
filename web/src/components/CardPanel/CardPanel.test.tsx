@@ -114,6 +114,15 @@ describe('CardPanel — collapsible Description section', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand description' }));
     expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
   });
+
+  it('Description chevron exposes aria-expanded reflecting the collapsed state', () => {
+    renderWithTheme(<CardPanel {...makeProps()} />);
+    const collapseBtn = screen.getByRole('button', { name: 'Collapse description' });
+    expect(collapseBtn).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(collapseBtn);
+    const expandBtn = screen.getByRole('button', { name: 'Expand description' });
+    expect(expandBtn).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 
 describe('CardPanel — collapsible Automation section', () => {

@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { Card, ProjectConfig } from '../../types';
 import { gitHubIcon } from '../icons';
 import { typeColors, isSafeHttpUrl } from './utils';
@@ -28,6 +29,9 @@ export function CardPanelHeader({
   onStateChange,
 }: CardPanelHeaderProps) {
   const validTransitions = config.transitions[card.state] || [];
+  const titleId = useId();
+  const priorityId = useId();
+  const stateId = useId();
 
   const handleClose = () => {
     if (isDirty) {
@@ -87,8 +91,9 @@ export function CardPanelHeader({
 
       {/* Title */}
       <div className="px-4 pt-3">
-        <label className="block text-xs text-[var(--grey1)] mb-1">Title</label>
+        <label htmlFor={titleId} className="block text-xs text-[var(--grey1)] mb-1">Title</label>
         <input
+          id={titleId}
           type="text"
           value={editedCard.title}
           onChange={(e) => onTitleChange(e.target.value)}
@@ -99,7 +104,7 @@ export function CardPanelHeader({
       {/* Type, Priority, State row */}
       <div className="grid grid-cols-3 gap-3 px-4 pb-3">
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Type</label>
+          <div className="block text-xs text-[var(--grey1)] mb-1">Type</div>
           <div
             className="px-3 py-2 rounded text-sm"
             style={{
@@ -112,8 +117,9 @@ export function CardPanelHeader({
         </div>
 
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Priority</label>
+          <label htmlFor={priorityId} className="block text-xs text-[var(--grey1)] mb-1">Priority</label>
           <select
+            id={priorityId}
             value={editedCard.priority}
             onChange={(e) => onPriorityChange(e.target.value)}
             className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
@@ -127,8 +133,9 @@ export function CardPanelHeader({
         </div>
 
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">State</label>
+          <label htmlFor={stateId} className="block text-xs text-[var(--grey1)] mb-1">State</label>
           <select
+            id={stateId}
             value={editedCard.state}
             onChange={(e) => onStateChange(e.target.value)}
             className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"

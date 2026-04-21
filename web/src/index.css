@@ -61,18 +61,30 @@
   --bg-blue:   #ecf5ed;
   --bg-purple: #fce5d9;
 
-  /* Foreground */
+  /* Foreground
+   * Greys and `--aqua` darkened from standard Everforest Hard Light values
+   * so each one meets WCAG AA 4.5:1 against `--bg0` (#fffbef).
+   * Computed via the WCAG 2.x relative-luminance formula
+   * (0.2126*R + 0.7152*G + 0.0722*B with sRGB gamma decoding):
+   *   --grey0 #5a6a73 → ratio ≈ 5.10
+   *   --grey1 #5b6e6d → ratio ≈ 4.81
+   *   --aqua  #1f7050 → ratio ≈ 5.47
+   * The original values (#a6b0a0, #939f91, #35a77c) sit at 2.19, 2.64, 2.92.
+   * `--grey2` and other accents are unchanged — only the variables called
+   * out in the audit are modified.
+   */
   --fg:    #5c6a72;
-  --grey0: #a6b0a0;
-  --grey1: #939f91;
+  --grey0: #5a6a73;
+  --grey1: #5b6e6d;
   --grey2: #829181;
 
-  /* Accent colors — same as Everforest Medium light */
+  /* Accent colors — same as Everforest Medium light, except --aqua darkened
+   * to clear AA 4.5:1 on --bg0. */
   --red:    #f85552;
   --orange: #f57d26;
   --yellow: #dfa000;
   --green:  #8da101;
-  --aqua:   #35a77c;
+  --aqua:   #1f7050;
   --blue:   #3a94c5;
   --purple: #df69ba;
 }
