@@ -388,14 +388,36 @@ func main() {
 	// requests that were in flight when HTTP drain began. Running this after
 	// HTTP drain (not before) ensures those late mutations still get pushed
 	// to the remote before we exit.
-	slog.Info("shutdown: phase=syncers_wait")
+	//
+	// Each syncer.Wait() is bounded by a per-phase deadline so a wedged
+	// subprocess (e.g. a git push that ignores the cancelled ctx) cannot hang
+	// shutdown past systemd's TimeoutStopSec. The root ctx.cancel() above is
+	// still the primary signal; this wait-timeout is the safety net.
+	slog.Info("shutdown: phase=syncers_drain")
+
+	const phase5Timeout = 10 * time.Second
+
+	phase5Ctx, phase5Cancel := context.WithTimeout(context.Background(), phase5Timeout)
+	defer phase5Cancel()
 
 	if syncer != nil {
-		syncer.Wait()
+		if err := waitSyncer(phase5Ctx, syncer.Wait); err != nil {
+			slog.Error("shutdown: gitsync syncer drain exceeded budget",
+				"phase", "syncers_drain",
+				"timeout", phase5Timeout,
+				"error", err,
+			)
+		}
 	}
 
 	if ghSyncer != nil {
-		ghSyncer.Wait()
+		if err := waitSyncer(phase5Ctx, ghSyncer.Wait); err != nil {
+			slog.Error("shutdown: github syncer drain exceeded budget",
+				"phase", "syncers_drain",
+				"timeout", phase5Timeout,
+				"error", err,
+			)
+		}
 	}
 
 	// gitops.Manager has no Close method today; if it grows one, call it
@@ -407,6 +429,27 @@ func main() {
 	if mainShutdownErr != nil {
 		slog.Error("server shutdown error", "error", mainShutdownErr)
 		os.Exit(1)
+	}
+}
+
+// waitSyncer wraps a blocking Wait() call with a context deadline. It runs
+// Wait() in a goroutine and returns nil as soon as it returns, or ctx.Err()
+// if the deadline fires first. The goroutine is leaked in the timeout case —
+// acceptable at shutdown because the process exits shortly after.
+func waitSyncer(ctx context.Context, wait func()) error {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		wait()
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
