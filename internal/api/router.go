@@ -415,7 +415,6 @@ func writeError(w http.ResponseWriter, status int, code, message, details string
 func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctxlog.Logger(r.Context()).Error("service error", "error", err.Error())
 
-
 	switch {
 	// --- Not-found sentinels (404) ---
 	case errors.Is(err, storage.ErrProjectNotFound):

@@ -241,27 +241,31 @@ export function CreateCardForm({
 
       {/* Body */}
       <div data-color-mode={theme}>
-        <label id={bodyLabelId} className="block text-xs text-[var(--grey1)] mb-1">Description</label>
-        <Suspense
-          fallback={
-            <textarea
+        <span id={bodyLabelId} className="block text-xs text-[var(--grey1)] mb-1">
+          Description
+        </span>
+        <div role="group" aria-labelledby={bodyLabelId}>
+          <Suspense
+            fallback={
+              <textarea
+                value={body}
+                onChange={(e) => { setBody(e.target.value); setBodyDirty(true); }}
+                style={{ height: 200 }}
+                className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
+                aria-label="Description (loading rich editor...)"
+              />
+            }
+          >
+            <MDEditor
               value={body}
-              onChange={(e) => { setBody(e.target.value); setBodyDirty(true); }}
-              style={{ height: 200 }}
-              className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
-              aria-label="Description (loading rich editor...)"
+              onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
+              preview="edit"
+              height={200}
+              visibleDragbar={false}
+              previewOptions={{ skipHtml: true }}
             />
-          }
-        >
-          <MDEditor
-            value={body}
-            onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}
-            preview="edit"
-            height={200}
-            visibleDragbar={false}
-            previewOptions={{ skipHtml: true }}
-          />
-        </Suspense>
+          </Suspense>
+        </div>
       </div>
     </div>
   );

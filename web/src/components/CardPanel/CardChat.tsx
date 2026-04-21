@@ -1,10 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
-import { LogLine } from '../RunnerConsole/LogLine';
+import { VirtualLogList } from '../RunnerConsole/VirtualLogList';
 
 const MAX_MESSAGE_LENGTH = 8000;
-const NEAR_BOTTOM_THRESHOLD = 50;
 
 interface CardChatProps {
   card: Card;
@@ -17,36 +16,6 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messageId = useId();
-
-  const logContainerRef = useRef<HTMLDivElement>(null);
-  const userScrolledUpRef = useRef(false);
-  // Throttle scroll measurements to once per animation frame to avoid doing
-  // layout work on every native scroll event when the log list is long.
-  const rafIdRef = useRef<number | null>(null);
-
-  // Auto-scroll to bottom unless user has scrolled up
-  const handleScroll = () => {
-    if (rafIdRef.current !== null) return;
-    rafIdRef.current = requestAnimationFrame(() => {
-      rafIdRef.current = null;
-      const el = logContainerRef.current;
-      if (!el) return;
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
-    });
-  };
-
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    const el = logContainerRef.current;
-    if (!el || userScrolledUpRef.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [cardLogs]);
 
   if (card.runner_status !== 'running' || card.autonomous) {
     return null;
@@ -105,25 +74,20 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
       <label htmlFor={messageId} className="block text-xs text-[var(--grey1)]">Session Chat</label>
 
       {/* Log list — fills remaining height when chat panel is active */}
-      <div
-        ref={logContainerRef}
-        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] overflow-y-auto flex-1 min-h-[60px] font-mono"
-        onScroll={handleScroll}
+      <VirtualLogList
+        items={cardLogs}
+        getKey={(entry, idx) => `${entry.ts}-${entry.card_id}-${idx}`}
+        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] flex-1 min-h-[60px] font-mono"
         role="log"
-        aria-live="polite"
-        aria-atomic="false"
-        aria-label="Session chat log"
-      >
-        {cardLogs.length === 0 ? (
-          <div className="flex items-center justify-center h-[60px] text-xs" style={{ color: 'var(--grey1)' }}>
+        ariaLive="polite"
+        ariaAtomic={false}
+        ariaLabel="Session chat log"
+        emptyState={
+          <div className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] flex items-center justify-center flex-1 min-h-[60px] text-xs font-mono" style={{ color: 'var(--grey1)' }}>
             No messages yet
           </div>
-        ) : (
-          cardLogs.map((entry, idx) => (
-            <LogLine key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />
-          ))
-        )}
-      </div>
+        }
+      />
 
       {/* Input row */}
       <div className="flex gap-2 items-end">
