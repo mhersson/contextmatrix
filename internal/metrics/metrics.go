@@ -6,32 +6,35 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// All metrics use the `contextmatrix_` prefix to keep Grafana / Loki queries
+// uniformly namespaced. When adding a new collector, set its `Name` to start
+// with `contextmatrix_` and add it to the list in Register.
 var (
 	HTTPRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "http_requests_total",
+		Name: "contextmatrix_http_requests_total",
 		Help: "Total HTTP requests by method, path, and status.",
 	}, []string{"method", "path", "status"})
 
 	HTTPRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "http_request_duration_seconds",
+		Name:    "contextmatrix_http_request_duration_seconds",
 		Help:    "HTTP request latency by method and path.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"method", "path"})
 
 	SSEActiveConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "sse_active_connections",
+		Name: "contextmatrix_sse_active_connections",
 		Help: "Active SSE connections across all streaming endpoints.",
 	})
 
 	EventBusDropped = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "eventbus_dropped_total",
+		Name: "contextmatrix_eventbus_dropped_total",
 		Help: "Event bus messages dropped due to full subscriber channels.",
 	})
 
 	// RunnerWebhookTotal counts outbound runner webhook calls by outcome.
 	// The result label is bounded to {success, failure}.
 	RunnerWebhookTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "runner_webhook_total",
+		Name: "contextmatrix_runner_webhook_total",
 		Help: "Outbound runner webhook calls labeled by result.",
 	}, []string{"result"})
 
@@ -39,26 +42,26 @@ var (
 	// commits routinely exceed 10s when pushing to a remote or staging
 	// a large change set.
 	GitSyncDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "gitsync_duration_seconds",
+		Name:    "contextmatrix_gitsync_duration_seconds",
 		Help:    "Duration of git commit operations.",
 		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60},
 	})
 
 	StallScanDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "stall_scan_duration_seconds",
+		Name:    "contextmatrix_stall_scan_duration_seconds",
 		Help:    "Duration of heartbeat stall scanner ticks.",
 		Buckets: prometheus.DefBuckets,
 	})
 
 	StallCardsMarked = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "stall_cards_marked_total",
+		Name: "contextmatrix_stall_cards_marked_total",
 		Help: "Cards transitioned to stalled by the heartbeat scanner.",
 	})
 
 	// CardCacheSize tracks the total number of cards resident in the
 	// FilesystemStore in-memory card cache across all projects.
 	CardCacheSize = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "card_cache_size",
+		Name: "contextmatrix_card_cache_size",
 		Help: "Total cards currently held in the in-memory card cache.",
 	})
 
@@ -66,7 +69,7 @@ var (
 	// fell back to disk. Under normal operation this should be near zero;
 	// elevated values suggest cache invalidation or a race during reload.
 	CardCacheMissTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "card_cache_miss_total",
+		Name: "contextmatrix_card_cache_miss_total",
 		Help: "GetCard requests that missed the in-memory cache and read from disk.",
 	})
 
@@ -102,6 +105,16 @@ var (
 		Name: "contextmatrix_parent_autotransition_errors_total",
 		Help: "Parent auto-transition commit failures (best-effort; fire-and-forget).",
 	})
+
+	// RollbackFailuresTotal counts the rare double-failure case where a
+	// commit fails AND the subsequent cache+disk rollback also fails. When
+	// non-zero, the cache and on-disk state for the named card are
+	// inconsistent until manual intervention. Operators should alert on
+	// any non-zero value — every increment is a data-integrity event.
+	RollbackFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "contextmatrix_rollback_failures_total",
+		Help: "Card-mutation rollback failures after a commit failure (cache + disk left inconsistent).",
+	})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -123,6 +136,7 @@ func Register(reg prometheus.Registerer) {
 		CommitDuration,
 		CommitErrorsTotal,
 		ParentAutoTransitionErrors,
+		RollbackFailuresTotal,
 	}
 
 	for _, c := range collectors {

@@ -30,31 +30,40 @@ interface SSEProviderProps {
   children: ReactNode;
 }
 
-// Split a pattern into its "bucket" key:
-// - '*'          → '*'   (wildcard bucket, receives every event)
-// - 'card.*'     → 'card' (prefix bucket)
-// - 'card.updated' (or any non-wildcard string) → the string itself (exact bucket)
+// Split a pattern into its "bucket" key. Buckets are sigil-prefixed so a
+// prefix subscription to 'card.*' and an exact-match subscription to the
+// literal string 'card' (no dot) cannot collide on the same bucket:
+//
+// - '*'              → '*'        (wildcard bucket, receives every event)
+// - 'card.*'         → 'p:card'   (prefix bucket)
+// - 'card.updated'   → 'e:card.updated' (exact bucket)
+// - 'card'           → 'e:card'   (exact bucket — distinct from 'p:card')
 function bucketKey(pattern: SSEPattern): string {
   if (pattern === '*') return '*';
-  if (pattern.endsWith('.*')) return pattern.slice(0, -2);
-  return pattern;
+  if (pattern.endsWith('.*')) return 'p:' + pattern.slice(0, -2);
+  return 'e:' + pattern;
 }
 
 // Extract the prefix of an event type (substring before the first '.').
 // 'card.updated' → 'card'; 'runner.started' → 'runner'.
+//
+// Returns '' for types with no dot ('card', 'sync') so prefix-pattern
+// dispatch skips them entirely — a 'card.*' subscriber should not match a
+// bare event whose type is the literal string 'card'.
 function eventPrefix(type: string): string {
   const dot = type.indexOf('.');
-  return dot === -1 ? type : type.slice(0, dot);
+  return dot === -1 ? '' : type.slice(0, dot);
 }
 
 export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Map keyed by bucket:
-  //   '*'     → wildcard subscribers
-  //   'card'  → subscribers registered with 'card.*' (prefix match)
-  //   'card.updated' → exact-match subscribers for that event type
+  // Map keyed by bucket (sigil-prefixed to avoid collisions):
+  //   '*'              → wildcard subscribers
+  //   'p:card'         → subscribers registered with 'card.*' (prefix match)
+  //   'e:card.updated' → exact-match subscribers for that event type
+  //   'e:card'         → exact-match subscribers for the literal type 'card'
   // Fan-out is O(matching buckets), not O(all subscribers).
   const subscribersRef = useRef<Map<string, Set<Subscriber>>>(new Map());
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -86,15 +95,15 @@ export function SSEProvider({ children }: SSEProviderProps) {
         const wild = buckets.get('*');
         wild?.forEach((sub) => sub(data));
 
-        // Prefix subscribers (e.g. 'card.*' → bucket 'card')
+        // Prefix subscribers (e.g. 'card.*' → bucket 'p:card')
         const prefix = eventPrefix(data.type);
         if (prefix) {
-          const prefixSubs = buckets.get(prefix);
+          const prefixSubs = buckets.get('p:' + prefix);
           prefixSubs?.forEach((sub) => sub(data));
         }
 
-        // Exact-match subscribers
-        const exact = buckets.get(data.type);
+        // Exact-match subscribers (e.g. 'card.updated' → bucket 'e:card.updated')
+        const exact = buckets.get('e:' + data.type);
         exact?.forEach((sub) => sub(data));
       } catch {
         console.error('Failed to parse SSE event:', event.data);

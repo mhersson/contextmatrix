@@ -61,17 +61,29 @@ func TestAdminMux_MetricsExposed(t *testing.T) {
 // TestAdminMux_DoesNotMountDefaultServeMux ensures the admin mux is narrowly
 // scoped: something registered on http.DefaultServeMux does NOT leak through
 // the admin listener.
+//
+// Swap http.DefaultServeMux out for a fresh one for the duration of the test
+// so that a re-run (e.g. `go test -count=2`) does not panic on the duplicate
+// pattern registration that http.HandleFunc would otherwise produce.
 func TestAdminMux_DoesNotMountDefaultServeMux(t *testing.T) {
-	// Register a unique handler on DefaultServeMux. If the admin mux ever
-	// regressed to delegating to DefaultServeMux this would start serving.
-	http.HandleFunc("/admin-mux-leak-probe-"+strings.ReplaceAll(t.Name(), "/", "-"), func(w http.ResponseWriter, _ *http.Request) {
+	originalMux := http.DefaultServeMux
+	http.DefaultServeMux = http.NewServeMux()
+
+	t.Cleanup(func() { http.DefaultServeMux = originalMux })
+
+	// Register a unique handler on the (swapped) DefaultServeMux. If the admin
+	// mux ever regressed to delegating to DefaultServeMux this would start
+	// serving.
+	probePath := "/admin-mux-leak-probe-" + strings.ReplaceAll(t.Name(), "/", "-")
+
+	http.HandleFunc(probePath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})
 
 	srv := httptest.NewServer(newAdminMux())
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Get(srv.URL + "/admin-mux-leak-probe-" + strings.ReplaceAll(t.Name(), "/", "-"))
+	resp, err := http.Get(srv.URL + probePath)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = resp.Body.Close() })

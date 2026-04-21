@@ -86,13 +86,7 @@ func newFakeQueue(t *testing.T, delay time.Duration) (*CommitQueue, *fakeCommitt
 	t.Helper()
 
 	f := &fakeCommitter{delay: delay}
-	q := &CommitQueue{
-		mgr:      f,
-		workers:  make(map[string]chan CommitJob),
-		queueBuf: 16,
-	}
-	q.idleCh = make(chan struct{})
-	close(q.idleCh)
+	q := NewCommitQueueWithCommitter(f, 16)
 
 	return q, f
 }
@@ -302,6 +296,61 @@ func TestCommitQueue_CloseDrainsBufferedJobs(t *testing.T) {
 	}
 
 	assert.Len(t, fake.snapshot(), n)
+}
+
+func TestCommitQueue_IdleTeardownExitsWorker(t *testing.T) {
+	// Build a queue with a tight idle timeout so the worker exits shortly
+	// after its last job completes.
+	f := &fakeCommitter{delay: 0}
+	q := NewCommitQueueWithCommitter(f, 16, WithIdleTimeout(30*time.Millisecond))
+
+	t.Cleanup(func() { _ = q.Close(context.Background()) })
+
+	// Spawn a worker for "alpha" via a single commit.
+	done := q.Enqueue(CommitJob{
+		Project: "alpha",
+		Kind:    CommitKindFile,
+		Path:    "a.md",
+		Message: "first",
+	})
+	require.NoError(t, <-done)
+
+	// The worker's idle timer should fire and tear the worker down. Wait
+	// for the map entry to disappear (the worker removes itself on exit).
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		q.mu.Lock()
+		_, ok := q.workers["alpha"]
+		q.mu.Unlock()
+
+		if !ok {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	q.mu.Lock()
+	_, stillPresent := q.workers["alpha"]
+	q.mu.Unlock()
+	assert.False(t, stillPresent,
+		"expected idle worker for 'alpha' to be removed from the workers map")
+
+	// After teardown, a new Enqueue should transparently spawn a fresh
+	// worker and deliver the job.
+	done = q.Enqueue(CommitJob{
+		Project: "alpha",
+		Kind:    CommitKindFile,
+		Path:    "b.md",
+		Message: "second",
+	})
+	require.NoError(t, <-done)
+
+	// The fake committer should have seen both commits in order.
+	commits := f.snapshot()
+	require.Len(t, commits, 2)
+	assert.Equal(t, "first", commits[0].message)
+	assert.Equal(t, "second", commits[1].message)
 }
 
 func TestCommitQueue_EnqueueAfterCloseFails(t *testing.T) {
