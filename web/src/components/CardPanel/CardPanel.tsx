@@ -1,24 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import MDEditor from '@uiw/react-md-editor';
-import { useTheme } from '../../hooks/useTheme';
 import type { Card, LogEntry, ProjectConfig, PatchCardInput } from '../../types';
 import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import { CardPanelAgent } from './CardPanelAgent';
 import { CardPanelActivity } from './CardPanelActivity';
+import { CardPanelEditor } from './CardPanelEditor';
 import { CardChat } from './CardChat';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
-
-// Approximate height in px of the panel content above the editor on mobile
-// (header bar ~57px + title section ~60px + type/priority/state row ~60px +
-// agent section ~50px + description label ~20px + spacing ~33px).
-const MOBILE_ABOVE_EDITOR_PX = 280;
-
-// Panel switches to full-width mode at this breakpoint (matches .card-panel CSS).
-const MOBILE_BREAKPOINT = 1024;
-
-const DEFAULT_EDITOR_HEIGHT = 250;
 
 /** Shallow equality check for string arrays (used for label comparison). */
 function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -29,21 +18,6 @@ function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean 
     if (aa[i] !== bb[i]) return false;
   }
   return true;
-}
-
-/** True when the panel occupies the full viewport width. */
-function isMobileLayout(): boolean {
-  return window.innerWidth <= MOBILE_BREAKPOINT;
-}
-
-/**
- * Computes the editor height for mobile using the VisualViewport API.
- * VisualViewport.height shrinks when the on-screen keyboard appears, giving us
- * the precise usable height above the keyboard without any extra calculation.
- */
-function computeMobileEditorHeight(): number {
-  const vvh = window.visualViewport?.height ?? window.innerHeight;
-  return Math.max(120, vvh - MOBILE_ABOVE_EDITOR_PX);
 }
 
 interface CardPanelProps {
@@ -75,9 +49,7 @@ export function CardPanel({
   onRunCard,
   onStopCard,
 }: CardPanelProps) {
-  const { theme } = useTheme();
   const panelRef = useRef<HTMLDivElement>(null);
-  const editorContainerRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
   // Initialize collapsed state based on whether we start in HITL-running mode.
@@ -85,9 +57,6 @@ export function CardPanel({
   const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
   const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
   const [labelsCollapsed, setLabelsCollapsed] = useState(initialIsHITLRunning);
-  const [editorHeight, setEditorHeight] = useState<number>(
-    isMobileLayout() ? computeMobileEditorHeight() : DEFAULT_EDITOR_HEIGHT,
-  );
 
   useFocusTrap(panelRef, true);
 
@@ -116,89 +85,6 @@ export function CardPanel({
     loading: branchesLoading,
     error: branchesError,
   } = useBranches(card.project, !!config.remote_execution?.enabled);
-
-  // Dynamically resize the editor when the visual viewport changes (e.g.
-  // on-screen keyboard appearing/disappearing on mobile). On desktop the editor
-  // keeps its default fixed height.
-  useEffect(() => {
-    function updateHeight() {
-      if (isMobileLayout()) {
-        setEditorHeight(computeMobileEditorHeight());
-      } else {
-        setEditorHeight(DEFAULT_EDITOR_HEIGHT);
-      }
-    }
-
-    // VisualViewport fires 'resize' when the keyboard opens/closes on mobile.
-    window.visualViewport?.addEventListener('resize', updateHeight);
-    // Also listen to window resize for orientation changes and desktop resizes.
-    window.addEventListener('resize', updateHeight);
-
-    // Set initial height based on current state.
-    updateHeight();
-
-    return () => {
-      window.visualViewport?.removeEventListener('resize', updateHeight);
-      window.removeEventListener('resize', updateHeight);
-    };
-  }, []);
-
-  // Auto-scroll the editor textarea so the cursor line stays visible when
-  // typing past the bottom of the visible editor area.
-  useEffect(() => {
-    const container = editorContainerRef.current;
-    if (!container) return;
-
-    // The MDEditor renders a hidden textarea that receives keyboard input.
-    // We wait a tick for the editor to finish mounting before querying it.
-    let textarea: HTMLTextAreaElement | null = null;
-
-    function findTextarea() {
-      textarea = container?.querySelector<HTMLTextAreaElement>(
-        '.w-md-editor-text-input',
-      ) ?? null;
-      return textarea;
-    }
-
-    function handleInput() {
-      if (!textarea) findTextarea();
-      if (!textarea) return;
-
-      // Compute the cursor's approximate vertical position within the textarea
-      // by measuring how many lines precede the cursor and multiplying by the
-      // computed line height.
-      const { selectionEnd, value } = textarea;
-      const textBeforeCursor = value.slice(0, selectionEnd);
-      const linesBefore = textBeforeCursor.split('\n').length;
-
-      const computedStyle = window.getComputedStyle(textarea);
-      const lineHeight = parseFloat(computedStyle.lineHeight) || 20;
-      const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
-
-      const cursorY = paddingTop + (linesBefore - 1) * lineHeight;
-
-      // Scroll so the cursor line is visible, keeping one extra line of context.
-      const visibleBottom = textarea.scrollTop + textarea.clientHeight;
-      if (cursorY + lineHeight > visibleBottom) {
-        textarea.scrollTop = cursorY + lineHeight - textarea.clientHeight + lineHeight;
-      } else if (cursorY < textarea.scrollTop) {
-        textarea.scrollTop = Math.max(0, cursorY - lineHeight);
-      }
-    }
-
-    // Delay query so MDEditor has time to render its textarea.
-    const timer = setTimeout(() => {
-      findTextarea();
-      if (textarea) {
-        textarea.addEventListener('input', handleInput);
-      }
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-      textarea?.removeEventListener('input', handleInput);
-    };
-  }, []);
 
   const isDirty =
     editedCard.title !== card.title ||
@@ -300,31 +186,12 @@ export function CardPanel({
         onStop={onStopCard}
       />
 
-      <div ref={editorContainerRef} data-color-mode={theme}>
-        <div className="flex items-center gap-1 mb-1">
-          <label className="text-xs text-[var(--grey1)]">Description</label>
-          <button
-            onClick={() => setDescriptionCollapsed((v) => !v)}
-            className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-            aria-label={descriptionCollapsed ? 'Expand description' : 'Collapse description'}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d={descriptionCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
-            </svg>
-          </button>
-        </div>
-        {!descriptionCollapsed && (
-          <MDEditor
-            value={editedCard.body}
-            onChange={(val) => setEditedCard((prev) => ({ ...prev, body: val || '' }))}
-            preview="edit"
-            height={editorHeight}
-            visibleDragbar={false}
-            previewOptions={{ skipHtml: true }}
-          />
-        )}
-      </div>
+      <CardPanelEditor
+        value={editedCard.body}
+        onChange={(body) => setEditedCard((prev) => ({ ...prev, body }))}
+        collapsed={descriptionCollapsed}
+        onToggleCollapsed={() => setDescriptionCollapsed((v) => !v)}
+      />
 
       <CardPanelMetadata
         card={card}
