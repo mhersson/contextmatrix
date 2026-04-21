@@ -79,8 +79,9 @@ export function CardPanel(props: CardPanelProps) {
   }, [currentAgentId, onPromptAgentId, onClaim]);
 
   const handleRelease = useCallback(async () => {
-    if (currentAgentId) await onRelease(currentAgentId);
-  }, [currentAgentId, onRelease]);
+    if (!currentAgentId || !card.assigned_agent) return;
+    await onRelease(card.assigned_agent);
+  }, [currentAgentId, card.assigned_agent, onRelease]);
 
   const handleClose = () => {
     if (isDirty && !window.confirm('Discard unsaved changes?')) return;
