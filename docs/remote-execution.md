@@ -368,9 +368,39 @@ Or on error:
 ```json
 {
   "ok": false,
-  "error": "description of what went wrong"
+  "code": "error_code",
+  "message": "human-readable description"
 }
 ```
+
+**Stable error codes:**
+
+| Code               | Meaning                                                     |
+| ------------------ | ----------------------------------------------------------- |
+| `invalid_json`     | Request body could not be parsed as JSON                    |
+| `invalid_field`    | A required field is missing or has an invalid value         |
+| `unauthorized`     | HMAC signature missing, invalid, or timestamp out of window |
+| `not_found`        | Referenced card or container does not exist                 |
+| `conflict`         | Operation not valid in the current state                    |
+| `duplicate`        | A duplicate resource was detected                           |
+| `stdin_closed`     | Container stdin is closed; no further messages accepted     |
+| `too_large`        | Request payload exceeds the size limit (e.g., 8 KiB)       |
+| `limit_reached`    | A configured capacity limit has been reached                |
+| `internal`         | Unexpected runner-side error                                |
+| `upstream_failure` | Runner could not reach an upstream dependency (e.g., CM)   |
+| `draining`         | Runner is shutting down and not accepting new work          |
+
+**Per-endpoint behaviour notes:**
+
+- **`/stop-all`** — may return `207 Multi-Status` when some containers were
+  stopped and others failed. The body contains per-card results.
+- **`/kill`** — idempotent: returns `200` (not 404) when the card is not
+  tracked. Use this to safely call stop on cards that may already be finished.
+- **`/message`** — may return `410` with code `stdin_closed` after the
+  container session has ended and stdin is no longer writable.
+- **All mutating endpoints** — return `503` with code `draining` while the
+  runner is performing a graceful shutdown. Clients should not retry during
+  a draining window.
 
 ### Retry Policy
 
@@ -387,9 +417,24 @@ ContextMatrix retries failed webhooks with exponential backoff:
 2. Pulls Docker image (base image or per-project override from `runner_image`)
 3. Starts container with:
    - Claude Code CLI pre-installed
-   - MCP URL and API key injected as environment variables
+   - Secrets delivered via tmpfs bind-mount at `/run/cm-secrets/env` (not plain
+     environment variables) — the entrypoint sources this file at startup
+   - `--allowed-tools` with an explicit tool allowlist replaces
+     `--dangerously-skip-permissions`. Two allowlist arrays are defined:
+     - `ALLOWED_TOOLS_COMMON` — used for both HITL and autonomous runs
+     - `ALLOWED_TOOLS_AUTO_EXTRAS` — adds `Task` on top of `ALLOWED_TOOLS_COMMON`
+       for fully autonomous (non-interactive) runs
    - Git credentials mounted (not baked into image)
    - The card ID and project name passed as arguments
+   - Injected environment variables include:
+     - `CM_MCP_URL` — ContextMatrix MCP endpoint
+     - `CM_MCP_API_KEY` — Bearer token for MCP authentication
+     - `CM_CARD_ID` / `CM_PROJECT` — card being executed
+     - `CM_ORCHESTRATOR_MODEL` — model name from the trigger payload
+     - `CM_INTERACTIVE` — `1` for HITL mode, unset or `0` for autonomous
+     - `CM_CORRELATION_ID` — opaque ID propagated from the `/trigger` request's
+       `X-Correlation-ID` header; the container forwards it as `X-Correlation-ID`
+       on all outbound requests for end-to-end tracing
 4. Claude Code runs the `run-autonomous` workflow:
    - Connects to ContextMatrix via MCP
    - Claims the card
@@ -402,6 +447,39 @@ ContextMatrix retries failed webhooks with exponential backoff:
 
 **On kill:** Container is destroyed immediately. All uncommitted work is
 discarded. No partial saves.
+
+## Worker Safety
+
+### Idle-Output Watchdog
+
+The runner monitors each container for output activity. If a container produces
+no stdout or stderr output for longer than `idle_output_timeout` (default: **30
+minutes**), the runner treats it as hung and force-kills the container. This
+prevents silent deadlocks — e.g., a Claude Code process blocked waiting for
+user input that will never arrive in autonomous mode — from consuming slots and
+leaving cards permanently `running`.
+
+The watchdog timer resets every time the container emits any output line. A
+container that is actively working but producing slow output (e.g., a long
+compile step with no progress lines) will not be killed as long as it emits at
+least one line within the window.
+
+### Maintenance Loop
+
+A background maintenance goroutine runs every `maintenance_interval` (default:
+**10 minutes**) and performs two cleanup tasks:
+
+1. **Orphan sweep** — scans running Docker containers for any that were started
+   by this runner but are no longer tracked in the in-memory container map (e.g.,
+   because the runner restarted mid-session). Orphaned containers are stopped and
+   their log sessions terminated.
+2. **Image pruning** — removes dangling Docker images (untagged intermediate
+   layers) that are older than 24 hours. This prevents unbounded disk growth
+   from repeated image pulls and rebuilds.
+
+Both tasks are best-effort: errors are logged but do not stop the maintenance
+loop. The maintenance loop is started automatically when the runner starts and
+stopped gracefully on shutdown.
 
 ## Security Model
 
@@ -718,10 +796,55 @@ Environment variable overrides:
 contextmatrix_url: "http://contextmatrix:8080"
 api_key: "shared-hmac-secret" # Must match CM's runner.api_key
 
+# HTTP ports
+# The main port serves public endpoints (/trigger, /readyz, /logs, etc.)
+# The admin_port serves privileged endpoints (/metrics, /ready) and is bound
+# to 127.0.0.1 only. Default: 9091
+admin_port: 9091
+
+# Logging
+log_format: "json" # "json" or "text"
+
 # Container defaults
-docker_base_image: "contextmatrix/runner:latest"
-max_concurrent: 3 # Max simultaneous containers
+# base_image must be digest-pinned (e.g. "my-org/runner@sha256:abc123...")
+# to guarantee reproducible, tamper-proof execution environments.
+base_image: "contextmatrix/runner@sha256:<digest>"
+max_concurrent: 3    # Max simultaneous containers
 container_timeout: "2h" # Force-kill after this duration
+
+# Resource limits applied to every spawned container
+container_memory_limit: "4g"  # Docker memory limit (e.g. "512m", "4g")
+container_pids_limit: 512     # Docker PIDs limit
+
+# Secrets directory — files here are mounted read-only into containers
+secrets_dir: "/run/secrets/runner"
+
+# Allowed MCP hosts — the runner will only connect containers to hostnames
+# on this list. Empty list disables the allowlist (not recommended).
+allowed_mcp_hosts:
+  - "contextmatrix"
+
+# Allowed Docker images — if non-empty, the runner rejects trigger payloads
+# that request an image not on this list. Use digest-pinned refs.
+allowed_images: []
+
+# Replay-attack prevention for HMAC-signed webhooks
+webhook_replay_cache_size: 1024  # Number of recent webhook IDs to cache
+webhook_replay_skew_seconds: 30  # Allowed clock skew for timestamp validation
+
+# Stdin deduplication — prevents the same message being injected twice on retry
+message_dedup_cache_size: 512  # Number of recent message IDs to cache
+message_dedup_ttl_seconds: 300 # TTL for each dedup cache entry (seconds)
+
+# Idle watchdog — kills a container that emits no stdout/stderr within this window
+idle_output_timeout: "30m"
+
+# Maintenance loop — how often the runner sweeps for orphaned containers and
+# prunes stale images
+maintenance_interval: "10m"
+
+# HMAC-sign the GET /autonomous verify check sent to ContextMatrix
+use_hmac_for_verify_autonomous: true
 
 # Claude Code auth
 # The runner must be installed on a machine with a browser
@@ -743,6 +866,23 @@ When using GitHub Enterprise, both sides must target the same host: set
 `github_app.api_base_url` in the runner to the same enterprise API endpoint. The
 runner entrypoint derives the git host automatically from the repo URL sent in
 the trigger payload, so no additional git configuration is needed.
+
+### Operator Endpoints
+
+The runner exposes two categories of endpoints:
+
+**Public port** (configured by the main listener, default `:9090`):
+
+| Endpoint     | Auth        | Description                                                                                                                                                         |
+| ------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /readyz` | None        | Health probe. Returns `200 {"ok":true}` when the runner is ready to accept work. Returns `503 {"ok":false,"reason":"preflight"}` during startup warmup, and `503 {"ok":false,"reason":"draining"}` during graceful shutdown. Used by load balancers and Kubernetes liveness/readiness probes. |
+
+**Admin port** (`admin_port`, default `127.0.0.1:9091` — loopback only):
+
+| Endpoint       | Auth           | Description                                                                                                                    |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /metrics` | HMAC-signed    | Prometheus metrics endpoint. Uses the same HMAC key as webhook signing (`api_key`). Only accessible on the loopback interface. |
+| `GET /ready`   | None (loopback) | Unauthenticated readiness probe. Identical semantics to `/readyz` but restricted to the admin port (loopback only).           |
 
 ### Per-Project (`.board.yaml`)
 
@@ -776,6 +916,27 @@ Runner status is cleared when a card transitions to `done` or `not_planned`.
 | Stop All                     | All cards in project | Kills all containers for the project                   |
 | `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
 | Per-project `enabled: false` | Single project       | Hides run button for that project                     |
+
+## Graceful Shutdown
+
+The runner handles `SIGTERM` with a structured shutdown sequence to avoid
+dropping in-flight work or leaving orphaned containers:
+
+1. **`/readyz` flips to 503** — immediately upon receiving SIGTERM, `/readyz`
+   begins returning `{"ok":false,"reason":"draining"}` so load balancers and
+   Kubernetes stop routing new webhook traffic.
+2. **In-flight requests finish** — any webhook requests already being processed
+   (trigger, message, promote, etc.) are allowed to complete normally. No new
+   requests are accepted.
+3. **Tracked containers killed** — all containers currently tracked by the
+   runner are sent a kill signal. Each killed container is reported as
+   `runner_status: failed` to ContextMatrix so the card is not left in a
+   phantom running state.
+4. **Manager drain** — the container manager is given up to **30 seconds** to
+   finish draining (completing any pending state transitions and final log
+   flushes).
+5. **Force-cleanup** — after the 30s drain window, a **5-second** hard timeout
+   fires to release any remaining resources before the process exits.
 
 ## See Also
 
