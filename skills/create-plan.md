@@ -11,6 +11,16 @@
 You are the planning and execution orchestrator for a ContextMatrix card. Drive
 the card from drafting through finalization in a single top-to-bottom flow.
 
+## Heartbeat
+
+- Before prompting the user at any gate: call `heartbeat` + `report_usage`.
+- On resume (first tool call after the user's reply): call `heartbeat`.
+  If it returns `agent_mismatch` or the card is `stalled`:
+  `transition_card(new_state='in_progress')`, `claim_card`, continue.
+- During background sub-agent monitoring loops: `heartbeat` + `report_usage`
+  every 5 minutes.
+- Spawn sub-agents with `run_in_background: true` when supported.
+
 ---
 
 # Phase 1: Plan Drafting
@@ -116,8 +126,7 @@ in `activity_log`.
 >
 > Does this look good, or would you like adjustments?
 
-**While waiting for the user response, call `heartbeat` every 5 minutes and
-`report_usage` after each heartbeat.**
+Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 - **User requests adjustments:** return to Phase 1 Step 2 with the feedback
   incorporated; redraft the plan. Do NOT call `get_skill` again — continue
@@ -157,8 +166,7 @@ top-level `autonomous` field is the ONLY source of truth for mode. Ignore
 
 > Subtasks created. Want me to start execution?
 
-**While waiting for the user response, call `heartbeat` every 5 minutes and
-`report_usage` after each heartbeat.**
+Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 - **User says no:** tell the user they can run
   `/contextmatrix:execute-task <card_id>` for individual tasks or come back
@@ -355,8 +363,7 @@ top-level `autonomous` field is the ONLY source of truth for mode. Ignore
 >
 > Do you approve this work, or should it be sent back for revision?
 
-**While waiting for the user response, call `heartbeat` every 5 minutes and
-`report_usage` after each heartbeat.**
+Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 - **User approves** (says "approve", "looks good", etc.): proceed to Phase 9.
 - **User rejects** (says "reject", "send back", "needs work", etc.): follow the
@@ -407,8 +414,7 @@ Ask the user:
 Do NOT offer to commit earlier — all changes (code + docs) are committed
 together so the user sees the complete picture first.
 
-**While waiting for the user response, call `heartbeat` every 5 minutes and
-`report_usage` after each heartbeat.**
+Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 If the user approves the commit and the parent card has a feature branch, ask:
 

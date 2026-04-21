@@ -210,6 +210,14 @@ The runner performs a two-step operation in strict order:
    The agent at its next HITL gate calls `get_card`, sees `autonomous: true`,
    and skips the gate automatically. No stdin message is written on API failure.
 
+3. **Close stdin:** Immediately after the canned message is written, the runner
+   closes the container's stdin. This signals EOF to `claude
+   --input-format stream-json`, which causes the process to finish any in-flight
+   work and exit cleanly through the normal `waitAndCleanup` path — without
+   waiting for `container_timeout`. An already-closed stdin (e.g. a racing
+   `/end-session`) is treated as non-fatal: a warning is logged and the endpoint
+   still returns 200.
+
 **Error responses:**
 
 | Status | Condition                                            |
@@ -398,6 +406,9 @@ Or on error:
   tracked. Use this to safely call stop on cards that may already be finished.
 - **`/message`** — may return `410` with code `stdin_closed` after the
   container session has ended and stdin is no longer writable.
+- **`/promote`** — closes stdin immediately after writing the canned message.
+  A subsequent `/end-session` on the same card is idempotent (returns `409`
+  because stdin is already closed).
 - **All mutating endpoints** — return `503` with code `draining` while the
   runner is performing a graceful shutdown. Clients should not retry during
   a draining window.
@@ -582,6 +593,7 @@ Web UI (promote btn) → CM POST /api/runner/promote
                                     502+stop if autonomous != true or request fails)
                       → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
+                      → Runner closes container stdin (EOF → container exits after work done)
 ```
 
 ### Feature Branch Flags
