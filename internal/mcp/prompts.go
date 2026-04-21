@@ -709,7 +709,8 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, fi
 
 			for _, s := range siblings {
 				if s.ID != card.ID {
-					lines = append(lines, fmt.Sprintf("- %s [%s] %s", s.ID, s.State, s.Title))
+					safe := redactCardForPrompt(s, "")
+					lines = append(lines, fmt.Sprintf("- %s [%s] %s", safe.ID, safe.State, safe.Title))
 				}
 			}
 
@@ -865,7 +866,11 @@ func findCard(ctx context.Context, svc *service.CardService, cardID string) (*bo
 }
 
 // formatCardContext formats a card with full details for prompt injection.
+// Unvetted external cards are redacted first so untrusted title/body/activity
+// entries can never influence the rendered skill prompt.
 func formatCardContext(c *board.Card, project string) string {
+	c = redactCardForPrompt(c, "")
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Card: %s\n", c.ID)
 	fmt.Fprintf(&b, "- **Title:** %s\n", c.Title)
@@ -923,7 +928,11 @@ func formatCardContext(c *board.Card, project string) string {
 
 // formatCardBrief formats a card as a brief summary without the body.
 // Use formatCardBriefWithBody when the caller genuinely needs body content.
+// Unvetted external cards are redacted first so untrusted titles cannot reach
+// the agent via parent/sibling summaries.
 func formatCardBrief(c *board.Card) string {
+	c = redactCardForPrompt(c, "")
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n### %s: %s\n", c.ID, c.Title)
 	fmt.Fprintf(&b, "- State: %s | Type: %s | Priority: %s\n", c.State, c.Type, c.Priority)
@@ -956,7 +965,11 @@ func formatCardBrief(c *board.Card) string {
 }
 
 // formatCardBriefWithBody formats a card as a brief summary including the full body.
+// Unvetted external cards are redacted first so both the brief header and the
+// appended body are replaced with safe placeholders.
 func formatCardBriefWithBody(c *board.Card) string {
+	c = redactCardForPrompt(c, "")
+
 	s := formatCardBrief(c)
 	if c.Body != "" {
 		s += fmt.Sprintf("\n%s\n", c.Body)
