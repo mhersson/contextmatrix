@@ -245,16 +245,27 @@ Sent by an event-bus subscriber in CM that listens for `card.released` and
 `card.state_changed`. The subscriber fires only when all three hold:
 
 1. `card.runner_status` is `queued` or `running` (this is the container's
-   top-level card — subtasks never have `runner_status` set).
+   top-level card — subtasks never have `runner_status` set). CM leaves
+   `runner_status` untouched on a state transition to `done` / `not_planned`;
+   the runner is the authoritative source and clears it via
+   `UpdateRunnerStatus("completed"/"failed"/"killed")` once the container has
+   actually exited.
 2. `card.assigned_agent` is empty (the card has actually been released).
 3. `card.state` is `done` or `not_planned`.
 
 This prevents the container from exiting on intermediate `release_card` calls
-an orchestrator makes between subtasks. The webhook is idempotent on the
-runner side: a second call returns 409 (`ErrNoStdinAttached`) because the
-stdin writer is nil'd on first close. The subscriber logs the failure but
-does not fail the release; the runner's container timeout and
-`CleanupOrphans` on next runner start are the safety net.
+an orchestrator makes between subtasks.
+
+**End-session is always followed by `/kill`.** Claude in `--input-format
+stream-json` mode has been observed keeping the container process alive well
+past stdin EOF (processing in-flight work and then idling instead of exiting).
+The subscriber therefore calls `/end-session` first (polite close, lets claude
+exit gracefully if it respects EOF) and then calls `/kill` unconditionally as
+a safety net so a terminal-state card never leaves a live container behind.
+`/kill` is idempotent — if the container is already gone the runner returns
+200 no-op. Expected `/end-session` responses (409 no stdin attached for
+autonomous containers, 410 stdin already closed by an earlier `/promote`) are
+classified as normal and suppressed from the warning log; `/kill` still fires.
 
 The runner emits a `system` `LogEntry` with content
 `"session ended (stdin closed)"` before returning.

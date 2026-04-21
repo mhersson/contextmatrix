@@ -17,8 +17,13 @@ import (
 //   - not_planned: release agent claim so the lock manager won't treat the card
 //     as stalled. not_planned is a manual terminal state — no agent will be
 //     active on it.
-//   - done / not_planned: clear runner_status — the runner is no longer
-//     associated with a finished card.
+//
+// Note: runner_status is intentionally NOT cleared here. The end-session
+// subscriber keys off runner_status ∈ {queued, running} to decide whether the
+// container is still live when the card hits a terminal state; clearing it
+// here would defeat the subscriber's trigger. The runner itself clears
+// runner_status via UpdateRunnerStatus("completed"/"failed"/"killed") once
+// the container has actually exited, which is the authoritative signal.
 //
 // Safe to call regardless of stateChanged — it only acts when the card's
 // current state is one of the targets. But callers should pass stateChanged
@@ -31,10 +36,6 @@ func enforceTerminalStateInvariants(card *board.Card, stateChanged bool) {
 	if card.State == board.StateNotPlanned {
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
-	}
-
-	if card.State == board.StateDone || card.State == board.StateNotPlanned {
-		card.RunnerStatus = ""
 	}
 }
 

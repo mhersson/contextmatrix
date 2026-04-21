@@ -227,6 +227,12 @@ func (e *webhookError) Error() string {
 	return fmt.Sprintf("runner returned HTTP %d: %s", e.statusCode, e.body)
 }
 
+// HTTPStatusCode exposes the runner's response status so callers can
+// classify errors without depending on the concrete type.
+func (e *webhookError) HTTPStatusCode() int {
+	return e.statusCode
+}
+
 // isClientError returns true if err should not be retried (4xx or logical rejection).
 func isClientError(err error) bool {
 	var we *webhookError

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -12,6 +13,7 @@ import (
 // tests to inject a fake.
 type EndSessionClient interface {
 	EndSession(ctx context.Context, p EndSessionPayload) error
+	Kill(ctx context.Context, p KillPayload) error
 }
 
 // CardGetter is the subset of *service.CardService needed by the subscriber.
@@ -105,16 +107,63 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 		return
 	}
 
-	if err := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project}); err != nil {
+	// Phase 1: try graceful stdin close. This is a no-op for autonomous
+	// (non-interactive) containers, where stdin was never attached — the
+	// webhook returns 409 and we fall through to the kill step below. For
+	// interactive containers where stdin is still open it signals EOF to
+	// claude; claude may or may not exit on EOF (stream-json mode has been
+	// observed keeping the process alive well past EOF), so we always follow
+	// up with a force-kill below to guarantee the container is gone.
+	endSessionErr := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project})
+	if endSessionErr != nil && !isExpectedEndSessionErr(endSessionErr) {
 		logger.Warn("end-session webhook failed",
+			"project", project, "card_id", cardID, "error", endSessionErr)
+	}
+
+	// Phase 2: force-kill the container so a terminal-state card never leaves
+	// a live container behind, even if claude ignored the EOF. /kill is
+	// idempotent — it returns 200 no-op when the container is already gone
+	// (e.g. claude did exit on EOF, or reportCompleted already cleaned up).
+	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
+		logger.Warn("kill webhook failed after end-session",
 			"project", project, "card_id", cardID, "error", err)
 
 		return
 	}
 
-	logger.Info("end-session webhook sent",
+	logger.Info("end-session + kill sent",
 		"project", project, "card_id", cardID,
-		"state", card.State, "runner_status", card.RunnerStatus)
+		"state", card.State, "runner_status", card.RunnerStatus,
+		"end_session_err", endSessionErr)
+}
+
+// statusCoder is implemented by runner webhook errors that carry an HTTP
+// status code. Lets the subscriber classify expected-vs-warning responses
+// without depending on the concrete error type.
+type statusCoder interface {
+	HTTPStatusCode() int
+}
+
+// isExpectedEndSessionErr returns true for runner responses that are normal
+// in the terminal-state flow and don't warrant a warning:
+//
+//   - 404: no container tracked (already cleaned up — kill is a no-op)
+//   - 409: no stdin attached (autonomous container — never had stdin)
+//   - 410: stdin already closed (prior /promote or prior /end-session)
+//
+// All three are handled by the follow-up /kill step, which is idempotent.
+func isExpectedEndSessionErr(err error) bool {
+	var sc statusCoder
+	if !errors.As(err, &sc) {
+		return false
+	}
+
+	switch sc.HTTPStatusCode() {
+	case 404, 409, 410:
+		return true
+	}
+
+	return false
 }
 
 func shouldEndSession(card *board.Card) bool {

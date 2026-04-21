@@ -48,9 +48,11 @@ func (f *fakeCardGetter) setAgent(project, id, agent string) {
 }
 
 type fakeClient struct {
-	mu    sync.Mutex
-	calls []runner.EndSessionPayload
-	err   error
+	mu        sync.Mutex
+	calls     []runner.EndSessionPayload
+	killCalls []runner.KillPayload
+	err       error
+	killErr   error
 }
 
 func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) error {
@@ -60,6 +62,15 @@ func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) e
 	f.calls = append(f.calls, p)
 
 	return f.err
+}
+
+func (f *fakeClient) Kill(_ context.Context, p runner.KillPayload) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.killCalls = append(f.killCalls, p)
+
+	return f.killErr
 }
 
 func (f *fakeClient) Calls() []runner.EndSessionPayload {
@@ -72,16 +83,45 @@ func (f *fakeClient) Calls() []runner.EndSessionPayload {
 	return out
 }
 
+func (f *fakeClient) KillCalls() []runner.KillPayload {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]runner.KillPayload, len(f.killCalls))
+	copy(out, f.killCalls)
+
+	return out
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// fakeStatusErr is an error that exposes an HTTP status code via
+// HTTPStatusCode(), matching what runner.Client returns for 4xx responses.
+// Used to drive the subscriber's expected-error classification path.
+type fakeStatusErr struct {
+	status int
+	msg    string
+}
+
+func (e *fakeStatusErr) Error() string       { return e.msg }
+func (e *fakeStatusErr) HTTPStatusCode() int { return e.status }
 
 func waitForCalls(t *testing.T, fc *fakeClient, want int) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
 		return len(fc.Calls()) >= want
-	}, 2*time.Second, 5*time.Millisecond, "expected >= %d calls", want)
+	}, 2*time.Second, 5*time.Millisecond, "expected >= %d end-session calls", want)
+}
+
+func waitForKillCalls(t *testing.T, fc *fakeClient, want int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return len(fc.KillCalls()) >= want
+	}, 2*time.Second, 5*time.Millisecond, "expected >= %d kill calls", want)
 }
 
 func assertNoCall(t *testing.T, fc *fakeClient) {
@@ -93,6 +133,7 @@ func assertNoCall(t *testing.T, fc *fakeClient) {
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Empty(t, fc.Calls(), "expected no end-session calls")
+	assert.Empty(t, fc.KillCalls(), "expected no kill calls")
 }
 
 func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
@@ -115,11 +156,17 @@ func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
 
 	calls := fc.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "C-001", calls[0].CardID)
 	assert.Equal(t, "proj", calls[0].Project)
+
+	killCalls := fc.KillCalls()
+	require.Len(t, killCalls, 1, "kill must fire after end-session as a safety net")
+	assert.Equal(t, "C-001", killCalls[0].CardID)
+	assert.Equal(t, "proj", killCalls[0].Project)
 }
 
 func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
@@ -189,6 +236,7 @@ func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T)
 
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
 }
 
 func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
@@ -210,6 +258,7 @@ func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
 	bus.Publish(events.Event{Type: events.CardStateChanged, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
 }
 
 func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
@@ -233,6 +282,7 @@ func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 2)
+	waitForKillCalls(t, fc, 2)
 }
 
 func TestEndSessionSubscriber_UnrelatedEvent_NoCall(t *testing.T) {
@@ -275,5 +325,34 @@ func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
-	// If we got here without the subscriber deadlocking or panicking, we're good.
+	// Kill is the safety net — even if end-session errors, kill must still
+	// fire so a wedged container can't outlive the terminal state.
+	waitForKillCalls(t, fc, 1)
+}
+
+// TestEndSessionSubscriber_EndSession409_KillStillFires verifies that a 409
+// from /end-session (autonomous container — no stdin attached) doesn't
+// prevent the follow-up /kill. This is the common path for pure-autonomous
+// runs that reach a terminal state: there's no interactive stdin to close,
+// but the container must still be terminated.
+func TestEndSessionSubscriber_EndSession409_KillStillFires(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bus := events.NewBus()
+	cg := &fakeCardGetter{cards: map[string]*board.Card{
+		"proj/C-001": {
+			ID:            "C-001",
+			State:         "done",
+			AssignedAgent: "",
+			RunnerStatus:  "running",
+		},
+	}}
+	fc := &fakeClient{err: &fakeStatusErr{status: 409, msg: "container is not in interactive mode"}}
+
+	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
+
+	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
 }
