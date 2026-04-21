@@ -71,6 +71,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       className="w-4 h-4 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg3)] transition-colors flex-shrink-0"
       title={isCollapsed ? 'Expand card' : 'Collapse card'}
       aria-label={isCollapsed ? 'Expand card' : 'Collapse card'}
+      aria-expanded={!isCollapsed}
     >
       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -78,6 +79,15 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       </svg>
     </button>
   ) : null;
+
+  // Enter opens the card (matches onClick). Space is reserved for dnd-kit's
+  // KeyboardSensor to pick up / drop during drag, so we must not swallow it.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onClick?.();
+    }
+  };
 
   if (isCollapsed) {
     return (
@@ -87,9 +97,12 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {...listeners}
         {...attributes}
         onClick={onClick}
+        onKeyDown={handleKeyDown}
+        aria-label={`Card ${card.id}: ${card.title}`}
         className={`
           bg-[var(--bg1)] rounded-md px-3 py-1.5 mb-2 cursor-grab active:cursor-grabbing
           transition-colors duration-150 hover:bg-[var(--bg2)]
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
           ${borderClass}
           ${isDragging ? 'shadow-lg z-50' : ''}
           ${isFlashing ? 'animate-card-flash' : ''}
@@ -140,9 +153,12 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       {...listeners}
       {...attributes}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      aria-label={`Card ${card.id}: ${card.title}`}
       className={`
         bg-[var(--bg1)] rounded-md p-3 mb-2 cursor-grab active:cursor-grabbing
         transition-colors duration-150 hover:bg-[var(--bg2)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
         ${borderClass}
         ${isDragging ? 'shadow-lg z-50' : ''}
         ${isFlashing ? 'animate-card-flash' : ''}

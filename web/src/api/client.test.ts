@@ -68,6 +68,13 @@ describe('api.runCard', () => {
     const card = await api.runCard('test-project', 'TEST-001');
     expect(card).toEqual(baseCard);
   });
+
+  it('treats 202 Accepted as success and parses the card', async () => {
+    // /run is async; backend returns 202 after queuing the runner trigger.
+    fetchSpy.mockResolvedValue(makeResponse(baseCard, 202));
+    const card = await api.runCard('test-project', 'TEST-001');
+    expect(card).toEqual(baseCard);
+  });
 });
 
 describe('api.sendCardMessage', () => {
@@ -162,7 +169,7 @@ describe('api.promoteCardToAutonomous', () => {
 
   it('surfaces 409 as a typed APIError', async () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('ALREADY_AUTONOMOUS', 'already autonomous', 409)
+      makeErrorResponse('RUNNER_NOT_RUNNING', 'card is not currently running', 409)
     );
 
     let caught: unknown;
@@ -173,7 +180,7 @@ describe('api.promoteCardToAutonomous', () => {
     }
 
     expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('ALREADY_AUTONOMOUS');
+    expect((caught as APIError).code).toBe('RUNNER_NOT_RUNNING');
   });
 
   it('surfaces 503 as a typed APIError', async () => {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,11 @@ func setupTestStore(t *testing.T) (*storage.FilesystemStore, string) {
 func createTestCard(t *testing.T, store storage.Store, project string, id string, agent string) *board.Card {
 	t.Helper()
 
-	now := time.Now()
+	return createTestCardAt(t, store, project, id, agent, time.Now())
+}
+
+func createTestCardAt(t *testing.T, store storage.Store, project string, id string, agent string, now time.Time) *board.Card {
+	t.Helper()
 
 	card := &board.Card{
 		ID:       id,
@@ -209,15 +214,16 @@ func TestRelease_CardNotFound(t *testing.T) {
 
 func TestHeartbeat_Success(t *testing.T) {
 	store, _ := setupTestStore(t)
-	mgr := NewManager(store, 30*time.Minute)
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	mgr := NewManagerWithClock(store, 30*time.Minute, fake)
 	ctx := context.Background()
 
-	// Create a claimed card with old heartbeat
-	original := createTestCard(t, store, "test-project", "TEST-001", "agent-1")
+	// Create a claimed card with old heartbeat, using the fake clock's current time.
+	original := createTestCardAt(t, store, "test-project", "TEST-001", "agent-1", fake.Now())
 	oldHeartbeat := original.LastHeartbeat
 
-	// Wait a tiny bit to ensure time difference
-	time.Sleep(10 * time.Millisecond)
+	// Advance the fake clock so the next Heartbeat() picks a strictly later time.
+	fake.Advance(10 * time.Millisecond)
 
 	// Heartbeat
 	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
@@ -472,13 +478,14 @@ func TestClaimUpdatesTimestamp(t *testing.T) {
 
 func TestReleaseUpdatesTimestamp(t *testing.T) {
 	store, _ := setupTestStore(t)
-	mgr := NewManager(store, 30*time.Minute)
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	mgr := NewManagerWithClock(store, 30*time.Minute, fake)
 	ctx := context.Background()
 
-	// Create a claimed card
-	original := createTestCard(t, store, "test-project", "TEST-001", "agent-1")
+	// Create a claimed card at the fake clock's current time.
+	original := createTestCardAt(t, store, "test-project", "TEST-001", "agent-1", fake.Now())
 
-	time.Sleep(10 * time.Millisecond)
+	fake.Advance(10 * time.Millisecond)
 
 	// Release it
 	card, err := mgr.Release(ctx, "test-project", "TEST-001", "agent-1")
@@ -489,13 +496,14 @@ func TestReleaseUpdatesTimestamp(t *testing.T) {
 
 func TestHeartbeatUpdatesTimestamp(t *testing.T) {
 	store, _ := setupTestStore(t)
-	mgr := NewManager(store, 30*time.Minute)
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	mgr := NewManagerWithClock(store, 30*time.Minute, fake)
 	ctx := context.Background()
 
-	// Create a claimed card
-	original := createTestCard(t, store, "test-project", "TEST-001", "agent-1")
+	// Create a claimed card at the fake clock's current time.
+	original := createTestCardAt(t, store, "test-project", "TEST-001", "agent-1", fake.Now())
 
-	time.Sleep(10 * time.Millisecond)
+	fake.Advance(10 * time.Millisecond)
 
 	// Heartbeat
 	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")

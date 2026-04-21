@@ -103,14 +103,14 @@ const sampleEvent: BoardEvent = {
 // ── 1. Multiple subscribers receive the same event ───────────────────────────
 
 describe('fan-out', () => {
-  it('delivers the same event to all active subscribers', () => {
+  it('delivers the same event to all active wildcard subscribers', () => {
     const received1: BoardEvent[] = [];
     const received2: BoardEvent[] = [];
 
     act(() => {
       renderWithProvider((ctx) => {
-        ctx.subscribe((e) => received1.push(e));
-        ctx.subscribe((e) => received2.push(e));
+        ctx.subscribe('*', (e) => received1.push(e));
+        ctx.subscribe('*', (e) => received2.push(e));
       });
     });
 
@@ -129,6 +129,112 @@ describe('fan-out', () => {
   });
 });
 
+// ── 1b. Pattern-filtered subscribers only receive matching events ────────────
+
+describe('pattern filtering', () => {
+  it('does not deliver card.* events to project.* subscribers', () => {
+    const cardReceived: BoardEvent[] = [];
+    const projectReceived: BoardEvent[] = [];
+
+    act(() => {
+      renderWithProvider((ctx) => {
+        ctx.subscribe('card.*', (e) => cardReceived.push(e));
+        ctx.subscribe('project.*', (e) => projectReceived.push(e));
+      });
+    });
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'card.created',
+        project: 'alpha',
+        card_id: 'ALPHA-001',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(cardReceived).toHaveLength(1);
+    expect(cardReceived[0].type).toBe('card.created');
+    expect(projectReceived).toHaveLength(0);
+  });
+
+  it('delivers exact-match subscriptions only for that event type', () => {
+    const exactReceived: BoardEvent[] = [];
+    const prefixReceived: BoardEvent[] = [];
+
+    act(() => {
+      renderWithProvider((ctx) => {
+        ctx.subscribe('project.updated', (e) => exactReceived.push(e));
+        ctx.subscribe('card.*', (e) => prefixReceived.push(e));
+      });
+    });
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    // project.created should not reach the 'project.updated' exact subscriber
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'project.created',
+        project: 'alpha',
+        card_id: '',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(exactReceived).toHaveLength(0);
+    expect(prefixReceived).toHaveLength(0);
+
+    // project.updated should reach the exact subscriber
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'project.updated',
+        project: 'alpha',
+        card_id: '',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(exactReceived).toHaveLength(1);
+    expect(prefixReceived).toHaveLength(0);
+  });
+
+  it('delivers events to both wildcard and matching prefix subscribers', () => {
+    const wild: BoardEvent[] = [];
+    const card: BoardEvent[] = [];
+    const runner: BoardEvent[] = [];
+
+    act(() => {
+      renderWithProvider((ctx) => {
+        ctx.subscribe('*', (e) => wild.push(e));
+        ctx.subscribe('card.*', (e) => card.push(e));
+        ctx.subscribe('runner.*', (e) => runner.push(e));
+      });
+    });
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'runner.started',
+        project: 'alpha',
+        card_id: 'ALPHA-001',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(wild).toHaveLength(1);
+    expect(card).toHaveLength(0);
+    expect(runner).toHaveLength(1);
+  });
+});
+
 // ── 2. Unsubscribe removes only that listener ─────────────────────────────────
 
 describe('unsubscribe', () => {
@@ -139,8 +245,8 @@ describe('unsubscribe', () => {
 
     act(() => {
       renderWithProvider((ctx) => {
-        unsub1 = ctx.subscribe((e) => received1.push(e));
-        ctx.subscribe((e) => received2.push(e));
+        unsub1 = ctx.subscribe('*', (e) => received1.push(e));
+        ctx.subscribe('*', (e) => received2.push(e));
       });
     });
 
@@ -166,6 +272,51 @@ describe('unsubscribe', () => {
     expect(received1).toHaveLength(1);
     // subscriber 2 still receives events
     expect(received2).toHaveLength(2);
+  });
+});
+
+// ── 2b. Provider value is stable: consumers do not re-render on every event ──
+
+describe('provider value memoization', () => {
+  it('does not re-render useSSEBus consumers when an SSE event arrives', () => {
+    const counter = { n: 0 };
+
+    function Consumer({ onRender }: { onRender: () => void }) {
+      useSSEBus();
+      // Side effect in render is the point of this test — we want to count
+      // every render of this consumer. Intentional bypass of the usual lint
+      // rule, applied narrowly.
+      onRender();
+      return null;
+    }
+
+    const onRender = () => {
+      counter.n += 1;
+    };
+
+    act(() => {
+      render(
+        <SSEProvider>
+          <Consumer onRender={onRender} />
+        </SSEProvider>,
+      );
+    });
+
+    // Initial render + onopen flips `connected` → one extra render.
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    const baseline = counter.n;
+
+    // Firing several SSE messages must not re-render the consumer because the
+    // provider value (subscribe / connected / error) does not change.
+    act(() => {
+      latestInstance()._triggerMessage(sampleEvent);
+      latestInstance()._triggerMessage(sampleEvent);
+      latestInstance()._triggerMessage(sampleEvent);
+    });
+
+    expect(counter.n).toBe(baseline);
   });
 });
 

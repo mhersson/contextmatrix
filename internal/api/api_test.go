@@ -222,6 +222,30 @@ func TestCreateCard(t *testing.T) {
 		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
 	})
 
+	t.Run("non-existent parent returns 404 PARENT_NOT_FOUND", func(t *testing.T) {
+		// Regression guard: before the ctxmax-328 audit, a missing parent
+		// wrapped in board.ErrInvalidType, which surfaced as 422
+		// VALIDATION_ERROR. Parent is a resource — clients need 404.
+		body := createCardRequest{
+			Title:    "Subtask with bogus parent",
+			Type:     "task",
+			Priority: "medium",
+			Parent:   "TEST-999",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeParentNotFound, apiErr.Code)
+	})
+
 	t.Run("non-existent project", func(t *testing.T) {
 		body := createCardRequest{
 			Title:    "Test Card",
@@ -316,9 +340,12 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 2)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 2)
+		assert.Empty(t, page.NextCursor, "last page should not emit next_cursor")
+		require.NotNil(t, page.Total, "first page should include total")
+		assert.Equal(t, 2, *page.Total)
 	})
 
 	t.Run("filter by type", func(t *testing.T) {
@@ -329,10 +356,13 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.Equal(t, "task", cards[0].Type)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.Equal(t, "task", page.Items[0].Type)
+		// Total reflects the UN-filtered project size.
+		require.NotNil(t, page.Total)
+		assert.Equal(t, 2, *page.Total)
 	})
 
 	t.Run("filter by priority", func(t *testing.T) {
@@ -343,10 +373,10 @@ func TestListCards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.Equal(t, "high", cards[0].Priority)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.Equal(t, "high", page.Items[0].Priority)
 	})
 }
 
@@ -981,9 +1011,6 @@ func TestHeartbeatCard(t *testing.T) {
 
 	originalHeartbeat := card.LastHeartbeat
 
-	// Wait a moment so heartbeat time differs
-	time.Sleep(10 * time.Millisecond)
-
 	t.Run("successful heartbeat - 204", func(t *testing.T) {
 		body := agentRequest{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
@@ -998,10 +1025,12 @@ func TestHeartbeatCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-		// Verify heartbeat was updated
+		// Verify heartbeat was updated (monotonically — on fast machines the
+		// handler may see the same millisecond as the initial claim).
 		updatedCard, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
 		require.NoError(t, err)
-		assert.True(t, updatedCard.LastHeartbeat.After(*originalHeartbeat))
+		assert.False(t, updatedCard.LastHeartbeat.Before(*originalHeartbeat),
+			"heartbeat must not go backwards")
 	})
 
 	t.Run("heartbeat wrong agent - 403", func(t *testing.T) {
@@ -1558,22 +1587,32 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, sseResp.StatusCode)
 	assert.Equal(t, "text/event-stream", sseResp.Header.Get("Content-Type"))
 
-	// Read SSE events in a background goroutine
+	// Read SSE events in a background goroutine. The reader signals on
+	// connectedCh as soon as it sees the ":connected" prelude so the test
+	// can proceed without a blind time.Sleep.
 	var (
 		receivedEvents []events.Event
 		mu             sync.Mutex
 	)
 
 	readDone := make(chan struct{})
+	connectedCh := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
+
+		var connectedOnce sync.Once
 
 		buf := make([]byte, 4096)
 		for {
 			n, readErr := sseResp.Body.Read(buf)
 			if n > 0 {
-				for line := range strings.SplitSeq(string(buf[:n]), "\n") {
+				chunk := string(buf[:n])
+				if strings.Contains(chunk, ": connected") {
+					connectedOnce.Do(func() { close(connectedCh) })
+				}
+
+				for line := range strings.SplitSeq(chunk, "\n") {
 					if jsonData, ok := strings.CutPrefix(line, "data: "); ok {
 						var ev events.Event
 						if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
@@ -1592,8 +1631,14 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 		}
 	}()
 
-	// Give SSE handler time to subscribe
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the SSE prelude ":connected" to arrive — proves the handler
+	// has subscribed and flushed headers. Deterministic replacement for the
+	// previous 100 ms sleep.
+	select {
+	case <-connectedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SSE ':connected' prelude never arrived")
+	}
 
 	// Create a card via API (triggers CardCreated event)
 	createBody, _ := json.Marshal(createCardRequest{
@@ -1615,8 +1660,26 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	closeBody(t, claimResp.Body)
 	require.Equal(t, http.StatusOK, claimResp.StatusCode)
 
-	// Give events time to propagate
-	time.Sleep(200 * time.Millisecond)
+	// Wait until both CardCreated and CardClaimed have landed on the reader
+	// goroutine, or 5 s elapses. Polls the mutex-guarded receivedEvents.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		var hasCreated, hasClaimed bool
+
+		for _, ev := range receivedEvents {
+			if ev.Type == events.CardCreated && ev.CardID == "TEST-001" {
+				hasCreated = true
+			}
+
+			if ev.Type == events.CardClaimed && ev.CardID == "TEST-001" {
+				hasClaimed = true
+			}
+		}
+
+		return hasCreated && hasClaimed
+	}, 5*time.Second, 5*time.Millisecond, "did not receive both CardCreated and CardClaimed events")
 
 	// Close the SSE connection to stop the reader
 	_ = sseResp.Body.Close()
@@ -2901,6 +2964,153 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	})
 }
 
+func TestListCards_Pagination(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create 5 cards; limit=2 should yield 3 pages (2 + 2 + 1).
+	for i := 0; i < 5; i++ {
+		_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+			Title:    fmt.Sprintf("Card %d", i),
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("first page includes total, last page omits next_cursor", func(t *testing.T) {
+		seen := map[string]bool{}
+
+		var (
+			cursor   string
+			pageNum  int
+			gotTotal bool
+		)
+
+		for {
+			pageNum++
+
+			url := server.URL + "/api/projects/test-project/cards?limit=2"
+			if cursor != "" {
+				url += "&cursor=" + cursor
+			}
+
+			resp, err := http.Get(url)
+			require.NoError(t, err)
+
+			var page listCardsResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+			closeBody(t, resp.Body)
+
+			if pageNum == 1 {
+				require.NotNil(t, page.Total, "first page must include total")
+				assert.Equal(t, 5, *page.Total)
+
+				gotTotal = true
+			} else {
+				assert.Nil(t, page.Total, "subsequent pages must omit total")
+			}
+
+			for _, c := range page.Items {
+				assert.False(t, seen[c.ID], "duplicate card across pages: %s", c.ID)
+				seen[c.ID] = true
+			}
+
+			if page.NextCursor == "" {
+				break
+			}
+
+			cursor = page.NextCursor
+
+			require.LessOrEqual(t, pageNum, 10, "too many pages; pagination likely looped")
+		}
+
+		assert.True(t, gotTotal)
+		assert.Len(t, seen, 5, "walking cursors should yield every card exactly once")
+	})
+
+	t.Run("limit=1 returns one item plus cursor", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=1")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.NotEmpty(t, page.NextCursor, "not on last page, cursor required")
+	})
+
+	t.Run("invalid cursor returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?cursor=!!!not-base64url")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+	})
+
+	t.Run("negative limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=-1")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("zero limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=0")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("limit above max returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=2001")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("non-numeric limit returns 400", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards?limit=abc")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("default limit respected when not specified", func(t *testing.T) {
+		// With 5 cards and default limit of 500, one page should fit everything.
+		resp, err := http.Get(server.URL + "/api/projects/test-project/cards")
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 5)
+		assert.Empty(t, page.NextCursor)
+	})
+}
+
 func TestListCards_VettedFilter(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
@@ -2933,10 +3143,10 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.True(t, cards[0].Vetted)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.True(t, page.Items[0].Vetted)
 	})
 
 	t.Run("?vetted=false returns only unvetted cards", func(t *testing.T) {
@@ -2947,10 +3157,10 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 1)
-		assert.False(t, cards[0].Vetted)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 1)
+		assert.False(t, page.Items[0].Vetted)
 	})
 
 	t.Run("no vetted param returns all cards", func(t *testing.T) {
@@ -2961,9 +3171,9 @@ func TestListCards_VettedFilter(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var cards []*board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cards))
-		assert.Len(t, cards, 2)
+		var page listCardsResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+		assert.Len(t, page.Items, 2)
 	})
 }
 

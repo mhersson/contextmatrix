@@ -53,11 +53,9 @@ export function useProjectSummaries(projectNames: string[]) {
   const { subscribe } = useSSEBus();
 
   useEffect(() => {
-    return subscribe((event) => {
-      if (event.type.startsWith('card.')) {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => fetchAll(), 500);
-      }
+    return subscribe('card.*', () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => fetchAll(), 500);
     });
   }, [subscribe, fetchAll]);
 

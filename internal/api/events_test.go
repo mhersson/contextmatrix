@@ -21,8 +21,11 @@ import (
 )
 
 // flushRecorder is an httptest.ResponseRecorder that supports Flush().
+// It additionally serialises reads/writes of Body so tests can poll
+// bodySnapshot() from another goroutine without triggering -race.
 type flushRecorder struct {
 	*httptest.ResponseRecorder
+	mu      sync.Mutex
 	flushed int
 }
 
@@ -33,13 +36,65 @@ func newFlushRecorder() *flushRecorder {
 }
 
 func (f *flushRecorder) Flush() {
+	f.mu.Lock()
 	f.flushed++
+	f.mu.Unlock()
+}
+
+func (f *flushRecorder) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.ResponseRecorder.Write(p)
+}
+
+// bodySnapshot returns a point-in-time copy of the body so callers can read
+// it without racing against ongoing handler writes.
+func (f *flushRecorder) bodySnapshot() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.Body.String()
+}
+
+// subscribedHook returns a hook/channel pair for eventHandlers.onSubscribed.
+// Tests wait on the returned channel to know the SSE handler has registered
+// its subscription with the bus and is ready to receive published events.
+// Deterministic and avoids the time.Sleep-based readiness pattern.
+func subscribedHook() (chan struct{}, func()) {
+	ch := make(chan struct{})
+	once := sync.Once{}
+
+	return ch, func() { once.Do(func() { close(ch) }) }
+}
+
+// waitForLine polls rec.Body (which is appended to by the SSE handler
+// goroutine) until it contains the substring needle, or timeout elapses.
+// Returns true on success. Uses bodySnapshot() which takes the recorder's
+// mutex, so it is safe under -race against ongoing handler writes.
+func waitForLine(rec *flushRecorder, needle string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(rec.bodySnapshot(), needle) {
+			return true
+		}
+
+		// Short real-wallclock poll — SSE writes happen on the handler
+		// goroutine; the fake-clock abstraction cannot drive that. 1 ms is
+		// well below any realistic event delivery budget.
+		time.Sleep(time.Millisecond)
+	}
+
+	return strings.Contains(rec.bodySnapshot(), needle)
 }
 
 func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 	bus := events.NewBus()
 	eh := newEventHandlers(bus)
 	eh.keepaliveInterval = 1 * time.Hour // Disable keepalive for this test
+
+	subCh, subHook := subscribedHook()
+	eh.onSubscribed = subHook
 
 	// Create request with cancelable context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -59,8 +114,8 @@ func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 		eh.streamEvents(rec, req)
 	}()
 
-	// Give handler time to start and subscribe
-	time.Sleep(50 * time.Millisecond)
+	// Wait deterministically for the handler to register its subscription.
+	<-subCh
 
 	// Publish an event
 	testEvent := events.Event{
@@ -71,8 +126,9 @@ func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 	}
 	bus.Publish(testEvent)
 
-	// Give event time to be written
-	time.Sleep(50 * time.Millisecond)
+	// Poll the recorder until the event's payload lands in the body.
+	require.True(t, waitForLine(rec, "ALPHA-001", 2*time.Second),
+		"event payload did not reach the recorder within timeout")
 
 	// Cancel context to stop handler
 	cancel()
@@ -118,6 +174,9 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 	eh := newEventHandlers(bus)
 	eh.keepaliveInterval = 1 * time.Hour
 
+	subCh, subHook := subscribedHook()
+	eh.onSubscribed = subHook
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -134,7 +193,7 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 		eh.streamEvents(rec, req)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	<-subCh
 
 	// Publish events for different projects
 	bus.Publish(events.Event{
@@ -150,7 +209,11 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 		Timestamp: time.Now(),
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the alpha event to land in the body.  The beta event is
+	// filtered out so it never appears.
+	require.True(t, waitForLine(rec, "ALPHA-001", 2*time.Second),
+		"alpha event did not reach recorder within timeout")
+
 	cancel()
 	wg.Wait()
 
@@ -181,6 +244,9 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 	eh := newEventHandlers(bus)
 	eh.keepaliveInterval = 1 * time.Hour
 
+	subCh, subHook := subscribedHook()
+	eh.onSubscribed = subHook
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -197,7 +263,7 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 		eh.streamEvents(rec, req)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	<-subCh
 
 	// Publish events for different projects
 	projects := []string{"alpha", "beta", "gamma"}
@@ -210,7 +276,12 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 		})
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the last-published event to appear in the body. Bus fan-out
+	// is ordered, so seeing gamma-001 implies alpha and beta are already
+	// buffered.
+	require.True(t, waitForLine(rec, "gamma-001", 2*time.Second),
+		"last event did not reach recorder within timeout")
+
 	cancel()
 	wg.Wait()
 
@@ -255,19 +326,21 @@ func TestStreamEvents_Keepalive(t *testing.T) {
 		eh.streamEvents(rec, req)
 	}()
 
-	// Wait for keepalive
-	time.Sleep(100 * time.Millisecond)
+	// Poll for the keepalive line rather than sleeping a fixed duration.
+	require.True(t, waitForLine(rec, ": keepalive\n", 2*time.Second),
+		"keepalive did not appear in body within timeout")
+
 	cancel()
 	wg.Wait()
-
-	body := rec.Body.String()
-	assert.Contains(t, body, ": keepalive\n")
 }
 
 func TestStreamEvents_ClientDisconnect(t *testing.T) {
 	bus := events.NewBus()
 	eh := newEventHandlers(bus)
 	eh.keepaliveInterval = 1 * time.Hour
+
+	subCh, subHook := subscribedHook()
+	eh.onSubscribed = subHook
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -282,8 +355,8 @@ func TestStreamEvents_ClientDisconnect(t *testing.T) {
 		close(done)
 	}()
 
-	// Give handler time to start
-	time.Sleep(50 * time.Millisecond)
+	// Wait for handler to subscribe before cancelling.
+	<-subCh
 
 	// Cancel context (simulates client disconnect)
 	cancel()

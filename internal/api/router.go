@@ -30,26 +30,37 @@ import (
 const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 
 // Error codes for machine-parseable error responses.
+//
+// The code → HTTP-status mapping is part of the public API contract:
+//
+//   - ErrCodeBadRequest         → 400 (malformed input: bad JSON, missing
+//     path/query param, unknown filter value)
+//   - ErrCodeValidationError    → 422 (mutation body semantically invalid:
+//     unknown type, unknown state, bad autonomous combo, empty message, ...)
+//
+// Do not reuse ErrCodeValidationError for 400-class failures — clients
+// disambiguate by code, and collapsing the two broke that.
 const (
-	ErrCodeProjectNotFound    = "PROJECT_NOT_FOUND"
-	ErrCodeCardNotFound       = "CARD_NOT_FOUND"
-	ErrCodeCardExists         = "CARD_EXISTS"
-	ErrCodeInvalidTransition  = "INVALID_TRANSITION"
-	ErrCodeValidationError    = "VALIDATION_ERROR"
-	ErrCodeAlreadyClaimed     = "ALREADY_CLAIMED"
-	ErrCodeNotClaimed         = "NOT_CLAIMED"
-	ErrCodeAgentMismatch      = "AGENT_MISMATCH"
-	ErrCodeDependenciesNotMet = "DEPENDENCIES_NOT_MET"
-	ErrCodeProjectExists      = "PROJECT_EXISTS"
-	ErrCodeProjectHasCards    = "PROJECT_HAS_CARDS"
-	ErrCodeInternalError      = "INTERNAL_ERROR"
-	ErrCodeBadRequest         = "BAD_REQUEST"
-	ErrCodeHumanOnlyField     = "HUMAN_ONLY_FIELD"
-	ErrCodeProtectedBranch    = "PROTECTED_BRANCH"
-	ErrCodeInvalidSignature   = "INVALID_SIGNATURE"
-	ErrCodeCardNotVetted      = "CARD_NOT_VETTED"
-	ErrCodeAlreadyAutonomous  = "ALREADY_AUTONOMOUS"
-	ErrCodeContentTooLarge    = "CONTENT_TOO_LARGE"
+	ErrCodeProjectNotFound      = "PROJECT_NOT_FOUND"
+	ErrCodeCardNotFound         = "CARD_NOT_FOUND"
+	ErrCodeParentNotFound       = "PARENT_NOT_FOUND"
+	ErrCodeCardExists           = "CARD_EXISTS"
+	ErrCodeInvalidTransition    = "INVALID_TRANSITION"
+	ErrCodeValidationError      = "VALIDATION_ERROR"
+	ErrCodeAlreadyClaimed       = "ALREADY_CLAIMED"
+	ErrCodeNotClaimed           = "NOT_CLAIMED"
+	ErrCodeAgentMismatch        = "AGENT_MISMATCH"
+	ErrCodeDependenciesNotMet   = "DEPENDENCIES_NOT_MET"
+	ErrCodeProjectExists        = "PROJECT_EXISTS"
+	ErrCodeProjectHasCards      = "PROJECT_HAS_CARDS"
+	ErrCodeInternalError        = "INTERNAL_ERROR"
+	ErrCodeBadRequest           = "BAD_REQUEST"
+	ErrCodeHumanOnlyField       = "HUMAN_ONLY_FIELD"
+	ErrCodeProtectedBranch      = "PROTECTED_BRANCH"
+	ErrCodeInvalidSignature     = "INVALID_SIGNATURE"
+	ErrCodeCardNotVetted        = "CARD_NOT_VETTED"
+	ErrCodeReviewAttemptsCapped = "REVIEW_ATTEMPTS_CAPPED"
+	ErrCodeContentTooLarge      = "CONTENT_TOO_LARGE"
 )
 
 // APIError is the standard error response format.
@@ -388,22 +399,43 @@ func writeError(w http.ResponseWriter, status int, code, message, details string
 }
 
 // handleServiceError maps service/storage errors to HTTP responses.
-func handleServiceError(w http.ResponseWriter, err error) {
+//
+// Ordering is load-bearing: specific "resource not found" sentinels must be
+// matched before generic board.Err* validation sentinels. ValidationError
+// wraps a board.Err* sentinel, so errors.Is(err, board.ErrInvalidType) can
+// also be true for a ValidationError that semantically represents a missing
+// parent — without explicit ordering, the parent-not-found case would fall
+// into the generic 422 branch and lie to the caller.
+//
+// The raw error is logged once at the top with the request's correlation ID
+// so operators retain full context even when the client-facing message is
+// sanitized or generic. Every branch that surfaces err.Error() as response
+// details routes through sanitizeErrorDetails so filesystem paths / go-git
+// transport messages don't leak to untrusted callers.
+func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
+	ctxlog.Logger(r.Context()).Error("service error", "error", err.Error())
+
 	switch {
+	// --- Not-found sentinels (404) ---
 	case errors.Is(err, storage.ErrProjectNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
+	case errors.Is(err, board.ErrParentNotFound):
+		var ve *board.ValidationError
+
+		details := ""
+		if errors.As(err, &ve) {
+			details = ve.Error()
+		}
+
+		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", details)
+
+	// --- Conflict sentinels (409) ---
 	case errors.Is(err, storage.ErrProjectExists):
 		writeError(w, http.StatusConflict, ErrCodeProjectExists, "project already exists", "")
-	case errors.Is(err, board.ErrInvalidProjectConfig),
-		errors.Is(err, board.ErrMissingStalledState),
-		errors.Is(err, board.ErrMissingStalledTransitions),
-		errors.Is(err, board.ErrMissingNotPlannedState),
-		errors.Is(err, board.ErrMissingNotPlannedTransitions):
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", err.Error())
 	case errors.Is(err, storage.ErrProjectHasCards):
-		writeError(w, http.StatusConflict, ErrCodeProjectHasCards, "project has cards", err.Error())
+		writeError(w, http.StatusConflict, ErrCodeProjectHasCards, "project has cards", sanitizeErrorDetails(err))
 	case errors.Is(err, storage.ErrCardExists):
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
 	case errors.Is(err, board.ErrDependenciesNotMet):
@@ -424,6 +456,35 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		}
 
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", details)
+	case errors.Is(err, service.ErrReviewAttemptsCapped):
+		writeError(w, http.StatusConflict, ErrCodeReviewAttemptsCapped, "review attempts limit reached", sanitizeErrorDetails(err))
+	case errors.Is(err, lock.ErrAlreadyClaimed):
+		writeError(w, http.StatusConflict, ErrCodeAlreadyClaimed, "card already claimed", sanitizeErrorDetails(err))
+	case errors.Is(err, lock.ErrNotClaimed):
+		writeError(w, http.StatusConflict, ErrCodeNotClaimed, "card is not claimed", "")
+	case errors.Is(err, service.ErrCardTerminal):
+		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
+
+	// --- Forbidden sentinels (403) ---
+	case errors.Is(err, service.ErrProtectedBranch):
+		writeError(w, http.StatusForbidden, ErrCodeProtectedBranch, "pushing to main/master is never allowed", "")
+	case errors.Is(err, lock.ErrAgentMismatch):
+		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent does not own this card", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrCardNotVetted):
+		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
+			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
+
+	// --- Bad-request sentinels (400) ---
+	case errors.Is(err, storage.ErrInvalidPath):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", sanitizeErrorDetails(err))
+
+	// --- Validation sentinels (422) — mutation body shape/semantics ---
+	case errors.Is(err, board.ErrInvalidProjectConfig),
+		errors.Is(err, board.ErrMissingStalledState),
+		errors.Is(err, board.ErrMissingStalledTransitions),
+		errors.Is(err, board.ErrMissingNotPlannedState),
+		errors.Is(err, board.ErrMissingNotPlannedTransitions):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority),
 		errors.Is(err, board.ErrInvalidAutonomousConfig):
 		var ve *board.ValidationError
@@ -435,26 +496,10 @@ func handleServiceError(w http.ResponseWriter, err error) {
 
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
 	case errors.Is(err, service.ErrInvalidPRUrl):
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", err.Error())
-	case errors.Is(err, service.ErrReviewAttemptsCapped):
-		writeError(w, http.StatusConflict, ErrCodeValidationError, "review attempts limit reached", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrFieldTooLong):
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "field exceeds maximum length", err.Error())
-	case errors.Is(err, service.ErrProtectedBranch):
-		writeError(w, http.StatusForbidden, ErrCodeProtectedBranch, "pushing to main/master is never allowed", "")
-	case errors.Is(err, storage.ErrInvalidPath):
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", err.Error())
-	case errors.Is(err, lock.ErrAlreadyClaimed):
-		writeError(w, http.StatusConflict, ErrCodeAlreadyClaimed, "card already claimed", err.Error())
-	case errors.Is(err, lock.ErrNotClaimed):
-		writeError(w, http.StatusConflict, ErrCodeNotClaimed, "card is not claimed", "")
-	case errors.Is(err, lock.ErrAgentMismatch):
-		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent does not own this card", err.Error())
-	case errors.Is(err, service.ErrCardNotVetted):
-		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
-			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
-	case errors.Is(err, service.ErrCardTerminal):
-		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "field exceeds maximum length", sanitizeErrorDetails(err))
+
 	default:
 		slog.Error("unhandled error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")

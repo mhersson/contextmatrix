@@ -2,14 +2,36 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
+
+// Card list pagination bounds. Enforced in listCards; clients that exceed the
+// max receive 400. Default is on the generous side because the web UI's board
+// view currently fetches everything at once — raising it shifts this endpoint
+// to cursor-based paging only when clients opt in.
+const (
+	defaultCardPageLimit = 500
+	maxCardPageLimit     = 2000
+)
+
+// listCardsResponse is the envelope returned by GET /api/projects/{project}/cards.
+//
+// Items is always emitted; NextCursor is omitted when no more pages exist;
+// Total is populated only on the first page (cursor == "") so subsequent
+// pages do not pay the O(n) unfiltered-count query.
+type listCardsResponse struct {
+	Items      []*board.Card `json:"items"`
+	NextCursor string        `json:"next_cursor,omitempty"`
+	Total      *int          `json:"total,omitempty"`
+}
 
 // cardHandlers contains handlers for card-related endpoints.
 type cardHandlers struct {
@@ -120,27 +142,27 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 	if state != "" || typ != "" || priority != "" {
 		cfg, err := h.svc.GetProject(r.Context(), projectName)
 		if err != nil {
-			handleServiceError(w, err)
+			handleServiceError(w, r, err)
 
 			return
 		}
 
 		if state != "" && !slices.Contains(cfg.States, state) {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid state filter: "+state, "")
 
 			return
 		}
 
 		if typ != "" && !slices.Contains(cfg.Types, typ) && typ != "subtask" {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid type filter: "+typ, "")
 
 			return
 		}
 
 		if priority != "" && !slices.Contains(cfg.Priorities, priority) {
-			writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 				"invalid priority filter: "+priority, "")
 
 			return
@@ -158,14 +180,71 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 		Vetted:        vettedFilter,
 	}
 
-	cards, err := h.svc.ListCards(r.Context(), projectName, filter)
+	// Pagination: parse limit and cursor from query string. Both are optional;
+	// defaults mirror the pre-pagination behaviour (one page of up to
+	// defaultCardPageLimit cards). Out-of-range limit / malformed cursor
+	// produce 400 before any service work.
+	limit, ok := parseCardPageLimit(w, r.URL.Query().Get("limit"))
+	if !ok {
+		return
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	page, err := h.svc.ListCardsPage(r.Context(), projectName, filter, service.PageOpts{
+		Limit:  limit,
+		Cursor: cursor,
+	})
 	if err != nil {
-		handleServiceError(w, err)
+		if errors.Is(err, service.ErrInvalidCursor) {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid cursor", "")
+
+			return
+		}
+
+		handleServiceError(w, r, err)
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, cards)
+	resp := listCardsResponse{
+		Items:      page.Items,
+		NextCursor: page.NextCursor,
+	}
+	if page.HasTotal {
+		total := page.Total
+		resp.Total = &total
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// parseCardPageLimit reads the ?limit= query parameter, enforces bounds, and
+// writes a 400 error to w if the value is invalid. Returns (limit, true) on
+// success or (0, false) if the caller should abort — in which case the
+// response has already been written.
+func parseCardPageLimit(w http.ResponseWriter, raw string) (int, bool) {
+	if raw == "" {
+		return defaultCardPageLimit, true
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"invalid limit", "limit must be an integer")
+
+		return 0, false
+	}
+
+	if n < 1 || n > maxCardPageLimit {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"limit out of range",
+			"limit must be between 1 and "+strconv.Itoa(maxCardPageLimit))
+
+		return 0, false
+	}
+
+	return n, true
 }
 
 // createCard handles POST /api/projects/{project}/cards.
@@ -179,7 +258,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 
 	var req createCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -215,7 +294,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -236,7 +315,7 @@ func (h *cardHandlers) getCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -257,7 +336,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 
 	var req updateCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -265,7 +344,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -311,7 +390,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -332,7 +411,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	var req patchCardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", err.Error())
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
 
 		return
 	}
@@ -348,7 +427,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -376,7 +455,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -398,7 +477,7 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}
@@ -410,7 +489,7 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.svc.DeleteCard(r.Context(), projectName, cardID); err != nil {
-		handleServiceError(w, err)
+		handleServiceError(w, r, err)
 
 		return
 	}

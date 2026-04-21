@@ -7,7 +7,7 @@ GET    /api/projects/{project}
 PUT    /api/projects/{project}                            # update project config
 DELETE /api/projects/{project}                            # delete project (requires 0 cards)
 
-GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=
+GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=&limit=&cursor=
 POST   /api/projects/{project}/cards
 GET    /api/projects/{project}/cards/{id}
 PUT    /api/projects/{project}/cards/{id}
@@ -78,15 +78,42 @@ echoed; otherwise the server generates a UUID. The same id is emitted as the
 
 - 200: success (GET, PUT, PATCH)
 - 201: created (POST)
+- 202: accepted — async endpoint kicked off background work
+  (`POST /run`, `/stop`, `/promote`)
 - 204: deleted (DELETE)
+- 400: malformed input (bad JSON, missing/bad query param, unknown filter value) —
+  emitted with code `BAD_REQUEST`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
   claim attempt (`CARD_NOT_VETTED`), or agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`)
-- 404: card or project not found
-- 409: conflict (invalid transition, card already claimed)
-- 422: validation error (missing required fields, unknown type/state/priority)
-- 502: runner webhook failed (bad gateway)
+- 404: card, project, or referenced parent not found — parent-not-found uses
+  code `PARENT_NOT_FOUND`
+- 409: conflict (invalid transition, card already claimed, already-running
+  runner task → `RUNNER_CONFLICT`)
+- 422: semantic validation error — mutation body references an unknown type,
+  state, priority, or invalid autonomous combination. Emitted with code
+  `VALIDATION_ERROR`. **Not** used for 400-class failures.
+- 502: runner host unreachable (`RUNNER_UNAVAILABLE`)
 - 503: runner not configured
+
+**Error code / HTTP status mapping (selected):**
+
+| Code                     | HTTP | Meaning                                            |
+| ------------------------ | ---- | -------------------------------------------------- |
+| `BAD_REQUEST`            | 400  | malformed input / unknown filter value             |
+| `PARENT_NOT_FOUND`       | 404  | referenced parent card does not exist              |
+| `VALIDATION_ERROR`       | 422  | mutation body semantically invalid                 |
+| `RUNNER_CONFLICT`        | 409  | card already queued/running                        |
+| `RUNNER_UNAVAILABLE`     | 502  | runner webhook failed (host unreachable)           |
+| `RUNNER_NOT_RUNNING`     | 409  | card is not currently running                      |
+| `REVIEW_ATTEMPTS_CAPPED` | 409  | review attempts limit reached                      |
+
+**`APIError.details` sanitization:** downstream error strings that look like
+go-git transport errors, ssh/exec failures, or absolute filesystem paths are
+replaced with stable short labels (`"git remote unreachable"`,
+`"git operation failed"`, `"filesystem error"`) before being returned to
+clients. The raw error is always logged server-side with the request's
+`request_id` so operators can still investigate.
 
 **Error codes relevant to vetting:**
 
@@ -185,6 +212,49 @@ livenessProbe:
 | `priority`    | priority name    | Filter by priority                                                                             |
 | `external_id` | external ID      | Filter by `source.external_id` (idempotent import check)                                       |
 | `vetted`      | `true` / `false` | Filter by `vetted` field. `?vetted=false` lists unvetted external cards awaiting human review. |
+| `limit`       | 1–2000           | Maximum items in the response page. Default `500`. Out-of-range values return 400.             |
+| `cursor`      | opaque string    | Page continuation token from the previous response's `next_cursor`. Opaque to clients.         |
+
+### Card list response envelope
+
+`GET /api/projects/{project}/cards` returns a JSON object (not a bare array):
+
+```json
+{
+  "items": [ { "id": "PROJ-001", "...": "..." } ],
+  "next_cursor": "UFJPSi0wMDE",
+  "total": 1234
+}
+```
+
+- `items` — page of cards, ordered by ID ascending. Always present (may be `[]`).
+- `next_cursor` — opaque base64url token; pass back in `?cursor=` to fetch the
+  next page. Omitted when the current page is the last page.
+- `total` — total un-filtered card count for the project. Emitted **only on the
+  first page** (when the request has no `cursor`). Callers can use it for
+  "showing X of Y" indicators even while a filter is active.
+
+Cursors encode the last card ID of the page and are stable across filter
+changes — callers must treat them as opaque. Invalid cursors (not valid
+base64url) return 400 `BAD_REQUEST`.
+
+Ordering is by card ID ascending. The server sorts before slicing, so walking
+`next_cursor` to exhaustion is guaranteed to visit every matching card exactly
+once even though the underlying store iterates a map.
+
+```bash
+# First page — 1 item, includes total.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1"
+# → {"items":[{"id":"ALPHA-001", ...}],"next_cursor":"QUxQSEEtMDAx","total":3}
+
+# Follow-up pages use cursor.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAx"
+# → {"items":[{"id":"ALPHA-002", ...}],"next_cursor":"QUxQSEEtMDAy"}
+
+# Last page — next_cursor omitted.
+curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAy"
+# → {"items":[{"id":"ALPHA-003", ...}]}
+```
 
 ## App Endpoints
 
@@ -373,7 +443,9 @@ approval, subtask execution decision, review) via the chat input.
 Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
 enabled on the card for all run triggers (both autonomous and HITL).
 
-Returns the updated card with `runner_status: "queued"`.
+Returns **202 Accepted** with the updated card (`runner_status: "queued"`).
+The response is returned as soon as the runner webhook is accepted — the
+runner then provisions the container asynchronously.
 
 ### POST /api/projects/{project}/cards/{id}/message
 
@@ -418,10 +490,12 @@ The endpoint performs two steps in order:
 - 409 `RUNNER_NOT_RUNNING` if `runner_status` is not `"running"`
 - 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
   `not_planned`) — the flag flip itself is rejected before any webhook is sent
-- 502 `RUNNER_ERROR` if the runner webhook fails — the autonomous flag flip is
-  **not** reverted; the card is permanently promoted
+- 502 `RUNNER_UNAVAILABLE` if the runner webhook fails — the autonomous flag
+  flip is **not** reverted; the card is permanently promoted
 
-Returns 200 with the updated card.
+Returns **202 Accepted** with the updated card. The idempotent short-circuit
+(card already autonomous) also returns 202 with the current card state and
+no new log entry.
 
 ```bash
 curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promote \
@@ -431,7 +505,7 @@ curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promot
 ### POST /api/projects/{project}/cards/{id}/stop
 
 Stop a running remote execution. Human-only. Sends kill webhook to runner.
-Returns the updated card with `runner_status: "killed"`.
+Returns **202 Accepted** with the updated card (`runner_status: "killed"`).
 
 ### POST /api/projects/{project}/stop-all
 

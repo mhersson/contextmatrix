@@ -79,21 +79,17 @@ func discardLogger() *slog.Logger {
 func waitForCalls(t *testing.T, fc *fakeClient, want int) {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(fc.Calls()) >= want {
-			return
-		}
-
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	require.GreaterOrEqualf(t, len(fc.Calls()), want, "expected %d calls, got %d", want, len(fc.Calls()))
+	require.Eventually(t, func() bool {
+		return len(fc.Calls()) >= want
+	}, 2*time.Second, 5*time.Millisecond, "expected >= %d calls", want)
 }
 
 func assertNoCall(t *testing.T, fc *fakeClient) {
 	t.Helper()
 
+	// Genuine wall-clock wait: the subscriber dispatches asynchronously via
+	// the events bus, so we need a short window to confirm no call *would*
+	// have fired. A fake clock cannot drive the bus's fan-out goroutine.
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Empty(t, fc.Calls(), "expected no end-session calls")

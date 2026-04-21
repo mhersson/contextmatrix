@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummaries } from '../../hooks/useProjectSummaries';
 import { useTheme } from '../../hooks/useTheme';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { ProjectCard } from './ProjectCard';
 
@@ -16,12 +17,24 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
   const { projects, connected } = useProjects();
   const { version } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const sortedProjects = useMemo(
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
     [projects]
   );
   const projectNames = sortedProjects.map((p) => p.name);
   const { summaries } = useProjectSummaries(projectNames);
+
+  // Mobile drawer: trap focus and close on Escape.
+  useFocusTrap(drawerRef, mobileOpen);
+  useEffect(() => {
+    if (!mobileOpen || !onMobileClose) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onMobileClose?.();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen, onMobileClose]);
 
   // Shared panel content used in both desktop and mobile overlay modes
   const panelContent = (
@@ -66,7 +79,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+      <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         <NavLink to="/all" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
           {({ isActive }) => (
             <div
@@ -75,6 +88,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
                 backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
                 color: isActive ? 'var(--fg)' : 'var(--grey2)',
               }}
+              aria-current={isActive ? 'page' : undefined}
             >
               All Projects
             </div>
@@ -95,7 +109,9 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
               onClick={mobileOpen ? onMobileClose : undefined}
             >
               {({ isActive }) => (
-                <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
+                <div aria-current={isActive ? 'page' : undefined}>
+                  <ProjectCard name={p.name} summary={summaries.get(p.name)} isActive={isActive} />
+                </div>
               )}
             </NavLink>
           </div>
@@ -106,7 +122,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
             No projects
           </div>
         )}
-      </div>
+      </nav>
 
       <div className="px-3 py-3 border-t space-y-2" style={{ borderColor: 'var(--bg3)' }}>
         <button
@@ -145,8 +161,12 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
         />
         {/* Drawer panel */}
         <div
+          ref={drawerRef}
           className="fixed left-0 top-0 h-full z-50 flex flex-col"
           style={{ width: 240, backgroundColor: 'var(--bg0)', borderRight: '1px solid var(--bg3)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sidebar navigation"
         >
           {panelContent}
         </div>

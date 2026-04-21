@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type { BoardEvent } from '../types';
 
@@ -7,8 +7,19 @@ const INITIAL_RECONNECT_DELAY = 1000;
 
 type Subscriber = (event: BoardEvent) => void;
 
+/**
+ * Pattern for filtering SSE events by type prefix.
+ *
+ * - `'*'` matches every event.
+ * - `'<prefix>.*'` (e.g. `'card.*'`, `'runner.*'`, `'project.*'`, `'sync.*'`)
+ *   matches every event whose `type` starts with `<prefix>.`.
+ * - Any other string is treated as an exact match against `event.type`
+ *   (e.g. `'card.updated'`).
+ */
+export type SSEPattern = '*' | 'card.*' | 'runner.*' | 'project.*' | 'sync.*' | string;
+
 interface SSEBusContextValue {
-  subscribe: (onEvent: Subscriber) => () => void;
+  subscribe: (pattern: SSEPattern, onEvent: Subscriber) => () => void;
   connected: boolean;
   error: string | null;
 }
@@ -19,11 +30,33 @@ interface SSEProviderProps {
   children: ReactNode;
 }
 
+// Split a pattern into its "bucket" key:
+// - '*'          → '*'   (wildcard bucket, receives every event)
+// - 'card.*'     → 'card' (prefix bucket)
+// - 'card.updated' (or any non-wildcard string) → the string itself (exact bucket)
+function bucketKey(pattern: SSEPattern): string {
+  if (pattern === '*') return '*';
+  if (pattern.endsWith('.*')) return pattern.slice(0, -2);
+  return pattern;
+}
+
+// Extract the prefix of an event type (substring before the first '.').
+// 'card.updated' → 'card'; 'runner.started' → 'runner'.
+function eventPrefix(type: string): string {
+  const dot = type.indexOf('.');
+  return dot === -1 ? type : type.slice(0, dot);
+}
+
 export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const subscribersRef = useRef<Set<Subscriber>>(new Set());
+  // Map keyed by bucket:
+  //   '*'     → wildcard subscribers
+  //   'card'  → subscribers registered with 'card.*' (prefix match)
+  //   'card.updated' → exact-match subscribers for that event type
+  // Fan-out is O(matching buckets), not O(all subscribers).
+  const subscribersRef = useRef<Map<string, Set<Subscriber>>>(new Map());
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -47,7 +80,22 @@ export function SSEProvider({ children }: SSEProviderProps) {
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as BoardEvent;
-        subscribersRef.current.forEach((sub) => sub(data));
+        const buckets = subscribersRef.current;
+
+        // Wildcard subscribers
+        const wild = buckets.get('*');
+        wild?.forEach((sub) => sub(data));
+
+        // Prefix subscribers (e.g. 'card.*' → bucket 'card')
+        const prefix = eventPrefix(data.type);
+        if (prefix) {
+          const prefixSubs = buckets.get(prefix);
+          prefixSubs?.forEach((sub) => sub(data));
+        }
+
+        // Exact-match subscribers
+        const exact = buckets.get(data.type);
+        exact?.forEach((sub) => sub(data));
       } catch {
         console.error('Failed to parse SSE event:', event.data);
       }
@@ -92,18 +140,31 @@ export function SSEProvider({ children }: SSEProviderProps) {
     };
   }, [connect]);
 
-  const subscribe = useCallback((onEvent: Subscriber): (() => void) => {
-    subscribersRef.current.add(onEvent);
+  const subscribe = useCallback((pattern: SSEPattern, onEvent: Subscriber): (() => void) => {
+    const key = bucketKey(pattern);
+    const buckets = subscribersRef.current;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = new Set();
+      buckets.set(key, bucket);
+    }
+    bucket.add(onEvent);
     return () => {
-      subscribersRef.current.delete(onEvent);
+      const b = buckets.get(key);
+      if (!b) return;
+      b.delete(onEvent);
+      if (b.size === 0) {
+        buckets.delete(key);
+      }
     };
   }, []);
 
-  return (
-    <SSEBusContext.Provider value={{ subscribe, connected, error }}>
-      {children}
-    </SSEBusContext.Provider>
+  const value = useMemo<SSEBusContextValue>(
+    () => ({ subscribe, connected, error }),
+    [subscribe, connected, error],
   );
+
+  return <SSEBusContext.Provider value={value}>{children}</SSEBusContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

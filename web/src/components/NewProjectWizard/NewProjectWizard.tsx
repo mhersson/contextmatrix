@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { api, isAPIError } from '../../api/client';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { ProjectConfig, CreateProjectInput } from '../../types';
 
 const DEFAULT_STATES = ['todo', 'in_progress', 'blocked', 'review', 'done', 'stalled', 'not_planned'];
@@ -26,6 +27,14 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
   const [repo, setRepo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const headingId = useId();
+  const nameId = useId();
+  const prefixId = useId();
+  const repoId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useFocusTrap(dialogRef, true, nameInputRef);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -69,20 +78,27 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-      <div className="card-panel animate-panel-slide-in">
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={dialogRef}
+        className="card-panel animate-panel-slide-in"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
         <div className="flex items-center justify-between p-4 border-b border-[var(--bg3)]">
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
               className="text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
               title="Close (Esc)"
+              aria-label="Close"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            <span className="text-sm font-medium text-[var(--fg)]">New Project</span>
+            <h2 id={headingId} className="text-sm font-medium text-[var(--fg)]">New Project</h2>
           </div>
           <button
             onClick={handleCreate}
@@ -105,8 +121,10 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           )}
 
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</label>
+            <label htmlFor={nameId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</label>
             <input
+              id={nameId}
+              ref={nameInputRef}
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
@@ -117,7 +135,6 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
                 borderColor: 'var(--bg3)',
                 color: 'var(--fg)',
               }}
-              autoFocus
             />
             <p className="text-xs mt-1" style={{ color: 'var(--grey0)' }}>
               Alphanumeric with hyphens and underscores
@@ -125,8 +142,9 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           </div>
 
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Prefix</label>
+            <label htmlFor={prefixId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Prefix</label>
             <input
+              id={prefixId}
               type="text"
               value={prefix}
               onChange={(e) => { setPrefix(e.target.value.toUpperCase()); setError(null); }}
@@ -144,8 +162,9 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           </div>
 
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL (optional)</label>
+            <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL (optional)</label>
             <input
+              id={repoId}
               type="text"
               value={repo}
               onChange={(e) => setRepo(e.target.value)}

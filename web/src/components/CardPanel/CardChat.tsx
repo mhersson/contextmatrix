@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
-import { LogLine } from '../RunnerConsole/LogLine';
+import { VirtualLogList } from '../RunnerConsole/VirtualLogList';
 
 const MAX_MESSAGE_LENGTH = 8000;
-const NEAR_BOTTOM_THRESHOLD = 50;
 
 interface CardChatProps {
   card: Card;
@@ -16,23 +15,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const logContainerRef = useRef<HTMLDivElement>(null);
-  const userScrolledUpRef = useRef(false);
-
-  // Auto-scroll to bottom unless user has scrolled up
-  const handleScroll = () => {
-    const el = logContainerRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
-  };
-
-  useEffect(() => {
-    const el = logContainerRef.current;
-    if (!el || userScrolledUpRef.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [cardLogs]);
+  const messageId = useId();
 
   if (card.runner_status !== 'running' || card.autonomous) {
     return null;
@@ -74,14 +57,13 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     setPromoting(true);
     setError(null);
     try {
+      // Promote is idempotent server-side: an already-autonomous card returns
+      // the current card with 202 rather than an error. No client-side
+      // branch on ALREADY_AUTONOMOUS is needed.
       await api.promoteCardToAutonomous(card.project, card.id);
     } catch (err) {
-      if (isAPIError(err) && err.code === 'ALREADY_AUTONOMOUS') {
-        setError('Session is already autonomous');
-      } else {
-        const msg = isAPIError(err) ? err.error : 'Failed to promote session';
-        setError(msg);
-      }
+      const msg = isAPIError(err) ? err.error : 'Failed to promote session';
+      setError(msg);
     } finally {
       setPromoting(false);
     }
@@ -89,28 +71,28 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
 
   return (
     <div className="flex flex-col h-full gap-2">
-      <label className="block text-xs text-[var(--grey1)]">Session Chat</label>
+      <label htmlFor={messageId} className="block text-xs text-[var(--grey1)]">Session Chat</label>
 
       {/* Log list — fills remaining height when chat panel is active */}
-      <div
-        ref={logContainerRef}
-        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] overflow-y-auto flex-1 min-h-[60px] font-mono"
-        onScroll={handleScroll}
-      >
-        {cardLogs.length === 0 ? (
-          <div className="flex items-center justify-center h-[60px] text-xs" style={{ color: 'var(--grey1)' }}>
+      <VirtualLogList
+        items={cardLogs}
+        getKey={(entry, idx) => `${entry.ts}-${entry.card_id}-${idx}`}
+        className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] flex-1 min-h-[60px] font-mono"
+        role="log"
+        ariaLive="polite"
+        ariaAtomic={false}
+        ariaLabel="Session chat log"
+        emptyState={
+          <div className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] flex items-center justify-center flex-1 min-h-[60px] text-xs font-mono" style={{ color: 'var(--grey1)' }}>
             No messages yet
           </div>
-        ) : (
-          cardLogs.map((entry, idx) => (
-            <LogLine key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />
-          ))
-        )}
-      </div>
+        }
+      />
 
       {/* Input row */}
       <div className="flex gap-2 items-end">
         <textarea
+          id={messageId}
           className="flex-1 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] px-3 py-2 resize-none focus:outline-none focus:border-[var(--aqua)] placeholder-[var(--grey0)] disabled:opacity-50"
           placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
           value={message}

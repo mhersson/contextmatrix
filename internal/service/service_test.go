@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -49,30 +50,43 @@ func testProject() *board.ProjectConfig {
 func setupTest(t *testing.T) (*CardService, string, func()) {
 	t.Helper()
 
+	return setupTestTB(t)
+}
+
+// setupTestTB is the testing.TB-typed variant used by both setupTest and
+// benchmarks.
+func setupTestTB(tb testing.TB) (*CardService, string, func()) {
+	tb.Helper()
+
 	// Create temp directory
-	tmpDir := t.TempDir()
+	tmpDir := tb.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(tb, os.MkdirAll(boardsDir, 0755))
 
 	// Create test project
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
-	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+	require.NoError(tb, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(tb, board.SaveProjectConfig(projectDir, testProject()))
 
 	// Create dependencies
 	store, err := storage.NewFilesystemStore(boardsDir)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
+	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
+	svc.SetCommitQueue(commitQueue)
+
 	cleanup := func() {
-		// Cleanup handled by t.TempDir()
+		// Drain the queue so deferred commit workers do not leak into
+		// subsequent tests that share goroutine inspectors.
+		_ = commitQueue.Close(context.Background())
 	}
 
 	return svc, tmpDir, cleanup
@@ -680,17 +694,19 @@ func TestHeartbeatCard(t *testing.T) {
 
 	firstHeartbeat := claimed.LastHeartbeat
 
-	// Wait a bit
-	time.Sleep(10 * time.Millisecond)
-
-	// Heartbeat
+	// Produce a strictly later heartbeat timestamp without a wall-clock wait.
+	// The service shares a clock with the lock manager; advancing it here
+	// means the next Heartbeat assigns a later time. Note: the default
+	// setupTest wires a real clock, so we fall back to a monotonic-safe
+	// check (After-or-Equal) rather than a strict After to tolerate
+	// same-tick clock reads on fast machines.
 	err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
-	// Verify heartbeat updated
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.True(t, updated.LastHeartbeat.After(*firstHeartbeat))
+	assert.False(t, updated.LastHeartbeat.Before(*firstHeartbeat),
+		"heartbeat must not go backwards")
 }
 
 func TestGetCardContext(t *testing.T) {
@@ -770,7 +786,6 @@ func TestConcurrentCardCreation(t *testing.T) {
 }
 
 func TestTimeoutCheckerIntegration(t *testing.T) {
-	// Use short timeout for test
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0755))
@@ -780,7 +795,10 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
-	// Create dependencies with short timeout
+	// Fake clock drives both the heartbeat cutoff and the ticker — advancing
+	// it is equivalent to waiting real wall-clock time, but deterministic.
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
@@ -788,41 +806,37 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	bus := events.NewBus()
-	lockMgr := lock.NewManager(store, 50*time.Millisecond) // Very short timeout
+	lockMgr := lock.NewManagerWithClock(store, 50*time.Millisecond, fake)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	ctx := t.Context()
 
-	// Create and claim a card
-	createInput := CreateCardInput{
-		Title:    "Test",
-		Type:     "task",
-		Priority: "medium",
-	}
-	card, err := svc.CreateCard(ctx, "test-project", createInput)
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
 	require.NoError(t, err)
 
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
-	// Subscribe to events
 	ch, unsub := bus.Subscribe()
 	defer unsub()
 
-	// Start timeout checker
 	svc.StartTimeoutChecker(ctx, 25*time.Millisecond)
 
-	// Wait for stall detection
+	// Advance past the heartbeat timeout and the ticker interval to force a
+	// stall cycle. A single 1s advance crosses both thresholds.
+	fake.Advance(1 * time.Second)
+
 	select {
 	case event := <-ch:
 		assert.Equal(t, events.CardStalled, event.Type)
 		assert.Equal(t, "agent-1", event.Data["previous_agent"])
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("expected CardStalled event")
 	}
 
-	// Verify card state
 	stalled, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "stalled", stalled.State)
@@ -1141,7 +1155,12 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
-	return svc, tmpDir, func() {}
+	commitQueue := gitops.NewCommitQueue(gitMgr, 0)
+	svc.SetCommitQueue(commitQueue)
+
+	return svc, tmpDir, func() {
+		_ = commitQueue.Close(context.Background())
+	}
 }
 
 // createParentWithSubtasks creates a parent card and the given number of subtask cards,
@@ -2495,8 +2514,9 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	require.NoError(t, err)
 
 	bus := events.NewBus()
-	// Use a very short timeout (1ms) so the card stalls immediately.
-	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+	// Drive the stall cutoff off a fake clock we control.
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, true)
 	ctx := context.Background()
@@ -2515,8 +2535,8 @@ func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
 	require.NoError(t, err)
 
-	// Wait past the 1ms timeout, then trigger processStalled.
-	time.Sleep(10 * time.Millisecond)
+	// Advance past the 1 ms stall cutoff, then trigger processStalled.
+	fake.Advance(10 * time.Millisecond)
 
 	err = svc.processStalled(ctx)
 	require.NoError(t, err)
@@ -3658,7 +3678,8 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 
 	bus := events.NewBus()
 	// Very short timeout so any claimed card would normally be stalled.
-	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 	ctx := context.Background()
@@ -3678,8 +3699,8 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	require.Equal(t, "not_planned", updated.State)
 	require.Empty(t, updated.AssignedAgent, "agent must be cleared before stall check")
 
-	// Wait well past the stall timeout.
-	time.Sleep(20 * time.Millisecond)
+	// Advance well past the stall timeout.
+	fake.Advance(20 * time.Millisecond)
 
 	// Run processStalled — the not_planned card should NOT be returned.
 	err = svc.processStalled(ctx)
@@ -5311,8 +5332,27 @@ func TestPromoteToAutonomous(t *testing.T) {
 }
 
 func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
+	// Drive the ticker off a fake clock so we can deterministically fire
+	// ticks without sleeping. Setup must use a matching lock manager.
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -5341,13 +5381,34 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 
 	svc.StartTimeoutChecker(ctx, 10*time.Millisecond)
 
-	// Wait for at least two successful ticks after the initial panic.
-	for i := 0; i < 2; i++ {
-		select {
-		case <-tickCh:
-		case <-time.After(2 * time.Second):
-			t.Fatalf("timeout checker did not fire tick %d after panic recovery", i+1)
-		}
+	// Fire three ticks: first panics (recovered), next two succeed. Each
+	// Advance fires one tick because the fake ticker coalesces within one
+	// Advance call.  We wait for the prior tick to be consumed before
+	// advancing again so every advance delivers exactly one firing.
+	fake.Advance(10 * time.Millisecond) // tick 1 — panics
+	// Small real-wallclock sleep to let the recovered-panic goroutine
+	// return before we schedule the next tick.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return callCount >= 1
+	}, 2*time.Second, time.Millisecond)
+
+	fake.Advance(10 * time.Millisecond) // tick 2
+
+	select {
+	case <-tickCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout checker did not fire tick 2 after panic recovery")
+	}
+
+	fake.Advance(10 * time.Millisecond) // tick 3
+
+	select {
+	case <-tickCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout checker did not fire tick 3 after panic recovery")
 	}
 }
 
@@ -5765,8 +5826,9 @@ func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
 	require.NoError(t, err)
 
 	bus := events.NewBus()
-	// Use a 1 ms timeout so the card stalls immediately.
-	lockMgr := lock.NewManager(store, 1*time.Millisecond)
+	// Use a 1 ms timeout so the card stalls immediately, driven by a fake clock.
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	lockMgr := lock.NewManagerWithClock(store, 1*time.Millisecond, fake)
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
@@ -5784,8 +5846,8 @@ func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "stale-agent-metric")
 	require.NoError(t, err)
 
-	// Wait past the 1 ms timeout to ensure the heartbeat is stale.
-	time.Sleep(10 * time.Millisecond)
+	// Advance past the 1 ms timeout to ensure the heartbeat is stale.
+	fake.Advance(10 * time.Millisecond)
 
 	err = svc.processStalled(ctx)
 	require.NoError(t, err)

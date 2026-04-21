@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext, createContext } from 'react';
+import { useState, useEffect, useCallback, useMemo, useContext, createContext } from 'react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { api } from '../api/client';
@@ -103,7 +103,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(PALETTE_STORAGE_KEY, p);
   }, []);
 
-  return createElement(ThemeContext.Provider, { value: { theme, palette, version, toggleTheme, setPalette } }, children);
+  const value = useMemo<ThemeContextValue>(
+    () => ({ theme, palette, version, toggleTheme, setPalette }),
+    [theme, palette, version, toggleTheme, setPalette],
+  );
+
+  return createElement(ThemeContext.Provider, { value }, children);
 }
 
 export function useTheme(): ThemeContextValue {

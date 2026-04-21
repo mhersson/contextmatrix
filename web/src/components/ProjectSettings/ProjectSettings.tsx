@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useId } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
 
@@ -19,6 +19,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const repoId = useId();
 
   const [repo, setRepo] = useState('');
   const [states, setStates] = useState<string[]>([]);
@@ -203,13 +205,13 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       {/* Read-only fields */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</label>
+          <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</div>
           <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
             {config.name}
           </div>
         </div>
         <div>
-          <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Prefix</label>
+          <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Prefix</div>
           <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
             {config.prefix}
           </div>
@@ -218,8 +220,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
       {/* Repo */}
       <div>
-        <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL</label>
+        <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL</label>
         <input
+          id={repoId}
           type="text"
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
@@ -272,7 +275,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
       {/* Transitions */}
       <div>
-        <label className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>Transitions</label>
+        <div className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>Transitions</div>
         <div className="space-y-2">
           {states.map((from) => (
             <div key={from} className="p-3 rounded" style={{ backgroundColor: 'var(--bg1)' }}>
@@ -360,11 +363,17 @@ interface GitHubImportSectionProps {
 function GitHubImportSection({ github, onChange, types, priorities, inputStyle }: GitHubImportSectionProps) {
   const update = (patch: Partial<GitHubImportConfig>) => onChange({ ...github, ...patch });
   const labelsStr = github.labels?.join(', ') ?? '';
+  const ownerId = useId();
+  const repoId = useId();
+  const cardTypeId = useId();
+  const defaultPriorityId = useId();
+  const ghLabelsId = useId();
+  const headingId = useId();
 
   return (
     <div>
-      <label className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>GitHub Issue Import</label>
-      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }}>
+      <div id={headingId} className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>GitHub Issue Import</div>
+      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }} aria-labelledby={headingId}>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -378,8 +387,9 @@ function GitHubImportSection({ github, onChange, types, priorities, inputStyle }
           <div className="space-y-3 pt-1">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Owner</label>
+                <label htmlFor={ownerId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Owner</label>
                 <input
+                  id={ownerId}
                   type="text"
                   value={github.owner ?? ''}
                   onChange={(e) => update({ owner: e.target.value || undefined })}
@@ -389,8 +399,9 @@ function GitHubImportSection({ github, onChange, types, priorities, inputStyle }
                 />
               </div>
               <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repo</label>
+                <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repo</label>
                 <input
+                  id={repoId}
                   type="text"
                   value={github.repo ?? ''}
                   onChange={(e) => update({ repo: e.target.value || undefined })}
@@ -402,8 +413,9 @@ function GitHubImportSection({ github, onChange, types, priorities, inputStyle }
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Card type</label>
+                <label htmlFor={cardTypeId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Card type</label>
                 <select
+                  id={cardTypeId}
                   value={github.card_type ?? ''}
                   onChange={(e) => update({ card_type: e.target.value || undefined })}
                   className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
@@ -416,8 +428,9 @@ function GitHubImportSection({ github, onChange, types, priorities, inputStyle }
                 </select>
               </div>
               <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Default priority</label>
+                <label htmlFor={defaultPriorityId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Default priority</label>
                 <select
+                  id={defaultPriorityId}
                   value={github.default_priority ?? ''}
                   onChange={(e) => update({ default_priority: e.target.value || undefined })}
                   className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
@@ -431,8 +444,9 @@ function GitHubImportSection({ github, onChange, types, priorities, inputStyle }
               </div>
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Filter by GitHub labels</label>
+              <label htmlFor={ghLabelsId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Filter by GitHub labels</label>
               <input
+                id={ghLabelsId}
                 type="text"
                 value={labelsStr}
                 onChange={(e) => {
@@ -463,9 +477,10 @@ interface ListEditorProps {
 }
 
 function ListEditor({ label, items, newValue, setNewValue, onAdd, onRemove, protectedItems, inputStyle }: ListEditorProps) {
+  const inputId = useId();
   return (
     <div>
-      <label className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>{label}</label>
+      <label htmlFor={inputId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>{label}</label>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {items.map((item) => (
           <span
@@ -479,6 +494,7 @@ function ListEditor({ label, items, newValue, setNewValue, onAdd, onRemove, prot
                 onClick={() => onRemove(item)}
                 className="hover:text-[var(--red)] transition-colors"
                 style={{ color: 'var(--grey1)' }}
+                aria-label={`Remove ${item}`}
               >
                 &times;
               </button>
@@ -488,6 +504,7 @@ function ListEditor({ label, items, newValue, setNewValue, onAdd, onRemove, prot
       </div>
       <div className="flex gap-2">
         <input
+          id={inputId}
           type="text"
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
