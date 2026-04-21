@@ -51,6 +51,9 @@ func (f *fakeCommitter) ReloadRepo(_ context.Context) error {
 
 func (f *fakeCommitter) record(kind CommitKind, path string, paths []string, message string) error {
 	if f.delay > 0 {
+		// Simulated commit latency for AwaitIdle-while-busy tests. This is a
+		// configurable wall-clock delay baked into the fake committer — the
+		// point is to model a long-running commit, so a real sleep is correct.
 		time.Sleep(f.delay)
 	}
 
@@ -177,6 +180,15 @@ func TestCommitQueue_PauseAndResume(t *testing.T) {
 	assert.Len(t, fake.snapshot(), 1)
 }
 
+// yieldToWorker waits until the CommitQueue's worker goroutine is likely to
+// have picked up the just-enqueued job. This is a genuine scheduler-handoff
+// wait — the worker runs on its own goroutine and there is no public API to
+// observe the "inflight" counter directly. Faked clocks do not affect the OS
+// scheduler, so a small wall-clock sleep is the right primitive here.
+func yieldToWorker() {
+	time.Sleep(5 * time.Millisecond)
+}
+
 func TestCommitQueue_AwaitIdleDuringBusyWorker(t *testing.T) {
 	q, _ := newFakeQueue(t, 40*time.Millisecond)
 	t.Cleanup(func() { _ = q.Close(context.Background()) })
@@ -188,8 +200,7 @@ func TestCommitQueue_AwaitIdleDuringBusyWorker(t *testing.T) {
 		Message: "slow",
 	})
 
-	// Give the worker a moment to pick up the job.
-	time.Sleep(5 * time.Millisecond)
+	yieldToWorker()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -209,7 +220,7 @@ func TestCommitQueue_AwaitIdleContextDeadline(t *testing.T) {
 		Message: "slow",
 	})
 
-	time.Sleep(5 * time.Millisecond)
+	yieldToWorker()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
