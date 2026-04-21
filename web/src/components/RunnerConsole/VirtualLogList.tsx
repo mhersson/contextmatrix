@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { LogEntry } from '../../types';
 import { LogLine } from './LogLine';
 
@@ -7,9 +15,9 @@ import { LogLine } from './LogLine';
  *
  * Log row heights are NOT uniform (content can wrap via
  * `whitespace-pre-wrap break-words`), so we measure rows as they become visible
- * and cache their heights. Unmeasured rows use an estimate; cumulative offsets
- * are recomputed from the cache whenever it changes. Binary search on the
- * offsets array picks the visible window.
+ * and cache their heights in an external store. Unmeasured rows use an
+ * estimate; cumulative offsets are recomputed from the cache whenever it
+ * changes. Binary search on the offsets array picks the visible window.
  *
  * Auto-scroll-to-bottom: when the user is within NEAR_BOTTOM_THRESHOLD of the
  * bottom, new items push the scroll to the new bottom.
@@ -18,6 +26,56 @@ import { LogLine } from './LogLine';
 const ESTIMATE_ROW_HEIGHT = 24;
 const BUFFER_ROWS = 10;
 const NEAR_BOTTOM_THRESHOLD = 50;
+
+interface HeightStore {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => number;
+  setHeight: (idx: number, height: number) => void;
+  getHeight: (idx: number) => number | undefined;
+  clampTo: (length: number) => void;
+}
+
+function createHeightStore(): HeightStore {
+  const cache = new Map<number, number>();
+  const listeners = new Set<() => void>();
+  let version = 0;
+
+  function notify() {
+    version++;
+    for (const l of listeners) l();
+  }
+
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot() {
+      return version;
+    },
+    setHeight(idx, height) {
+      if (height <= 0) return;
+      if (cache.get(idx) === height) return;
+      cache.set(idx, height);
+      notify();
+    },
+    getHeight(idx) {
+      return cache.get(idx);
+    },
+    clampTo(length) {
+      let changed = false;
+      for (const key of cache.keys()) {
+        if (key >= length) {
+          cache.delete(key);
+          changed = true;
+        }
+      }
+      if (changed) notify();
+    },
+  };
+}
 
 interface VirtualLogListProps {
   items: readonly LogEntry[];
@@ -48,7 +106,7 @@ export function VirtualLogList({
   emptyState,
 }: VirtualLogListProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const heightCacheRef = useRef<Map<number, number>>(new Map());
+  const heightStore = useMemo(() => createHeightStore(), []);
   const rowObserverRef = useRef<ResizeObserver | null>(null);
   // Maps the observed element back to its item index so the ResizeObserver
   // callback can update the height cache.
@@ -57,33 +115,28 @@ export function VirtualLogList({
 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
-  // Version counter used to trigger re-layout when the height cache changes.
-  const [cacheVersion, setCacheVersion] = useState(0);
+  // Subscribing via useSyncExternalStore gives React a legal way to read
+  // height-cache updates during render without violating the refs-during-render
+  // rule.
+  useSyncExternalStore(heightStore.subscribe, heightStore.getSnapshot);
 
   // Set up the row ResizeObserver once. Row refs register/unregister into it.
   useEffect(() => {
+    const elementIndex = elementIndexRef.current;
     const ro = new ResizeObserver((entries) => {
-      let changed = false;
       for (const entry of entries) {
-        const idx = elementIndexRef.current.get(entry.target);
+        const idx = elementIndex.get(entry.target);
         if (idx === undefined) continue;
-        const height = entry.contentRect.height;
-        if (height <= 0) continue;
-        const prev = heightCacheRef.current.get(idx);
-        if (prev !== height) {
-          heightCacheRef.current.set(idx, height);
-          changed = true;
-        }
+        heightStore.setHeight(idx, entry.contentRect.height);
       }
-      if (changed) setCacheVersion((v) => v + 1);
     });
     rowObserverRef.current = ro;
     return () => {
       ro.disconnect();
       rowObserverRef.current = null;
-      elementIndexRef.current.clear();
+      elementIndex.clear();
     };
-  }, []);
+  }, [heightStore]);
 
   // Track viewport height via ResizeObserver.
   useEffect(() => {
@@ -102,30 +155,23 @@ export function VirtualLogList({
   // Drop height-cache entries for indices beyond the current items length so
   // the ring buffer's drop-oldest behaviour doesn't leak stale measurements.
   useEffect(() => {
-    const cache = heightCacheRef.current;
-    let changed = false;
-    for (const key of cache.keys()) {
-      if (key >= items.length) {
-        cache.delete(key);
-        changed = true;
-      }
-    }
-    if (changed) setCacheVersion((v) => v + 1);
-  }, [items.length]);
+    heightStore.clampTo(items.length);
+  }, [items.length, heightStore]);
 
   // Build cumulative offsets[] where offsets[i] is the top position of item i.
   // offsets has items.length + 1 entries; the last is the total height.
   const offsets = useMemo(() => {
     const out = new Array<number>(items.length + 1);
     out[0] = 0;
-    const cache = heightCacheRef.current;
     for (let i = 0; i < items.length; i++) {
-      const h = cache.get(i) ?? ESTIMATE_ROW_HEIGHT;
+      const h = heightStore.getHeight(i) ?? ESTIMATE_ROW_HEIGHT;
       out[i + 1] = out[i] + h;
     }
     return out;
-    // cacheVersion is a proxy for cache mutations since the Map identity is stable.
-  }, [items.length, cacheVersion]);
+    // heightStore's version (subscribed via useSyncExternalStore above) drives
+    // re-renders; the component re-runs this useMemo because items.length
+    // stability is re-evaluated on every render.
+  }, [items.length, heightStore]);
 
   const totalHeight = offsets[items.length] ?? 0;
 
@@ -160,27 +206,28 @@ export function VirtualLogList({
   }, [items, totalHeight]);
 
   // Register/unregister a row element with the ResizeObserver.
-  const rowRef = useCallback((idx: number) => (el: HTMLDivElement | null) => {
-    const ro = rowObserverRef.current;
-    if (!ro) return;
-    // Clean up any previous element that was mapped to this index.
-    for (const [prevEl, prevIdx] of elementIndexRef.current) {
-      if (prevIdx === idx && prevEl !== el) {
-        ro.unobserve(prevEl);
-        elementIndexRef.current.delete(prevEl);
+  const rowRef = useCallback(
+    (idx: number) => (el: HTMLDivElement | null) => {
+      const ro = rowObserverRef.current;
+      if (!ro) return;
+      const elementIndex = elementIndexRef.current;
+      // Clean up any previous element that was mapped to this index.
+      for (const [prevEl, prevIdx] of elementIndex) {
+        if (prevIdx === idx && prevEl !== el) {
+          ro.unobserve(prevEl);
+          elementIndex.delete(prevEl);
+        }
       }
-    }
-    if (el) {
-      elementIndexRef.current.set(el, idx);
-      ro.observe(el);
-      // Seed the cache immediately so first render has a measurement.
-      const h = el.getBoundingClientRect().height;
-      if (h > 0 && heightCacheRef.current.get(idx) !== h) {
-        heightCacheRef.current.set(idx, h);
-        setCacheVersion((v) => v + 1);
+      if (el) {
+        elementIndex.set(el, idx);
+        ro.observe(el);
+        // Seed the cache immediately so first render has a measurement.
+        const h = el.getBoundingClientRect().height;
+        if (h > 0) heightStore.setHeight(idx, h);
       }
-    }
-  }, []);
+    },
+    [heightStore],
+  );
 
   if (items.length === 0 && emptyState) {
     return <>{emptyState}</>;
