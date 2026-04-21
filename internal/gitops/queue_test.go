@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -90,7 +91,8 @@ func newFakeQueue(t *testing.T, delay time.Duration) (*CommitQueue, *fakeCommitt
 		workers:  make(map[string]chan CommitJob),
 		queueBuf: 16,
 	}
-	q.idleCond = sync.NewCond(&q.mu)
+	q.idleCh = make(chan struct{})
+	close(q.idleCh)
 
 	return q, f
 }
@@ -227,6 +229,52 @@ func TestCommitQueue_AwaitIdleContextDeadline(t *testing.T) {
 
 	err := q.AwaitIdle(ctx)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// TestAwaitIdle_CtxCancelDoesNotLeak exercises the context-cancellation
+// path of AwaitIdle and asserts no helper goroutine is left blocked on
+// the queue's internal wait primitives. The previous implementation
+// spawned a goroutine that waited on a sync.Cond; a cancelled context
+// would return but leave that goroutine parked until the queue naturally
+// drained, leaking for the lifetime of the in-flight commit.
+//
+// Strategy: snapshot goroutine count before and after; drive AwaitIdle
+// with an already-cancelled context while a slow commit is running; a
+// short grace period lets any stragglers exit before we compare.
+func TestAwaitIdle_CtxCancelDoesNotLeak(t *testing.T) {
+	q, _ := newFakeQueue(t, 200*time.Millisecond)
+	t.Cleanup(func() { _ = q.Close(context.Background()) })
+
+	q.Enqueue(CommitJob{
+		Project: "alpha",
+		Kind:    CommitKindFile,
+		Path:    "alpha/tasks/a.md",
+		Message: "slow",
+	})
+
+	yieldToWorker()
+
+	before := runtime.NumGoroutine()
+
+	const iterations = 50
+
+	for i := 0; i < iterations; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := q.AwaitIdle(ctx)
+		require.ErrorIs(t, err, context.Canceled)
+	}
+
+	// A handful of runtime bookkeeping goroutines can appear/disappear
+	// transiently. Allow a small slack window but assert we are not
+	// spawning one helper per AwaitIdle call (the pre-fix behaviour
+	// would grow by `iterations`).
+	after := runtime.NumGoroutine()
+
+	assert.Less(t, after-before, 5,
+		"goroutine count grew by %d across %d AwaitIdle calls (before=%d after=%d)",
+		after-before, iterations, before, after)
 }
 
 func TestCommitQueue_CloseDrainsBufferedJobs(t *testing.T) {
