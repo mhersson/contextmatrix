@@ -229,8 +229,10 @@ func observe(next http.Handler) http.Handler {
 		)
 
 		// SSE streams would pollute the REST latency histogram and the
-		// path label set — skip them entirely for metrics.
-		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" {
+		// path label set — skip them entirely for metrics. MCP Streamable
+		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
+		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" ||
+			(r.Method == http.MethodGet && r.URL.Path == "/mcp") {
 			return
 		}
 
