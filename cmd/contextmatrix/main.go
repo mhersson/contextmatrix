@@ -141,8 +141,11 @@ func main() {
 	slog.Info("card service initialized")
 
 	// Initialize the per-project commit queue so writes do not serialize on
-	// the blocking go-git call under writeMu.
-	commitQueue := gitops.NewCommitQueue(git, 0)
+	// the blocking go-git call under writeMu. A 30-minute idle timeout
+	// tears down workers for quiet projects so long-running servers with
+	// ephemeral projects do not accumulate goroutines; the next Enqueue
+	// for that project spawns a fresh worker transparently.
+	commitQueue := gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))
 	svc.SetCommitQueue(commitQueue)
 	slog.Info("commit queue initialized")
 

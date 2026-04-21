@@ -203,6 +203,55 @@ describe('pattern filtering', () => {
     expect(prefixReceived).toHaveLength(0);
   });
 
+  it('does not collide an exact-match "card" subscription with the "card.*" prefix bucket', () => {
+    // Regression: bucket keys were previously the raw prefix string ('card'),
+    // so a literal exact subscription to 'card' (no dot) would share its
+    // bucket with the 'card.*' prefix subscription and receive every card.X
+    // event. Sigil-prefixed buckets ('p:card' vs 'e:card') keep them apart.
+    const exactReceived: BoardEvent[] = [];
+    const prefixReceived: BoardEvent[] = [];
+
+    act(() => {
+      renderWithProvider((ctx) => {
+        ctx.subscribe('card', (e) => exactReceived.push(e));
+        ctx.subscribe('card.*', (e) => prefixReceived.push(e));
+      });
+    });
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    // 'card.created' should reach the prefix subscriber only, not the exact
+    // subscriber (which is waiting for the literal type 'card').
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'card.created',
+        project: 'alpha',
+        card_id: 'ALPHA-001',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(exactReceived).toHaveLength(0);
+    expect(prefixReceived).toHaveLength(1);
+
+    // A literal type 'card' (no dot) should reach the exact subscriber only;
+    // the prefix subscriber is filtering on 'card.*' and never matches a bare
+    // type with no suffix.
+    act(() => {
+      latestInstance()._triggerMessage({
+        type: 'card',
+        project: 'alpha',
+        card_id: '',
+        timestamp: '2026-01-01T00:00:00Z',
+      } as BoardEvent);
+    });
+
+    expect(exactReceived).toHaveLength(1);
+    expect(prefixReceived).toHaveLength(1); // unchanged from previous assertion
+  });
+
   it('delivers events to both wildcard and matching prefix subscribers', () => {
     const wild: BoardEvent[] = [];
     const card: BoardEvent[] = [];

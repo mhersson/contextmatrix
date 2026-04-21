@@ -55,16 +55,18 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 	}
 
 	gatherCases := []gatherCase{
-		{"sse_active_connections", dto.MetricType_GAUGE},
-		{"eventbus_dropped_total", dto.MetricType_COUNTER},
-		{"gitsync_duration_seconds", dto.MetricType_HISTOGRAM},
-		{"stall_scan_duration_seconds", dto.MetricType_HISTOGRAM},
-		{"stall_cards_marked_total", dto.MetricType_COUNTER},
-		{"card_cache_size", dto.MetricType_GAUGE},
-		{"card_cache_miss_total", dto.MetricType_COUNTER},
+		{"contextmatrix_sse_active_connections", dto.MetricType_GAUGE},
+		{"contextmatrix_eventbus_dropped_total", dto.MetricType_COUNTER},
+		{"contextmatrix_gitsync_duration_seconds", dto.MetricType_HISTOGRAM},
+		{"contextmatrix_stall_scan_duration_seconds", dto.MetricType_HISTOGRAM},
+		{"contextmatrix_stall_cards_marked_total", dto.MetricType_COUNTER},
+		{"contextmatrix_card_cache_size", dto.MetricType_GAUGE},
+		{"contextmatrix_card_cache_miss_total", dto.MetricType_COUNTER},
 		{"contextmatrix_commit_queue_depth", dto.MetricType_GAUGE},
 		{"contextmatrix_commit_duration_seconds", dto.MetricType_HISTOGRAM},
 		{"contextmatrix_commit_errors_total", dto.MetricType_COUNTER},
+		{"contextmatrix_parent_autotransition_errors_total", dto.MetricType_COUNTER},
+		{"contextmatrix_rollback_failures_total", dto.MetricType_COUNTER},
 	}
 
 	mfs, err := reg.Gather()
@@ -96,9 +98,9 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 	}
 
 	vecCases := []vecCase{
-		{"http_requests_total", metrics.HTTPRequestsTotal},
-		{"http_request_duration_seconds", metrics.HTTPRequestDuration},
-		{"runner_webhook_total", metrics.RunnerWebhookTotal},
+		{"contextmatrix_http_requests_total", metrics.HTTPRequestsTotal},
+		{"contextmatrix_http_request_duration_seconds", metrics.HTTPRequestDuration},
+		{"contextmatrix_runner_webhook_total", metrics.RunnerWebhookTotal},
 	}
 
 	for _, tc := range vecCases {

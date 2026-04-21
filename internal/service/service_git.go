@@ -9,6 +9,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // noopCommitChan returns a closed channel that yields a single nil,
@@ -254,6 +255,7 @@ func (s *CardService) rollbackCardOnCommitFailure(
 	}
 
 	if rollbackErr := s.store.UpdateCard(ctx, project, snapshot); rollbackErr != nil {
+		metrics.RollbackFailuresTotal.Inc()
 		ctxlog.Logger(ctx).Error("commit failed and rollback failed; cache + disk inconsistent",
 			"project", project,
 			"card_id", snapshot.ID,
