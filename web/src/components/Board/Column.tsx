@@ -62,17 +62,22 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
     return (
       <div
         ref={setNodeRef}
-        onClick={() => onToggleCollapse?.(state)}
         className={`
           flex-shrink-0 flex flex-col items-center
           bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]
-          cursor-pointer hover:bg-[var(--bg1)] transition-all duration-150
+          transition-all duration-150
           w-10
           ${dropTargetClass}
           ${dimClass}
         `}
       >
-        <div className="flex flex-col items-center gap-2 py-3">
+        <button
+          type="button"
+          onClick={() => onToggleCollapse?.(state)}
+          aria-label={`Expand ${formatStateName(state)} column`}
+          aria-expanded={false}
+          className="w-full flex flex-col items-center gap-2 py-3 cursor-pointer hover:bg-[var(--bg1)] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]"
+        >
           <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
             {cards.length}
           </span>
@@ -82,7 +87,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
           >
             {formatStateName(state)}
           </span>
-        </div>
+        </button>
       </div>
     );
   }
@@ -107,6 +112,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
               title="Collapse column"
               aria-label={`Collapse ${formatStateName(state)} column`}
+              aria-expanded={true}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

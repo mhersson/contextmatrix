@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useId, useRef, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { useTheme } from '../../hooks/useTheme';
 import { ParentSearch } from './ParentSearch';
@@ -51,6 +51,11 @@ export function CreateCardForm({
   const [labelInput, setLabelInput] = useState('');
   // Tracks the type the user had selected before a parent was set, so we can restore it on clear.
   const prevTypeRef = useRef<string>(type);
+  const titleId = useId();
+  const typeId = useId();
+  const priorityId = useId();
+  const labelsId = useId();
+  const bodyLabelId = useId();
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -111,8 +116,9 @@ export function CreateCardForm({
 
       {/* Title */}
       <div>
-        <label className="block text-xs text-[var(--grey1)] mb-1">Title *</label>
+        <label htmlFor={titleId} className="block text-xs text-[var(--grey1)] mb-1">Title *</label>
         <input
+          id={titleId}
           ref={titleRef}
           type="text"
           value={title}
@@ -125,9 +131,9 @@ export function CreateCardForm({
       {/* Type + Priority */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Type</label>
+          <label htmlFor={typeId} className="block text-xs text-[var(--grey1)] mb-1">Type</label>
           {parent ? (
-            <div className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] flex items-center">
+            <div id={typeId} className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] flex items-center">
               <span
                 className="text-xs px-1.5 py-0.5 rounded"
                 style={{
@@ -141,6 +147,7 @@ export function CreateCardForm({
             </div>
           ) : (
             <select
+              id={typeId}
               value={type}
               onChange={(e) => handleTypeChange(e.target.value)}
               className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
@@ -152,8 +159,9 @@ export function CreateCardForm({
           )}
         </div>
         <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Priority</label>
+          <label htmlFor={priorityId} className="block text-xs text-[var(--grey1)] mb-1">Priority</label>
           <select
+            id={priorityId}
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
             className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
@@ -167,7 +175,7 @@ export function CreateCardForm({
 
       {/* Labels */}
       <div>
-        <label className="block text-xs text-[var(--grey1)] mb-1">Labels</label>
+        <label htmlFor={labelsId} className="block text-xs text-[var(--grey1)] mb-1">Labels</label>
         <div className="flex flex-wrap gap-2 mb-2">
           {labels.map((label) => (
             <span
@@ -175,7 +183,11 @@ export function CreateCardForm({
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
             >
               {label}
-              <button onClick={() => removeLabel(label)} className="hover:text-[var(--red)] transition-colors">
+              <button
+                onClick={() => removeLabel(label)}
+                className="hover:text-[var(--red)] transition-colors"
+                aria-label={`Remove label ${label}`}
+              >
                 x
               </button>
             </span>
@@ -183,6 +195,7 @@ export function CreateCardForm({
         </div>
         <div className="flex gap-2">
           <input
+            id={labelsId}
             type="text"
             value={labelInput}
             onChange={(e) => setLabelInput(e.target.value)}
@@ -226,7 +239,7 @@ export function CreateCardForm({
 
       {/* Body */}
       <div data-color-mode={theme}>
-        <label className="block text-xs text-[var(--grey1)] mb-1">Description</label>
+        <label id={bodyLabelId} className="block text-xs text-[var(--grey1)] mb-1">Description</label>
         <MDEditor
           value={body}
           onChange={(val) => { setBody(val || ''); setBodyDirty(true); }}

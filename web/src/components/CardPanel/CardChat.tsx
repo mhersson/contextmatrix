@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { LogLine } from '../RunnerConsole/LogLine';
@@ -16,6 +16,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const messageId = useId();
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -89,13 +90,17 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
 
   return (
     <div className="flex flex-col h-full gap-2">
-      <label className="block text-xs text-[var(--grey1)]">Session Chat</label>
+      <label htmlFor={messageId} className="block text-xs text-[var(--grey1)]">Session Chat</label>
 
       {/* Log list — fills remaining height when chat panel is active */}
       <div
         ref={logContainerRef}
         className="rounded bg-[var(--bg-dim)] border border-[var(--bg3)] overflow-y-auto flex-1 min-h-[60px] font-mono"
         onScroll={handleScroll}
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-label="Session chat log"
       >
         {cardLogs.length === 0 ? (
           <div className="flex items-center justify-center h-[60px] text-xs" style={{ color: 'var(--grey1)' }}>
@@ -111,6 +116,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
       {/* Input row */}
       <div className="flex gap-2 items-end">
         <textarea
+          id={messageId}
           className="flex-1 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] px-3 py-2 resize-none focus:outline-none focus:border-[var(--aqua)] placeholder-[var(--grey0)] disabled:opacity-50"
           placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
           value={message}

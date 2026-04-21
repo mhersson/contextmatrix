@@ -45,7 +45,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
             <rect x="2" y="14" width="16" height="2" rx="1" fill="currentColor" />
           </svg>
         </button>
-        <div className="flex items-center gap-1 rounded p-0.5" style={{ backgroundColor: 'var(--bg1)' }}>
+        <nav aria-label="Primary navigation" className="flex items-center gap-1 rounded p-0.5" style={{ backgroundColor: 'var(--bg1)' }}>
           {VIEWS.slice(0, 1).map((v) => (
             <NavLink
               key={v.label}
@@ -64,6 +64,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
             <button
               type="button"
               onClick={onToggleConsole}
+              aria-pressed={consoleOpen ?? false}
               className="px-2 py-1 sm:px-3 rounded text-sm transition-colors flex items-center gap-1"
               style={{
                 backgroundColor: consoleOpen ? 'var(--bg3)' : 'transparent',
@@ -89,7 +90,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
               {v.label}
             </NavLink>
           ))}
-        </div>
+        </nav>
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">

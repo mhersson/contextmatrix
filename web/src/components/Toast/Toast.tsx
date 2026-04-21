@@ -20,9 +20,17 @@ const typeStyles: Record<string, { bg: string; border: string; text: string }> =
 
 function ToastItem({ toast, onDismiss }: { toast: ToastType; onDismiss: () => void }) {
   const styles = typeStyles[toast.type] || typeStyles.info;
+  // Errors are announced assertively so screen readers interrupt other output;
+  // success/info use polite so they don't cut off in-progress announcements.
+  const isError = toast.type === 'error';
+  const role = isError ? 'alert' : 'status';
+  const ariaLive = isError ? 'assertive' : 'polite';
 
   return (
     <div
+      role={role}
+      aria-live={ariaLive}
+      aria-atomic="true"
       className="flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border animate-slide-in"
       style={{
         backgroundColor: styles.bg,

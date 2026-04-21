@@ -302,13 +302,14 @@ export function CardPanel({
 
       <div ref={editorContainerRef} data-color-mode={theme}>
         <div className="flex items-center gap-1 mb-1">
-          <label className="text-xs text-[var(--grey1)]">Description</label>
+          <span className="text-xs text-[var(--grey1)]">Description</span>
           <button
             onClick={() => setDescriptionCollapsed((v) => !v)}
             className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
             aria-label={descriptionCollapsed ? 'Expand description' : 'Collapse description'}
+            aria-expanded={!descriptionCollapsed}
           >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d={descriptionCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
             </svg>
