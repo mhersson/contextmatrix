@@ -8,6 +8,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // enforceTerminalStateInvariants clears fields that must be reset when a card
@@ -91,7 +92,7 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 
 	if child.State == board.StateInProgress {
 		if parent.State == board.StateTodo {
-			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress); err != nil {
+			if err := s.transitionParentDirect(ctx, parent, board.StateInProgress, child.ID); err != nil {
 				ctxlog.Logger(ctx).Error("parent auto-transition failed: todo→in_progress",
 					"parent_id", parent.ID,
 					"child_id", child.ID,
@@ -105,7 +106,17 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 // transitionParentDirect transitions a parent card to the target state,
 // persists it, commits to git, and publishes events. It walks the shortest
 // valid transition path. Called while writeMu is held — does NOT re-acquire it.
-func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.Card, targetState string) error {
+//
+// Commit failures are intentionally not returned: parent auto-transitions
+// are fire-and-forget from the child write path, so bubbling the error up
+// would surface a rollback requirement that the caller cannot express
+// (the child's commit already succeeded). Instead, each failed commit
+// increments metrics.ParentAutoTransitionErrors and logs a Warn with
+// parent_id, child_id, target_state, and the wrapped error so operators
+// can alert on sustained failures.
+func (s *CardService) transitionParentDirect(
+	ctx context.Context, parent *board.Card, targetState, childID string,
+) error {
 	if parent.State == targetState {
 		return nil
 	}
@@ -136,7 +147,14 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 		}
 
 		if err := s.commitCardChange(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
-			ctxlog.Logger(ctx).Warn("git commit for parent auto-transition", "parent_id", parent.ID, "error", err)
+			metrics.ParentAutoTransitionErrors.Inc()
+			ctxlog.Logger(ctx).Warn("parent auto-transition commit failed",
+				"parent_id", parent.ID,
+				"child_id", childID,
+				"target_state", state,
+				"from_state", oldState,
+				"error", fmt.Errorf("git commit for parent auto-transition: %w", err),
+			)
 		}
 
 		// Flush deferred commits on not_planned/review.
@@ -155,6 +173,7 @@ func (s *CardService) transitionParentDirect(ctx context.Context, parent *board.
 
 		ctxlog.Logger(ctx).Info("parent auto-transitioned",
 			"parent_id", parent.ID,
+			"child_id", childID,
 			"old_state", oldState,
 			"new_state", state,
 		)

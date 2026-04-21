@@ -92,6 +92,16 @@ var (
 		Name: "contextmatrix_commit_errors_total",
 		Help: "Commit failures reported by the commit queue worker.",
 	})
+
+	// ParentAutoTransitionErrors counts failures during parent auto-transition
+	// commits. Auto-transitions are best-effort fire-and-forget from the child
+	// write path; operators should alert on sustained non-zero values since
+	// each failed transition leaves the parent desynchronised from its subtask
+	// state until a subsequent mutation re-commits it.
+	ParentAutoTransitionErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "contextmatrix_parent_autotransition_errors_total",
+		Help: "Parent auto-transition commit failures (best-effort; fire-and-forget).",
+	})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -112,6 +122,7 @@ func Register(reg prometheus.Registerer) {
 		CommitQueueDepth,
 		CommitDuration,
 		CommitErrorsTotal,
+		ParentAutoTransitionErrors,
 	}
 
 	for _, c := range collectors {
