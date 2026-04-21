@@ -24,6 +24,11 @@ export function CardPanelAgent({
 }: CardPanelAgentProps) {
   const [stopLoading, setStopLoading] = useState(false);
 
+  const handleRelease = () => {
+    if (!window.confirm(`Release the claim held by ${card.assigned_agent}? Only do this if the agent is no longer running — the current claimant will lose its ability to update the card.`)) return;
+    onRelease();
+  };
+
   const handleStop = async () => {
     if (!window.confirm('Stop this task? The container will be destroyed and uncommitted work discarded.')) return;
     setStopLoading(true);
@@ -61,7 +66,7 @@ export function CardPanelAgent({
           {canRelease && (
             <button
               type="button"
-              onClick={onRelease}
+              onClick={handleRelease}
               className="px-3 py-1.5 rounded bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90 transition-opacity text-sm"
             >
               Release

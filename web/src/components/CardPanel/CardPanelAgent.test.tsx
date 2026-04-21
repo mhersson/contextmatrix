@@ -62,11 +62,22 @@ describe('CardPanelAgent — Claim / Release / Stop', () => {
     expect(onClaim).toHaveBeenCalledOnce();
   });
 
-  it('calls onRelease when Release button is clicked', () => {
+  it('calls onRelease when Release button is clicked and confirm is accepted', () => {
     const onRelease = vi.fn();
-    render(<CardPanelAgent {...defaultProps} card={baseCard} canRelease onRelease={onRelease} />);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const cardWithAgent = { ...baseCard, assigned_agent: 'agent-xyz' };
+    render(<CardPanelAgent {...defaultProps} card={cardWithAgent} canRelease onRelease={onRelease} />);
     fireEvent.click(screen.getByRole('button', { name: 'Release' }));
     expect(onRelease).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT call onRelease when Release button is clicked and confirm is cancelled', () => {
+    const onRelease = vi.fn();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const cardWithAgent = { ...baseCard, assigned_agent: 'agent-xyz' };
+    render(<CardPanelAgent {...defaultProps} card={cardWithAgent} canRelease onRelease={onRelease} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    expect(onRelease).not.toHaveBeenCalled();
   });
 
   it('Stop button shows Stopping... and calls onStop when clicked', async () => {

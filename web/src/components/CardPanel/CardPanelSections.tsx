@@ -63,7 +63,7 @@ export function CardPanelSections({
       <CardPanelAgent
         card={card}
         canClaim={!card.assigned_agent}
-        canRelease={!!card.assigned_agent && card.assigned_agent === currentAgentId}
+        canRelease={!!card.assigned_agent && !!currentAgentId && currentAgentId.startsWith('human:')}
         onClaim={onClaim}
         onRelease={onRelease}
         canStop={card.runner_status === 'queued' || card.runner_status === 'running'}
