@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mhersson/contextmatrix/internal/clock"
 )
 
 const (
@@ -244,6 +246,11 @@ type Manager struct {
 	// subscribers receive a clean terminal event instead of starting a new
 	// pump that would never be reaped.
 	closed bool
+
+	// clk drives the idle-sweeper ticker and upstream reconnect-backoff waits.
+	// Defaults to clock.Real(); tests can override via WithClock. Never nil
+	// after NewManager.
+	clk clock.Clock
 }
 
 // DroppedEvents returns the total number of fan-out events dropped because a
@@ -262,9 +269,14 @@ func NewManager(opts ...Option) *Manager {
 		maxSessions: DefaultMaxSessions,
 		sessionTTL:  DefaultSessionTTL,
 		stopCh:      make(chan struct{}),
+		clk:         clock.Real(),
 	}
 	for _, o := range opts {
 		o(m)
+	}
+
+	if m.clk == nil {
+		m.clk = clock.Real()
 	}
 
 	return m

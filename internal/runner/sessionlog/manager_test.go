@@ -13,9 +13,55 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newFailFastManager constructs a sessionlog.Manager whose upstream reconnect
+// backoffs are collapsed to zero real wall-clock time. It wires a fake clock
+// and spawns a janitor goroutine that repeatedly advances the clock so any
+// pump goroutine parked on clk.After(backoff) wakes immediately. The janitor
+// exits when the returned context is cancelled — the caller passes the
+// cleanup func to t.Cleanup.
+func newFailFastManager(t *testing.T, extra ...Option) (*Manager, func()) {
+	t.Helper()
+
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	opts := append([]Option{WithClock(fake)}, extra...)
+	m := NewManager(opts...)
+
+	stop := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				// 5s covers backoffDuration's 4s cap with room to spare.
+				fake.Advance(5 * time.Second)
+			}
+		}
+	}()
+
+	cleanup := func() {
+		close(stop)
+		wg.Wait()
+	}
+
+	return m, cleanup
+}
 
 // sseServer builds an httptest.Server that streams the given events as SSE
 // frames and then holds the connection open until the client disconnects.
@@ -340,15 +386,18 @@ func TestIdleSweeper(t *testing.T) {
 	srv := sseServerInfinite(t)
 	defer srv.Close()
 
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	m := NewManager(
 		WithRunnerConfig(srv.URL, "test-key"),
 		WithSessionTTL(ttl),
+		WithClock(fake),
 	)
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-	// Wait past TTL, then trigger sweeper directly (avoids waiting for ticker).
-	time.Sleep(ttl + 20*time.Millisecond)
+	// Advance the fake clock past TTL, then trigger sweeper directly
+	// (sweepIdleSessions compares session startTime against fake.Now()).
+	fake.Advance(ttl + 20*time.Millisecond)
 	m.sweepIdleSessions(context.Background())
 
 	// Session should be gone.
@@ -360,24 +409,27 @@ func TestIdleSweeper(t *testing.T) {
 
 // TestUpstreamRetryAndError verifies that after maxUpstreamRetries failed
 // connections the session is removed and subscribers receive a terminal event.
+//
+// The reconnect-backoff waits are driven through the manager's clock. This
+// test uses newFailFastManager which wires a fake clock and auto-advances
+// it, collapsing the ~3.75 s of natural backoff into sub-second wall-clock.
 func TestUpstreamRetryAndError(t *testing.T) {
 	const cardID = "RETRY-001"
 
 	// Server that immediately returns 500.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	t.Cleanup(cleanup)
 
 	ch, unsub := m.Subscribe(cardID)
 	defer unsub()
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-	// The pump retries with backoffs: 250ms, 500ms, 1s, 2s (4 retries = ~3.75s).
-	// Use a generous timeout to avoid flakiness.
 	var gotTerminal bool
 
 	select {
@@ -385,7 +437,7 @@ func TestUpstreamRetryAndError(t *testing.T) {
 		if !ok || evt.Type == EventTypeTerminal {
 			gotTerminal = true
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for terminal event after upstream errors")
 	}
 
@@ -664,6 +716,9 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 
 				collected = append(collected, evt)
 
+				// Deliberate wall-clock pause — the whole point of this test is
+				// to simulate a slow consumer so the fan-out channel fills and
+				// the tail-drop bug is exposed. A fake clock cannot substitute.
 				time.Sleep(readDelay)
 			case <-deadline:
 				done <- result{events: collected}
@@ -1531,7 +1586,8 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	srv := sseServerAlways500(t)
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	t.Cleanup(cleanup)
 
 	// Subscribe before Start — lands in pendingSubs.
 	pendingCh, pendingUnsub := m.Subscribe(cardID)
@@ -1543,9 +1599,9 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	activeCh, activeUnsub := m.Subscribe(cardID)
 	defer activeUnsub()
 
-	// Both channels must receive a terminal event (or be closed) within the retry timeout.
-	// maxUpstreamRetries=5, backoffs: 250ms, 500ms, 1s, 2s, 4s → ~7.75s total.
-	const timeout = 20 * time.Second
+	// Backoffs are collapsed by the fake clock, so a 5s wall-clock timeout is
+	// more than enough for the retry chain.
+	const timeout = 5 * time.Second
 
 	gotTerminalPending := false
 	gotTerminalActive := false
@@ -1586,7 +1642,7 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	for i := range 10 {
 		const gcID = "PFAIL-GC"
 
-		m2 := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+		m2, cleanup2 := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
 
 		ch2, unsub2 := m2.Subscribe(gcID)
 		defer unsub2()
@@ -1601,8 +1657,12 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 		// Drain.
 		for range ch2 {
 		}
+
+		cleanup2()
 	}
-	// Give goroutines time to exit.
+	// Give goroutines time to exit. This is a genuine wall-clock poll for
+	// goroutine teardown — goroutines exit on the real OS scheduler, so
+	// the fake-clock abstraction cannot drive it.
 	runtime.GC()
 	time.Sleep(100 * time.Millisecond)
 
@@ -1621,7 +1681,8 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 	srv := sseServerAlways500(t)
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	t.Cleanup(cleanup)
 
 	// Subscribe and start; wait for permanent failure.
 	firstCh, firstUnsub := m.Subscribe(cardID)
@@ -1629,7 +1690,7 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-	const timeout = 20 * time.Second
+	const timeout = 5 * time.Second
 	select {
 	case <-firstCh:
 		// Drain until closed.
@@ -1667,14 +1728,15 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	// Phase 1: Cause permanent failure.
 	failSrv := sseServerAlways500(t)
 
-	m := NewManager(WithRunnerConfig(failSrv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(failSrv.URL, "test-key"))
+	t.Cleanup(cleanup)
 
 	firstCh, firstUnsub := m.Subscribe(cardID)
 	defer firstUnsub()
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-	const timeout = 20 * time.Second
+	const timeout = 5 * time.Second
 	select {
 	case <-firstCh:
 		for range firstCh {
@@ -1879,14 +1941,15 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 	// --- Stop clears the flag ---
 	{
-		m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+		m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+		t.Cleanup(cleanup)
 
 		firstCh, firstUnsub := m.Subscribe(cardIDStop)
 		defer firstUnsub()
 
 		require.NoError(t, m.Start(context.Background(), cardIDStop, ""))
 
-		const timeout = 20 * time.Second
+		const timeout = 5 * time.Second
 		select {
 		case <-firstCh:
 			for range firstCh {
@@ -1912,14 +1975,15 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 	// --- Clear clears the flag ---
 	{
-		m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+		m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+		t.Cleanup(cleanup)
 
 		firstCh, firstUnsub := m.Subscribe(cardIDClear)
 		defer firstUnsub()
 
 		require.NoError(t, m.Start(context.Background(), cardIDClear, ""))
 
-		const timeout = 20 * time.Second
+		const timeout = 5 * time.Second
 		select {
 		case <-firstCh:
 			for range firstCh {

@@ -174,9 +174,16 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 // StartTimeoutChecker starts a background goroutine that periodically
 // checks for stalled cards and transitions them to the "stalled" state.
 // The goroutine stops when the context is cancelled.
+//
+// The ticker is driven by the service's clock.Clock — tests that inject a
+// fake clock can call Advance to deterministically trigger iterations.
+// The ticker is created synchronously before the goroutine starts so that
+// tests can Advance immediately after this call returns without racing
+// against goroutine startup.
 func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Duration) {
+	ticker := s.clk.NewTicker(interval)
+
 	go func() {
-		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
@@ -185,7 +192,7 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 				ctxlog.Logger(ctx).Info("timeout checker stopped")
 
 				return
-			case <-ticker.C:
+			case <-ticker.C():
 				func() {
 					defer func() {
 						if r := recover(); r != nil {

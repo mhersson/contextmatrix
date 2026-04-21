@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -588,16 +590,35 @@ func TestRunGit_NilAuthEnv(t *testing.T) {
 func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 
+	// Drive the ticker off a fake clock so each firing is explicit.
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	syncer.SetClock(fake)
+
+	var mu sync.Mutex
+
 	var callCount int
 
-	done := make(chan struct{})
+	// firstDone closes after the first (panic) call returns (recovered).
+	firstDone := make(chan struct{})
+	// done is buffered because under heavy concurrent test load the
+	// Eventually loop below may advance the fake clock enough times that
+	// the recovered loop performs multiple successful ticks before the
+	// test's receive happens. A non-blocking send to an unbuffered channel
+	// would be dropped, leaving the test's receive to time out.
+	done := make(chan struct{}, 10)
 
 	syncer.pullHook = func(_ context.Context, _ string) error {
+		mu.Lock()
 		callCount++
-		if callCount == 1 {
+		n := callCount
+		mu.Unlock()
+
+		if n == 1 {
+			defer close(firstDone)
+
 			panic("injected test panic")
 		}
-		// Signal after the second successful call.
+		// Signal after any successful call.
 		select {
 		case done <- struct{}{}:
 		default:
@@ -609,7 +630,6 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Use a very short interval so the test completes quickly.
 	syncer.interval = 10 * time.Millisecond
 
 	syncer.wg.Add(1)
@@ -620,18 +640,39 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 		syncer.periodicPull(ctx)
 	}()
 
-	// Wait for at least two ticks — proves the loop survived the first-tick panic.
+	// Wait until periodicPull has registered its ticker with the fake clock.
+	require.Eventually(t, func() bool {
+		fake.Advance(10 * time.Millisecond)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		return callCount >= 1
+	}, 2*time.Second, time.Millisecond, "first tick never fired")
+
+	// Wait for the recovered panic goroutine to return before firing the
+	// next tick, so we exercise the "loop survived" property explicitly.
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first pull (panic) did not complete within 2s")
+	}
+
+	// Fire the second tick — must reach the success branch.
+	fake.Advance(10 * time.Millisecond)
+
 	select {
 	case <-done:
-		// success: loop continued after the panic
-	case <-time.After(5 * time.Second):
-		t.Fatal("periodicPull loop did not continue after panic within 5s")
+	case <-time.After(2 * time.Second):
+		t.Fatal("periodicPull loop did not continue after panic within 2s")
 	}
 
 	cancel()
 	syncer.wg.Wait()
 
+	mu.Lock()
 	assert.GreaterOrEqual(t, callCount, 2, "pullHook must have been called at least twice")
+	mu.Unlock()
 }
 
 // TestPushListener_SurvivesPanic verifies that a panic inside pushListener's

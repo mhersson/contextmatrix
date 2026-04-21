@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -22,6 +23,7 @@ type Syncer struct {
 	boardsDir    string
 	interval     time.Duration
 	allowedHosts []string
+	clk          clock.Clock
 	wg           sync.WaitGroup
 }
 
@@ -41,7 +43,18 @@ func NewSyncer(
 		boardsDir:    boardsDir,
 		interval:     interval,
 		allowedHosts: allowedHosts,
+		clk:          clock.Real(),
 	}
+}
+
+// SetClock overrides the clock used to drive the periodic sync ticker.
+// Must be called before Start; tests inject a fake clock here.
+func (s *Syncer) SetClock(c clock.Clock) {
+	if c == nil {
+		c = clock.Real()
+	}
+
+	s.clk = c
 }
 
 // Start launches the periodic sync goroutine.
@@ -60,7 +73,7 @@ func (s *Syncer) run(ctx context.Context) {
 	// Run immediately on start, then on interval.
 	s.safeSyncAll(ctx)
 
-	ticker := time.NewTicker(s.interval)
+	ticker := s.clk.NewTicker(s.interval)
 	defer ticker.Stop()
 
 	for {
@@ -69,7 +82,7 @@ func (s *Syncer) run(ctx context.Context) {
 			slog.Info("github syncer stopped")
 
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			s.safeSyncAll(ctx)
 		}
 	}

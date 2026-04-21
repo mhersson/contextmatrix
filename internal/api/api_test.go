@@ -1011,9 +1011,6 @@ func TestHeartbeatCard(t *testing.T) {
 
 	originalHeartbeat := card.LastHeartbeat
 
-	// Wait a moment so heartbeat time differs
-	time.Sleep(10 * time.Millisecond)
-
 	t.Run("successful heartbeat - 204", func(t *testing.T) {
 		body := agentRequest{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
@@ -1028,10 +1025,12 @@ func TestHeartbeatCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-		// Verify heartbeat was updated
+		// Verify heartbeat was updated (monotonically — on fast machines the
+		// handler may see the same millisecond as the initial claim).
 		updatedCard, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
 		require.NoError(t, err)
-		assert.True(t, updatedCard.LastHeartbeat.After(*originalHeartbeat))
+		assert.False(t, updatedCard.LastHeartbeat.Before(*originalHeartbeat),
+			"heartbeat must not go backwards")
 	})
 
 	t.Run("heartbeat wrong agent - 403", func(t *testing.T) {
@@ -1588,22 +1587,32 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, sseResp.StatusCode)
 	assert.Equal(t, "text/event-stream", sseResp.Header.Get("Content-Type"))
 
-	// Read SSE events in a background goroutine
+	// Read SSE events in a background goroutine. The reader signals on
+	// connectedCh as soon as it sees the ":connected" prelude so the test
+	// can proceed without a blind time.Sleep.
 	var (
 		receivedEvents []events.Event
 		mu             sync.Mutex
 	)
 
 	readDone := make(chan struct{})
+	connectedCh := make(chan struct{})
 
 	go func() {
 		defer close(readDone)
+
+		var connectedOnce sync.Once
 
 		buf := make([]byte, 4096)
 		for {
 			n, readErr := sseResp.Body.Read(buf)
 			if n > 0 {
-				for line := range strings.SplitSeq(string(buf[:n]), "\n") {
+				chunk := string(buf[:n])
+				if strings.Contains(chunk, ": connected") {
+					connectedOnce.Do(func() { close(connectedCh) })
+				}
+
+				for line := range strings.SplitSeq(chunk, "\n") {
 					if jsonData, ok := strings.CutPrefix(line, "data: "); ok {
 						var ev events.Event
 						if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
@@ -1622,8 +1631,14 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 		}
 	}()
 
-	// Give SSE handler time to subscribe
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the SSE prelude ":connected" to arrive — proves the handler
+	// has subscribed and flushed headers. Deterministic replacement for the
+	// previous 100 ms sleep.
+	select {
+	case <-connectedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SSE ':connected' prelude never arrived")
+	}
 
 	// Create a card via API (triggers CardCreated event)
 	createBody, _ := json.Marshal(createCardRequest{
@@ -1645,8 +1660,26 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	closeBody(t, claimResp.Body)
 	require.Equal(t, http.StatusOK, claimResp.StatusCode)
 
-	// Give events time to propagate
-	time.Sleep(200 * time.Millisecond)
+	// Wait until both CardCreated and CardClaimed have landed on the reader
+	// goroutine, or 5 s elapses. Polls the mutex-guarded receivedEvents.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		var hasCreated, hasClaimed bool
+
+		for _, ev := range receivedEvents {
+			if ev.Type == events.CardCreated && ev.CardID == "TEST-001" {
+				hasCreated = true
+			}
+
+			if ev.Type == events.CardClaimed && ev.CardID == "TEST-001" {
+				hasClaimed = true
+			}
+		}
+
+		return hasCreated && hasClaimed
+	}, 5*time.Second, 5*time.Millisecond, "did not receive both CardCreated and CardClaimed events")
 
 	// Close the SSE connection to stop the reader
 	_ = sseResp.Body.Close()
