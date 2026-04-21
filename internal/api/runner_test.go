@@ -457,6 +457,11 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 
 	// Give the handler a moment to observe the cancellation, then unblock it so
 	// it can return the error response and the revert branch runs.
+	//
+	// Wall-clock wait: the handler observes context cancellation via
+	// http.Request.Context, which is driven by the OS scheduler. The fake
+	// clock abstraction does not affect http.Request.Context, so this sleep
+	// stays real.
 	time.Sleep(20 * time.Millisecond)
 	close(triggerUnblock)
 
@@ -465,17 +470,11 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	<-errCh
 
 	// Allow a short window for the server goroutine to complete the revert.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		updated, getErr := svc.GetCard(ctx, "test-project", card.ID)
-		require.NoError(t, getErr)
+	require.Eventually(t, func() bool {
+		upd, getErr := svc.GetCard(ctx, "test-project", card.ID)
 
-		if updated.RunnerStatus == "failed" {
-			break
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
+		return getErr == nil && upd.RunnerStatus == "failed"
+	}, 2*time.Second, 10*time.Millisecond)
 
 	// The card must have been reverted to "failed", not left in "queued".
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)

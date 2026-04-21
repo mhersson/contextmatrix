@@ -16,6 +16,11 @@ import (
 type eventHandlers struct {
 	bus               *events.Bus
 	keepaliveInterval time.Duration
+
+	// onSubscribed, if non-nil, is invoked exactly once per stream immediately
+	// after the event-bus subscription is registered. Intended purely for
+	// tests — production code never sets it. The hook must not block.
+	onSubscribed func()
 }
 
 // newEventHandlers creates event handlers with default keepalive interval.
@@ -72,6 +77,11 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	// Subscribe to event bus
 	ch, unsubscribe := h.bus.Subscribe()
 	defer unsubscribe()
+
+	// Signal tests (and only tests) that the subscription is live.
+	if h.onSubscribed != nil {
+		h.onSubscribed()
+	}
 
 	// Start keepalive ticker
 	ticker := time.NewTicker(h.keepaliveInterval)
