@@ -368,9 +368,39 @@ Or on error:
 ```json
 {
   "ok": false,
-  "error": "description of what went wrong"
+  "code": "error_code",
+  "message": "human-readable description"
 }
 ```
+
+**Stable error codes:**
+
+| Code               | Meaning                                                     |
+| ------------------ | ----------------------------------------------------------- |
+| `invalid_json`     | Request body could not be parsed as JSON                    |
+| `invalid_field`    | A required field is missing or has an invalid value         |
+| `unauthorized`     | HMAC signature missing, invalid, or timestamp out of window |
+| `not_found`        | Referenced card or container does not exist                 |
+| `conflict`         | Operation not valid in the current state                    |
+| `duplicate`        | A duplicate resource was detected                           |
+| `stdin_closed`     | Container stdin is closed; no further messages accepted     |
+| `too_large`        | Request payload exceeds the size limit (e.g., 8 KiB)       |
+| `limit_reached`    | A configured capacity limit has been reached                |
+| `internal`         | Unexpected runner-side error                                |
+| `upstream_failure` | Runner could not reach an upstream dependency (e.g., CM)   |
+| `draining`         | Runner is shutting down and not accepting new work          |
+
+**Per-endpoint behaviour notes:**
+
+- **`/stop-all`** — may return `207 Multi-Status` when some containers were
+  stopped and others failed. The body contains per-card results.
+- **`/kill`** — idempotent: returns `200` (not 404) when the card is not
+  tracked. Use this to safely call stop on cards that may already be finished.
+- **`/message`** — may return `410` with code `stdin_closed` after the
+  container session has ended and stdin is no longer writable.
+- **All mutating endpoints** — return `503` with code `draining` while the
+  runner is performing a graceful shutdown. Clients should not retry during
+  a draining window.
 
 ### Retry Policy
 
@@ -387,9 +417,24 @@ ContextMatrix retries failed webhooks with exponential backoff:
 2. Pulls Docker image (base image or per-project override from `runner_image`)
 3. Starts container with:
    - Claude Code CLI pre-installed
-   - MCP URL and API key injected as environment variables
+   - Secrets delivered via tmpfs bind-mount at `/run/cm-secrets/env` (not plain
+     environment variables) — the entrypoint sources this file at startup
+   - `--allowed-tools` with an explicit tool allowlist replaces
+     `--dangerously-skip-permissions`. Two allowlist arrays are defined:
+     - `ALLOWED_TOOLS_COMMON` — used for both HITL and autonomous runs
+     - `ALLOWED_TOOLS_AUTO_EXTRAS` — adds `Task` on top of `ALLOWED_TOOLS_COMMON`
+       for fully autonomous (non-interactive) runs
    - Git credentials mounted (not baked into image)
    - The card ID and project name passed as arguments
+   - Injected environment variables include:
+     - `CM_MCP_URL` — ContextMatrix MCP endpoint
+     - `CM_MCP_API_KEY` — Bearer token for MCP authentication
+     - `CM_CARD_ID` / `CM_PROJECT` — card being executed
+     - `CM_ORCHESTRATOR_MODEL` — model name from the trigger payload
+     - `CM_INTERACTIVE` — `1` for HITL mode, unset or `0` for autonomous
+     - `CM_CORRELATION_ID` — opaque ID propagated from the `/trigger` request's
+       `X-Correlation-ID` header; the container forwards it as `X-Correlation-ID`
+       on all outbound requests for end-to-end tracing
 4. Claude Code runs the `run-autonomous` workflow:
    - Connects to ContextMatrix via MCP
    - Claims the card
@@ -402,6 +447,39 @@ ContextMatrix retries failed webhooks with exponential backoff:
 
 **On kill:** Container is destroyed immediately. All uncommitted work is
 discarded. No partial saves.
+
+## Worker Safety
+
+### Idle-Output Watchdog
+
+The runner monitors each container for output activity. If a container produces
+no stdout or stderr output for longer than `idle_output_timeout` (default: **30
+minutes**), the runner treats it as hung and force-kills the container. This
+prevents silent deadlocks — e.g., a Claude Code process blocked waiting for
+user input that will never arrive in autonomous mode — from consuming slots and
+leaving cards permanently `running`.
+
+The watchdog timer resets every time the container emits any output line. A
+container that is actively working but producing slow output (e.g., a long
+compile step with no progress lines) will not be killed as long as it emits at
+least one line within the window.
+
+### Maintenance Loop
+
+A background maintenance goroutine runs every `maintenance_interval` (default:
+**10 minutes**) and performs two cleanup tasks:
+
+1. **Orphan sweep** — scans running Docker containers for any that were started
+   by this runner but are no longer tracked in the in-memory container map (e.g.,
+   because the runner restarted mid-session). Orphaned containers are stopped and
+   their log sessions terminated.
+2. **Image pruning** — removes dangling Docker images (untagged intermediate
+   layers) that are older than 24 hours. This prevents unbounded disk growth
+   from repeated image pulls and rebuilds.
+
+Both tasks are best-effort: errors are logged but do not stop the maintenance
+loop. The maintenance loop is started automatically when the runner starts and
+stopped gracefully on shutdown.
 
 ## Security Model
 
