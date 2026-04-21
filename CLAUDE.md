@@ -24,7 +24,7 @@ Read these when working on the relevant area:
 | [`docs/data-model.md`](docs/data-model.md)             | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation. |
 | [`docs/api-reference.md`](docs/api-reference.md)       | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                          |
 | [`docs/gotchas.md`](docs/gotchas.md)                   | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                            |
-| [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, security model. Read when working on runner integration or MCP auth.                  |
+| [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, worker safety, operator endpoints, runner config reference, graceful shutdown. Read when working on runner integration or MCP auth.                  |
 | [`web/CLAUDE.md`](web/CLAUDE.md)                       | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                   |
 
 ## Architecture
