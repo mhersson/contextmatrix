@@ -238,14 +238,17 @@ describe('pattern filtering', () => {
 
     // A literal type 'card' (no dot) should reach the exact subscriber only;
     // the prefix subscriber is filtering on 'card.*' and never matches a bare
-    // type with no suffix.
+    // type with no suffix. The cast goes through `unknown` because 'card' is
+    // deliberately not in the EventType union — this test exists to prove
+    // that even a hypothetical future event with such a shape would not
+    // cross-fire the 'card.*' bucket.
     act(() => {
       latestInstance()._triggerMessage({
         type: 'card',
         project: 'alpha',
         card_id: '',
         timestamp: '2026-01-01T00:00:00Z',
-      } as BoardEvent);
+      } as unknown as BoardEvent);
     });
 
     expect(exactReceived).toHaveLength(1);
