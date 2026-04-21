@@ -1683,18 +1683,36 @@ func TestReportUsageEvent(t *testing.T) {
 }
 
 // captureHandler is a slog.Handler that records log records for test assertions.
+// slog.Handler.Handle may be invoked concurrently from multiple goroutines, so
+// access to records is guarded by a mutex; readers should call snapshot().
 type captureHandler struct {
+	mu      sync.Mutex
 	records []slog.Record
 }
 
 func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.records = append(h.records, r)
 
 	return nil
 }
 func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
 func (h *captureHandler) WithGroup(name string) slog.Handler       { return h }
+
+// snapshot returns a copy of the captured records under the mutex so callers
+// can iterate without racing against concurrent Handle calls.
+func (h *captureHandler) snapshot() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	out := make([]slog.Record, len(h.records))
+	copy(out, h.records)
+
+	return out
+}
 
 func TestReportUsageStoresModel(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
@@ -1779,7 +1797,7 @@ func TestReportUsageWarnsUnknownModel(t *testing.T) {
 	// A Warn log entry should have been emitted
 	var warnFound bool
 
-	for _, rec := range handler.records {
+	for _, rec := range handler.snapshot() {
 		if rec.Level == slog.LevelWarn {
 			warnFound = true
 
@@ -1788,6 +1806,35 @@ func TestReportUsageWarnsUnknownModel(t *testing.T) {
 	}
 
 	assert.True(t, warnFound, "expected slog.Warn for unknown model")
+}
+
+// TestCaptureHandler_ConcurrentHandle exercises the mutex guarding the
+// captureHandler's records slice. Without the lock this test trips `-race`.
+func TestCaptureHandler_ConcurrentHandle(t *testing.T) {
+	const goroutines = 32
+
+	const perGoroutine = 16
+
+	handler := &captureHandler{}
+	logger := slog.New(handler)
+
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < perGoroutine; j++ {
+				logger.Warn("concurrent log", "i", j)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Len(t, handler.snapshot(), goroutines*perGoroutine)
 }
 
 func TestAggregateUsage(t *testing.T) {

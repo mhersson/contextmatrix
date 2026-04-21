@@ -9,8 +9,12 @@ import (
 
 // Sentinel errors for storage operations.
 var (
-	// ErrProjectNotFound is returned when a project directory or .board.yaml does not exist.
-	ErrProjectNotFound = errors.New("project not found")
+	// ErrProjectNotFound is re-exported from the board package so callers can
+	// errors.Is against either sentinel; they point at the same underlying
+	// error value. board.LoadProjectConfig returns board.ErrProjectNotFound,
+	// which would otherwise bubble up through the service layer and miss the
+	// storage.ErrProjectNotFound case in handleServiceError.
+	ErrProjectNotFound = board.ErrProjectNotFound
 
 	// ErrProjectExists is returned when attempting to create a project that already exists.
 	ErrProjectExists = errors.New("project already exists")

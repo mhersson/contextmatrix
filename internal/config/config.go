@@ -144,10 +144,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
 
-	if c.Boards.GitPullInterval != "" {
-		if _, err := time.ParseDuration(c.Boards.GitPullInterval); err != nil {
-			return fmt.Errorf("invalid boards.git_pull_interval %q: %w", c.Boards.GitPullInterval, err)
-		}
+	if c.Boards.GitPullInterval == "" {
+		c.Boards.GitPullInterval = "60s"
+	}
+
+	if _, err := time.ParseDuration(c.Boards.GitPullInterval); err != nil {
+		return fmt.Errorf("invalid boards.git_pull_interval %q: %w", c.Boards.GitPullInterval, err)
 	}
 
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {

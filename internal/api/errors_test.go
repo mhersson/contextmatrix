@@ -5,9 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSanitizeErrorDetails_Strings verifies that downstream error strings with
@@ -146,4 +151,56 @@ func TestSanitizeErrorDetails_JSON(t *testing.T) {
 			assert.NotContains(t, details, "/",
 				"sanitized details must not contain path separators: %q", details)
 		})
+}
+
+// TestErrProjectNotFound_SentinelIdentity pins the invariant that
+// storage.ErrProjectNotFound and board.ErrProjectNotFound resolve to the same
+// underlying sentinel. Without this identity, errors originating in the board
+// package (e.g. board.LoadProjectConfig) silently bypass the 404 branch of
+// handleServiceError that only checks storage.ErrProjectNotFound.
+func TestErrProjectNotFound_SentinelIdentity(t *testing.T) {
+	assert.Same(t, board.ErrProjectNotFound, storage.ErrProjectNotFound,
+		"storage.ErrProjectNotFound must alias board.ErrProjectNotFound")
+	require.ErrorIs(t, board.ErrProjectNotFound, storage.ErrProjectNotFound)
+	require.ErrorIs(t, storage.ErrProjectNotFound, board.ErrProjectNotFound)
+}
+
+// TestHandleServiceError_BoardProjectNotFound_Returns404 exercises the
+// handleServiceError dispatch path with an error chain rooted in
+// board.ErrProjectNotFound (as produced by board.LoadProjectConfig) and
+// verifies it is routed to 404 PROJECT_NOT_FOUND rather than falling through
+// to the generic 500 INTERNAL_ERROR branch.
+func TestHandleServiceError_BoardProjectNotFound_Returns404(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "raw board sentinel",
+			err:  board.ErrProjectNotFound,
+		},
+		{
+			name: "board sentinel wrapped by service layer",
+			err:  fmt.Errorf("load project config: %w", board.ErrProjectNotFound),
+		},
+		{
+			name: "raw storage sentinel (aliased; same underlying value)",
+			err:  storage.ErrProjectNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/projects/ghost", nil)
+
+			handleServiceError(rec, req, tc.err)
+
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+
+			var apiErr APIError
+			require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeProjectNotFound, apiErr.Code)
+		})
+	}
 }

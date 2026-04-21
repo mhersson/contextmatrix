@@ -496,7 +496,7 @@ func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (
 			output = strings.TrimSpace(stdout.String())
 		}
 
-		return "", fmt.Errorf("%s: %s", err, output)
+		return "", fmt.Errorf("git %s: %w (%s)", args[0], err, output)
 	}
 
 	return stdout.String(), nil

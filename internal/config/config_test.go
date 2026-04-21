@@ -590,6 +590,23 @@ func TestPullIntervalDuration(t *testing.T) {
 	assert.Equal(t, 90*time.Second, d)
 }
 
+func TestValidate_EmptyPullInterval_CoercedToDefault(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{
+			Dir:             "/some/path",
+			GitPullInterval: "",
+		},
+		HeartbeatTimeout: "30m",
+	}
+
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
+
+	d, err := cfg.PullIntervalDuration()
+	require.NoError(t, err)
+	assert.NotZero(t, d)
+}
+
 func TestLoad_ValidationFailure_InvalidHeartbeat(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")

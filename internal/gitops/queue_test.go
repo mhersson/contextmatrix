@@ -46,6 +46,10 @@ func (f *fakeCommitter) CommitFilesShell(_ context.Context, paths []string, mess
 	return f.record(CommitKindFilesShell, "", paths, message)
 }
 
+func (f *fakeCommitter) CommitAll(_ context.Context, message string) error {
+	return f.record(CommitKindAll, "", nil, message)
+}
+
 func (f *fakeCommitter) ReloadRepo(_ context.Context) error {
 	return nil
 }

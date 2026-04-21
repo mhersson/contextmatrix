@@ -23,6 +23,10 @@ const (
 	// CommitKindFilesShell uses shell git (Manager.CommitFilesShell) and is
 	// immune to stale in-memory state after shell push/rebase.
 	CommitKindFilesShell
+	// CommitKindAll uses go-git (Manager.CommitAll) to stage every change in
+	// the worktree and commit. Used for project-level events (create/delete)
+	// where the set of files touched is not known in advance.
+	CommitKindAll
 )
 
 // CommitJob describes a single git commit to be performed by the CommitQueue.
@@ -64,6 +68,7 @@ type Committer interface {
 	CommitFile(ctx context.Context, path, message string) error
 	CommitFiles(ctx context.Context, paths []string, message string) error
 	CommitFilesShell(ctx context.Context, paths []string, message string) error
+	CommitAll(ctx context.Context, message string) error
 	ReloadRepo(ctx context.Context) error
 }
 
@@ -387,6 +392,8 @@ func (q *CommitQueue) execute(job CommitJob) error {
 		err = q.mgr.CommitFiles(job.Ctx, job.Paths, job.Message)
 	case CommitKindFilesShell:
 		err = q.mgr.CommitFilesShell(job.Ctx, job.Paths, job.Message)
+	case CommitKindAll:
+		err = q.mgr.CommitAll(job.Ctx, job.Message)
 	default:
 		err = fmt.Errorf("commit queue: unknown kind %d", job.Kind)
 	}
