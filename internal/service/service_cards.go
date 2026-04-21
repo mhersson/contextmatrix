@@ -685,13 +685,20 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 }
 
 // DeleteCard removes a card from the project.
+//
+// Async-commit rollback: the store removes the card from cache + disk
+// eagerly; if the subsequent git commit fails we re-create the card from
+// the snapshot so the three substrates (cache, disk, git) remain
+// consistent. A rollback that itself fails is logged at slog.Error with
+// the card ID and both errors, and the returned error flags the
+// inconsistent state for the caller.
 func (s *CardService) DeleteCard(ctx context.Context, project, id string) error {
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
 
-	// Verify card exists
-	_, err := s.store.GetCard(ctx, project, id)
+	// Load full card for rollback snapshot before deleting.
+	snapshot, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		s.writeMu.Unlock()
 
@@ -770,6 +777,32 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
+		// Commit failed: re-create the card so the store matches git.
+		s.writeMu.Lock()
+
+		recreateErr := s.store.CreateCard(ctx, project, snapshot)
+
+		s.writeMu.Unlock()
+
+		if recreateErr != nil {
+			ctxlog.Logger(ctx).Error("delete commit failed and recreate failed; cache + disk inconsistent",
+				"project", project,
+				"card_id", id,
+				"committed", false,
+				"rollback_failed", true,
+				"commit_error", err,
+				"recreate_error", recreateErr,
+			)
+
+			return errors.Join(
+				fmt.Errorf("git commit delete (rollback failed, state inconsistent): %w", err),
+				fmt.Errorf("rollback recreate: %w", recreateErr),
+			)
+		}
+
+		ctxlog.Logger(ctx).Warn("delete commit failed; recreated card from snapshot",
+			"project", project, "card_id", id)
+
 		return fmt.Errorf("git commit delete: %w", err)
 	}
 
@@ -807,6 +840,14 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return fmt.Errorf("get card: %w", err)
 	}
 
+	// Snapshot for rollback on commit failure (independent deep copy).
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	// Verify agent ownership.
 	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
 		s.writeMu.Unlock()
@@ -842,7 +883,11 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return rollbackErr
 	}
 
 	// Publish event
@@ -909,7 +954,8 @@ type mutationOpts struct {
 // It owns the standard flow:
 //
 //  1. Acquire writeMu.
-//  2. Load card and project config.
+//  2. Load card and project config. The loaded card — a deep copy owned by
+//     this goroutine — is retained as a snapshot for rollback.
 //  3. Call apply to mutate the card in place and perform mutation-specific
 //     validation (state transition, dependency check, etc.). Apply receives
 //     the card and cfg; it returns an error to abort with no side effects.
@@ -924,6 +970,16 @@ type mutationOpts struct {
 //  10. Publish the CardUpdated or CardStateChanged event.
 //  11. Auto-transition parent if state changed.
 //  12. Enrich DependenciesMet and return the card.
+//
+// Async-commit rollback semantics: store.UpdateCard writes cache + disk
+// eagerly, but the git commit is enqueued and awaited after releasing
+// writeMu. If the commit fails, the mutation has already been persisted
+// to cache + disk with no git record. applyCardMutation rolls back the
+// store state to the pre-mutation snapshot and joins any rollback error
+// to the original commit error via errors.Join. If the rollback itself
+// fails (rare), a slog.Error line records the card ID and both errors;
+// the cache and disk are then inconsistent with each other and the
+// returned error flags that condition for the caller.
 //
 // Keeping these steps in one place prevents UpdateCard and PatchCard from
 // drifting on validator order, commit path, or side-effect sequencing.
@@ -940,6 +996,16 @@ func (s *CardService) applyCardMutation(
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Snapshot for rollback on commit failure. store.GetCard returns a deep
+	// copy, so loading the card again gives us an independent snapshot that
+	// the apply closure cannot mutate.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
 	cfg, err := s.getConfig(ctx, project)
@@ -1053,7 +1119,16 @@ func (s *CardService) applyCardMutation(
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		// Commit failed after the store was already updated. Roll back
+		// cache + disk to the snapshot so the three substrates (cache,
+		// disk, git) stay consistent. Take writeMu again so the rollback
+		// cannot interleave with a concurrent writer observing the
+		// mid-flight state.
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	eventType := events.CardUpdated

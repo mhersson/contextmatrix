@@ -42,6 +42,14 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 
 	s.writeMu.Lock()
 
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	// Claim via lock manager (returns modified card)
 	card, err := s.lock.Claim(ctx, project, id, agentID)
 	if err != nil {
@@ -65,7 +73,11 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	// Publish event
@@ -85,6 +97,14 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
+
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
 
 	// Release via lock manager (returns modified card)
 	card, err := s.lock.Release(ctx, project, id, agentID)
@@ -117,7 +137,11 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	}
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	// Publish event
@@ -139,6 +163,14 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 // The commit itself is awaited after releasing writeMu, which lets
 // heartbeats for different cards run concurrently through the per-project
 // commit queue.
+//
+// No rollback on commit failure: heartbeats are self-healing. A failed
+// commit leaves the cache/disk with a newer LastHeartbeat timestamp than
+// git; the next heartbeat (typically within the heartbeat interval) will
+// emit another commit and restore consistency. Rolling back would be net
+// harmful — the cache's advanced timestamp still prevents the stall
+// scanner from prematurely marking the card, and a rollback would
+// re-expose a stale timestamp that the next scan could act on.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
 	id = strings.ToUpper(id)
 
@@ -266,6 +298,16 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
+	// Snapshot for rollback on commit failure. card is a deep copy but we
+	// are about to mutate it in place, so capture the pre-mutation state
+	// by loading a second copy.
+	snapshot, err := s.store.GetCard(ctx, sc.Project, sc.Card.ID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	previousAgent := card.AssignedAgent
 
 	// Update card state
@@ -294,7 +336,11 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	}
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, sc.Project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return rollbackErr
 	}
 
 	// Publish event

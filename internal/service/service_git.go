@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 )
@@ -221,6 +223,58 @@ func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project
 	s.notifyCommit()
 
 	return nil
+}
+
+// rollbackCardOnCommitFailure restores a card's cache + disk state to the
+// provided snapshot after a failed git commit. Intended for the commit-await
+// pattern in the service layer: store.UpdateCard succeeds, the commit is
+// enqueued and awaited, the commit fails, and we need to undo the store
+// write so the cache + disk no longer describe a state that was never
+// committed.
+//
+// Returns the error to surface to the caller:
+//
+//   - Rollback succeeded: returns commitErr wrapped in a "git commit" message.
+//   - Rollback also failed: returns errors.Join(commitErr, rollbackErr) with
+//     a note that the rollback failed and the state is now inconsistent. The
+//     caller's slog.Error log line (see below) records the exact failure
+//     mode for operators to investigate.
+//
+// The snapshot must be a deep copy owned by the caller (store.GetCard
+// returns one, which is the intended source).
+func (s *CardService) rollbackCardOnCommitFailure(
+	ctx context.Context, project string, snapshot *board.Card, commitErr error,
+) error {
+	if snapshot == nil {
+		// Defensive: nothing to roll back to.
+		ctxlog.Logger(ctx).Error("commit failed without snapshot; cache/disk state unknown",
+			"project", project, "error", commitErr)
+
+		return fmt.Errorf("git commit (no snapshot for rollback): %w", commitErr)
+	}
+
+	if rollbackErr := s.store.UpdateCard(ctx, project, snapshot); rollbackErr != nil {
+		ctxlog.Logger(ctx).Error("commit failed and rollback failed; cache + disk inconsistent",
+			"project", project,
+			"card_id", snapshot.ID,
+			"committed", false,
+			"rollback_failed", true,
+			"commit_error", commitErr,
+			"rollback_error", rollbackErr,
+		)
+
+		return errors.Join(
+			fmt.Errorf("git commit (rollback failed, state inconsistent): %w", commitErr),
+			fmt.Errorf("rollback: %w", rollbackErr),
+		)
+	}
+
+	ctxlog.Logger(ctx).Warn("commit failed; rolled back cache + disk to pre-mutation state",
+		"project", project,
+		"card_id", snapshot.ID,
+	)
+
+	return fmt.Errorf("git commit: %w", commitErr)
 }
 
 // firstPathProject extracts the leading project segment from a path like

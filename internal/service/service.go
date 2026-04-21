@@ -271,6 +271,14 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 			}
 		}
 
+		// Snapshot the pre-step card for rollback on commit failure.
+		// Earlier successful steps in the path are left committed (they
+		// have their own git records); only the failing step rolls back.
+		stepSnapshot, err := s.store.GetCard(ctx, project, cardID)
+		if err != nil {
+			return nil, fmt.Errorf("get card snapshot: %w", err)
+		}
+
 		card.State = state
 		card.Updated = time.Now()
 
@@ -288,7 +296,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		}
 
 		if err := s.commitCardChange(ctx, project, cardID, "", "transitioned to "+state); err != nil {
-			return nil, fmt.Errorf("git commit: %w", err)
+			return nil, s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
 		}
 
 		// Flush deferred commits on not_planned/review.

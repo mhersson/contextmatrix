@@ -63,6 +63,14 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	// Verify agent ownership.
 	if card.AssignedAgent != agentID {
 		s.writeMu.Unlock()
@@ -106,7 +114,11 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	s.bus.Publish(events.Event{
@@ -153,6 +165,14 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 		return nil, fmt.Errorf("review attempts capped at %d: %w", maxReviewAttempts, ErrReviewAttemptsCapped)
 	}
 
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	card.ReviewAttempts++
 
 	card.Updated = time.Now()
@@ -167,7 +187,11 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	s.bus.Publish(events.Event{
@@ -202,6 +226,14 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
 	prevRunnerStatus := card.RunnerStatus
@@ -254,7 +286,11 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	}
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	// Session lifecycle hooks — only when a manager is wired.
@@ -339,6 +375,14 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 		return card, nil
 	}
 
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
 	now := time.Now()
 
 	card.Autonomous = true
@@ -368,7 +412,11 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	s.bus.Publish(events.Event{
