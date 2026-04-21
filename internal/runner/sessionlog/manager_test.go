@@ -2120,3 +2120,70 @@ func TestClose_DrainsActiveSessions(t *testing.T) {
 	err := m.Start(context.Background(), "POST-CLOSE", "")
 	assert.Error(t, err, "Start after Close must return an error")
 }
+
+// TestClose_DrainsOrphanPendingSubs verifies that Close drains subscribers that
+// registered via Subscribe before any Start call. Without the orphan drain,
+// these channels would never receive a terminal event and would remain open
+// until TCP severs, blocking HTTP handlers through shutdown.
+func TestClose_DrainsOrphanPendingSubs(t *testing.T) {
+	const cardID = "ORPHAN-1"
+
+	// No upstream server is wired — Subscribe against a never-started session
+	// parks the subscriber in m.pendingSubs.
+	m := NewManager()
+
+	ch, unsub := m.Subscribe(cardID)
+	defer unsub()
+
+	// Verify the subscriber landed in pendingSubs, not activeSessions.
+	m.mu.Lock()
+	pendingCount := len(m.pendingSubs[cardID])
+	_, hasSession := m.activeSessions[cardID]
+	m.mu.Unlock()
+
+	require.Equal(t, 1, pendingCount, "subscriber must be parked in pendingSubs")
+	require.False(t, hasSession, "no active session should exist")
+
+	// Close with a bounded context — the test fails if the drain hangs.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	require.NoError(t, m.Close(ctx))
+
+	// Expect a terminal event then channel close. Collect both before asserting
+	// so we surface ordering bugs clearly.
+	var (
+		gotTerminal bool
+		gotClosed   bool
+	)
+
+	deadline := time.After(2 * time.Second)
+
+loop:
+	for {
+		select {
+		case evt, ok := <-ch:
+			if !ok {
+				gotClosed = true
+
+				break loop
+			}
+
+			if evt.Type == EventTypeTerminal {
+				gotTerminal = true
+			}
+		case <-deadline:
+			t.Fatalf("timed out; terminal=%v closed=%v", gotTerminal, gotClosed)
+		}
+	}
+
+	assert.True(t, gotTerminal, "orphan subscriber must receive a terminal event")
+	assert.True(t, gotClosed, "orphan subscriber channel must be closed after Close")
+
+	// pendingSubs map entry for the card should be gone.
+	m.mu.Lock()
+	_, stillPending := m.pendingSubs[cardID]
+	m.mu.Unlock()
+
+	assert.False(t, stillPending, "pendingSubs entry must be removed after Close")
+}
