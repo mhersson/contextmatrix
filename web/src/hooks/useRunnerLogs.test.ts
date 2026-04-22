@@ -294,6 +294,49 @@ describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
   });
 });
 
+describe('useRunnerLogs — close→reopen does not duplicate entries', () => {
+  it('buffer is cleared on reopen so server snapshot replay does not produce duplicates', () => {
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useRunnerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
+      { initialProps: { enabled: true } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+    expect(result.current.connected).toBe(true);
+
+    const ts = new Date().toISOString();
+    const N = 3;
+
+    // Step 2: push N messages
+    act(() => {
+      for (let i = 0; i < N; i++) {
+        latestES().simulateMessage({ type: 'text', content: `msg-${i}`, card_id: 'CARD-1', ts, seq: i + 1 });
+      }
+    });
+
+    // Step 3: assert N entries in buffer
+    expect(result.current.logs).toHaveLength(N);
+
+    // Step 4: close the console (enabled=false)
+    act(() => { rerender({ enabled: false }); });
+
+    // Step 5: reopen the console (enabled=true)
+    act(() => { rerender({ enabled: true }); });
+    act(() => { latestES().simulateOpen(); });
+
+    // Step 6: push the same N messages again (server snapshot replay)
+    act(() => {
+      for (let i = 0; i < N; i++) {
+        latestES().simulateMessage({ type: 'text', content: `msg-${i}`, card_id: 'CARD-1', ts, seq: i + 1 });
+      }
+    });
+
+    // Step 7: regression assertion — must be N, not 2N
+    expect(result.current.logs).toHaveLength(N);
+  });
+});
+
 describe('useRunnerLogs — stream identity changes', () => {
   it('clears buffer when cardId changes so entries from previous card do not bleed', () => {
     const { result, rerender } = renderHook(
