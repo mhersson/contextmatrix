@@ -452,6 +452,16 @@ func main() {
 		}
 	}
 
+	if jiraWriteBack != nil {
+		if err := waitSyncer(phase5Ctx, jiraWriteBack.Wait); err != nil {
+			slog.Error("shutdown: jira writeback drain exceeded budget",
+				"phase", "syncers_drain",
+				"timeout", phase5Timeout,
+				"error", err,
+			)
+		}
+	}
+
 	// gitops.Manager has no Close method today; if it grows one, call it
 	// here after the syncers have finished pushing.
 
