@@ -53,8 +53,9 @@ type MessagePayload struct {
 
 // PromotePayload is sent to the runner to promote a task from interactive pause to completion.
 type PromotePayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
+	CardID    string `json:"card_id"`
+	Project   string `json:"project"`
+	VerifyURL string `json:"verify_url"`
 }
 
 // EndSessionPayload is sent to the runner to close the stdin of an interactive

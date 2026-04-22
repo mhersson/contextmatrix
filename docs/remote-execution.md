@@ -185,18 +185,20 @@ interactive mode. HMAC-signed identically to trigger/kill.
 ```json
 {
   "card_id": "PROJ-042",
-  "project": "my-project"
+  "project": "my-project",
+  "verify_url": "http://contextmatrix:8080/api/v1/cards/my-project/PROJ-042/autonomous"
 }
 ```
 
 The runner performs a two-step operation in strict order:
 
-1. **Verify the autonomous flag (fail closed):** Calls
-   `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
+1. **Verify the autonomous flag (fail closed):** Calls `GET {verify_url}` and checks
    that the response body `{"autonomous": bool}` is `true`. CM already flipped
    the flag before sending this webhook, so the GET is a read-only
-   confirmation. The request is HMAC-SHA256-signed over `timestamp + "." + ""`
-   (empty body) using `runner.api_key`. If the call fails (network error,
+   confirmation. `verify_url` is derived from CM's `runner.public_url` so the
+   runner can reach CM even when running in a container. The request is
+   HMAC-SHA256-signed over `timestamp + "." + ""` (empty body) using
+   `runner.api_key`. If the call fails (network error,
    non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
    **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
@@ -599,9 +601,9 @@ Web UI (chat input) → CM POST /api/runner/message
 
 Web UI (promote btn) → CM POST /api/runner/promote
                       → CM flips card autonomous=true (git commit + SSE event)
-                      → Runner POST /promote
-                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (HMAC-signed;
-                                    502+stop if autonomous != true or request fails)
+                      → Runner POST /promote (includes verify_url)
+                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (via verify_url;
+                                    HMAC-signed; 502+stop if autonomous != true or request fails)
                       → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
                       → Runner closes container stdin (EOF → container exits after work done)

@@ -350,8 +350,9 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send promote webhook to runner.
 	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
-		CardID:  id,
-		Project: project,
+		CardID:    id,
+		Project:   project,
+		VerifyURL: fmt.Sprintf("%s/api/v1/cards/%s/%s/autonomous", h.runnerCfg.PublicURL, project, id),
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")
