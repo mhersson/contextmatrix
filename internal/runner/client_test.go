@@ -39,7 +39,6 @@ func TestClient_Trigger_Success(t *testing.T) {
 		CardID:  "TEST-001",
 		Project: "test-project",
 		RepoURL: "git@github.com:org/repo.git",
-		MCPURL:  "http://localhost:8080/mcp",
 	})
 
 	require.NoError(t, err)
@@ -89,7 +88,6 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 		CardID:     "TEST-001",
 		Project:    "test-project",
 		RepoURL:    "git@github.com:org/repo.git",
-		MCPURL:     "http://localhost:8080/mcp",
 		BaseBranch: "main",
 	})
 	require.NoError(t, err)
@@ -290,16 +288,14 @@ func TestClient_Promote_Success(t *testing.T) {
 
 	c := NewClient(srv.URL, "test-key")
 	payload := PromotePayload{
-		CardID:    "TEST-001",
-		Project:   "test-project",
-		VerifyURL: "http://cm:8080/api/v1/cards/test-project/TEST-001/autonomous",
+		CardID:  "TEST-001",
+		Project: "test-project",
 	}
 	err := c.Promote(context.Background(), payload)
 
 	require.NoError(t, err)
 	assert.Equal(t, "TEST-001", received.CardID)
 	assert.Equal(t, "test-project", received.Project)
-	assert.Equal(t, "http://cm:8080/api/v1/cards/test-project/TEST-001/autonomous", received.VerifyURL)
 	assert.True(t, strings.HasPrefix(receivedSig, "sha256="), "X-Signature-256 should be set")
 	assert.NotEmpty(t, receivedTS, "X-Webhook-Timestamp should be set")
 }

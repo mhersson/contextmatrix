@@ -89,12 +89,7 @@ For runner integration, add:
   -e CONTEXTMATRIX_RUNNER_ENABLED=true \
   -e CONTEXTMATRIX_RUNNER_URL=http://runner-host:9090 \
   -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-min-32ch \
-  -e CONTEXTMATRIX_RUNNER_PUBLIC_URL=http://host-ip:8080 \
 ```
-
-`CONTEXTMATRIX_RUNNER_PUBLIC_URL` must be reachable from inside runner
-containers — `localhost` won't work. Use the host's LAN IP or
-`host.docker.internal` on Docker Desktop.
 
 ## Running on Kubernetes
 
@@ -239,15 +234,17 @@ that execute tasks autonomously.
 
 ```yaml
 # runner config.yaml
-contextmatrix:
-  url: "http://cm-host:8080"
-  api_key: "same-shared-secret-as-cm"
-  public_url: "http://cm-host:8080" # URL containers use to reach CM
+contextmatrix_url: "http://cm-host:8080"
+api_key: "same-shared-secret-as-cm"
+
+# Override when containers can't resolve the CM hostname directly
+# (e.g. runner on host, CM on LAN). Defaults to contextmatrix_url.
+# container_contextmatrix_url: "http://host.docker.internal:8080"
 ```
 
 The runner resolves the CM hostname on the host. If CM is on a LAN hostname that
-containers can't resolve, inject a `/etc/hosts` entry into containers via the
-runner config.
+containers can't resolve, set `container_contextmatrix_url` to an address
+reachable from inside Docker (e.g. `host.docker.internal` or the host's LAN IP).
 
 ## External Access (Optional)
 

@@ -88,7 +88,6 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
   "card_id": "PROJ-042",
   "project": "my-project",
   "repo_url": "git@github.com:org/repo.git",
-  "mcp_url": "http://contextmatrix:8080/mcp",
   "mcp_api_key": "optional-bearer-token",
   "runner_image": "optional/custom-image:latest",
   "base_branch": "develop",
@@ -185,20 +184,18 @@ interactive mode. HMAC-signed identically to trigger/kill.
 ```json
 {
   "card_id": "PROJ-042",
-  "project": "my-project",
-  "verify_url": "http://contextmatrix:8080/api/v1/cards/my-project/PROJ-042/autonomous"
+  "project": "my-project"
 }
 ```
 
 The runner performs a two-step operation in strict order:
 
-1. **Verify the autonomous flag (fail closed):** Calls `GET {verify_url}` and checks
+1. **Verify the autonomous flag (fail closed):** Calls
+   `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
    that the response body `{"autonomous": bool}` is `true`. CM already flipped
    the flag before sending this webhook, so the GET is a read-only
-   confirmation. `verify_url` is derived from CM's `runner.public_url` so the
-   runner can reach CM even when running in a container. The request is
-   HMAC-SHA256-signed over `timestamp + "." + ""` (empty body) using
-   `runner.api_key`. If the call fails (network error,
+   confirmation. The request is HMAC-SHA256-signed over `timestamp + "." + ""`
+   (empty body) using `runner.api_key`. If the call fails (network error,
    non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
    **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
@@ -601,9 +598,9 @@ Web UI (chat input) → CM POST /api/runner/message
 
 Web UI (promote btn) → CM POST /api/runner/promote
                       → CM flips card autonomous=true (git commit + SSE event)
-                      → Runner POST /promote (includes verify_url)
-                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (via verify_url;
-                                    HMAC-signed; 502+stop if autonomous != true or request fails)
+                      → Runner POST /promote
+                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (HMAC-signed;
+                                    502+stop if autonomous != true or request fails)
                       → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
                       → Runner closes container stdin (EOF → container exits after work done)
@@ -799,7 +796,6 @@ runner:
   enabled: false
   url: "http://localhost:9090" # Runner base URL
   api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
-  public_url: "http://cm.lan:8080" # Public URL for MCP endpoint sent to runner containers
   orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
   orchestrator_opus_model: "claude-opus-4-7"     # Model sent when use_opus_orchestrator is true
 ```
@@ -810,7 +806,6 @@ Environment variable overrides:
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
-- `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
 
@@ -819,6 +814,7 @@ Environment variable overrides:
 ```yaml
 # ContextMatrix connection
 contextmatrix_url: "http://contextmatrix:8080"
+# container_contextmatrix_url: "http://host.docker.internal:8080"  # Override when containers need a different address
 api_key: "shared-hmac-secret" # Must match CM's runner.api_key
 
 # HTTP ports
@@ -843,11 +839,6 @@ container_pids_limit: 512     # Docker PIDs limit
 
 # Secrets directory — files here are mounted read-only into containers
 secrets_dir: "/run/secrets/runner"
-
-# Allowed MCP hosts — the runner will only connect containers to hostnames
-# on this list. Empty list disables the allowlist (not recommended).
-allowed_mcp_hosts:
-  - "contextmatrix"
 
 # Allowed Docker images — if non-empty, the runner rejects trigger payloads
 # that request an image not on this list. Use digest-pinned refs.

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -87,10 +86,9 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{
-			Enabled:   true,
-			URL:       mockRunner.URL,
-			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-			PublicURL: "http://localhost:8080",
+			Enabled: true,
+			URL:     mockRunner.URL,
+			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
 		},
 		MCPAPIKey: "test-mcp-key",
 	})
@@ -209,7 +207,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -260,7 +258,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -305,7 +303,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -338,7 +336,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -377,7 +375,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -441,10 +439,9 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{
-			Enabled:   true,
-			URL:       mockRunner.URL,
-			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-			PublicURL: "http://localhost:8080",
+			Enabled: true,
+			URL:     mockRunner.URL,
+			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
 		},
 	})
 
@@ -539,7 +536,7 @@ remote_execution:
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1624,17 +1621,11 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 
 	card := newInteractiveRunningCard(t, svc)
 
-	var (
-		promoteCalled   int
-		receivedPayload runner.PromotePayload
-	)
+	var promoteCalled int
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/promote" {
 			promoteCalled++
-
-			body, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(body, &receivedPayload)
 		}
 
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
@@ -1644,7 +1635,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1667,10 +1658,6 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	assert.True(t, respCard.FeatureBranch, "card should have feature_branch after promote")
 	assert.True(t, respCard.CreatePR, "card should have create_pr after promote")
 	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
-	assert.Equal(t,
-		fmt.Sprintf("http://localhost:8080/api/v1/cards/test-project/%s/autonomous", card.ID),
-		receivedPayload.VerifyURL,
-		"promote payload should include verify_url derived from public_url")
 
 	// Verify flags and log entry are persisted.
 	ctx := context.Background()
@@ -1770,7 +1757,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1816,7 +1803,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1861,7 +1848,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1912,7 +1899,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", PublicURL: "http://localhost:8080"},
+			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		})
 
 		server := httptest.NewServer(router)
@@ -2008,10 +1995,9 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		RunnerCfg: config.RunnerConfig{
-			Enabled:   true,
-			URL:       fakeRunner.URL,
-			APIKey:    "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-			PublicURL: "http://localhost:8080",
+			Enabled: true,
+			URL:     fakeRunner.URL,
+			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
 		},
 	})
 
@@ -2068,7 +2054,6 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 				Enabled:                 true,
 				URL:                     mockRunner.URL,
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				PublicURL:               "http://localhost:8080",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},
@@ -2114,7 +2099,6 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 				Enabled:                 true,
 				URL:                     mockRunner.URL,
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				PublicURL:               "http://localhost:8080",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},

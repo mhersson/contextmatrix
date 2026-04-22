@@ -135,8 +135,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build trigger payload.
-	mcpURL := fmt.Sprintf("%s/mcp", h.runnerCfg.PublicURL)
-
 	model := h.runnerCfg.OrchestratorSonnetModel
 	if card.UseOpusOrchestrator {
 		model = h.runnerCfg.OrchestratorOpusModel
@@ -146,7 +144,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
-		MCPURL:      mcpURL,
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
@@ -350,9 +347,8 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 	// Send promote webhook to runner.
 	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
-		CardID:    id,
-		Project:   project,
-		VerifyURL: fmt.Sprintf("%s/api/v1/cards/%s/%s/autonomous", h.runnerCfg.PublicURL, project, id),
+		CardID:  id,
+		Project: project,
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")

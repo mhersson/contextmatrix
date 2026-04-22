@@ -379,7 +379,6 @@ runner:
   enabled: true
   url: "http://localhost:9090" # runner base URL
   api_key: "your-secret-key-min-32ch" # shared HMAC secret
-  public_url: "http://contextmatrix:8080" # URL reachable from containers
 mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
 ```
 
@@ -661,7 +660,6 @@ format.
 | `runner.enabled`             | `false`                 | Enable remote execution integration                                                           |
 | `runner.url`                 | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
 | `runner.api_key`             | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
-| `runner.public_url`          | `""`                    | URL reachable from runner containers (not `localhost` — use `host.docker.internal` or LAN IP) |
 | `github.token`               | `""`                    | GitHub fine-grained PAT; used for issue import and for boards git auth in PAT mode            |
 | `github.host`                | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
 | `github.api_base_url`        | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
@@ -697,7 +695,6 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
-- `CONTEXTMATRIX_RUNNER_PUBLIC_URL`
 - `CONTEXTMATRIX_GITHUB_TOKEN`
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
@@ -800,12 +797,6 @@ port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
   }
 }
 ```
-
-### Remote execution: containers can't reach ContextMatrix
-
-`runner.public_url` must be reachable from inside Docker containers —
-`localhost` won't work. Use `host.docker.internal` on Docker Desktop or the
-host's LAN IP on Linux.
 
 ## License
 

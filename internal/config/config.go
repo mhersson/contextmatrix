@@ -27,7 +27,6 @@ type RunnerConfig struct {
 	Enabled                 bool   `yaml:"enabled"`
 	URL                     string `yaml:"url"`                       // base URL, e.g. http://localhost:9090
 	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
-	PublicURL               string `yaml:"public_url"`                // public URL for MCP endpoint sent to runner containers
 	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
 	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
 }
@@ -207,10 +206,6 @@ func (c *Config) Validate() error {
 
 		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
 			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
-		}
-
-		if c.Runner.PublicURL == "" {
-			return fmt.Errorf("runner.public_url is required when runner is enabled")
 		}
 	}
 
@@ -432,10 +427,6 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
 		cfg.Runner.APIKey = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_PUBLIC_URL"); v != "" {
-		cfg.Runner.PublicURL = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {

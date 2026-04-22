@@ -193,13 +193,6 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_API_KEY
   api_key: ""
 
-  # Public URL of this ContextMatrix instance, as reachable from runner containers.
-  # The runner passes this to spawned containers so they can connect to the MCP endpoint.
-  # Example: http://contextmatrix:8080 (Docker network), https://cm.example.com (remote)
-  # Required when runner is enabled.
-  # Env: CONTEXTMATRIX_RUNNER_PUBLIC_URL
-  public_url: ""
-
   # Model ID used for the Sonnet orchestrator in autonomous runs.
   # Passed to runner containers via the trigger payload so the orchestrator
   # selects the correct model. Update when a newer Sonnet model ships.
