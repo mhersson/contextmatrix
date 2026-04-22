@@ -226,11 +226,16 @@ func main() {
 	// Create router with all API routes. MCP is registered on the inner mux
 	// so it shares the same middleware chain as every other route — no
 	// separate wrapping needed here.
+	var apiSyncer api.Syncer
+	if syncer != nil {
+		apiSyncer = syncer
+	}
+
 	mux := api.NewRouter(api.RouterConfig{
 		Service:            svc,
 		Bus:                bus,
 		CORSOrigin:         cfg.CORSOrigin,
-		Syncer:             syncer,
+		Syncer:             apiSyncer,
 		Runner:             runnerClient,
 		RunnerCfg:          cfg.Runner,
 		MCPAPIKey:          cfg.MCPAPIKey,
