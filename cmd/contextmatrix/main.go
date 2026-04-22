@@ -153,6 +153,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// httpCtx is cancelled at the start of shutdown so that long-lived
+	// connections (SSE streams) exit immediately instead of holding
+	// server.Shutdown hostage until the timeout expires.
+	httpCtx, httpCancel := context.WithCancel(ctx)
+	defer httpCancel()
+
 	// Start timeout checker (checks every minute)
 	svc.StartTimeoutChecker(ctx, time.Minute)
 
@@ -268,6 +274,7 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		BaseContext:        func(_ net.Listener) context.Context { return httpCtx },
 	}
 
 	errCh := make(chan error, 2)
@@ -328,17 +335,17 @@ func main() {
 
 	shutdownStart := time.Now()
 
-	// 25s gives long-lived SSE streams time to emit a terminal frame and
-	// in-flight mutations time to commit+push before systemd sends SIGKILL
-	// (default systemd TimeoutStopSec is 90s).
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// 5s is enough for in-flight REST requests to complete. Long-lived SSE
+	// connections are already terminated by httpCancel() before Shutdown is
+	// called.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
 	// Phase 1: stop accepting new HTTP connections and drain in-flight
-	// requests. Main and admin servers shut down concurrently so a long
-	// pprof profile on the admin listener cannot starve the main server of
-	// its shutdown budget.
+	// requests. Cancel httpCtx first so SSE handlers see r.Context().Done()
+	// and exit immediately instead of blocking until the shutdown timeout.
 	slog.Info("shutdown: phase=http_drain")
+	httpCancel()
 
 	var (
 		wg              sync.WaitGroup
