@@ -274,7 +274,7 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		BaseContext:        func(_ net.Listener) context.Context { return httpCtx },
+		BaseContext:       func(_ net.Listener) context.Context { return httpCtx },
 	}
 
 	errCh := make(chan error, 2)
