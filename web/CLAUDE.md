@@ -303,7 +303,8 @@ interference on touch devices.
 | `web/src/hooks/useResizeDivider.ts` | Pointer-event-based resize hook. Returns `{ boardPercent, isDragging, handleProps }`. Spread `handleProps` onto the divider element. |
 | `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
 | `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |
-| `web/src/components/RunnerConsole/RunnerConsoleLog.tsx` | Scrollable log area. Auto-scrolls to bottom unless user has scrolled up (threshold: 50px from bottom). Each line: timestamp `HH:MM:SS.sss`, card-ID badge (colour hashed from ID), type indicator, content. |
+| `web/src/components/RunnerConsole/RunnerConsoleLog.tsx` | Thin wrapper that passes `logs` into `VirtualLogList` with the correct ARIA attributes (`role="log"`, `aria-live="polite"`). |
+| `web/src/components/RunnerConsole/VirtualLogList.tsx` | Variable-height virtualised list. Measures each rendered row via `ResizeObserver` and caches heights in an external `HeightStore`. Cumulative offsets are recomputed via `useMemo` whenever `items.length`, `heightStore`, or `heightVersion` changes — `heightVersion` is the value returned by `useSyncExternalStore(heightStore.subscribe, heightStore.getSnapshot)` and ensures the offset array stays in sync with measured heights (not estimate-only). Binary search on the offset array picks the visible window. Auto-scrolls to the true content-bottom on new items unless the user has scrolled up (threshold: 50 px from bottom). Reopening the console always lands at the end of the log; no scroll-position restore across mounts. |
 
 ### LogEntry type (`types/index.ts`)
 
