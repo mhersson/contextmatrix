@@ -485,6 +485,33 @@ navigates to the parent card (same handler as subtask navigation).
   `aria-label={\`Navigate to parent \${card.parent}\`}` would improve screen
   reader accessibility.
 
+## CardPanel header actions
+
+`CardPanelHeader.tsx` renders action buttons in the card detail panel header row.
+
+### Delete button
+
+A red **Delete** button sits to the left of the **Save** button. Enabled only when
+both conditions hold simultaneously:
+
+- `card.state === 'todo' || card.state === 'not_planned'`
+- `!card.assigned_agent`
+
+When either condition fails (e.g. card is `in_progress`, or currently claimed),
+the button is rendered but `disabled` with a `title` tooltip explaining the
+restriction. The button is also disabled while a save or delete is in flight.
+
+Clicking the enabled button triggers a native `window.confirm()` dialog warning
+that the card file will be `git rm`'d and committed, and the action is
+irreversible. Cancelling is a no-op. Confirming calls `api.deleteCard(project,
+cardId)`, which issues `DELETE /api/projects/{project}/cards/{id}`. On success
+the panel closes and the card is removed from local board state. A 409 response
+(card has subtasks — backend rejects with 422 `VALIDATION_ERROR`) surfaces an
+error message to the user and leaves the panel open.
+
+Styling uses CSS variables only: `--red` for the text/border and `--bg-red` for
+the background. No hardcoded hex values.
+
 ## 404 / Not Found handling
 
 ContextMatrix is a SPA served by a Go backend that returns `index.html` for all

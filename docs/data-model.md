@@ -125,6 +125,15 @@
       `not_planned`, a new card **is** created — duplicates of completed work
       are intentional (e.g., re-doing a failed step).
 
+13. **Card deletion requires no subtasks.** `DELETE /api/projects/{project}/cards/{id}`
+    (`git rm` + commit) is rejected with 422 `VALIDATION_ERROR` if the card has
+    any subtasks. Delete all subtasks first. Deletion of a claimed card also
+    requires the `X-Agent-ID` header to match `assigned_agent` (403 on
+    mismatch). The web UI enforces a softer gate: the Delete button is enabled
+    only when the card is in `todo` or `not_planned` state **and** has no
+    `assigned_agent`. A native confirmation dialog warns the user that the
+    action is irreversible and commits the removal to git.
+
 ## Card file format
 
 ```yaml

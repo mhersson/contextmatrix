@@ -14,6 +14,7 @@ interface CardPanelProps {
   cardLogs?: readonly LogEntry[];
   onClose: () => void;
   onSave: (updates: PatchCardInput) => Promise<void>;
+  onDelete: (cardId: string) => Promise<void>;
   onClaim: (agentId: string) => Promise<void>;
   onRelease: (agentId: string) => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
@@ -24,12 +25,13 @@ interface CardPanelProps {
 }
 
 export function CardPanel(props: CardPanelProps) {
-  const { card, config, cardLogs = [], onClose, onSave, onClaim, onRelease,
+  const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
     onSubtaskClick, currentAgentId, onPromptAgentId, onRunCard, onStopCard } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const initialIsHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
   const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
@@ -83,6 +85,19 @@ export function CardPanel(props: CardPanelProps) {
     await onRelease(card.assigned_agent);
   }, [currentAgentId, card.assigned_agent, onRelease]);
 
+  const handleDelete = useCallback(async () => {
+    // Defense-in-depth: re-check eligibility before proceeding
+    const canDelete =
+      (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;
+    if (!canDelete) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(card.id);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [card.state, card.assigned_agent, card.id, onDelete]);
+
   const handleClose = () => {
     if (isDirty && !window.confirm('Discard unsaved changes?')) return;
     onClose();
@@ -110,8 +125,10 @@ export function CardPanel(props: CardPanelProps) {
           config={config}
           isDirty={isDirty}
           isSaving={isSaving}
+          isDeleting={isDeleting}
           onClose={onClose}
           onSave={handleSave}
+          onDelete={handleDelete}
           onTitleChange={(title) => setEditedCard((prev) => ({ ...prev, title }))}
           onPriorityChange={(priority) => setEditedCard((prev) => ({ ...prev, priority }))}
           onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}

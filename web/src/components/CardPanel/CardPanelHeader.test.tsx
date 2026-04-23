@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { CardPanelHeader } from './CardPanelHeader';
 import type { Card, ProjectConfig } from '../../types';
 
@@ -31,8 +31,10 @@ const defaultProps = {
   config: baseConfig,
   isDirty: false,
   isSaving: false,
+  isDeleting: false,
   onClose: vi.fn(),
   onSave: vi.fn(),
+  onDelete: vi.fn(),
   onTitleChange: vi.fn(),
   onPriorityChange: vi.fn(),
   onStateChange: vi.fn(),
@@ -94,5 +96,106 @@ describe('CardPanelHeader — external_url scheme validation', () => {
     };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+});
+
+describe('CardPanelHeader — Delete button enabled/disabled states', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  });
+
+  it('Delete button is enabled for unclaimed todo card', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'todo', assigned_agent: undefined }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).not.toBeDisabled();
+  });
+
+  it('Delete button is enabled for unclaimed not_planned card', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'not_planned', assigned_agent: undefined }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).not.toBeDisabled();
+  });
+
+  it('Delete button is disabled when state is in_progress', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'in_progress' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('Delete button is disabled when state is review', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'review' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('Delete button is disabled when state is done', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'done' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('Delete button is disabled when state is blocked', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'blocked' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('Delete button is disabled when state is stalled', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'stalled' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('Delete button is disabled when assigned_agent is set even if state is todo', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'todo', assigned_agent: 'some-agent' }} />);
+    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  });
+
+  it('disabled Delete button has a tooltip explaining the restriction', () => {
+    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'in_progress' }} />);
+    const btn = screen.getByRole('button', { name: 'Delete card' });
+    expect(btn).toHaveAttribute('title');
+    expect(btn.getAttribute('title')).toMatch(/unclaimed.*todo.*not_planned|Only unclaimed/i);
+  });
+});
+
+describe('CardPanelHeader — Delete button click behavior', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('clicking enabled Delete button triggers window.confirm', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const onDelete = vi.fn();
+    render(
+      <CardPanelHeader
+        {...defaultProps}
+        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
+    expect(confirmSpy).toHaveBeenCalledOnce();
+  });
+
+  it('onDelete fires when confirm returns true', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onDelete = vi.fn();
+    render(
+      <CardPanelHeader
+        {...defaultProps}
+        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
+    expect(onDelete).toHaveBeenCalledOnce();
+  });
+
+  it('onDelete does NOT fire when confirm returns false', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const onDelete = vi.fn();
+    render(
+      <CardPanelHeader
+        {...defaultProps}
+        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });
