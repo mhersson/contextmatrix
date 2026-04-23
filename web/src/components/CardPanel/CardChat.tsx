@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { VirtualLogList } from '../RunnerConsole/VirtualLogList';
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 const MAX_MESSAGE_LENGTH = 8000;
 
@@ -14,6 +15,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messageId = useId();
 
@@ -49,11 +51,8 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     }
   };
 
-  const handlePromote = async () => {
-    const confirmed = window.confirm(
-      'Promote this session to autonomous? The agent will finish the workflow without further input, create a feature branch, and open a PR.',
-    );
-    if (!confirmed) return;
+  const handlePromoteConfirm = async () => {
+    setConfirmOpen(false);
     setPromoting(true);
     setError(null);
     try {
@@ -124,7 +123,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => void handlePromote()}
+            onClick={() => setConfirmOpen(true)}
             disabled={promoting}
             className="px-3 py-1.5 rounded text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
             style={{ background: 'var(--bg-yellow)', color: 'var(--orange)' }}
@@ -140,6 +139,17 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
           {error}
         </div>
       )}
+
+      {/* Promote-to-autonomous confirmation modal */}
+      <ConfirmModal
+        open={confirmOpen}
+        title="Promote to autonomous?"
+        message="The agent will finish the workflow without further input, create a feature branch, and open a PR."
+        confirmLabel="Promote"
+        cancelLabel="Cancel"
+        onConfirm={() => void handlePromoteConfirm()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }
