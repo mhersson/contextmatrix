@@ -118,7 +118,8 @@ at launch.
 
 #### POST {runner_url}/kill
 
-Sent when a user clicks "Stop" on a running card.
+Sent when a user clicks "Stop" on a running card, or by the end-session
+subscriber / reconcile sweep when a card reaches a terminal state.
 
 ```json
 {
@@ -126,6 +127,66 @@ Sent when a user clicks "Stop" on a running card.
   "project": "my-project"
 }
 ```
+
+**Idempotent.** Three server-side cases:
+
+1. **Tracker has the entry** → normal cancel path: cancel the run's context,
+   let `waitAndCleanup` run its defers (`docker stop` + `docker rm -f`).
+   Returns `200 {"ok": true, "message": "container killed"}`.
+2. **Tracker is empty but Docker still has a labeled container** for
+   `(project, card_id)` → the runner reaches past the tracker via
+   `docker rm -f` on every matching container. Returns `200 {"ok": true,
+   "message": "force-removed"}`. This closes the tracker/Docker divergence
+   case where a prior cleanup cleared the tracker entry before Docker
+   removal succeeded; without this fallback the container leaks to
+   `container_timeout` (default 2h).
+3. **Neither tracker nor Docker has a matching container** → true no-op.
+   Returns `200 {"ok": true, "message": "no-op (already stopped)"}`.
+
+All three return `200` so CM's retry logic doesn't need to distinguish
+"not found" from "killed".
+
+#### GET {runner_url}/containers
+
+Returns every Docker container labeled `contextmatrix.runner=true` on the
+runner, regardless of running / exited state. HMAC-signed (the timestamp
+covers an empty body).
+
+Consumed by CM's reconcile sweep as the authoritative answer to "what
+containers are actually running right now" — independent of the runner's
+in-memory tracker and of CM's card-level `runner_status` field. The sweep
+correlates each entry against CM's card store and kills anything whose card
+is terminal, missing, or exceeds the max-age cap. See
+`internal/runner/reconcile.go` for the decision rules.
+
+```json
+{
+  "ok": true,
+  "containers": [
+    {
+      "container_id": "778fe6561d75abc...",
+      "container_name": "cmr-contextmatrix-ctxmax-436",
+      "card_id": "ctxmax-436",
+      "project": "contextmatrix",
+      "state": "running",
+      "started_at": "2026-04-23T10:30:00Z",
+      "tracked": false
+    }
+  ]
+}
+```
+
+`tracked` reflects the runner's in-memory tracker state at response time.
+The signature of the divergence bug the sweep is designed to catch is
+`tracked: false` combined with `state: "running"` — a container Docker is
+running that the runner's own tracker has already forgotten about.
+
+**Error responses:**
+
+| Status | Condition                                |
+| ------ | ---------------------------------------- |
+| 401    | Missing / invalid HMAC signature         |
+| 502    | Docker daemon unreachable (`upstream_failure`) |
 
 #### POST {runner_url}/stop-all
 
@@ -241,19 +302,23 @@ receives EOF and exits; the container then terminates through the normal
 ```
 
 Sent by an event-bus subscriber in CM that listens for `card.released` and
-`card.state_changed`. The subscriber fires only when all three hold:
+`card.state_changed`. The subscriber fires only when both hold:
 
-1. `card.runner_status` is `queued` or `running` (this is the container's
-   top-level card — subtasks never have `runner_status` set). CM leaves
-   `runner_status` untouched on a state transition to `done` / `not_planned`;
-   the runner is the authoritative source and clears it via
-   `UpdateRunnerStatus("completed"/"failed"/"killed")` once the container has
-   actually exited.
-2. `card.assigned_agent` is empty (the card has actually been released).
-3. `card.state` is `done` or `not_planned`.
+1. `card.assigned_agent` is empty (the card has actually been released).
+2. `card.state` is `done` or `not_planned`.
+
+`card.runner_status` is intentionally NOT part of this predicate. An earlier
+version gated on `runner_status ∈ {queued, running}`, which silently skipped
+any container whose `runner_status` had drifted away from Docker reality
+(the runner's `reportCompleted` / `reportFailure` callbacks flip the field
+before the Docker cleanup defers actually succeed). Gating on it turned every
+such drift into a permanent leak. The runner's `/kill` is idempotent, so the
+subscriber firing "spuriously" against an already-dead container costs one
+200 no-op and eliminates that class of bug at the source.
 
 This prevents the container from exiting on intermediate `release_card` calls
-an orchestrator makes between subtasks.
+an orchestrator makes between subtasks: a release without a terminal-state
+transition does not satisfy the predicate.
 
 **End-session is always followed by `/kill`.** Claude in `--input-format
 stream-json` mode has been observed keeping the container process alive well
@@ -477,28 +542,44 @@ running. A card that reaches a terminal state (`done` or `not_planned`) and
 is released must therefore be killed by ContextMatrix explicitly, otherwise
 the container would leak until the runner's `container_timeout` (default 2h).
 
-Two independent mechanisms guarantee this cleanup:
+Two independent mechanisms guarantee this cleanup, and they now use
+different truths so a bug in either cannot silently hide a live container:
 
 1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches
    the event bus for `card.released` and `card.state_changed`. When it sees a
-   card with `state ∈ {done, not_planned}` + `assigned_agent == ""` +
-   `runner_status ∈ {queued, running}`, it fires `/end-session` followed by
-   `/kill` against the runner. Typical latency: tens of milliseconds.
-2. **Reconcile sweep (authoritative backstop).**
+   card with `state ∈ {done, not_planned}` + `assigned_agent == ""`, it fires
+   `/end-session` followed by `/kill` against the runner. Typical latency:
+   tens of milliseconds. `runner_status` is intentionally not consulted —
+   see the end-session section above for why.
+2. **Reconcile sweep (Docker-authoritative backstop).**
    `internal/runner/reconcile.go` runs every `runner.reconcile_interval`
-   (default **60s**) and scans every project for cards matching the same
-   predicate. The sweep exists because `events.Bus` drops events when a
-   subscriber's 64-slot buffer is full and events published while CM is
-   restarting are never delivered — either case silently leaks the event
-   subscriber's kill. The sweep catches these within one interval.
+   (default **60s**). Every tick it calls `GET /containers` on the runner
+   and, for each container Docker is actually running, looks up the card
+   and kills the container when:
+   - the card is missing (deleted or renamed), or
+   - the card's state is `done` / `not_planned`, or
+   - the container has been alive longer than `ContainerMaxAge` (150m).
 
-Both paths call the same `/end-session` → `/kill` pair and the same log line
-`"end-session + kill sent"`; grep for `source=subscriber` vs `source=sweep` in
-CM logs to tell which path handled a given kill. A `source=sweep` hit is proof
-the event path missed one — rare, but recorded.
+   **The sweep does not read `runner_status`.** It reasons exclusively from
+   two authoritative sources — Docker ("is this container running?") and
+   the card store ("should it be?"). Every previous implementation of this
+   sweep consulted CM's own `runner_status` bookkeeping and inherited the
+   drift bug where a failed cleanup defer flipped the field to `completed`
+   / `failed` while Docker still had the container, then every subsequent
+   sweep silently skipped it. That class of bug is now unreachable.
+
+The event path's logline is `"end-session + kill sent" source=subscriber`;
+the sweep's is `"reconcile sweep killing container" ... reason=<terminal_state
+|no_such_card|age_cap>` followed by the same `source=sweep` kill log. Every
+sweep tick also emits a `"reconcile sweep tick"` line with `scanned` and
+`killed` counts, so "is the sweep actually running?" is answerable from a
+single grep.
 
 Setting `reconcile_interval` to `"0s"` disables the sweep. Not recommended
-outside of tests.
+outside of tests — the event path is best-effort (events.Bus drops events on
+subscriber buffer overflow, and events published during CM restart are never
+delivered), so without the sweep a single dropped event can leak a container
+for the full `container_timeout` window.
 
 ## Worker Safety
 

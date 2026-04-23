@@ -209,6 +209,12 @@ func main() {
 		slog.Info("end-session subscriber started")
 
 		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
+		// The sweep takes the CardService (CardLookup) and the runner client
+		// (ReconcileClient: ListContainers + EndSession + Kill). It uses the
+		// runner's Docker state as the authoritative "is this container
+		// running?" input and the card store as the authoritative "should it
+		// be?" — see internal/runner/reconcile.go for why we no longer gate
+		// on card.runner_status.
 		runner.StartReconciliationSweep(ctx, svc, runnerClient, reconcileInterval, slog.Default())
 
 		if reconcileInterval > 0 {

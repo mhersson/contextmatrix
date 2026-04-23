@@ -74,6 +74,44 @@ type StopAllPayload struct {
 	Project string `json:"project,omitempty"`
 }
 
+// ContainerInfo is a decoded entry from GET /containers. The runner sources
+// these from Docker directly (filtered on label contextmatrix.runner=true),
+// so a populated slice is the authoritative answer to "what containers are
+// actually running right now" — independent of the runner's in-memory tracker
+// or of CM's runner_status field. The Docker-authoritative reconcile sweep
+// uses this list as its decision input.
+//
+// Tracked reflects the runner's tracker state at response time: Tracked=false
+// combined with State="running" is the tracker/Docker divergence signature
+// that the older in-process cleanup paths could not detect.
+type ContainerInfo struct {
+	ContainerID   string
+	ContainerName string
+	CardID        string
+	Project       string
+	State         string
+	StartedAt     time.Time
+	Tracked       bool
+}
+
+// containerInfoWire is the on-the-wire shape of a /containers entry. Kept
+// separate from ContainerInfo so the public type carries a parsed time.Time
+// while the HTTP response stays string-valued.
+type containerInfoWire struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name,omitempty"`
+	CardID        string `json:"card_id"`
+	Project       string `json:"project"`
+	State         string `json:"state"`
+	StartedAt     string `json:"started_at"`
+	Tracked       bool   `json:"tracked"`
+}
+
+type listContainersResponseWire struct {
+	OK         bool                `json:"ok"`
+	Containers []containerInfoWire `json:"containers"`
+}
+
 // WebhookResponse is the expected response from the runner.
 type WebhookResponse struct {
 	OK      bool   `json:"ok"`
@@ -128,6 +166,54 @@ func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
 	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
+// ListContainers queries the runner's /containers endpoint for every Docker
+// container currently labeled as runner-managed. The returned slice is CM's
+// ground truth for "what containers are actually running right now" —
+// independent of any CM-side bookkeeping. An error here is not recoverable
+// by retry at the call site: the caller should log and continue rather than
+// risk firing spurious kills against a runner that briefly can't answer.
+func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
+	body, err := c.sendGet(ctx, c.baseURL+"/containers")
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed listContainersResponseWire
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("parse /containers response: %w", err)
+	}
+
+	if !parsed.OK {
+		return nil, fmt.Errorf("runner /containers returned ok=false")
+	}
+
+	out := make([]ContainerInfo, 0, len(parsed.Containers))
+
+	for _, c := range parsed.Containers {
+		// A missing or malformed timestamp is non-fatal: we still want the
+		// sweep to act on the container, just without the age-cap input.
+		var started time.Time
+
+		if c.StartedAt != "" {
+			if t, err := time.Parse(time.RFC3339, c.StartedAt); err == nil {
+				started = t
+			}
+		}
+
+		out = append(out, ContainerInfo{
+			ContainerID:   c.ContainerID,
+			ContainerName: c.ContainerName,
+			CardID:        c.CardID,
+			Project:       c.Project,
+			State:         c.State,
+			StartedAt:     started,
+			Tracked:       c.Tracked,
+		})
+	}
+
+	return out, nil
+}
+
 // send marshals payload, signs it, and POSTs to url with retries.
 func (c *Client) send(ctx context.Context, url string, payload any) error {
 	body, err := json.Marshal(payload)
@@ -165,6 +251,52 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 	}
 
 	return fmt.Errorf("runner webhook failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// sendGet signs and performs a GET against url, returning the raw response
+// body. GET requests sign an empty body under the same HMAC scheme the
+// runner accepts on POST endpoints, so the existing replay/skew protections
+// apply uniformly. Errors are not retried here: the reconcile sweep calls
+// this on a 60s tick and a transient failure is better surfaced than
+// silently retried (the next tick retries anyway).
+func (c *Client) sendGet(ctx context.Context, url string) ([]byte, error) {
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	signature := signPayloadWithTimestamp(c.apiKey, nil, ts)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create GET request: %w", err)
+	}
+
+	req.Header.Set(signatureHeader, "sha256="+signature)
+	req.Header.Set(timestampHeader, ts)
+
+	result := "failure"
+
+	defer func() { metrics.RunnerWebhookTotal.WithLabelValues(result).Inc() }()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send GET request: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read GET response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, &webhookError{
+			statusCode: resp.StatusCode,
+			body:       string(respBody),
+		}
+	}
+
+	result = "success"
+
+	return respBody, nil
 }
 
 // doRequest performs a single HTTP request to the runner.

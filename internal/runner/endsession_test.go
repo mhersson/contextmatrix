@@ -48,11 +48,13 @@ func (f *fakeCardGetter) setAgent(project, id, agent string) {
 }
 
 type fakeClient struct {
-	mu        sync.Mutex
-	calls     []runner.EndSessionPayload
-	killCalls []runner.KillPayload
-	err       error
-	killErr   error
+	mu         sync.Mutex
+	calls      []runner.EndSessionPayload
+	killCalls  []runner.KillPayload
+	err        error
+	killErr    error
+	listResult []runner.ContainerInfo
+	listErr    error
 }
 
 func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) error {
@@ -71,6 +73,24 @@ func (f *fakeClient) Kill(_ context.Context, p runner.KillPayload) error {
 	f.killCalls = append(f.killCalls, p)
 
 	return f.killErr
+}
+
+// ListContainers is the authoritative runner-side input the sweep consults
+// on every tick. Tests set listResult to configure the container snapshot
+// the sweep sees; listErr covers the runner-unreachable path so the sweep
+// can skip ticks without crashing.
+func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+
+	out := make([]runner.ContainerInfo, len(f.listResult))
+	copy(out, f.listResult)
+
+	return out, nil
 }
 
 func (f *fakeClient) Calls() []runner.EndSessionPayload {
@@ -190,7 +210,15 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 	assertNoCall(t, fc)
 }
 
-func TestEndSessionSubscriber_SubtaskNoRunnerStatus_NoCall(t *testing.T) {
+// TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus
+// is the contract change that fixes the class of leak bug: the subscriber
+// now fires on terminal + released, ignoring runner_status. A card whose
+// runner_status has drifted to "" (or "completed", "failed") but still has
+// a live container on the runner must still get a /kill — the runner's
+// /kill is idempotent, so a spurious call against an already-dead container
+// is a 200 no-op, and the class of silent-skip bug around runner_status
+// drift is eliminated at the source.
+func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -200,7 +228,10 @@ func TestEndSessionSubscriber_SubtaskNoRunnerStatus_NoCall(t *testing.T) {
 			ID:            "SUB-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "",
+			// Empty runner_status — the OLD subscriber silently skipped
+			// this; the NEW subscriber fires because the card is
+			// terminal and released, which is all the truth it needs.
+			RunnerStatus: "",
 		},
 	}}
 	fc := &fakeClient{}
@@ -208,7 +239,8 @@ func TestEndSessionSubscriber_SubtaskNoRunnerStatus_NoCall(t *testing.T) {
 	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "SUB-001"})
 
-	assertNoCall(t, fc)
+	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
 }
 
 func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T) {

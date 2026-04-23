@@ -4502,6 +4502,146 @@ func TestUpdateRunnerStatus_Failed(t *testing.T) {
 	})
 }
 
+// TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted is the
+// contract for the post-terminal container cleanup path: once a card is
+// done/not_planned, the reconcile sweep (or end-session subscriber) kills
+// the container; the runner reports that kill as "failed: killed by
+// operator" through the callback. Recording that literally would say the
+// run failed when in fact the work finished and only the container
+// lingered. The service normalizes the callback to "completed" so the card
+// UI reflects reality.
+func TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "post-terminal cleanup test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+
+	// Drive the card to done via the normal transition path so the card
+	// mirrors what the reconcile sweep actually sees in production: state
+	// is terminal, runner_status is still "running" because the container
+	// has not exited yet.
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.NoError(t, err)
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+	require.NoError(t, err)
+
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	// Simulate the runner's post-kill callback: /kill triggered
+	// waitAndCleanup's ctx.Done() branch, which called
+	// reportFailure("killed by operator").
+	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
+	require.NoError(t, err)
+
+	// The card was already done; the kill was cleanup, not a failure.
+	// UpdateRunnerStatus("completed") clears runner_status to "" as part
+	// of its normal terminal-status behaviour, so an empty runner_status
+	// here is the signal that the translation happened.
+	assert.Empty(t, updated.RunnerStatus,
+		"runner_status must be cleared — the post-terminal failure was normalized to completed")
+	assert.Equal(t, board.StateDone, updated.State, "card state must stay done")
+	assert.Empty(t, updated.AssignedAgent, "claim stays released")
+
+	// The activity log message must reflect the normalized status, not the
+	// raw "killed by operator" text the runner sent. Otherwise the UI would
+	// show a contradictory "failed: killed by operator" message on a card
+	// recorded as completed.
+	require.NotEmpty(t, updated.ActivityLog, "normalization must append an activity log entry")
+
+	lastLog := updated.ActivityLog[len(updated.ActivityLog)-1]
+	assert.Equal(t, "runner_status", lastLog.Action)
+	assert.NotContains(t, lastLog.Message, "killed by operator",
+		"raw runner message must be rewritten to match the normalized status")
+	assert.Contains(t, lastLog.Message, "cleaned up",
+		"normalized message should describe the cleanup path")
+}
+
+// TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted mirrors
+// the done-state case for not_planned, since the normalization rule treats
+// both terminal states the same and a regression in one should not silently
+// hide in the other.
+func TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "not_planned cleanup test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+
+	// TransitionTo(not_planned) goes through enforceTerminalStateInvariants,
+	// which clears the agent claim itself — no explicit ReleaseCard needed
+	// (and an explicit call would error with "card is not claimed").
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateNotPlanned)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
+	require.NoError(t, err)
+
+	assert.Empty(t, updated.RunnerStatus)
+	assert.Equal(t, board.StateNotPlanned, updated.State)
+}
+
+// TestUpdateRunnerStatus_FailedMidRunStaysFailed guards against
+// over-normalization: a genuine in-flight failure (container crashed while
+// the card is still in_progress) must still record as failed, not be
+// silently translated to completed. The normalization fires only for cards
+// that have already reached a terminal state.
+func TestUpdateRunnerStatus_FailedMidRunStaysFailed(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "mid-run failure test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+
+	// Card is still in_progress — a failure here is a genuine run failure,
+	// not a post-terminal cleanup.
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
+	require.NoError(t, err)
+
+	assert.Equal(t, "failed", updated.RunnerStatus,
+		"mid-run failure must remain failed — normalization only fires after terminal state")
+}
+
 // TestDeferredCommitFlushOnUpdateRunnerStatus verifies that when a card has
 // deferred commits enabled, calling UpdateRunnerStatus after ReleaseCard
 // results in the runner_status log entry being committed to git.

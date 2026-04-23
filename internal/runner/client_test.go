@@ -428,3 +428,95 @@ func TestClient_WebhookMetrics_Failure(t *testing.T) {
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("failure"))-beforeFailure, float64(1),
 		"failure counter should increment on non-2xx response")
 }
+
+// TestClient_ListContainers_Success round-trips a typical /containers
+// response: two entries, one tracked and one not, so the caller can tell a
+// divergent orphan from a legitimate in-flight card.
+func TestClient_ListContainers_Success(t *testing.T) {
+	started := time.Now().Add(-45 * time.Minute).UTC().Truncate(time.Second)
+
+	const apiKey = "shared-secret"
+
+	var receivedSig, receivedTS string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/containers", r.URL.Path)
+
+		receivedSig = r.Header.Get(signatureHeader)
+		receivedTS = r.Header.Get(timestampHeader)
+
+		// GET signs an empty body.
+		body, _ := io.ReadAll(r.Body)
+		assert.Empty(t, body, "GET body must be empty")
+
+		sig := strings.TrimPrefix(receivedSig, "sha256=")
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, sig, receivedTS, nil, DefaultMaxClockSkew),
+			"HMAC over empty body + timestamp must verify")
+
+		payload := map[string]any{
+			"ok": true,
+			"containers": []map[string]any{
+				{
+					"container_id":   "abc123",
+					"container_name": "cmr-contextmatrix-ctxmax-436",
+					"card_id":        "ctxmax-436",
+					"project":        "contextmatrix",
+					"state":          "running",
+					"started_at":     started.Format(time.RFC3339),
+					"tracked":        false,
+				},
+				{
+					"container_id": "def456",
+					"card_id":      "alpha-001",
+					"project":      "proj",
+					"state":        "exited",
+					"started_at":   started.Format(time.RFC3339),
+					"tracked":      true,
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, apiKey)
+	got, err := c.ListContainers(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	assert.Equal(t, "ctxmax-436", got[0].CardID)
+	assert.Equal(t, "running", got[0].State)
+	assert.False(t, got[0].Tracked)
+	assert.Equal(t, started.Unix(), got[0].StartedAt.Unix())
+
+	assert.Equal(t, "alpha-001", got[1].CardID)
+	assert.True(t, got[1].Tracked)
+}
+
+// TestClient_ListContainers_RunnerError surfaces a runner 502 so the sweep
+// logs and skips this tick rather than acting on a half-response.
+func TestClient_ListContainers_RunnerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"upstream_failure","message":"docker list failed"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.ListContainers(context.Background())
+	require.Error(t, err)
+}
+
+// TestClient_ListContainers_RunnerOKFalse rejects a 200 OK body with ok=false
+// so the sweep doesn't act on an ambiguous response.
+func TestClient_ListContainers_RunnerOKFalse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":false,"containers":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.ListContainers(context.Background())
+	require.Error(t, err)
+}

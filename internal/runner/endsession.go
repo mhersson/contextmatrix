@@ -35,20 +35,6 @@ var terminalStates = map[string]struct{}{
 	board.StateNotPlanned: {},
 }
 
-// activeRunnerStatuses are the runner_status values that indicate a container
-// is currently running for this card (so closing its stdin is meaningful).
-//
-// Invariant relied on by this subscriber: the runner only transitions
-// runner_status to "completed"/"failed"/"killed" *after* ContainerWait
-// returns — i.e. the container has already exited. A card in one of those
-// states therefore has no live container to end, so filtering on
-// {queued, running} here is both necessary (to avoid spurious calls) and
-// safe (we don't miss live containers).
-var activeRunnerStatuses = map[string]struct{}{
-	"queued":  {},
-	"running": {},
-}
-
 // StartEndSessionSubscriber wires an event-bus subscriber that calls
 // /end-session on the runner whenever a card reaches a terminal state and
 // has been released. Blocks only until initial subscription is set up; the
@@ -194,16 +180,26 @@ func isExpectedEndSessionErr(err error) bool {
 	return false
 }
 
+// shouldEndSession returns true when the card's shape indicates the
+// associated runner container should be terminated: the card is in a
+// terminal state (done / not_planned) AND the agent claim has been released.
+//
+// runner_status is deliberately NOT consulted. The older predicate gated on
+// runner_status ∈ {queued, running}, which silently hid every container
+// whose runner_status had drifted away from Docker reality (runner callbacks
+// flip the field before Docker cleanup actually succeeds). The reconcile
+// sweep now owns the ground-truth "is this container still running?"
+// question by asking the runner directly; the subscriber is a fast-path
+// accelerator that fires on release events and relies on the runner's
+// idempotent /kill to turn spurious calls into 200 no-ops.
+//
+// See docs/remote-execution.md for the full rationale.
 func shouldEndSession(card *board.Card) bool {
 	if card == nil {
 		return false
 	}
 
 	if card.AssignedAgent != "" {
-		return false
-	}
-
-	if _, ok := activeRunnerStatuses[card.RunnerStatus]; !ok {
 		return false
 	}
 

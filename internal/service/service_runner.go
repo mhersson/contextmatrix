@@ -236,6 +236,36 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
+	// Post-terminal cleanup normalization: once the card has reached a
+	// terminal state (done/not_planned), the reconcile sweep and end-session
+	// subscriber kill the container as a cleanup step. The runner reports
+	// that cleanup through the same callback path it uses for a genuine
+	// mid-run failure — "failed: killed by operator". Recording that as
+	// `failed` would lie about the run (the work succeeded; only the
+	// container lingered past the card's done transition). Translate such
+	// post-terminal failure/killed callbacks to `completed` so the card UI
+	// reflects what actually happened.
+	//
+	// The user-initiated Stop path (stopTask → UpdateRunnerStatus("killed"))
+	// targets non-terminal cards, so the normalization only fires for the
+	// cleanup case it is intended for. If a user manages to Stop a card that
+	// is already done (rare race — human clicking just after the agent
+	// transitions), that is semantically identical to the sweep cleanup
+	// anyway: the work is already done, the container is being reaped.
+	//
+	// The activity log message is rewritten alongside the status so the UI
+	// doesn't display "failed: killed by operator" on a card recorded as
+	// completed — the two would contradict each other otherwise.
+	if (status == "failed" || status == "killed") &&
+		(card.State == board.StateDone || card.State == board.StateNotPlanned) {
+		ctxlog.Logger(ctx).Info("normalizing post-terminal cleanup callback to completed",
+			"card_id", cardID, "project", project,
+			"card_state", card.State, "incoming_status", status, "message", message)
+
+		status = "completed"
+		message = "container cleaned up after run completed"
+	}
+
 	prevRunnerStatus := card.RunnerStatus
 	card.RunnerStatus = status
 	card.Updated = time.Now()
