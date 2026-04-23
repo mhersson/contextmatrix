@@ -81,6 +81,7 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
     onPromptAgentId: vi.fn().mockReturnValue(null),
     onRunCard: vi.fn().mockResolvedValue(undefined),
     onStopCard: vi.fn().mockResolvedValue(undefined),
+    onDelete: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -462,4 +463,73 @@ describe('CardPanel — Run Now save-before-run ordering', () => {
     expect(onRunCard).toHaveBeenCalledOnce();
   });
 
+});
+
+describe('CardPanel — Delete card', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('confirmed delete invokes the parent onDelete with the card ID (eligible card)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderWithTheme(
+      <CardPanel
+        {...makeProps({
+          card: { ...baseCard, state: 'todo', assigned_agent: undefined },
+          onDelete,
+        })}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
+    });
+
+    expect(onDelete).toHaveBeenCalledWith('TEST-001');
+  });
+
+  it('onDelete is NOT invoked for an ineligible card (in_progress)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderWithTheme(
+      <CardPanel
+        {...makeProps({
+          card: { ...baseCard, state: 'in_progress' },
+          onDelete,
+        })}
+      />
+    );
+
+    // The button should be disabled — clicking it should not invoke onDelete
+    const deleteBtn = screen.getByRole('button', { name: 'Delete card' });
+    expect(deleteBtn).toBeDisabled();
+    // Attempt a forced click anyway to verify the guard
+    await act(async () => {
+      fireEvent.click(deleteBtn);
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('onDelete is NOT invoked for a claimed card', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderWithTheme(
+      <CardPanel
+        {...makeProps({
+          card: { ...baseCard, state: 'todo', assigned_agent: 'some-agent' },
+          onDelete,
+        })}
+      />
+    );
+
+    const deleteBtn = screen.getByRole('button', { name: 'Delete card' });
+    expect(deleteBtn).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(deleteBtn);
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+  });
 });

@@ -77,19 +77,21 @@ export function ProjectShell() {
     }
   }, [showToast]);
 
-  const { config, cards, loading, error, connected, updateCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+  const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
-    handleRunCard, handleStopCard, handleStopAll,
+    handleRunCard, handleStopCard, handleStopAll, handleCardDelete,
   } = useCardActions({
       selectedProject: project || '',
       selectedCard,
       cards,
       updateCardLocally,
+      removeCardLocally,
       suppressSSE,
       unsuppressSSE,
       showToast,
+      onCardDeleted: () => setSelectedCard(null),
     });
 
   const { logs: runnerLogs, connected: consoleConnected, error: consoleError, clear: clearLogs } = useRunnerLogs({
@@ -262,6 +264,7 @@ export function ProjectShell() {
           card={currentSelectedCard} config={config}
           cardLogs={selectedCardLogs}
           onClose={() => setSelectedCard(null)} onSave={handleCardSave}
+          onDelete={handleCardDelete}
           onClaim={handleClaim} onRelease={handleRelease}
           onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
           onPromptAgentId={promptForAgentId}

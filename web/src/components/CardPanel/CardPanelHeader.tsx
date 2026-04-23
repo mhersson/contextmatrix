@@ -9,8 +9,10 @@ interface CardPanelHeaderProps {
   config: ProjectConfig;
   isDirty: boolean;
   isSaving: boolean;
+  isDeleting: boolean;
   onClose: () => void;
   onSave: () => void;
+  onDelete: () => void;
   onTitleChange: (title: string) => void;
   onPriorityChange: (priority: string) => void;
   onStateChange: (state: string) => void;
@@ -22,8 +24,10 @@ export function CardPanelHeader({
   config,
   isDirty,
   isSaving,
+  isDeleting,
   onClose,
   onSave,
+  onDelete,
   onTitleChange,
   onPriorityChange,
   onStateChange,
@@ -33,11 +37,25 @@ export function CardPanelHeader({
   const priorityId = useId();
   const stateId = useId();
 
+  const canDelete =
+    (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;
+
   const handleClose = () => {
     if (isDirty) {
       if (window.confirm('Discard unsaved changes?')) onClose();
     } else {
       onClose();
+    }
+  };
+
+  const handleDeleteClick = () => {
+    if (!canDelete) return;
+    if (
+      window.confirm(
+        `Delete card ${card.id}? This permanently removes the card file and commits the deletion to git. This cannot be undone.`
+      )
+    ) {
+      onDelete();
     }
   };
 
@@ -76,17 +94,36 @@ export function CardPanelHeader({
             </div>
           )}
         </div>
-        <button
-          onClick={onSave}
-          disabled={!isDirty || isSaving}
-          className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-            isDirty
-              ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
-              : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
-          }`}
-        >
-          {isSaving ? 'Saving...' : 'Save'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Delete card"
+            onClick={handleDeleteClick}
+            disabled={!canDelete || isSaving || isDeleting}
+            title={
+              canDelete
+                ? `Delete card ${card.id}`
+                : 'Only unclaimed cards in todo or not_planned can be deleted'
+            }
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              canDelete && !isSaving && !isDeleting
+                ? 'bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90'
+                : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed opacity-50'
+            }`}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+          <button
+            onClick={onSave}
+            disabled={!isDirty || isSaving}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              isDirty
+                ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
+                : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
+            }`}
+          >
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
       </div>
 
       {/* Title */}

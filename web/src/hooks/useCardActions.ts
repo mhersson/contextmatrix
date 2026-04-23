@@ -7,9 +7,11 @@ interface UseCardActionsParams {
   selectedCard: Card | null;
   cards: Card[];
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
+  removeCardLocally: (cardId: string) => void;
   suppressSSE: (cardId: string) => void;
   unsuppressSSE: (cardId: string) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
+  onCardDeleted: () => void;
 }
 
 export function useCardActions({
@@ -17,9 +19,11 @@ export function useCardActions({
   selectedCard,
   cards,
   updateCardLocally,
+  removeCardLocally,
   suppressSSE,
   unsuppressSSE,
   showToast,
+  onCardDeleted,
 }: UseCardActionsParams) {
   const handleCardMove = useCallback(
     async (cardId: string, newState: string) => {
@@ -135,8 +139,19 @@ export function useCardActions({
     }
   }, [selectedProject, updateCardLocally, showToast]);
 
+  const handleCardDelete = useCallback(async (cardId: string) => {
+    try {
+      await api.deleteCard(selectedProject, cardId);
+      removeCardLocally(cardId);
+      onCardDeleted();
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to delete card', 'error');
+      throw err;
+    }
+  }, [selectedProject, removeCardLocally, showToast, onCardDeleted]);
+
   return {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
-    handleRunCard, handleStopCard, handleStopAll,
+    handleRunCard, handleStopCard, handleStopAll, handleCardDelete,
   };
 }

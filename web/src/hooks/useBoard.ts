@@ -11,6 +11,7 @@ interface UseBoardResult {
   connected: boolean;
   refresh: () => Promise<void>;
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
+  removeCardLocally: (cardId: string) => void;
   suppressSSE: (cardId: string) => void;
   unsuppressSSE: (cardId: string) => void;
 }
@@ -206,6 +207,10 @@ export function useBoard(
     );
   }, []);
 
+  const removeCardLocally = useCallback((cardId: string) => {
+    setCards((prev) => prev.filter((card) => card.id !== cardId));
+  }, []);
+
   const suppressSSE = useCallback((cardId: string) => {
     inFlightRef.current.add(cardId);
   }, []);
@@ -222,6 +227,7 @@ export function useBoard(
     connected,
     refresh: fetchData,
     updateCardLocally,
+    removeCardLocally,
     suppressSSE,
     unsuppressSSE,
   };
