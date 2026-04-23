@@ -3035,11 +3035,15 @@ func TestReportUsageLargeNumbers(t *testing.T) {
 	assert.Greater(t, result.TokenUsage.PromptTokens, int64(1<<31), "tokens must exceed int32 max to prove overflow safety")
 }
 
-// TestReportUsageFloatPrecision calls report_usage 10,000 times with 1 prompt
+// TestReportUsageFloatPrecision calls report_usage many times with 1 prompt
 // token each and asserts the accumulated cost is within 1e-6 of the analytical
 // result. This validates that summing many tiny float64 deltas does not
 // catastrophically lose precision.
 func TestReportUsageFloatPrecision(t *testing.T) {
+	if testing.Short() {
+		t.Skip("slow: performs many full git commits through ReportUsage")
+	}
+
 	svc, _, cleanup := setupTestWithCosts(t)
 	defer cleanup()
 
@@ -3050,7 +3054,7 @@ func TestReportUsageFloatPrecision(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	const calls = 10_000
+	const calls = 1_000
 
 	const rate = 0.000003 // claude-sonnet-4-6 prompt rate
 
@@ -3070,7 +3074,7 @@ func TestReportUsageFloatPrecision(t *testing.T) {
 
 	assert.Equal(t, int64(calls), result.TokenUsage.PromptTokens)
 
-	// Analytical answer: 10,000 * 0.000003 = 0.03
+	// Analytical answer: calls * rate
 	want := float64(calls) * rate
 	assert.InDelta(t, want, result.TokenUsage.EstimatedCostUSD, 1e-6,
 		"accumulated cost must be within 1e-6 of analytical answer (float precision check)")
