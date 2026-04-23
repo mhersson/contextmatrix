@@ -2063,3 +2063,41 @@ func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, 0, cfg.AdminPort)
 }
+
+// TestConfigYamlExampleTokenCosts verifies that config.yaml.example ships with
+// sane token cost entries for every supported model:
+//   - every entry has both prompt and completion > 0 (non-zero rates)
+//   - no rate is absurdly high (> $1000/M tokens = > 0.001/token) — catches unit errors
+//   - the expected set of model keys is present
+func TestConfigYamlExampleTokenCosts(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	cfg, err := Load(examplePath)
+	require.NoError(t, err, "config.yaml.example must parse without error")
+
+	require.NotEmpty(t, cfg.TokenCosts, "token_costs must not be empty in config.yaml.example")
+
+	const maxRatePerToken = 0.001 // $1000 per million tokens — unit-error sentinel
+
+	for model, cost := range cfg.TokenCosts {
+		t.Run(model, func(t *testing.T) {
+			assert.Greater(t, cost.Prompt, 0.0, "prompt rate must be > 0 for %s", model)
+			assert.Greater(t, cost.Completion, 0.0, "completion rate must be > 0 for %s", model)
+			assert.Less(t, cost.Prompt, maxRatePerToken, "prompt rate suspiciously high for %s (units error?)", model)
+			assert.Less(t, cost.Completion, maxRatePerToken, "completion rate suspiciously high for %s (units error?)", model)
+		})
+	}
+
+	// Assert the expected model keys are present. Update this list when new models ship.
+	expectedModels := []string{
+		"claude-haiku-4-5",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6",
+		"claude-opus-4-7",
+	}
+
+	for _, model := range expectedModels {
+		_, ok := cfg.TokenCosts[model]
+		assert.True(t, ok, "expected model %q to be present in token_costs", model)
+	}
+}

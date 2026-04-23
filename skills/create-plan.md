@@ -349,7 +349,8 @@ top-level `autonomous` field is the ONLY source of truth for mode. Ignore
 
 - `approve` or `approve_with_notes`: proceed to Phase 9.
 - `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
-  returned count is >= 3, print:
+  returned count is >= 3, call `report_usage` with your remaining token
+  consumption, then print:
   ```
   AUTONOMOUS_HALTED
   card_id: <parent_id>

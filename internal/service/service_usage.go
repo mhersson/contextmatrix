@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -43,6 +44,18 @@ type RecalculateCostsResult struct {
 }
 
 // ReportUsage increments token usage counters on a card and recalculates cost.
+//
+// Zero-token calls (PromptTokens=0 and CompletionTokens=0) are intentionally
+// written and emit an event. This makes a heartbeat+report_usage pair at idle
+// a useful health signal even when no new tokens are consumed — removing this
+// write would silently drop that observability.
+//
+// Multiple calls with different model names cause the stored TokenUsage.Model
+// to be overwritten with the most recently reported model. Cost arithmetic is
+// unaffected: each delta is priced using the model passed in that call. The
+// overwrite ensures that RecalculateCosts — which uses TokenUsage.Model as a
+// fallback — always applies the most recent model, which is the correct default
+// for the typical single-primary-model-per-card agent pattern.
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
@@ -88,6 +101,9 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 				"model", input.Model,
 				"card_id", id,
 			)
+			// Bump the observability counter so ops can alert on unknown models
+			// via Prometheus (e.g. contextmatrix_report_usage_unknown_model_total).
+			metrics.ReportUsageUnknownModelTotal.WithLabelValues(input.Model).Inc()
 		}
 	}
 

@@ -74,11 +74,12 @@ theme: "everforest"
 
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.
-# Example rates below are illustrative — check Anthropic pricing for current values.
+# Rates per https://platform.claude.com/docs/en/about-claude/pricing, 2026-04-23.
 token_costs:
-  claude-haiku-4-5:   { prompt: 0.0000008, completion: 0.000004  }
-  claude-sonnet-4-6:  { prompt: 0.000003,  completion: 0.000015  }
-  claude-opus-4-6:    { prompt: 0.000005,  completion: 0.000025  }
+  claude-haiku-4-5:   { prompt: 0.000001,  completion: 0.000005  }  # $1/$5 per MTok
+  claude-sonnet-4-6:  { prompt: 0.000003,  completion: 0.000015  }  # $3/$15 per MTok
+  claude-opus-4-6:    { prompt: 0.000005,  completion: 0.000025  }  # $5/$25 per MTok
+  claude-opus-4-7:    { prompt: 0.000005,  completion: 0.000025  }  # $5/$25 per MTok
 
 # Optional API key for MCP endpoint authentication.
 # When set, all MCP requests must include this key in the Authorization header

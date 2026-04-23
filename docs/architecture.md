@@ -119,8 +119,12 @@ write and commit completion. The service layer closes that gap on failure:
   out real REST signal. Additional instrumentation: SSE gauge in
   `internal/api/events.go` and `runner_logs.go`, event-bus drop counter in
   `internal/events/`, git-sync histogram in `internal/gitops/`, stall-scanner
-  histogram and counter in `internal/service/`. See the full metric list in
-  `internal/metrics/metrics.go`.
+  histogram and counter in `internal/service/`, unknown-model counter
+  (`contextmatrix_report_usage_unknown_model_total`, labeled by model) in
+  `internal/service/service_usage.go` (incremented when `report_usage` is
+  called with a model absent from `token_costs` — alert on a sustained non-zero
+  rate to detect misconfigured or newly deployed models). See the full metric
+  list in `internal/metrics/metrics.go`.
 
 ## Git repository scope
 

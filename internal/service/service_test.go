@@ -1594,8 +1594,10 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
 	tokenCosts := map[string]ModelCost{
+		"claude-haiku-4-5":  {Prompt: 0.000001, Completion: 0.000005},
 		"claude-sonnet-4-6": {Prompt: 0.000003, Completion: 0.000015},
 		"claude-opus-4-6":   {Prompt: 0.000005, Completion: 0.000025},
+		"claude-opus-4-7":   {Prompt: 0.000005, Completion: 0.000025},
 	}
 
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
@@ -2844,6 +2846,277 @@ func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+}
+
+// TestReportUsageUnknownModelEndToEnd verifies the full unknown-model round-trip:
+// tokens accumulate with $0 cost, then RecalculateCosts backfills once the model
+// is added to the cost map (via a fresh service with the model included).
+func TestReportUsageUnknownModelEndToEnd(t *testing.T) {
+	// Phase 1: service with no cost map (all models unknown).
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unknown model e2e", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Report with a model that is not in the (empty) cost map.
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-opus-4-7",
+		PromptTokens:     5000,
+		CompletionTokens: 1000,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.TokenUsage)
+
+	// Tokens must accumulate even though model is unknown.
+	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(1000), updated.TokenUsage.CompletionTokens)
+
+	// Cost must remain $0 because the model has no rate.
+	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// Model name must still be stored for later recalculation.
+	assert.Equal(t, "claude-opus-4-7", updated.TokenUsage.Model)
+
+	// Phase 2: rebuild the service with the model now in the cost map and
+	// call RecalculateCosts — cost should be backfilled from stored tokens.
+	boardsDir := filepath.Join(tmpDir, "boards")
+	store2, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr2, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	require.NoError(t, err)
+
+	bus2 := events.NewBus()
+	lockMgr2 := lock.NewManager(store2, 30*time.Minute)
+
+	costsWithOpus := map[string]ModelCost{
+		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
+	}
+
+	svc2 := NewCardService(store2, gitMgr2, lockMgr2, bus2, boardsDir, costsWithOpus, true, false)
+
+	result, err := svc2.RecalculateCosts(ctx, "test-project", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.CardsUpdated)
+
+	// Expected: 5000*0.000005 + 1000*0.000025 = 0.025 + 0.025 = 0.05
+	assert.InDelta(t, 0.05, result.TotalCostRecalculated, 1e-6)
+
+	backfilled, err := svc2.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.05, backfilled.TokenUsage.EstimatedCostUSD, 1e-6)
+}
+
+// TestReportUsageZeroTokenNoOp confirms that a zero-token report still writes
+// and emits an event. This is intentional: a heartbeat+report_usage pair at
+// idle provides a health signal even when no tokens were consumed.
+func TestReportUsageZeroTokenNoOp(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Zero token test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	<-ch // drain CardCreated event
+
+	// Report with zero tokens.
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     0,
+		CompletionTokens: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(0), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(0), updated.TokenUsage.CompletionTokens)
+	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// An event must still be emitted (the write-regardless behavior).
+	select {
+	case event := <-ch:
+		assert.Equal(t, events.CardUsageReported, event.Type)
+		assert.Equal(t, card.ID, event.CardID)
+	case <-time.After(time.Second):
+		t.Fatal("expected CardUsageReported event even for zero-token report")
+	}
+}
+
+// TestReportUsageMultipleModels verifies that reporting with different models
+// correctly prices each delta by the passed model, and that stored Model is
+// overwritten to the most recently reported model.
+func TestReportUsageMultipleModels(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Multi-model test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// First report: 100 prompt tokens with sonnet.
+	// Cost delta: 100 * 0.000003 + 0 * 0.000015 = 0.0003
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 0,
+	})
+	require.NoError(t, err)
+
+	// Second report: 100 prompt tokens with opus-4-7.
+	// Cost delta: 100 * 0.000005 + 0 * 0.000025 = 0.0005
+	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            "claude-opus-4-7",
+		PromptTokens:     100,
+		CompletionTokens: 0,
+	})
+	require.NoError(t, err)
+
+	// Total tokens: 200 prompt, 0 completion.
+	assert.Equal(t, int64(200), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(0), updated.TokenUsage.CompletionTokens)
+
+	// Total cost: sonnet delta + opus-4-7 delta = 0.0003 + 0.0005 = 0.0008
+	assert.InDelta(t, 0.0008, updated.TokenUsage.EstimatedCostUSD, 1e-7)
+
+	// Stored model must be the most recently reported one.
+	assert.Equal(t, "claude-opus-4-7", updated.TokenUsage.Model)
+}
+
+// TestReportUsageLargeNumbers proves that token accumulators handle values
+// well beyond 2^31 (int32 max ≈ 2.1 billion) without overflow. int64 storage
+// can hold up to ~9.2 × 10^18 tokens.
+func TestReportUsageLargeNumbers(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Large numbers test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Each call adds just over 2^30 tokens — after 3 calls we exceed 2^31.
+	const chunkSize = int64(1<<30 + 1) // 1,073,741,825
+
+	for i := 0; i < 3; i++ {
+		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+			AgentID:          "agent-1",
+			Model:            "claude-sonnet-4-6",
+			PromptTokens:     chunkSize,
+			CompletionTokens: 0,
+		})
+		require.NoError(t, err)
+	}
+
+	result, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, result.TokenUsage)
+
+	want := chunkSize * 3 // 3,221,225,475 — exceeds int32 max
+	assert.Equal(t, want, result.TokenUsage.PromptTokens)
+	assert.Greater(t, result.TokenUsage.PromptTokens, int64(1<<31), "tokens must exceed int32 max to prove overflow safety")
+}
+
+// TestReportUsageFloatPrecision calls report_usage 10,000 times with 1 prompt
+// token each and asserts the accumulated cost is within 1e-6 of the analytical
+// result. This validates that summing many tiny float64 deltas does not
+// catastrophically lose precision.
+func TestReportUsageFloatPrecision(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Float precision test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	const calls = 10_000
+
+	const rate = 0.000003 // claude-sonnet-4-6 prompt rate
+
+	for i := 0; i < calls; i++ {
+		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+			AgentID:          "agent-1",
+			Model:            "claude-sonnet-4-6",
+			PromptTokens:     1,
+			CompletionTokens: 0,
+		})
+		require.NoError(t, err)
+	}
+
+	result, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, result.TokenUsage)
+
+	assert.Equal(t, int64(calls), result.TokenUsage.PromptTokens)
+
+	// Analytical answer: 10,000 * 0.000003 = 0.03
+	want := float64(calls) * rate
+	assert.InDelta(t, want, result.TokenUsage.EstimatedCostUSD, 1e-6,
+		"accumulated cost must be within 1e-6 of analytical answer (float precision check)")
+}
+
+// TestReportUsageUnknownModelMetric verifies that the Prometheus counter
+// contextmatrix_report_usage_unknown_model_total is incremented when a model
+// is not found in the cost map, and that it carries the model label.
+func TestReportUsageUnknownModelMetric(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unknown model metric test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	unknownModel := "claude-future-99"
+
+	// Read baseline before the call.
+	baseline := testutil.ToFloat64(metrics.ReportUsageUnknownModelTotal.WithLabelValues(unknownModel))
+
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            unknownModel,
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+
+	after := testutil.ToFloat64(metrics.ReportUsageUnknownModelTotal.WithLabelValues(unknownModel))
+	assert.InDelta(t, baseline+1.0, after, 1e-9, "ReportUsageUnknownModelTotal must be incremented by 1 for the unknown model")
+
+	// A second call must increment again.
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-1",
+		Model:            unknownModel,
+		PromptTokens:     500,
+		CompletionTokens: 250,
+	})
+	require.NoError(t, err)
+
+	after2 := testutil.ToFloat64(metrics.ReportUsageUnknownModelTotal.WithLabelValues(unknownModel))
+	assert.InDelta(t, baseline+2.0, after2, 1e-9, "counter must increment on every unknown-model report")
 }
 
 func TestCaseInsensitiveCardID(t *testing.T) {
@@ -5906,4 +6179,100 @@ func TestProcessStalled_IncrementsStallCardsMarked(t *testing.T) {
 
 	after := testutil.ToFloat64(metrics.StallCardsMarked)
 	assert.GreaterOrEqual(t, after-baseline, 1.0, "StallCardsMarked should have been incremented")
+}
+
+// TestReportUsageFullLifecycle simulates a create-plan → execute-task → review
+// sequence where each stage calls report_usage, and verifies the parent card's
+// TokenUsage accumulates to the expected total across all stages.
+func TestReportUsageFullLifecycle(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create parent card (simulates the orchestrator's card).
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Full lifecycle cost test",
+		Type:     "task",
+		Priority: "high",
+	})
+	require.NoError(t, err)
+	require.Nil(t, parent.TokenUsage)
+
+	orchestratorAgent := "claude-sonnet-4-6-orchestrator"
+
+	// --- Stage 1: create-plan ---
+	// The orchestrator (running create-plan) reports its planning token consumption
+	// against the parent card.
+	afterPlan, err := svc.ReportUsage(ctx, "test-project", parent.ID, ReportUsageInput{
+		AgentID:          orchestratorAgent,
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     5000,
+		CompletionTokens: 500,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, afterPlan.TokenUsage)
+	assert.Equal(t, int64(5000), afterPlan.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500), afterPlan.TokenUsage.CompletionTokens)
+	// Expected cost: 5000 * 0.000003 + 500 * 0.000015 = 0.015 + 0.0075 = 0.0225
+	assert.InDelta(t, 0.0225, afterPlan.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// --- Stage 2: execute-task (sub-agent, reports directly on parent card) ---
+	// In the real workflow, sub-agents report on their own subtask cards.
+	// For this lifecycle test we report multiple rounds against the parent to
+	// verify accumulation works across repeated calls from different model identifiers.
+	afterExec1, err := svc.ReportUsage(ctx, "test-project", parent.ID, ReportUsageInput{
+		AgentID:          orchestratorAgent,
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     8000,
+		CompletionTokens: 1200,
+	})
+	require.NoError(t, err)
+	// Running totals after execute-task heartbeat
+	assert.Equal(t, int64(5000+8000), afterExec1.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500+1200), afterExec1.TokenUsage.CompletionTokens)
+	// Delta cost: 8000 * 0.000003 + 1200 * 0.000015 = 0.024 + 0.018 = 0.042
+	// Total: 0.0225 + 0.042 = 0.0645
+	assert.InDelta(t, 0.0645, afterExec1.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// Second execute-task heartbeat (simulates ongoing work by the orchestrator
+	// monitoring sub-agents).
+	afterExec2, err := svc.ReportUsage(ctx, "test-project", parent.ID, ReportUsageInput{
+		AgentID:          orchestratorAgent,
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     3000,
+		CompletionTokens: 200,
+	})
+	require.NoError(t, err)
+	// Running totals
+	assert.Equal(t, int64(5000+8000+3000), afterExec2.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500+1200+200), afterExec2.TokenUsage.CompletionTokens)
+	// Delta: 3000 * 0.000003 + 200 * 0.000015 = 0.009 + 0.003 = 0.012
+	// Total: 0.0645 + 0.012 = 0.0765
+	assert.InDelta(t, 0.0765, afterExec2.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// --- Stage 3: review-task (uses claude-opus-4-6, different rate) ---
+	// The review agent reports its token consumption. The orchestrator also
+	// reports its own monitoring tokens for this stage.
+	afterReview, err := svc.ReportUsage(ctx, "test-project", parent.ID, ReportUsageInput{
+		AgentID:          orchestratorAgent,
+		Model:            "claude-opus-4-6",
+		PromptTokens:     2000,
+		CompletionTokens: 400,
+	})
+	require.NoError(t, err)
+	// Running totals
+	assert.Equal(t, int64(5000+8000+3000+2000), afterReview.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(500+1200+200+400), afterReview.TokenUsage.CompletionTokens)
+	// Delta (opus rates): 2000 * 0.000005 + 400 * 0.000025 = 0.01 + 0.01 = 0.02
+	// Total: 0.0765 + 0.02 = 0.0965
+	assert.InDelta(t, 0.0965, afterReview.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// Verify persisted state matches in-memory result by re-reading from store.
+	persisted, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.TokenUsage)
+	assert.Equal(t, int64(18000), persisted.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2300), persisted.TokenUsage.CompletionTokens)
+	assert.InDelta(t, 0.0965, persisted.TokenUsage.EstimatedCostUSD, 0.0001)
 }

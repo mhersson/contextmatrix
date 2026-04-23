@@ -169,7 +169,8 @@ external blocker:
 
 1. Call `transition_card` to move your card to `blocked` state.
 2. Call `add_log` explaining the blocker.
-3. Print the **exact format** below and stop:
+3. Call `report_usage` with your token consumption so far.
+4. Print the **exact format** below and stop:
 
 ```
 TASK_BLOCKED

@@ -115,6 +115,15 @@ var (
 		Name: "contextmatrix_rollback_failures_total",
 		Help: "Card-mutation rollback failures after a commit failure (cache + disk left inconsistent).",
 	})
+
+	// ReportUsageUnknownModelTotal counts report_usage calls where the model
+	// name is not in the configured token_costs map. Each increment means an
+	// agent reported tokens for a model we cannot price, so cost will be $0
+	// for that delta. The model label lets operators alert per-model.
+	ReportUsageUnknownModelTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_report_usage_unknown_model_total",
+		Help: "report_usage calls where the model is not in the token_costs map (cost not calculated).",
+	}, []string{"model"})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -137,6 +146,7 @@ func Register(reg prometheus.Registerer) {
 		CommitErrorsTotal,
 		ParentAutoTransitionErrors,
 		RollbackFailuresTotal,
+		ReportUsageUnknownModelTotal,
 	}
 
 	for _, c := range collectors {

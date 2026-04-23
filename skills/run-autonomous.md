@@ -137,7 +137,7 @@ Based on the card's current state and body content:
        `transition_card(card_id=<id>, new_state='todo')` then
        `transition_card(card_id=<id>, new_state='in_progress')`.
     2. Track respawn count per card. **Maximum 2 respawns.** On the 3rd stall,
-       print:
+       call `report_usage` with your token consumption, then print:
        ```
        AUTONOMOUS_HALTED
        card_id: <parent_card_id>
@@ -199,7 +199,7 @@ Based on the card's current state and body content:
         Create new "fix" subtasks based on the review findings. Go to Phase 3
         for the fix subtasks only, then return to Phase 4 (Documentation),
         then Phase 5 (Review).
-      - If **>= 3**: **STOP.** Print:
+      - If **>= 3**: **STOP.** Call `report_usage` with your remaining token consumption, then print:
         ```
         AUTONOMOUS_HALTED
         card_id: <card_id>

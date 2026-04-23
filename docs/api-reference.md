@@ -295,7 +295,11 @@ Report token usage for a card. Accumulates across multiple calls.
 ```
 
 Returns 200 with the updated card. Cost is calculated automatically from
-`token_costs` in `config.yaml` if the model matches a configured key.
+`token_costs` in `config.yaml` if the model matches a configured key. If the
+model is not in the map, tokens accumulate normally but `estimated_cost_usd`
+stays $0 for that delta; the `contextmatrix_report_usage_unknown_model_total`
+counter is incremented (labeled by model) so operators can detect unconfigured
+models.
 
 ### POST /api/projects/{project}/cards/{id}/report-push
 
