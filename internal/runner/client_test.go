@@ -149,6 +149,11 @@ func TestClient_StopAll_Success(t *testing.T) {
 }
 
 func TestClient_RetryOn500(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
 	var attempts atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -335,6 +340,11 @@ func TestClient_Promote_NoRetryOn404(t *testing.T) {
 }
 
 func TestClient_RetryOn503(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
 	tests := []struct {
 		name string
 		fn   func(c *Client, ctx context.Context) error

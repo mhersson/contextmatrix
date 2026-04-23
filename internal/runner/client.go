@@ -24,6 +24,11 @@ const (
 	signatureHeader = "X-Signature-256"
 )
 
+// BackoffBase is the base duration for exponential retry backoff
+// (waits of BackoffBase, 2*BackoffBase, 4*BackoffBase between attempts).
+// Exported so tests can override it (remember to restore via t.Cleanup).
+var BackoffBase = time.Second
+
 // TriggerPayload is sent to the runner to start a task.
 type TriggerPayload struct {
 	CardID      string `json:"card_id"`
@@ -143,8 +148,8 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 		if isClientError(lastErr) {
 			return lastErr
 		}
-		// Exponential backoff: 1s, 2s, 4s
-		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		// Exponential backoff scaled from BackoffBase (default: 1s, 2s, 4s).
+		backoff := time.Duration(1<<uint(attempt)) * BackoffBase
 		ctxlog.Logger(ctx).Warn("runner webhook transient error, retrying",
 			"url", url,
 			"attempt", attempt+1,

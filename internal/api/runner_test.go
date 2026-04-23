@@ -354,6 +354,11 @@ func TestRunCard_CardNotFound(t *testing.T) {
 }
 
 func TestRunCard_WebhookFailure(t *testing.T) {
+	origBackoff := runner.BackoffBase
+	runner.BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
@@ -871,6 +876,11 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 }
 
 func TestStopAll_WebhookFailure(t *testing.T) {
+	origBackoff := runner.BackoffBase
+	runner.BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
@@ -1427,6 +1437,11 @@ func TestMessageCard_HappyPath(t *testing.T) {
 }
 
 func TestMessageCard_WebhookFailure(t *testing.T) {
+	origBackoff := runner.BackoffBase
+	runner.BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
@@ -1687,6 +1702,11 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
 	// autonomous flag — the flag flip already committed to git and is the source of truth.
 	// The runner-side handlePromote is responsible for failing closed (no stdin write).
+	origBackoff := runner.BackoffBase
+	runner.BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
