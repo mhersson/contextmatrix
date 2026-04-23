@@ -173,31 +173,49 @@ describe('CardChat — Switch to Autonomous button', () => {
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
   });
 
-  it('calls api.promoteCardToAutonomous after confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-
+  it('opens ConfirmModal when Switch to Autonomous is clicked', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     const btn = screen.getByRole('button', { name: /Switch to Autonomous/ });
+    fireEvent.click(btn);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Promote to autonomous?')).toBeInTheDocument();
+  });
+
+  it('calls api.promoteCardToAutonomous after confirming in modal', async () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
 
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(screen.getByRole('button', { name: 'Promote' }));
     });
 
     expect(mockPromoteCardToAutonomous).toHaveBeenCalledOnce();
     expect(mockPromoteCardToAutonomous).toHaveBeenCalledWith('test', 'TEST-001');
   });
 
-  it('does NOT call api.promoteCardToAutonomous when user cancels confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
-
+  it('does NOT call api.promoteCardToAutonomous when user cancels in modal', async () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    const btn = screen.getByRole('button', { name: /Switch to Autonomous/ });
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
 
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
 
     expect(mockPromoteCardToAutonomous).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does NOT call api.promoteCardToAutonomous when user presses Escape', async () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+
+    expect(mockPromoteCardToAutonomous).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
 

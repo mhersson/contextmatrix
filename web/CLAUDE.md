@@ -485,6 +485,39 @@ navigates to the parent card (same handler as subtask navigation).
   `aria-label={\`Navigate to parent \${card.parent}\`}` would improve screen
   reader accessibility.
 
+## ConfirmModal
+
+`web/src/components/ConfirmModal/ConfirmModal.tsx` — reusable themed confirmation
+dialog. **Use this instead of `window.confirm()` for any new confirmation flow.**
+
+```ts
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
+```
+
+Props:
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `open` | `boolean` | — | Controls visibility. Renders nothing when `false`. |
+| `title` | `string` | — | Dialog heading. |
+| `message` | `string \| ReactNode` | — | Body text. |
+| `confirmLabel` | `string` | `"Confirm"` | Confirm button label. |
+| `cancelLabel` | `string` | `"Cancel"` | Cancel button label. |
+| `variant` | `"default" \| "danger"` | `"default"` | `"danger"` renders the confirm button in `--red`/`--bg-red`; use for destructive actions. |
+| `onConfirm` | `() => void` | — | Called when user confirms. |
+| `onCancel` | `() => void` | — | Called on cancel, Escape, or backdrop click. |
+
+Behaviour: `fixed inset-0 z-50` overlay centered in the viewport; backdrop
+`bg-black/50`; uses `useFocusTrap` with initial focus on the Confirm button
+(Enter confirms, matching native `confirm()` ergonomics); Escape → `onCancel`;
+backdrop click → `onCancel`. CSS custom properties only — works across all
+palettes and light/dark modes without any changes.
+
+The Promote-to-Autonomous flow in `CardChat.tsx` is the reference integration.
+When migrating the remaining `window.confirm()` calls in the codebase (Delete
+button, etc.), follow that pattern: add a `confirmOpen` boolean state, open the
+modal on button click, run the action in `onConfirm`, and close in `onCancel`.
+
 ## CardPanel header actions
 
 `CardPanelHeader.tsx` renders action buttons in the card detail panel header row.
@@ -511,6 +544,8 @@ error message to the user and leaves the panel open.
 
 Styling uses CSS variables only: `--red` for the text/border and `--bg-red` for
 the background. No hardcoded hex values.
+
+> **TODO:** migrate this `window.confirm()` call to `<ConfirmModal variant="danger">` (see ConfirmModal section above).
 
 ## 404 / Not Found handling
 
