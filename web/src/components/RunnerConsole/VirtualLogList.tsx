@@ -125,10 +125,12 @@ export function VirtualLogList({
 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
+  // heightVersion increments whenever any row height is measured or updated.
   // Subscribing via useSyncExternalStore gives React a legal way to read
   // height-cache updates during render without violating the refs-during-render
-  // rule.
-  useSyncExternalStore(heightStore.subscribe, heightStore.getSnapshot);
+  // rule. The returned version value is added to the offsets useMemo dep array
+  // so cumulative offsets recompute whenever measured heights change.
+  const heightVersion = useSyncExternalStore(heightStore.subscribe, heightStore.getSnapshot);
 
   // Set up the row ResizeObserver once. Row refs register/unregister into it.
   useEffect(() => {
@@ -170,18 +172,24 @@ export function VirtualLogList({
 
   // Build cumulative offsets[] where offsets[i] is the top position of item i.
   // offsets has items.length + 1 entries; the last is the total height.
-  const offsets = useMemo(() => {
-    const out = new Array<number>(items.length + 1);
-    out[0] = 0;
-    for (let i = 0; i < items.length; i++) {
-      const h = heightStore.getHeight(i) ?? ESTIMATE_ROW_HEIGHT;
-      out[i + 1] = out[i] + h;
-    }
-    return out;
-    // heightStore's version (subscribed via useSyncExternalStore above) drives
-    // re-renders; the component re-runs this useMemo because items.length
-    // stability is re-evaluated on every render.
-  }, [items.length, heightStore]);
+  // heightVersion is a versioned signal: the memo body reads heights via
+  // heightStore.getHeight, but the ESLint exhaustive-deps rule flags heightVersion
+  // as "unused inside the callback" because it is not referenced by name inside
+  // the body. It IS necessary — without it the memo would not re-run after new
+  // measurements land and offsets would remain stale at the 24px estimates.
+  const offsets = useMemo(
+    () => {
+      const out = new Array<number>(items.length + 1);
+      out[0] = 0;
+      for (let i = 0; i < items.length; i++) {
+        const h = heightStore.getHeight(i) ?? ESTIMATE_ROW_HEIGHT;
+        out[i + 1] = out[i] + h;
+      }
+      return out;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items.length, heightStore, heightVersion],
+  );
 
   const totalHeight = offsets[items.length] ?? 0;
 
@@ -261,6 +269,7 @@ export function VirtualLogList({
   return (
     <div
       ref={viewportRef}
+      data-testid="log-viewport"
       className={className}
       onScroll={handleScroll}
       style={{ overflow: 'auto', position: 'relative' }}
@@ -269,7 +278,12 @@ export function VirtualLogList({
       aria-atomic={ariaAtomic}
       aria-label={ariaLabel}
     >
-      <div style={{ height: totalHeight, position: 'relative' }}>{visible}</div>
+      <div
+        data-total-height={totalHeight}
+        style={{ height: totalHeight, position: 'relative' }}
+      >
+        {visible}
+      </div>
     </div>
   );
 }
