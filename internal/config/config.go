@@ -29,6 +29,23 @@ type RunnerConfig struct {
 	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
 	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
 	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
+	ReconcileInterval       string `yaml:"reconcile_interval"`        // how often the backstop sweep scans for leaked containers; "0s" disables
+}
+
+// ReconcileIntervalDuration parses ReconcileInterval as a time.Duration. A
+// zero or unset value returns 0, which disables the sweep in
+// StartReconciliationSweep.
+func (r *RunnerConfig) ReconcileIntervalDuration() time.Duration {
+	if r.ReconcileInterval == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(r.ReconcileInterval)
+	if err != nil {
+		return 0
+	}
+
+	return d
 }
 
 // IssueImportingConfig holds configuration specific to GitHub issue importing.
@@ -125,6 +142,7 @@ func defaults() *Config {
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
 			OrchestratorOpusModel:   "claude-opus-4-7",
+			ReconcileInterval:       "60s",
 		},
 		LogFormat:     "text",
 		LogLevel:      "info",
@@ -206,6 +224,12 @@ func (c *Config) Validate() error {
 
 		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
 			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
+		}
+
+		if c.Runner.ReconcileInterval != "" {
+			if _, err := time.ParseDuration(c.Runner.ReconcileInterval); err != nil {
+				return fmt.Errorf("invalid runner.reconcile_interval %q: %w", c.Runner.ReconcileInterval, err)
+			}
 		}
 	}
 
@@ -435,6 +459,10 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
 		cfg.Runner.OrchestratorOpusModel = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
+		cfg.Runner.ReconcileInterval = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {

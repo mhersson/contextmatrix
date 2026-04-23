@@ -207,6 +207,13 @@ func main() {
 
 		runner.StartEndSessionSubscriber(ctx, bus, svc, runnerClient, slog.Default())
 		slog.Info("end-session subscriber started")
+
+		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
+		runner.StartReconciliationSweep(ctx, svc, runnerClient, reconcileInterval, slog.Default())
+
+		if reconcileInterval > 0 {
+			slog.Info("runner reconciliation sweep started", "interval", reconcileInterval)
+		}
 	}
 
 	// Create session log manager and start its idle sweeper.

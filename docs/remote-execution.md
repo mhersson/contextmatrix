@@ -469,6 +469,37 @@ ContextMatrix retries failed webhooks with exponential backoff:
 **On kill:** Container is destroyed immediately. All uncommitted work is
 discarded. No partial saves.
 
+### Terminal-state cleanup (HITL containers)
+
+A HITL container's `claude` process does not exit when its stdin is closed —
+in stream-json mode it treats EOF as "no more user input for now" and keeps
+running. A card that reaches a terminal state (`done` or `not_planned`) and
+is released must therefore be killed by ContextMatrix explicitly, otherwise
+the container would leak until the runner's `container_timeout` (default 2h).
+
+Two independent mechanisms guarantee this cleanup:
+
+1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches
+   the event bus for `card.released` and `card.state_changed`. When it sees a
+   card with `state ∈ {done, not_planned}` + `assigned_agent == ""` +
+   `runner_status ∈ {queued, running}`, it fires `/end-session` followed by
+   `/kill` against the runner. Typical latency: tens of milliseconds.
+2. **Reconcile sweep (authoritative backstop).**
+   `internal/runner/reconcile.go` runs every `runner.reconcile_interval`
+   (default **60s**) and scans every project for cards matching the same
+   predicate. The sweep exists because `events.Bus` drops events when a
+   subscriber's 64-slot buffer is full and events published while CM is
+   restarting are never delivered — either case silently leaks the event
+   subscriber's kill. The sweep catches these within one interval.
+
+Both paths call the same `/end-session` → `/kill` pair and the same log line
+`"end-session + kill sent"`; grep for `source=subscriber` vs `source=sweep` in
+CM logs to tell which path handled a given kill. A `source=sweep` hit is proof
+the event path missed one — rare, but recorded.
+
+Setting `reconcile_interval` to `"0s"` disables the sweep. Not recommended
+outside of tests.
+
 ## Worker Safety
 
 ### Idle-Output Watchdog

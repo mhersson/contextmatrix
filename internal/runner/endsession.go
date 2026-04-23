@@ -94,10 +94,19 @@ func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGet
 	}()
 }
 
+// sourceSubscriber / sourceSweep label which caller observed the card, so
+// operators can tell from a single log line whether the fast path (event
+// subscriber) or the backstop (reconcile sweep) cleaned up the container.
+const (
+	sourceSubscriber = "subscriber"
+	sourceSweep      = "sweep"
+)
+
 func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessionClient, logger *slog.Logger, project, cardID string) {
 	card, err := svc.GetCard(ctx, project, cardID)
 	if err != nil {
 		logger.Warn("end-session: could not load card",
+			"source", sourceSubscriber,
 			"project", project, "card_id", cardID, "error", err)
 
 		return
@@ -107,6 +116,22 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 		return
 	}
 
+	endSessionAndKill(ctx, client, logger, project, cardID, card.State, card.RunnerStatus, sourceSubscriber)
+}
+
+// endSessionAndKill runs the /end-session → /kill sequence against the runner
+// for a card the caller has already verified via shouldEndSession. Both the
+// event subscriber and the reconcile sweep call this so the runner sees a
+// single consistent termination protocol regardless of which path observed
+// the terminal state first.
+//
+// state / runnerStatus are carried through to the terminal log line so
+// operators can see which card disposition triggered the kill without having
+// to correlate with a separate GetCard.
+//
+// source labels the caller ("subscriber" or "sweep") in every log line so a
+// leaked container can be traced back to the path that handled it.
+func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slog.Logger, project, cardID, state, runnerStatus, source string) {
 	// Phase 1: try graceful stdin close. This is a no-op for autonomous
 	// (non-interactive) containers, where stdin was never attached — the
 	// webhook returns 409 and we fall through to the kill step below. For
@@ -117,6 +142,7 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 	endSessionErr := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project})
 	if endSessionErr != nil && !isExpectedEndSessionErr(endSessionErr) {
 		logger.Warn("end-session webhook failed",
+			"source", source,
 			"project", project, "card_id", cardID, "error", endSessionErr)
 	}
 
@@ -126,14 +152,16 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 	// (e.g. claude did exit on EOF, or reportCompleted already cleaned up).
 	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
 		logger.Warn("kill webhook failed after end-session",
+			"source", source,
 			"project", project, "card_id", cardID, "error", err)
 
 		return
 	}
 
 	logger.Info("end-session + kill sent",
+		"source", source,
 		"project", project, "card_id", cardID,
-		"state", card.State, "runner_status", card.RunnerStatus,
+		"state", state, "runner_status", runnerStatus,
 		"end_session_err", endSessionErr)
 }
 

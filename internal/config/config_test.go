@@ -1790,6 +1790,63 @@ func TestDefaults_OrchestratorModels(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", cfg.Runner.OrchestratorOpusModel)
 }
 
+func TestDefaults_ReconcileInterval(t *testing.T) {
+	cfg := defaults()
+	assert.Equal(t, "60s", cfg.Runner.ReconcileInterval)
+	assert.Equal(t, 60*time.Second, cfg.Runner.ReconcileIntervalDuration())
+}
+
+func TestReconcileIntervalDuration_EmptyReturnsZero(t *testing.T) {
+	r := &RunnerConfig{ReconcileInterval: ""}
+	assert.Equal(t, time.Duration(0), r.ReconcileIntervalDuration())
+}
+
+func TestReconcileIntervalDuration_InvalidReturnsZero(t *testing.T) {
+	r := &RunnerConfig{ReconcileInterval: "not-a-duration"}
+	assert.Equal(t, time.Duration(0), r.ReconcileIntervalDuration())
+}
+
+func TestLoad_ReconcileInterval_EnvOverridesYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+runner:
+  reconcile_interval: "120s"
+`)
+
+	t.Setenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL", "30s")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "30s", cfg.Runner.ReconcileInterval)
+	assert.Equal(t, 30*time.Second, cfg.Runner.ReconcileIntervalDuration())
+}
+
+func TestLoad_ReconcileInterval_InvalidRejectedWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+runner:
+  enabled: true
+  url: "http://localhost:9090"
+  api_key: "0123456789012345678901234567890123"
+  reconcile_interval: "not-a-duration"
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner.reconcile_interval")
+}
+
 // ---------- LogFormat / LogLevel / AdminPort config tests ----------
 
 func TestDefaults_LogFormatLevelAdminPort(t *testing.T) {

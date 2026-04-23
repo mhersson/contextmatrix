@@ -206,6 +206,23 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL
   orchestrator_opus_model: "claude-opus-4-7"
 
+  # How often the backstop sweep scans every project for cards that are in a
+  # terminal state (done / not_planned), released (no assigned agent), and
+  # still have an active runner_status ({queued, running}). For each match the
+  # sweep fires /end-session + /kill against the runner — the same protocol
+  # the event subscriber uses on CardReleased / CardStateChanged.
+  #
+  # The sweep exists because events.Bus drops events when any subscriber's
+  # buffer fills and events published during a CM restart are never delivered;
+  # either case leaves a container alive until the runner's 2h container
+  # timeout. This sweep guarantees cleanup within one interval.
+  #
+  # Set to "0s" (or empty) to disable the sweep and rely solely on the event
+  # subscriber — not recommended outside of tests.
+  # Default: 60s
+  # Env: CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL
+  reconcile_interval: "60s"
+
 # GitHub integration configuration.
 # A fine-grained PAT (token) is used for reading branches, importing issues,
 # and — when boards.git_auth_mode is "pat" — authenticating the boards repo.
