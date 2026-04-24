@@ -63,17 +63,37 @@ a separate binary that:
 
 All webhooks are signed using a shared secret configured in both ContextMatrix
 (`runner.api_key`) and the runner (`api_key`). The secret is never transmitted
-over the wire.
+over the wire. The scheme binds the signature to the HTTP method, request
+path, timestamp, and body — so a valid signature for one endpoint cannot be
+replayed against a different endpoint with an identical body (e.g. `/kill`
+and `/end-session`, which both carry `{card_id, project}`). Applies uniformly
+to every signed request: POST webhooks, GET `/logs` / `/containers` /
+`/autonomous` / `/metrics`, and the runner's status callbacks to CM.
+
+**Signed content:**
+
+```
+<METHOD>\n<PATH>\n<TIMESTAMP>.<BODY>
+```
+
+- `METHOD`: uppercase HTTP method (`POST`, `GET`)
+- `PATH`: request path component — no scheme/host/query (e.g. `/kill`,
+  `/api/runner/status`). Sender and receiver MUST agree: any intermediate
+  proxy that rewrites paths will cause HMAC auth to fail.
+- `TIMESTAMP`: Unix seconds, decimal string
+- `BODY`: JSON payload bytes, or empty for GET
 
 **Signing process:**
 
-1. Marshal the JSON payload body
-2. Compute `HMAC-SHA256(shared_secret, body)`
-3. Hex-encode the result
-4. Set header: `X-Signature-256: sha256=<hex>`
+1. Marshal the JSON payload body (empty for GET).
+2. Compute `HMAC-SHA256(shared_secret, METHOD + "\n" + PATH + "\n" + TIMESTAMP + "." + BODY)`.
+3. Hex-encode the result.
+4. Set headers: `X-Signature-256: sha256=<hex>` and `X-Webhook-Timestamp: <ts>`.
 
-**Verification:** The receiver computes the expected HMAC and compares using
-constant-time comparison.
+**Verification:** The receiver reads method + path from the incoming HTTP
+request, computes the expected HMAC, and compares using constant-time
+comparison. It also rejects payloads whose timestamp falls outside the
+allowed clock-skew window (5 minutes default).
 
 ### ContextMatrix → Runner Webhooks
 
@@ -255,8 +275,8 @@ The runner performs a two-step operation in strict order:
    `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
    that the response body `{"autonomous": bool}` is `true`. CM already flipped
    the flag before sending this webhook, so the GET is a read-only
-   confirmation. The request is HMAC-SHA256-signed over `timestamp + "." + ""`
-   (empty body) using `runner.api_key`. If the call fails (network error,
+   confirmation. The request is HMAC-SHA256-signed under the standard method/path/timestamp
+   scheme (empty body) using `runner.api_key`. If the call fails (network error,
    non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
    **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
@@ -425,8 +445,9 @@ Returns:
 {"autonomous": true}
 ```
 
-**Authentication:** HMAC-SHA256 signature over `timestamp + "." + ""` (empty
-body) with the shared runner secret. Headers:
+**Authentication:** HMAC-SHA256 signature under the standard
+method/path/timestamp scheme (empty body) with the shared runner secret.
+Headers:
 
 - `X-Signature-256: sha256=<hex>`
 - `X-Webhook-Timestamp: <unix-seconds>`

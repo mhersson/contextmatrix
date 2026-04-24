@@ -59,7 +59,7 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 		assert.NotEmpty(t, tsHeader, "timestamp header should be present")
 
 		body, _ := io.ReadAll(r.Body)
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, sig, tsHeader, body, DefaultMaxClockSkew),
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.Path, sig, tsHeader, body, DefaultMaxClockSkew),
 			"HMAC signature with timestamp should be valid")
 
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
@@ -129,6 +129,35 @@ func TestClient_Kill_Success(t *testing.T) {
 	err := c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 	assert.Equal(t, "TEST-001", received.CardID)
+}
+
+// TestClient_EndSessionAndKill_DistinctSignatures is the regression guard for
+// the replay-cache collision bug: /end-session and /kill carry identical JSON
+// bodies, so when they fire back-to-back in the same Unix second their HMAC
+// signatures MUST differ — otherwise the runner's replay cache (keyed on
+// signature) rejects the second call with 409 duplicate and the container
+// leaks. Binding method + path into the signature is what guarantees the
+// divergence.
+func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
+	const apiKey = "shared-secret"
+
+	var capturedSigs []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedSigs = append(capturedSigs, r.Header.Get(signatureHeader))
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, apiKey)
+	ctx := context.Background()
+
+	require.NoError(t, c.EndSession(ctx, EndSessionPayload{CardID: "TEST-001", Project: "p"}))
+	require.NoError(t, c.Kill(ctx, KillPayload{CardID: "TEST-001", Project: "p"}))
+
+	require.Len(t, capturedSigs, 2)
+	assert.NotEqual(t, capturedSigs[0], capturedSigs[1],
+		"end-session and kill must produce distinct signatures even with identical bodies in the same second")
 }
 
 func TestClient_StopAll_Success(t *testing.T) {
@@ -451,7 +480,7 @@ func TestClient_ListContainers_Success(t *testing.T) {
 		assert.Empty(t, body, "GET body must be empty")
 
 		sig := strings.TrimPrefix(receivedSig, "sha256=")
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, sig, receivedTS, nil, DefaultMaxClockSkew),
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.Path, sig, receivedTS, nil, DefaultMaxClockSkew),
 			"HMAC over empty body + timestamp must verify")
 
 		payload := map[string]any{

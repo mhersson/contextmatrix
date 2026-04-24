@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -214,19 +215,42 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	return out, nil
 }
 
-// send marshals payload, signs it, and POSTs to url with retries.
-func (c *Client) send(ctx context.Context, url string, payload any) error {
+// requestPath extracts the path component of an absolute URL for HMAC signing.
+// The path is what the receiver binds the signature to (via r.URL.Path), so
+// sender and receiver must agree — any path-rewriting proxy between them
+// would break auth. An empty path is normalized to "/" to match how net/http
+// reports the default root path.
+func requestPath(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse url %q: %w", rawURL, err)
+	}
+
+	if u.Path == "" {
+		return "/", nil
+	}
+
+	return u.Path, nil
+}
+
+// send marshals payload, signs it, and POSTs to rawURL with retries.
+func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
+	path, err := requestPath(rawURL)
+	if err != nil {
+		return err
+	}
+
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, body, ts)
+	signature := signPayloadWithTimestamp(c.apiKey, http.MethodPost, path, body, ts)
 
 	var lastErr error
 	for attempt := range maxRetries {
-		lastErr = c.doRequest(ctx, url, body, signature, ts)
+		lastErr = c.doRequest(ctx, rawURL, body, signature, ts)
 		if lastErr == nil {
 			return nil
 		}
@@ -237,7 +261,7 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 		// Exponential backoff scaled from BackoffBase (default: 1s, 2s, 4s).
 		backoff := time.Duration(1<<uint(attempt)) * BackoffBase
 		ctxlog.Logger(ctx).Warn("runner webhook transient error, retrying",
-			"url", url,
+			"url", rawURL,
 			"attempt", attempt+1,
 			"backoff", backoff,
 			"error", lastErr,
@@ -253,17 +277,22 @@ func (c *Client) send(ctx context.Context, url string, payload any) error {
 	return fmt.Errorf("runner webhook failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-// sendGet signs and performs a GET against url, returning the raw response
+// sendGet signs and performs a GET against rawURL, returning the raw response
 // body. GET requests sign an empty body under the same HMAC scheme the
 // runner accepts on POST endpoints, so the existing replay/skew protections
 // apply uniformly. Errors are not retried here: the reconcile sweep calls
 // this on a 60s tick and a transient failure is better surfaced than
 // silently retried (the next tick retries anyway).
-func (c *Client) sendGet(ctx context.Context, url string) ([]byte, error) {
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, nil, ts)
+func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
+	path, err := requestPath(rawURL)
+	if err != nil {
+		return nil, err
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	signature := signPayloadWithTimestamp(c.apiKey, http.MethodGet, path, nil, ts)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create GET request: %w", err)
 	}

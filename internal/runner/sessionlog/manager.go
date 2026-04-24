@@ -787,7 +787,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey)
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1031,7 +1031,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey)
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1172,11 +1172,16 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 }
 
 // signSSERequest computes HMAC-SHA256 auth headers for a GET SSE request.
-// It signs "timestamp.body" where body is empty for GET requests, matching the
-// pattern used by runner.SignRequestHeaders without creating an import cycle.
-func signSSERequest(apiKey string) (sigHeader, tsHeader string) {
+// The signed content is "GET\n<path>\n<ts>." with an empty body, matching the
+// method/path-bound pattern used by runner.SignRequestHeaders. Inlined here
+// rather than importing the runner package to avoid an import cycle.
+func signSSERequest(apiKey, path string) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(apiKey))
+	mac.Write([]byte(http.MethodGet))
+	mac.Write([]byte("\n"))
+	mac.Write([]byte(path))
+	mac.Write([]byte("\n"))
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))
 	// Empty body for GET.

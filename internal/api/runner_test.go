@@ -26,14 +26,18 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// signHMACAt computes an HMAC-SHA256 signature over `ts + "." + body` — the
-// same format as runner.SignRequestHeaders, but lets the test specify the
-// timestamp so we can exercise the clock-skew rejection path without adding
-// a test-only helper to the production runner package.
-func signHMACAt(t *testing.T, key string, body []byte, ts string) string {
+// signHMACAt computes the same HMAC-SHA256 signature runner.SignRequestHeaders
+// produces, but lets the test specify the timestamp so we can exercise the
+// clock-skew rejection path without adding a test-only helper to the
+// production runner package.
+func signHMACAt(t *testing.T, key, method, path string, body []byte, ts string) string {
 	t.Helper()
 
 	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(method))
+	mac.Write([]byte("\n"))
+	mac.Write([]byte(path))
+	mac.Write([]byte("\n"))
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))
 	mac.Write(body)
@@ -941,7 +945,7 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","runner_status":"running","message":"container started"}`, card.ID)
 	bodyBytes := []byte(body)
 
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, bodyBytes)
+	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -1098,7 +1102,7 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 			body := fmt.Sprintf(`{"card_id":"TEST-001","project":"test-project","runner_status":"%s"}`, badStatus)
 			bodyBytes := []byte(body)
 
-			sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, bodyBytes)
+			sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 			req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 			req.Header.Set("Content-Type", "application/json")
@@ -1168,7 +1172,7 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	bodyBytes := []byte("this is not json")
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, bodyBytes)
+	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -2184,9 +2188,10 @@ func TestGetCardAutonomous_HMAC_Valid(t *testing.T) {
 			server, cardID, cleanup := setupAutonomousEndpoint(t, autonomous)
 			defer cleanup()
 
-			sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+			path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
+			sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
-			req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+			req, _ := http.NewRequest("GET", server.URL+path, nil)
 			req.Header.Set("X-Signature-256", sig)
 			req.Header.Set("X-Webhook-Timestamp", ts)
 
@@ -2230,9 +2235,10 @@ func TestGetCardAutonomous_HMAC_MissingTimestamp(t *testing.T) {
 	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
 	defer cleanup()
 
-	sig, _ := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+	path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
+	sig, _ := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -2251,9 +2257,10 @@ func TestGetCardAutonomous_HMAC_ExpiredTimestamp(t *testing.T) {
 	staleTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 	// Compute the signature over the stale timestamp so the signature
 	// itself is valid — only the clock-skew check should fail.
-	staleSig := signHMACAt(t, testRunnerAPIKey, nil, staleTs)
+	path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
+	staleSig := signHMACAt(t, testRunnerAPIKey, http.MethodGet, path, nil, staleTs)
 
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+cardID+"/autonomous", nil)
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", staleSig)
 	req.Header.Set("X-Webhook-Timestamp", staleTs)
 
@@ -2300,9 +2307,10 @@ func TestGetCardAutonomous_CardNotFound(t *testing.T) {
 	server, _, cleanup := setupAutonomousEndpoint(t, true)
 	defer cleanup()
 
-	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+	path := "/api/v1/cards/test-project/TEST-999/autonomous"
+	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/TEST-999/autonomous", nil)
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
 	req.Header.Set("X-Webhook-Timestamp", ts)
 
@@ -2329,9 +2337,10 @@ func TestGetCardAutonomous_RunnerDisabled(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, nil)
+	path := "/api/v1/cards/test-project/" + card.ID + "/autonomous"
+	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/cards/test-project/"+card.ID+"/autonomous", nil)
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
 	req.Header.Set("X-Webhook-Timestamp", ts)
 

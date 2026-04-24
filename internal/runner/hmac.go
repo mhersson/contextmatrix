@@ -19,19 +19,22 @@ const (
 	timestampHeader = "X-Webhook-Timestamp"
 )
 
-// signPayload computes an HMAC-SHA256 signature over body using key.
-// Returns the hex-encoded signature string.
-func signPayload(key string, body []byte) string {
+// signPayloadWithTimestamp computes an HMAC-SHA256 signature bound to the
+// HTTP method, request path, timestamp, and body. The signed content is:
+//
+//	method + "\n" + path + "\n" + timestamp + "." + body
+//
+// Including method and path prevents a valid signature for one endpoint from
+// being replayed against another endpoint with an identical body — critical
+// because /kill, /end-session, and /promote all carry the same
+// {card_id, project} payload shape and would otherwise produce colliding
+// signatures when issued back-to-back in the same Unix second.
+func signPayloadWithTimestamp(key, method, path string, body []byte, ts string) string {
 	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write(body)
-
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// signPayloadWithTimestamp computes an HMAC-SHA256 signature over "timestamp.body"
-// to bind the timestamp to the payload and prevent replay attacks.
-func signPayloadWithTimestamp(key string, body []byte, ts string) string {
-	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(method))
+	mac.Write([]byte("\n"))
+	mac.Write([]byte(path))
+	mac.Write([]byte("\n"))
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))
 	mac.Write(body)
@@ -39,27 +42,21 @@ func signPayloadWithTimestamp(key string, body []byte, ts string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// SignRequestHeaders computes HMAC-SHA256 auth headers for an outbound request.
-// It signs "timestamp.body" and returns the X-Signature-256 and X-Webhook-Timestamp
-// header values to be set on the request. Use an empty body for GET requests.
-func SignRequestHeaders(key string, body []byte) (sigHeader, tsHeader string) {
+// SignRequestHeaders computes HMAC-SHA256 auth headers for an outbound request
+// to the given method + path. It signs the method/path/timestamp/body tuple
+// and returns the X-Signature-256 and X-Webhook-Timestamp header values to be
+// set on the request. Use an empty body for GET requests.
+func SignRequestHeaders(key, method, path string, body []byte) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := signPayloadWithTimestamp(key, body, ts)
+	sig := signPayloadWithTimestamp(key, method, path, body, ts)
 
 	return "sha256=" + sig, ts
 }
 
-// VerifySignature checks that signature matches the HMAC-SHA256 of body using key.
-// The signature should be hex-encoded (as produced by signPayload).
-func VerifySignature(key, signature string, body []byte) bool {
-	expected := signPayload(key, body)
-
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
-
-// VerifySignatureWithTimestamp checks the HMAC-SHA256 signature and rejects
+// VerifySignatureWithTimestamp checks the HMAC-SHA256 signature against the
+// expected value computed over method/path/timestamp/body, and rejects
 // payloads with timestamps outside the allowed clock-skew window.
-func VerifySignatureWithTimestamp(key, signature, timestamp string, body []byte, maxSkew time.Duration) bool {
+func VerifySignatureWithTimestamp(key, method, path, signature, timestamp string, body []byte, maxSkew time.Duration) bool {
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
 		return false
@@ -70,7 +67,7 @@ func VerifySignatureWithTimestamp(key, signature, timestamp string, body []byte,
 		return false
 	}
 
-	expected := signPayloadWithTimestamp(key, body, timestamp)
+	expected := signPayloadWithTimestamp(key, method, path, body, timestamp)
 
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
