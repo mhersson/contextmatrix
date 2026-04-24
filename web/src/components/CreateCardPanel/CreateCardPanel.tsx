@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { CardPanelBody, type RailTabKey } from '../CardPanel/CardPanelBody';
 import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
@@ -58,7 +59,8 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [createPR, setCreatePR] = useState(false);
   const [baseBranch, setBaseBranch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<RailTabKey>('automation');
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  const [activeTab, setActiveTab] = useState<RailTabKey>(isMobile ? 'card' : 'automation');
   const [railExpanded, setRailExpanded] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState<{ type: string; body: string } | null>(null);
 

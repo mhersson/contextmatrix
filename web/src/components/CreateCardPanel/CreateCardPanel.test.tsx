@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { CreateCardPanel } from './CreateCardPanel';
 import type { Card, ProjectConfig } from '../../types';
@@ -241,6 +241,59 @@ describe('CreateCardPanel — type templates', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Load template' }));
     expect(editor.value).toBe('## Task template\n');
+  });
+});
+
+describe('CreateCardPanel — mobile layout (≤ 768px)', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 768px)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('collapses to a single column and drops the left column from the DOM', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    expect(screen.getByTestId('body-bifold')).toBeInTheDocument();
+    expect(screen.queryByTestId('body-left')).not.toBeInTheDocument();
+    const grid = screen.getByTestId('body-bifold');
+    expect(grid.style.gridTemplateColumns).toBe('1fr');
+  });
+
+  it('prepends a "Card" tab and selects it by default', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    const cardTab = screen.getByRole('tab', { name: 'Card' });
+    expect(cardTab).toBeInTheDocument();
+    expect(cardTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Automation' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: 'Info' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Danger/ })).not.toBeInTheDocument();
+  });
+
+  it('hides the rail expand toggle', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: 'Expand rail' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse rail' })).not.toBeInTheDocument();
   });
 });
 

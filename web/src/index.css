@@ -287,6 +287,13 @@
     min-width: unset;
     max-width: 100%;
   }
+
+  /* Bifold collapses to a single rail-only column (CardPanelBody injects a
+     "Card" tab with the left-column content). The rail no longer needs a
+     darker tint since there's no left column to contrast against. */
+  .card-panel-bifold [data-testid="body-rail"] {
+    background-color: var(--bg0);
+  }
 }
 
 * {

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
-export type RailTabKey = 'chat' | 'automation' | 'info' | 'danger';
+export type RailTabKey = 'card' | 'chat' | 'automation' | 'info' | 'danger';
 
 export interface RailTab {
   key: RailTabKey;
@@ -26,6 +27,12 @@ interface CardPanelBodyProps {
  *
  * The rail strip sits above the tab content and contains the tab buttons plus
  * a permanent Expand/Collapse toggle on the right.
+ *
+ * On narrow viewports (≤ 768px) the two columns collapse into a single
+ * rail-only column. The left-column content is injected as the first tab
+ * ("Card") so Labels + Description remain reachable without the horizontal
+ * split. The rail-expand toggle is hidden in this mode (meaningless with
+ * one column).
  */
 export function CardPanelBody({
   left,
@@ -35,16 +42,35 @@ export function CardPanelBody({
   railExpanded,
   onToggleRail,
 }: CardPanelBodyProps) {
-  const active = tabs.find((t) => t.key === activeTab) ?? tabs[0];
+  const isMobile = useMediaQuery('(max-width: 768px)');
+
+  const renderedTabs: RailTab[] = isMobile
+    ? [
+        {
+          key: 'card',
+          label: 'Card',
+          content: (
+            <div className="overflow-y-auto overflow-x-hidden p-5 space-y-5 min-w-0 flex-1">
+              {left}
+            </div>
+          ),
+        },
+        ...tabs,
+      ]
+    : tabs;
+
+  const active = renderedTabs.find((t) => t.key === activeTab) ?? renderedTabs[0];
 
   // The panel itself is a fixed width (see `.card-panel-bifold` CSS).
   // `Expand rail` reshapes the internal split: the rail grows from the
   // collapsed width to the expanded width and the left column shrinks by
   // the same amount. Widths come from CSS custom properties defined in
   // `index.css` so themes/breakpoints can override without touching JSX.
-  const gridTemplate = railExpanded
-    ? '1fr var(--rail-expanded-width, 600px)'
-    : '1fr var(--rail-collapsed-width, 340px)';
+  const gridTemplate = isMobile
+    ? '1fr'
+    : railExpanded
+      ? '1fr var(--rail-expanded-width, 600px)'
+      : '1fr var(--rail-collapsed-width, 340px)';
 
   return (
     <div
@@ -52,13 +78,14 @@ export function CardPanelBody({
       data-testid="body-bifold"
       style={{ gridTemplateColumns: gridTemplate }}
     >
-      {/* Left column */}
-      <div
-        className="overflow-y-auto overflow-x-hidden p-5 space-y-5 border-r border-[var(--bg3)] min-w-0"
-        data-testid="body-left"
-      >
-        {left}
-      </div>
+      {!isMobile && (
+        <div
+          className="overflow-y-auto overflow-x-hidden p-5 space-y-5 border-r border-[var(--bg3)] min-w-0"
+          data-testid="body-left"
+        >
+          {left}
+        </div>
+      )}
 
       {/* Right rail */}
       <div className="flex flex-col min-w-0 min-h-0" data-testid="body-rail">
@@ -68,7 +95,7 @@ export function CardPanelBody({
           role="tablist"
           aria-label="Card detail tabs"
         >
-          {tabs.map((t) => {
+          {renderedTabs.map((t) => {
             const isActive = t.key === active.key;
             const isDanger = t.key === 'danger';
             return (
@@ -88,16 +115,18 @@ export function CardPanelBody({
             );
           })}
 
-          <button
-            type="button"
-            onClick={onToggleRail}
-            className="bf-rail-expand"
-            aria-label={railExpanded ? 'Collapse rail' : 'Expand rail'}
-            aria-pressed={railExpanded}
-            title={railExpanded ? 'Collapse rail' : 'Expand rail'}
-          >
-            <span className="bf-rail-expand-arrow">{railExpanded ? '›‹' : '‹›'}</span>
-          </button>
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={onToggleRail}
+              className="bf-rail-expand"
+              aria-label={railExpanded ? 'Collapse rail' : 'Expand rail'}
+              aria-pressed={railExpanded}
+              title={railExpanded ? 'Collapse rail' : 'Expand rail'}
+            >
+              <span className="bf-rail-expand-arrow">{railExpanded ? '›‹' : '‹›'}</span>
+            </button>
+          )}
         </div>
 
         {/* Active tab content */}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { CardPanel } from './CardPanel';
 import type { Card, ProjectConfig } from '../../types';
@@ -454,6 +454,70 @@ describe('CardPanel — description editability tracks runnerAttached', () => {
     expect(screen.getByRole('button', { name: 'Open in editor' })).toBeInTheDocument();
     rerender(<CardPanel {...makeProps({ card: { ...baseCard, id: 'TEST-002', state: 'not_planned' } })} />);
     expect(screen.getByRole('button', { name: 'Open in editor' })).toBeInTheDocument();
+  });
+});
+
+describe('CardPanel — mobile layout (≤ 768px)', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 768px)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('collapses to a single column and drops the left column from the DOM', () => {
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.getByTestId('body-bifold')).toBeInTheDocument();
+    expect(screen.queryByTestId('body-left')).not.toBeInTheDocument();
+    const grid = screen.getByTestId('body-bifold');
+    expect(grid.style.gridTemplateColumns).toBe('1fr');
+  });
+
+  it('prepends a "Card" tab and selects it by default on non-HITL cards', () => {
+    render(<CardPanel {...makeProps()} />);
+    const cardTab = screen.getByRole('tab', { name: 'Card' });
+    expect(cardTab).toBeInTheDocument();
+    expect(cardTab).toHaveAttribute('aria-selected', 'true');
+    // Automation is no longer the default on mobile.
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('keeps Chat as the default when an HITL session is running', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+        })}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Card' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('hides the rail expand toggle', () => {
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: 'Expand rail' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse rail' })).not.toBeInTheDocument();
   });
 });
 

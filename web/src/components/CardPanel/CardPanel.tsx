@@ -8,6 +8,7 @@ import { buildCardPatch, isCardDirty, isRunnerAttached, primaryAction } from './
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 interface CardPanelProps {
@@ -62,8 +63,9 @@ export function CardPanel(props: CardPanelProps) {
 
   useFocusTrap(panelRef, true);
 
+  const isMobile = useMediaQuery('(max-width: 768px)');
   const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
-  const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
+  const defaultTab: RailTabKey = isHITLRunning ? 'chat' : isMobile ? 'card' : 'automation';
   const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
 
   // Sync derived state with prop changes. Reset the rail/tab/badges only on
@@ -280,8 +282,17 @@ export function CardPanel(props: CardPanelProps) {
   });
 
   // If the active tab disappears (e.g. HITL ended, chat tab removed), fall
-  // back to the resolved default.
-  const effectiveTab = tabs.some((t) => t.key === activeTab) ? activeTab : resolvedDefaultTab;
+  // back to the resolved default. On mobile, `CardPanelBody` prepends a
+  // synthetic `'card'` tab, so treat it as valid here; the body does its own
+  // fallback. Without this check, a mobile default of `'card'` would be
+  // considered "missing" from the desktop-built tab set and reset to
+  // `'automation'`.
+  const mobileAwareDefault: RailTabKey =
+    isMobile && !isHITLRunning ? 'card' : resolvedDefaultTab;
+  const effectiveTab =
+    activeTab === 'card' || tabs.some((t) => t.key === activeTab)
+      ? activeTab
+      : mobileAwareDefault;
 
   return (
     <>
