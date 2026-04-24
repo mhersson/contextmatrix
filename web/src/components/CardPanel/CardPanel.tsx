@@ -35,10 +35,10 @@ interface CardPanelProps {
  * State layering:
  *   - `editedCard` holds in-flight edits; `isCardDirty` drives the Save
  *     button and the save-before-run ordering.
- *   - `railExpanded` persists across tab switches but resets on card-state
- *     change (so a fresh card view starts un-expanded).
- *   - `activeTab` is persisted similarly; resets when the default tab
- *     changes (e.g. entering HITL).
+ *   - `railExpanded` persists across tab switches, card-state changes, and
+ *     SSE-driven card refreshes; resets only on card identity change.
+ *   - `activeTab` persists similarly; resets on card identity change or when
+ *     the default tab changes (e.g. entering/leaving HITL).
  *   - `forcedFeatureBranch` / `forcedCreatePR` capture the pre-Run values of
  *     those two flags so the Automation tab can render the `⚡ forced on
  *     run` badge only when the current Run click actually flipped them.
@@ -66,30 +66,27 @@ export function CardPanel(props: CardPanelProps) {
   const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
   const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
 
-  // Sync derived state with prop changes. Three tracked inputs:
-  //   1. `card` identity      → resets editedCard and all view state
-  //   2. `card.state`         → resets view state (tab, rail, forced flags)
-  //   3. `isHITLRunning` flip → resets only the default tab
-  // Collapsed into a single `sync` marker (instead of three separate useState
-  // guards) so the comparators live in one place and the branches stay
-  // mutually exclusive.
-  const [sync, setSync] = useState({ card, state: card.state, isHITLRunning });
-  if (sync.card !== card) {
-    setSync({ card, state: card.state, isHITLRunning });
+  // Sync derived state with prop changes. Reset the rail/tab/badges only on
+  // card identity change (user selected a different card) — SSE-driven
+  // refreshes of the same card (state transitions, log additions, etc.) must
+  // not collapse the rail mid-session. The edit buffer is refreshed whenever
+  // the card object reference changes so unedited fields reflect server-side
+  // updates; activeTab resets only when `isHITLRunning` flips, since that is
+  // what changes the default tab set.
+  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning });
+  if (sync.cardId !== card.id) {
+    setSync({ cardId: card.id, card, isHITLRunning });
     setEditedCard(card);
     setRailExpanded(false);
     setForcedFeatureBranch(false);
     setForcedCreatePR(false);
     setActiveTab(defaultTab);
-  } else if (sync.state !== card.state) {
-    setSync({ card, state: card.state, isHITLRunning });
-    setRailExpanded(false);
-    setForcedFeatureBranch(false);
-    setForcedCreatePR(false);
-    setActiveTab(defaultTab);
-  } else if (sync.isHITLRunning !== isHITLRunning) {
-    setSync({ card, state: card.state, isHITLRunning });
-    setActiveTab(defaultTab);
+  } else if (sync.card !== card || sync.isHITLRunning !== isHITLRunning) {
+    const hitlFlipped = sync.isHITLRunning !== isHITLRunning;
+    const cardRefChanged = sync.card !== card;
+    setSync({ cardId: card.id, card, isHITLRunning });
+    if (cardRefChanged) setEditedCard(card);
+    if (hitlFlipped) setActiveTab(defaultTab);
   }
 
   const { branches, loading: branchesLoading, error: branchesError } =

@@ -214,21 +214,24 @@ per-section chevron pattern; there is no `descriptionCollapsed` /
 const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
 ```
 
-On transitions of the sync inputs, `activeTab` is reset to this default:
+On transitions of the sync inputs, UI state is reset as follows:
 
-- **Card identity change** (`sync.card !== card`): full reset — `editedCard`,
-  `railExpanded`, forced-flag badges, and `activeTab → defaultTab`.
-- **State change on the same card** (`sync.state !== card.state`): resets
-  `railExpanded`, forced flags, and `activeTab → defaultTab`.
-- **`isHITLRunning` flip only** (e.g. HITL→Auto promotion mid-run): resets
-  `activeTab → defaultTab` only — `railExpanded` survives so a user who
-  expanded the rail during the session stays expanded when the promotion
-  flips the tab set.
+- **Card identity change** (`sync.cardId !== card.id`): full reset —
+  `editedCard`, `railExpanded`, forced-flag badges, and
+  `activeTab → defaultTab`. This is the only path that collapses the rail.
+- **Same card, new object reference from SSE** (`sync.card !== card`, same
+  id): `editedCard` refreshes so unedited fields reflect server-side
+  updates. `railExpanded`, forced flags, and `activeTab` are preserved so
+  agent-driven state transitions and log updates do not disrupt a user
+  mid-HITL-session.
+- **`isHITLRunning` flip** (e.g. HITL→Auto promotion mid-run, or a run
+  ending): resets `activeTab → defaultTab` since the tab set changes.
+  `railExpanded` still survives.
 
-The three transitions are handled in a single in-render `useState` marker
-block (`sync`) in `CardPanel.tsx` — not a `useEffect` — so the reset is
-synchronous with the prop change and avoids the double-render that a
-reactive effect would cause.
+The transitions are handled in a single in-render `useState` marker block
+(`sync`, keyed by `cardId`) in `CardPanel.tsx` — not a `useEffect` — so the
+reset is synchronous with the prop change and avoids the double-render that
+a reactive effect would cause.
 
 Mounting into an already-HITL card lands on the `chat` tab via the initial
 `useState(defaultTab)` — no transition is needed to pick up the correct

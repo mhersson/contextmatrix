@@ -139,6 +139,40 @@ describe('CardPanel — bifold layout', () => {
     expect(grid.style.gridTemplateColumns).toContain('600px');
     expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it('preserves railExpanded when the card state changes via a new card object (SSE refresh)', () => {
+    const initial = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);
+    const grid = screen.getByTestId('body-bifold');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand rail' }));
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+
+    // Simulate an SSE-driven card refresh: same id, new object reference,
+    // different state. The rail must stay expanded so mid-HITL users don't
+    // lose their layout when the agent transitions the card.
+    const next = { ...initial, state: 'review' };
+    rerender(<CardPanel {...makeProps({ card: next })} />);
+
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('collapses railExpanded when the card identity changes (different card selected)', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    const grid = screen.getByTestId('body-bifold');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand rail' }));
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+
+    // Switching to a different card (new id) is the only path that should
+    // collapse the rail.
+    const other = { ...baseCard, id: 'TEST-002', title: 'Other card' };
+    rerender(<CardPanel {...makeProps({ card: other })} />);
+
+    expect(grid.style.gridTemplateColumns).toContain('340px');
+    expect(screen.getByRole('button', { name: 'Expand rail' })).toHaveAttribute('aria-pressed', 'false');
+  });
 });
 
 describe('CardPanel — Info tab hosts the state picker', () => {

@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 const MAX_MESSAGE_LENGTH = 8000;
+const NEAR_BOTTOM_THRESHOLD = 50;
 
 interface CardChatProps {
   card: Card;
@@ -27,15 +28,22 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [error, setError] = useState<string | null>(null);
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
 
-  // Auto-scroll to bottom on new entries unless the user has scrolled up.
-  useEffect(() => {
+  const handleLogScroll = useCallback(() => {
     const el = logContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceFromBottom < 80) {
-      el.scrollTop = el.scrollHeight;
-    }
+    userScrolledUpRef.current = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
+  }, []);
+
+  // useLayoutEffect pins the scroll before paint so the new content lands at
+  // the bottom on the same frame, matching VirtualLogList.
+  useLayoutEffect(() => {
+    const el = logContainerRef.current;
+    if (!el) return;
+    if (userScrolledUpRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [cardLogs]);
 
   if (card.runner_status !== 'running' || card.autonomous) {
@@ -85,6 +93,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
       {/* Log column */}
       <div
         ref={logContainerRef}
+        onScroll={handleLogScroll}
         className="flex-1 min-h-[60px] overflow-y-auto overflow-x-hidden px-4 py-4 space-y-3 bg-[var(--bg-dim)]"
         role="log"
         aria-live="polite"
