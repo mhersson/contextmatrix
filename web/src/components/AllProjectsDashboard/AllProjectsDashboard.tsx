@@ -62,8 +62,17 @@ export function AllProjectsDashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto h-full">
-      <h2 className="text-lg font-semibold" style={{ color: 'var(--fg)' }}>
+    <div className="p-6 space-y-6 overflow-y-auto h-full use-system-fonts">
+      <h2
+        style={{
+          color: 'var(--fg)',
+          fontFamily: 'var(--font-display)',
+          fontWeight: 500,
+          fontSize: '24px',
+          letterSpacing: '-0.015em',
+          lineHeight: 1.2,
+        }}
+      >
         All Projects Dashboard
       </h2>
 

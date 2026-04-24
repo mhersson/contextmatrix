@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { AutomationCheckboxes } from './AutomationCheckboxes';
 
 const baseProps = {
@@ -23,159 +23,23 @@ describe('AutomationCheckboxes — checkboxes', () => {
     expect(screen.getByLabelText('Feature branch')).toBeInTheDocument();
     expect(screen.getByLabelText('Create PR')).toBeInTheDocument();
   });
-});
 
-describe('AutomationCheckboxes — Run Now button visibility', () => {
-  it('renders Run HITL button when canRun=true and onRun is provided and autonomous=false', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        canRun
-        onRun={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole('button', { name: 'Run HITL' })).toBeInTheDocument();
-  });
-
-  it('does not render run button when canRun=false', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        canRun={false}
-        onRun={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
-  });
-
-  it('does not render run button when onRun is omitted', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        canRun
-      />,
-    );
-    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
-  });
-
-  it('does not render run button when both canRun and onRun are omitted', () => {
+  it('does not render Run HITL / Run Auto button (primary action moved to header)', () => {
     render(<AutomationCheckboxes {...baseProps} />);
     expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
   });
 });
 
-describe('AutomationCheckboxes — Run button label by mode', () => {
-  it('shows Run HITL button when autonomous=false and run controls are present', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous={false}
-        canRun
-        onRun={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole('button', { name: 'Run HITL' })).toBeInTheDocument();
+describe('AutomationCheckboxes — Opus orchestrator label', () => {
+  it('shows "Sonnet (default)" hint when Opus is unticked', () => {
+    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={false} />);
+    expect(screen.getByText(/Sonnet \(default\)/)).toBeInTheDocument();
   });
 
-  it('shows Run Auto button when autonomous=true and run controls are present', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous
-        canRun
-        onRun={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole('button', { name: 'Run Auto' })).toBeInTheDocument();
-  });
-
-  it('does not show Run HITL/Run Auto button when canRun=false', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous={false}
-        canRun={false}
-        onRun={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
-  });
-
-  it('does not show Run HITL/Run Auto button when onRun is omitted', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous
-        canRun
-      />,
-    );
-    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
-  });
-
-  it('does not render a standalone AUTO or HITL text label when run controls are visible', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous={false}
-        canRun
-        onRun={vi.fn()}
-      />,
-    );
-    // The button text contains 'HITL' as part of 'Run HITL', but there must be
-    // no standalone element whose entire text content is exactly 'AUTO' or 'HITL'.
-    expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
-    expect(screen.queryByText('HITL')).not.toBeInTheDocument();
-  });
-});
-
-describe('AutomationCheckboxes — Run Now interaction', () => {
-  it('calls onRun when Run HITL is clicked', async () => {
-    const onRun = vi.fn().mockResolvedValue(undefined);
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        canRun
-        onRun={onRun}
-      />,
-    );
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Run HITL' }));
-    });
-    expect(onRun).toHaveBeenCalledOnce();
-  });
-
-  it('disables button and shows Starting... while onRun is pending', async () => {
-    let resolve: () => void;
-    const onRun = vi.fn().mockReturnValue(
-      new Promise<void>((res) => { resolve = res; }),
-    );
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        canRun
-        onRun={onRun}
-      />,
-    );
-
-    const button = screen.getByRole('button', { name: 'Run HITL' });
-    fireEvent.click(button);
-
-    expect(await screen.findByRole('button', { name: 'Starting...' })).toBeDisabled();
-
-    await act(async () => { resolve!(); });
-    expect(screen.getByRole('button', { name: 'Run HITL' })).not.toBeDisabled();
-  });
-});
-
-describe('AutomationCheckboxes — Opus as orchestrator checkbox', () => {
-  it('renders the Opus as orchestrator checkbox', () => {
-    render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.getByLabelText('Opus as orchestrator')).toBeInTheDocument();
+  it('shows "Opus" hint when Opus is ticked', () => {
+    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={true} />);
+    expect(screen.getByText(/Opus.*deeper planning/)).toBeInTheDocument();
   });
 
   it('reflects useOpusOrchestrator=false (unchecked)', () => {
@@ -200,39 +64,38 @@ describe('AutomationCheckboxes — Opus as orchestrator checkbox', () => {
     fireEvent.click(screen.getByLabelText('Opus as orchestrator'));
     expect(onUseOpusOrchestratorChange).toHaveBeenCalledWith(true);
   });
+});
 
-  it('calls onUseOpusOrchestratorChange with false when clicked while checked', () => {
-    const onUseOpusOrchestratorChange = vi.fn();
+describe('AutomationCheckboxes — forced-on-run badges', () => {
+  it('renders ⚡ forced on run badge on Feature branch when forcedFeatureBranch=true', () => {
+    render(<AutomationCheckboxes {...baseProps} forcedFeatureBranch />);
+    // Two badges share the text; look for the one near Feature branch.
+    const forcedMessages = screen.getAllByText(/forced on run/);
+    expect(forcedMessages.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not render forced badges when both are false', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.queryByText(/forced on run/)).not.toBeInTheDocument();
+  });
+
+  it('calls onClearForcedFeatureBranch when user toggles Feature branch', () => {
+    const onClear = vi.fn();
     render(
       <AutomationCheckboxes
         {...baseProps}
-        useOpusOrchestrator={true}
-        onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
+        forcedFeatureBranch
+        onClearForcedFeatureBranch={onClear}
       />,
     );
-    fireEvent.click(screen.getByLabelText('Opus as orchestrator'));
-    expect(onUseOpusOrchestratorChange).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByLabelText('Feature branch'));
+    expect(onClear).toHaveBeenCalledOnce();
   });
 });
 
 describe('AutomationCheckboxes — base branch selector', () => {
-  it('renders base branch selector when autonomous=false', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous={false}
-      />,
-    );
-    expect(screen.getByRole('combobox', { name: 'Base branch' })).toBeInTheDocument();
-  });
-
-  it('renders base branch selector when autonomous=true', () => {
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        autonomous
-      />,
-    );
+  it('renders base branch selector', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
     expect(screen.getByRole('combobox', { name: 'Base branch' })).toBeInTheDocument();
   });
 
@@ -245,5 +108,51 @@ describe('AutomationCheckboxes — base branch selector', () => {
     );
     expect(screen.getByRole('option', { name: 'main' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'develop' })).toBeInTheDocument();
+  });
+});
+
+describe('AutomationCheckboxes — inline status hints', () => {
+  it('renders "not created yet" when branchName is absent', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.getByText(/not created yet/)).toBeInTheDocument();
+  });
+
+  it('renders the branch name when set', () => {
+    render(<AutomationCheckboxes {...baseProps} branchName="ctxmax-123/foo" />);
+    expect(screen.getByText('ctxmax-123/foo')).toBeInTheDocument();
+  });
+
+  it('renders the PR as a `PR #N ↗` link when prUrl matches the PR pattern', () => {
+    render(<AutomationCheckboxes {...baseProps} prUrl="https://example.com/pr/1" />);
+    const link = screen.getByRole('link', { name: /PR #1/ });
+    expect(link).toHaveAttribute('href', 'https://example.com/pr/1');
+    // Crucially: the visible text is the short label, NOT the full URL.
+    expect(link).not.toHaveTextContent('https://example.com/pr/1');
+  });
+
+  it('renders the review-attempts line when reviewAttempts > 0', () => {
+    render(<AutomationCheckboxes {...baseProps} reviewAttempts={1} />);
+    expect(screen.getByText(/1 review attempt · max 2/)).toBeInTheDocument();
+  });
+
+  it('renders the locked banner when disabled', () => {
+    render(<AutomationCheckboxes {...baseProps} disabled />);
+    expect(screen.getByText(/Automation locked during remote run/)).toBeInTheDocument();
+  });
+
+  it('keeps the PR link clickable when the section is disabled (e.g. card in done state)', () => {
+    const { container } = render(
+      <AutomationCheckboxes {...baseProps} disabled prUrl="https://example.com/pr/42" />,
+    );
+    // The link itself must render with the correct href.
+    const link = screen.getByRole('link', { name: /PR #42/ });
+    expect(link).toHaveAttribute('href', 'https://example.com/pr/42');
+    // The outer automation stack must NOT apply `pointer-events-none`, which
+    // would otherwise swallow the link's click.
+    const stack = container.querySelector('.bf-auto-stack');
+    expect(stack?.className).not.toMatch(/pointer-events-none/);
+    // Checkboxes still disabled — the wrapper's opacity cue is enough.
+    expect(screen.getByLabelText('Autonomous mode')).toBeDisabled();
+    expect(screen.getByLabelText('Create PR')).toBeDisabled();
   });
 });

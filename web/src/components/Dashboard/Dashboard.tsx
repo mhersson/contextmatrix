@@ -75,10 +75,21 @@ export function Dashboard({ project }: DashboardProps) {
   if (!data) return null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full use-system-fonts">
       <div className="px-4 py-3 border-b border-[var(--bg3)]">
-        <h1 className="text-lg font-medium text-[var(--fg)]">{project}</h1>
-        <p className="text-xs text-[var(--grey1)]">Cost overview</p>
+        <h1
+          className="text-[var(--fg)]"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 500,
+            fontSize: '20px',
+            letterSpacing: '-0.015em',
+            lineHeight: 1.2,
+          }}
+        >
+          {project}
+        </h1>
+        <p className="section-eyebrow mt-1">Cost overview</p>
       </div>
       <div className="p-6 space-y-6 overflow-y-auto flex-1">
       <SummaryCards

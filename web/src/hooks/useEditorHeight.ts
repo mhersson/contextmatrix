@@ -8,7 +8,7 @@ const MOBILE_ABOVE_EDITOR_PX = 280;
 // Panel switches to full-width mode at this breakpoint (matches .card-panel CSS).
 const MOBILE_BREAKPOINT = 1024;
 
-const DEFAULT_EDITOR_HEIGHT = 250;
+const DEFAULT_EDITOR_HEIGHT = 375;
 
 /** True when the panel occupies the full viewport width. */
 function isMobileLayout(): boolean {

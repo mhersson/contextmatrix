@@ -199,39 +199,40 @@ immediately.
 region. The input row and action buttons stay pinned at their natural height
 below the log.
 
-### Collapsible Description, Labels, and Automation sections
+### Rail tabs + default tab on HITL
 
-All three sections have a chevron toggle button beside their label. The chevron
-uses the same SVG path pattern as `CardItem.tsx` (`M19 9l-7 7-7-7` collapsed /
-`M5 15l7-7 7 7` expanded) with `text-[var(--grey1)] hover:text-[var(--fg)]`
-styling.
+The bifold drawer no longer uses section-level collapsibles for Description,
+Labels, and Automation. Instead, the right-side rail exposes **tabs**
+(`Automation`, `Info`, `Danger`, plus `Chat` when an HITL session is running)
+and only the active tab's content is mounted. This replaces the previous
+per-section chevron pattern; there is no `descriptionCollapsed` /
+`labelsCollapsed` / `automationCollapsed` state anymore.
 
-**Auto-collapse behaviour:** a `useEffect` in `CardPanel` tracks
-`isHITLRunning` via `prevIsHITLRunningRef` (previous value) and fires only on
-transitions of that boolean:
+**Default tab** is derived from `isHITLRunning`:
 
-- `false → true` (entering HITL-running): sets `descriptionCollapsed`,
-  `labelsCollapsed`, and `automationCollapsed` all to `true`.
-- `true → false` (leaving HITL-running, including a HITL→Auto promotion
-  mid-run): resets all three to `false`.
+```ts
+const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
+```
 
-Auto-mode entry and exit never trigger a collapse because `isHITLRunning`
-stays false throughout.
+On transitions of the sync inputs, `activeTab` is reset to this default:
 
-Initial state is set via `useState(initialIsHITLRunning)` — mounting into an
-already-running HITL session starts collapsed without waiting for a transition.
-The `useEffect` only fires on changes, so the initial mount value is handled
-by `useState` directly.
+- **Card identity change** (`sync.card !== card`): full reset — `editedCard`,
+  `railExpanded`, forced-flag badges, and `activeTab → defaultTab`.
+- **State change on the same card** (`sync.state !== card.state`): resets
+  `railExpanded`, forced flags, and `activeTab → defaultTab`.
+- **`isHITLRunning` flip only** (e.g. HITL→Auto promotion mid-run): resets
+  `activeTab → defaultTab` only — `railExpanded` survives so a user who
+  expanded the rail during the session stays expanded when the promotion
+  flips the tab set.
 
-Tracking via ref (not just the current value) ensures that manual re-expands
-during an active session survive re-renders while the card stays `running`.
+The three transitions are handled in a single in-render `useState` marker
+block (`sync`) in `CardPanel.tsx` — not a `useEffect` — so the reset is
+synchronous with the prop change and avoids the double-render that a
+reactive effect would cause.
 
-`CardPanelMetadata` receives `automationCollapsed: boolean`,
-`onToggleAutomation: () => void`, `labelsCollapsed: boolean`, and
-`onToggleLabels: () => void` props. It owns the Automation and Labels label +
-chevron rows and wraps their respective content on those props. The internal
-Automation label inside `AutomationCheckboxes` was removed to avoid duplication.
-Labels uses ARIA labels `Expand labels` / `Collapse labels`.
+Mounting into an already-HITL card lands on the `chat` tab via the initial
+`useState(defaultTab)` — no transition is needed to pick up the correct
+default.
 
 ## Runner Console
 
@@ -519,34 +520,42 @@ When migrating the remaining `window.confirm()` calls in the codebase (Delete
 button, etc.), follow that pattern: add a `confirmOpen` boolean state, open the
 modal on button click, run the action in `onConfirm`, and close in `onCancel`.
 
-## CardPanel header actions
+## CardPanel destructive actions
 
-`CardPanelHeader.tsx` renders action buttons in the card detail panel header row.
+Destructive actions live in the **Danger tab** of the card panel's right rail,
+rendered by `CardPanel/CardPanelDangerZone.tsx`. The header no longer carries
+a Delete button — the move to a dedicated tab keeps destructive UI out of the
+primary action row and leaves space for a clearer tooltip / warning copy.
 
 ### Delete button
 
-A red **Delete** button sits to the left of the **Save** button. Enabled only when
-both conditions hold simultaneously:
+The Delete button in the Danger tab is enabled only when both conditions hold
+simultaneously:
 
 - `card.state === 'todo' || card.state === 'not_planned'`
 - `!card.assigned_agent`
 
 When either condition fails (e.g. card is `in_progress`, or currently claimed),
-the button is rendered but `disabled` with a `title` tooltip explaining the
-restriction. The button is also disabled while a save or delete is in flight.
+the button is rendered but `disabled` and the tab shows a plain-English reason
+("An agent has an active claim", "current state is …"). The button is also
+disabled while a delete is in flight and shows "Deleting…" as its label.
 
-Clicking the enabled button triggers a native `window.confirm()` dialog warning
+Clicking the enabled button opens a `<ConfirmModal variant="danger">` warning
 that the card file will be `git rm`'d and committed, and the action is
-irreversible. Cancelling is a no-op. Confirming calls `api.deleteCard(project,
-cardId)`, which issues `DELETE /api/projects/{project}/cards/{id}`. On success
-the panel closes and the card is removed from local board state. A 409 response
-(card has subtasks — backend rejects with 422 `VALIDATION_ERROR`) surfaces an
-error message to the user and leaves the panel open.
+irreversible. Confirming calls `api.deleteCard(project, cardId)`, which issues
+`DELETE /api/projects/{project}/cards/{id}`. On success the panel closes and
+the card is removed from local board state. A 409 response (card has subtasks
+— backend rejects with 422 `VALIDATION_ERROR`) surfaces an error message to
+the user and leaves the panel open.
 
-Styling uses CSS variables only: `--red` for the text/border and `--bg-red` for
-the background. No hardcoded hex values.
+Styling uses CSS variables only: `--red` for the text/border and `--bg-red`
+for the background. No hardcoded hex values.
 
-> **TODO:** migrate this `window.confirm()` call to `<ConfirmModal variant="danger">` (see ConfirmModal section above).
+`CardPanelDangerZone.tsx:100-108` is the canonical `ConfirmModal` integration
+reference alongside the Promote-to-Autonomous flow in `CardChat.tsx`. When
+adding new destructive confirmations, mirror that pattern (a local
+`confirm*Open` boolean, open on click, run the action in `onConfirm`, close
+in `onCancel`).
 
 ## 404 / Not Found handling
 

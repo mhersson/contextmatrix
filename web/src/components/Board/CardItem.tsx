@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { runnerStatusStyles } from '../../types';
 import { gitHubIcon } from '../icons';
+import { chipTint, priorityColors, shortCardId, typeColors } from '../../lib/chip';
 
 interface CardItemProps {
   card: Card;
@@ -14,18 +15,12 @@ interface CardItemProps {
   onParentClick?: (cardId: string) => void;
 }
 
-const typeColors: Record<string, string> = {
-  task: 'var(--blue)',
-  bug: 'var(--red)',
-  feature: 'var(--green)',
-  subtask: 'var(--aqua)',
-};
-
-const priorityColors: Record<string, string> = {
-  critical: 'var(--red)',
-  high: 'var(--orange)',
-  medium: 'var(--yellow)',
-  low: 'var(--grey1)',
+const cardIdStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontWeight: 500,
+  fontSize: '11px',
+  letterSpacing: '0.04em',
+  color: 'var(--grey1)',
 };
 
 export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick }: CardItemProps) {
@@ -110,33 +105,35 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       >
         {/* Collapsed header: ID, type badge, parent badge, and toggle button */}
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-[var(--grey1)] flex-shrink-0">{card.id}</span>
-          <span
-            className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${typeColors[card.type] || 'var(--grey1)'} 20%, transparent)`,
-              color: typeColors[card.type] || 'var(--grey1)',
-            }}
-          >
-            {card.type}
-          </span>
+          <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
+          {card.type !== 'subtask' && (
+            <span
+              className="chip-pill flex-shrink-0"
+              style={chipTint(typeColors[card.type] || 'var(--grey1)')}
+              title={card.type}
+              aria-label={`Type: ${card.type}`}
+            >
+              {card.type.charAt(0)}
+            </span>
+          )}
           {card.source?.system === 'github' && gitHubIcon}
           {card.source && !card.vetted && (
-            <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
+            <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
               unvetted
             </span>
           )}
           {card.parent && (
             <button
               onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-              className="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity flex items-center gap-1"
+              className="chip-pill flex-shrink-0 hover:opacity-80 transition-opacity"
+              style={{ background: 'var(--bg-blue)', color: 'var(--aqua)' }}
               title={`Parent: ${card.parent}`}
               aria-label={`Navigate to parent ${card.parent}`}
             >
               <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
               </svg>
-              {card.parent}
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{shortCardId(card.parent)}</span>
             </button>
           )}
           <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
@@ -166,20 +163,14 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
     >
       {/* Header: ID, Type badge, and collapse toggle */}
       <div className="flex items-center justify-between mb-2">
-        <span className="font-mono text-xs text-[var(--grey1)]">{card.id}</span>
+        <span style={cardIdStyle}>{card.id}</span>
         <div className="flex items-center gap-1.5">
-          <span
-            className="text-xs px-1.5 py-0.5 rounded"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${typeColors[card.type] || 'var(--grey1)'} 20%, transparent)`,
-              color: typeColors[card.type] || 'var(--grey1)',
-            }}
-          >
+          <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
             {card.type}
           </span>
           {card.source?.system === 'github' && gitHubIcon}
           {card.source && !card.vetted && (
-            <span className="text-xs px-1 py-0.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] flex-shrink-0">
+            <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
               unvetted
             </span>
           )}
@@ -206,21 +197,23 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {card.parent && (
           <button
             onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-            className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:opacity-80 transition-opacity flex items-center gap-1"
+            className="chip-pill hover:opacity-80 transition-opacity"
+            style={chipTint('var(--aqua)')}
             title={`Parent: ${card.parent}`}
             aria-label={`Navigate to parent ${card.parent}`}
           >
             <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
-            {card.parent}
+            <span style={{ fontFamily: 'var(--font-mono)' }}>{shortCardId(card.parent)}</span>
           </button>
         )}
 
         {/* Agent indicator */}
         {card.assigned_agent && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-blue)] text-[var(--aqua)] truncate max-w-[120px]"
+            className="chip-pill truncate max-w-[120px]"
+            style={chipTint('var(--aqua)')}
             title={card.assigned_agent}
           >
             {card.assigned_agent}
@@ -230,11 +223,8 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {/* Dependency status */}
         {card.depends_on && card.depends_on.length > 0 && (
           <span
-            className={`text-xs px-1.5 py-0.5 rounded ${
-              card.dependencies_met
-                ? 'bg-[var(--bg-green)] text-[var(--green)]'
-                : 'bg-[var(--bg-red)] text-[var(--red)]'
-            }`}
+            className="chip-pill"
+            style={chipTint(card.dependencies_met ? 'var(--green)' : 'var(--red)')}
             title={card.dependencies_met ? 'All dependencies met' : 'Blocked by dependencies'}
           >
             {card.dependencies_met ? 'deps met' : 'blocked'}
@@ -244,7 +234,8 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {/* Autonomous badge */}
         {card.autonomous && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
+            className="chip-pill"
+            style={chipTint('var(--purple)')}
             title="Autonomous mode"
           >
             auto
@@ -254,7 +245,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {/* Runner status badge */}
         {card.runner_status && runnerStatusStyles[card.runner_status] && (
           <span
-            className={`text-xs px-1.5 py-0.5 rounded${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
+            className={`chip-pill${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
             style={{
               backgroundColor: runnerStatusStyles[card.runner_status].bg,
               color: runnerStatusStyles[card.runner_status].text,
@@ -269,7 +260,8 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
         {/* Branch badge */}
         {card.branch_name && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-green)] text-[var(--green)] font-mono truncate max-w-[120px]"
+            className="chip-pill truncate max-w-[120px]"
+            style={chipTint('var(--green)')}
             title={`Branch: ${card.branch_name}`}
           >
             {card.branch_name.split('/').pop()}
@@ -278,10 +270,7 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
 
         {/* Labels */}
         {card.labels?.map((label) => (
-          <span
-            key={label}
-            className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
-          >
+          <span key={label} className="chip-pill" style={chipTint('var(--purple)')}>
             {label}
           </span>
         ))}

@@ -1,9 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CardPanelMetadata } from './CardPanelMetadata';
-import type { Card } from '../../types';
+import type { Card, ProjectConfig } from '../../types';
 
-// Mock api.getCard to prevent real network requests in tests
 vi.mock('../../api/client', () => ({
   api: {
     getCard: vi.fn().mockResolvedValue({ state: 'todo' }),
@@ -29,46 +28,159 @@ const subtaskCard: Card = {
   parent: 'TEST-001',
 };
 
-const automationProps = {
-  editedAutonomous: false,
-  editedUseOpusOrchestrator: false,
-  editedFeatureBranch: false,
-  editedCreatePR: false,
-  onAutonomousChange: vi.fn(),
-  onUseOpusOrchestratorChange: vi.fn(),
-  onFeatureBranchChange: vi.fn(),
-  onCreatePRChange: vi.fn(),
+const config: ProjectConfig = {
+  name: 'test',
+  prefix: 'TEST',
+  next_id: 2,
+  states: ['todo', 'in_progress', 'done'],
+  types: ['task', 'subtask'],
+  priorities: ['medium'],
+  transitions: { todo: ['in_progress'], in_progress: ['done'], done: [] },
+};
+
+const defaultProps = {
+  card: baseCard,
+  editedCard: baseCard,
+  config,
+  currentAgentId: null,
+  runnerAttached: false,
+  onStateChange: vi.fn(),
+  onSubtaskClick: vi.fn(),
+  onClaim: vi.fn(),
+  onRelease: vi.fn(),
   editedVetted: false,
   onVettedChange: vi.fn(),
-  branches: [],
-  onBaseBranchChange: vi.fn(),
+  excludeStateFromPicker: null,
 };
+
+describe('CardPanelMetadata — status section', () => {
+  it('renders a state <select> with the current state first', () => {
+    render(<CardPanelMetadata {...defaultProps} />);
+    const select = screen.getByRole('combobox', { name: 'State' }) as HTMLSelectElement;
+    expect(select).toBeInTheDocument();
+    expect(select.value).toBe('todo');
+  });
+
+  it('includes valid transitions as "Move to …" options', () => {
+    render(<CardPanelMetadata {...defaultProps} />);
+    expect(screen.getByRole('option', { name: /→ in progress/ })).toBeInTheDocument();
+  });
+
+  it('excludes the state picked up by the curated primary button', () => {
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        excludeStateFromPicker="in_progress"
+      />,
+    );
+    expect(screen.queryByRole('option', { name: /→ in progress/ })).not.toBeInTheDocument();
+  });
+
+  it('disables the select when a runner is attached', () => {
+    render(<CardPanelMetadata {...defaultProps} runnerAttached />);
+    expect(screen.getByRole('combobox', { name: 'State' })).toBeDisabled();
+  });
+});
+
+describe('CardPanelMetadata — agent section', () => {
+  it('shows "unassigned" + "runner ready" hint and a Just claim button when no agent holds a todo card', () => {
+    render(<CardPanelMetadata {...defaultProps} />);
+    expect(screen.getByText('unassigned')).toBeInTheDocument();
+    expect(screen.getByText(/runner ready/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Just claim' })).toBeInTheDocument();
+  });
+
+  it('calls onClaim when Just claim is clicked', () => {
+    const onClaim = vi.fn();
+    render(<CardPanelMetadata {...defaultProps} onClaim={onClaim} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Just claim' }));
+    expect(onClaim).toHaveBeenCalledOnce();
+  });
+
+  it('shows the claimer and a Release button when runner is attached and current user is human', () => {
+    const card: Card = { ...baseCard, assigned_agent: 'agent-1', last_heartbeat: '2026-01-01T00:00:30Z' };
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        currentAgentId="human:alice"
+        runnerAttached
+      />,
+    );
+    expect(screen.getByText('agent-1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Release' })).toBeInTheDocument();
+  });
+
+  it('does not render the Just claim button when the runner is attached', () => {
+    render(<CardPanelMetadata {...defaultProps} runnerAttached />);
+    expect(screen.queryByRole('button', { name: 'Just claim' })).not.toBeInTheDocument();
+  });
+
+  it('does not render the Just claim button when an agent already holds the card', () => {
+    const card: Card = { ...baseCard, assigned_agent: 'agent-1' };
+    render(<CardPanelMetadata {...defaultProps} card={card} editedCard={card} />);
+    expect(screen.queryByRole('button', { name: 'Just claim' })).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the Release button when no currentAgentId is set', () => {
+    const card: Card = { ...baseCard, assigned_agent: 'agent-1' };
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        runnerAttached
+        currentAgentId={null}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Release' })).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the Release button when currentAgentId is a non-human agent', () => {
+    const card: Card = { ...baseCard, assigned_agent: 'agent-1' };
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        runnerAttached
+        currentAgentId="agent:robot"
+      />,
+    );
+    // Release is strictly a human-only override for forcing a claim off.
+    expect(screen.queryByRole('button', { name: 'Release' })).not.toBeInTheDocument();
+  });
+
+  it('opens a ConfirmModal on Release click (does not fire onRelease yet)', () => {
+    const onRelease = vi.fn();
+    const card: Card = { ...baseCard, assigned_agent: 'agent-1' };
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        runnerAttached
+        currentAgentId="human:alice"
+        onRelease={onRelease}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    expect(onRelease).not.toHaveBeenCalled();
+    // Modal appears with the release-specific copy.
+    expect(screen.getByText(/Release claim held by agent-1/)).toBeInTheDocument();
+  });
+});
 
 describe('CardPanelMetadata — parent section', () => {
   it('renders Parent section when card.parent is defined', () => {
-    render(
-      <CardPanelMetadata
-        card={subtaskCard}
-        editedLabels={[]}
-        onLabelsChange={vi.fn()}
-        onSubtaskClick={vi.fn()}
-        {...automationProps}
-      />,
-    );
+    render(<CardPanelMetadata {...defaultProps} card={subtaskCard} editedCard={subtaskCard} />);
     expect(screen.getByText('Parent')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'TEST-001' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /TEST-001/ })).toBeInTheDocument();
   });
 
   it('does not render Parent section when card.parent is absent', () => {
-    render(
-      <CardPanelMetadata
-        card={baseCard}
-        editedLabels={[]}
-        onLabelsChange={vi.fn()}
-        onSubtaskClick={vi.fn()}
-        {...automationProps}
-      />,
-    );
+    render(<CardPanelMetadata {...defaultProps} />);
     expect(screen.queryByText('Parent')).not.toBeInTheDocument();
   });
 
@@ -76,35 +188,29 @@ describe('CardPanelMetadata — parent section', () => {
     const onSubtaskClick = vi.fn();
     render(
       <CardPanelMetadata
+        {...defaultProps}
         card={subtaskCard}
-        editedLabels={[]}
-        onLabelsChange={vi.fn()}
+        editedCard={subtaskCard}
         onSubtaskClick={onSubtaskClick}
-        {...automationProps}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'TEST-001' }));
-    expect(onSubtaskClick).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: /TEST-001/ }));
     expect(onSubtaskClick).toHaveBeenCalledWith('TEST-001');
   });
+});
 
-  it('Parent section appears above Subtasks section when both are present', () => {
-    const cardWithBoth: Card = {
-      ...subtaskCard,
-      subtasks: ['TEST-003'],
+describe('CardPanelMetadata — source section', () => {
+  it('renders the vetted checkbox when card.source is set', () => {
+    const sourced: Card = {
+      ...baseCard,
+      source: { system: 'github', external_id: '42', external_url: 'https://example.com' },
     };
-    render(
-      <CardPanelMetadata
-        card={cardWithBoth}
-        editedLabels={[]}
-        onLabelsChange={vi.fn()}
-        onSubtaskClick={vi.fn()}
-        {...automationProps}
-      />,
-    );
+    render(<CardPanelMetadata {...defaultProps} card={sourced} editedCard={sourced} />);
+    expect(screen.getByLabelText('Content vetted')).toBeInTheDocument();
+  });
 
-    const labels = screen.getAllByText(/Parent|Subtasks/);
-    expect(labels[0]).toHaveTextContent('Parent');
-    expect(labels[1]).toHaveTextContent('Subtasks');
+  it('does not render the vetted checkbox when card.source is absent', () => {
+    render(<CardPanelMetadata {...defaultProps} />);
+    expect(screen.queryByLabelText('Content vetted')).not.toBeInTheDocument();
   });
 });

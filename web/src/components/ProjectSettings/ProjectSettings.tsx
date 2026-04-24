@@ -186,7 +186,16 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   return (
     <div className="p-6 overflow-y-auto h-full max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--fg)' }}>
+        <h2
+          style={{
+            color: 'var(--fg)',
+            fontFamily: 'var(--font-display)',
+            fontWeight: 500,
+            fontSize: '24px',
+            letterSpacing: '-0.015em',
+            lineHeight: 1.2,
+          }}
+        >
           Project Settings
         </h2>
         <button
@@ -311,7 +320,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
       {/* Danger zone */}
       <div className="pt-4 border-t" style={{ borderColor: 'var(--bg3)' }}>
-        <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
+        <h3 className="section-eyebrow mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
         {cardCount > 0 ? (
           <p className="text-xs mb-2" style={{ color: 'var(--grey1)' }}>
             Cannot delete this project — it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.

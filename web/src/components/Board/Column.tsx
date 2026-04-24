@@ -78,11 +78,11 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
           aria-expanded={false}
           className="w-full flex flex-col items-center gap-2 py-3 cursor-pointer hover:bg-[var(--bg1)] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]"
         >
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
+          <span className="chip-pill" style={{ backgroundColor: 'var(--bg2)', color: 'var(--grey1)' }}>
             {cards.length}
           </span>
           <span
-            className="text-xs font-medium text-[var(--grey2)] whitespace-nowrap"
+            className="section-eyebrow text-[var(--grey2)] whitespace-nowrap"
             style={{ writingMode: 'vertical-lr' }}
           >
             {formatStateName(state)}
@@ -119,7 +119,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               </svg>
             </button>
           )}
-          <h2 className="text-sm font-medium text-[var(--grey2)]" aria-label={`${formatStateName(state)} column`}>
+          <h2 className="section-eyebrow text-[var(--grey2)]" aria-label={`${formatStateName(state)} column`}>
             {formatStateName(state)}
           </h2>
         </div>
@@ -158,7 +158,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               </svg>
             </button>
           )}
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg2)] text-[var(--grey1)]">
+          <span className="chip-pill" style={{ backgroundColor: 'var(--bg2)', color: 'var(--grey1)' }}>
             {cards.length}
           </span>
         </div>

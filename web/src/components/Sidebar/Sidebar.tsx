@@ -39,16 +39,43 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
   // Shared panel content used in both desktop and mobile overlay modes
   const panelContent = (
     <>
-      <div className="flex items-center justify-between px-4 py-4 border-b" style={{ borderColor: 'var(--bg3)' }}>
-        <div>
+      <div className="flex items-start justify-between gap-2 px-4 py-4 border-b" style={{ borderColor: 'var(--bg3)' }}>
+        <div className="min-w-0 flex-1">
           <h1
-            className="text-lg font-semibold truncate"
-            style={{ color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}
+            className="truncate"
+            style={{
+              color: 'var(--fg)',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 500,
+              fontSize: '28px',
+              letterSpacing: '-0.02em',
+              lineHeight: 1.15,
+              // Tune Fraunces' optical-size axis to roughly the rendered
+              // size — opsz: 96 is for huge display use and ships
+              // delicate strokes that wash out at sidebar size; matching
+              // opsz here gives the italic M's left leg solid weight.
+              fontVariationSettings: '"opsz" 28',
+              // Italic Fraunces leans left; the leftmost stroke gets
+              // clipped by the h1's truncate overflow:hidden without a
+              // small inset.
+              paddingLeft: '5px',
+              marginLeft: '-5px',
+            }}
           >
-            ContextMatrix
+            Context<em style={{ fontStyle: 'italic', color: 'var(--aqua)', fontWeight: 400 }}>Matrix</em>
           </h1>
           {version && (
-            <p className="text-xs" style={{ color: 'var(--grey1)' }}>
+            <p
+              className="font-mono truncate"
+              style={{
+                color: 'var(--grey0)',
+                fontSize: '10.5px',
+                letterSpacing: '0.02em',
+                opacity: 0.75,
+                marginTop: '3px',
+              }}
+              title={formatVersionWithLocalTime(version)}
+            >
               {formatVersionWithLocalTime(version)}
             </p>
           )}
@@ -137,7 +164,7 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
         </button>
         <div className="flex items-center gap-2 px-1">
           <span
-            className="w-2 h-2 rounded-full"
+            className="w-2 h-2 rounded-full shrink-0"
             style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
           />
           <span className="text-xs" style={{ color: 'var(--grey0)' }}>

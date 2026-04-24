@@ -1,35 +1,42 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Registers a global `keydown` listener for the CardPanel that handles Escape
- * (with a discard-prompt when the card is dirty).
+ * Registers a global `keydown` listener for the CardPanel that dispatches to
+ * the caller's close and (optional) save handlers.
+ *
+ * - **Escape** → calls `onClose()`. The caller decides whether to prompt for
+ *   discard (typically via `ConfirmModal`); the hook itself doesn't confirm.
+ * - **⌘S / Ctrl+S** → calls `onSave()` and prevents the browser's default
+ *   save dialog. No-op when `onSave` is omitted.
  *
  * The listener is registered **exactly once per mount** in a mount-only
- * `useEffect`. `isDirty` and `onClose` are captured through refs so the
- * listener can read their latest values without re-registering on every
- * keystroke. This avoids the previous bug where including `isDirty` in the
- * effect's dep array re-attached the listener on every character typed into
- * the editor.
+ * `useEffect`. Both handlers are captured through refs so the listener can
+ * read the latest values without re-registering on every render. This avoids
+ * the bug where a `deps: [onClose, onSave]` array would re-attach the listener
+ * on every keystroke in the editor because the callbacks are rebuilt upstream.
  */
-export function useCardPanelKeyboard(isDirty: boolean, onClose: () => void): void {
-  const isDirtyRef = useRef(isDirty);
+export function useCardPanelKeyboard(
+  onClose: () => void,
+  onSave?: () => void | Promise<void>,
+): void {
   const onCloseRef = useRef(onClose);
+  const onSaveRef = useRef(onSave);
 
-  // Keep refs in sync with the latest props. Writing refs from an effect
-  // satisfies the `react-hooks/refs` rule (no ref writes during render) while
-  // still letting the mount-only keydown listener read the latest values.
   useEffect(() => {
-    isDirtyRef.current = isDirty;
     onCloseRef.current = onClose;
+    onSaveRef.current = onSave;
   });
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      if (isDirtyRef.current) {
-        if (window.confirm('Discard unsaved changes?')) onCloseRef.current();
-      } else {
+      if (e.key === 'Escape') {
         onCloseRef.current();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (!onSaveRef.current) return;
+        e.preventDefault();
+        void onSaveRef.current();
       }
     }
     document.addEventListener('keydown', handleKeyDown);

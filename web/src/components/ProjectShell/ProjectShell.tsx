@@ -14,8 +14,10 @@ import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
+import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
@@ -110,13 +112,28 @@ export function ProjectShell() {
   }, []);
 
   const onCreateCard = useCallback(
-    async (input: CreateCardInput) => {
+    async (input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => {
       const card = await handleCreateCard(input);
       setCreatePanelOpen(false);
+      // Optionally fire the runner immediately (Create & Run flow). Update
+      // the local card record on success so the board reflects the new
+      // runner_status / assigned_agent without waiting for SSE.
+      if (opts?.run) {
+        try {
+          const updated = await api.runCard(card.project, card.id, { interactive: opts.interactive });
+          updateCardLocally(card.id, {
+            runner_status: updated.runner_status,
+            assigned_agent: updated.assigned_agent,
+          });
+          showToast('Task queued for runner', 'success');
+        } catch (err) {
+          showToast(isAPIError(err) ? err.error : 'Failed to trigger runner', 'error');
+        }
+      }
       setFlashCardId(card.id);
       flashTimerRef.current = setTimeout(() => setFlashCardId(null), 2500);
     },
-    [handleCreateCard]
+    [handleCreateCard, updateCardLocally, showToast]
   );
 
   const handleSubtaskClick = useCallback(
@@ -260,16 +277,18 @@ export function ProjectShell() {
       </main>
 
       {currentSelectedCard && config && (
-        <CardPanel
-          card={currentSelectedCard} config={config}
-          cardLogs={selectedCardLogs}
-          onClose={() => setSelectedCard(null)} onSave={handleCardSave}
-          onDelete={handleCardDelete}
-          onClaim={handleClaim} onRelease={handleRelease}
-          onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
-          onPromptAgentId={promptForAgentId}
-          onRunCard={handleRunCard} onStopCard={handleStopCard}
-        />
+        <ErrorBoundary>
+          <CardPanel
+            card={currentSelectedCard} config={config}
+            cardLogs={selectedCardLogs}
+            onClose={() => setSelectedCard(null)} onSave={handleCardSave}
+            onDelete={handleCardDelete}
+            onClaim={handleClaim} onRelease={handleRelease}
+            onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
+            onPromptAgentId={promptForAgentId}
+            onRunCard={handleRunCard} onStopCard={handleStopCard}
+          />
+        </ErrorBoundary>
       )}
       {createPanelOpen && config && (
         <CreateCardPanel

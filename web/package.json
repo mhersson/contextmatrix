@@ -8,13 +8,32 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "size": "size-limit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "size-limit": [
+    {
+      "name": "md-editor chunk (lazy, fetched on first editor open)",
+      "path": "dist/assets/md-editor-*.js",
+      "limit": "350 kB"
+    },
+    {
+      "name": "ProjectShell chunk (main app shell, critical path)",
+      "path": "dist/assets/ProjectShell-*.js",
+      "limit": "40 kB"
+    },
+    {
+      "name": "React runtime chunk",
+      "path": "dist/assets/react-*.js",
+      "limit": "80 kB"
+    }
+  ],
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@uiw/react-markdown-preview": "^5.2.0",
     "@uiw/react-md-editor": "^4.1.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -23,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@size-limit/file": "^11.1.6",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.6.0",
@@ -34,6 +54,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "jsdom": "^29.0.2",
+    "size-limit": "^11.1.6",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.1",
