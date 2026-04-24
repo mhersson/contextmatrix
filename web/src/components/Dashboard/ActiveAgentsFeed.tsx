@@ -8,9 +8,7 @@ interface ActiveAgentsFeedProps {
 export function ActiveAgentsFeed({ agents }: ActiveAgentsFeedProps) {
   return (
     <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--bg1)' }}>
-      <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--grey2)' }}>
-        Active Agents
-      </h3>
+      <h3 className="section-eyebrow mb-3">Active Agents</h3>
       {agents.length === 0 ? (
         <div className="text-sm py-4 text-center" style={{ color: 'var(--grey0)' }}>
           No agents currently active
@@ -27,7 +25,16 @@ export function ActiveAgentsFeed({ agents }: ActiveAgentsFeedProps) {
                 <span className="text-sm font-medium shrink-0" style={{ color: 'var(--aqua)' }}>
                   {agent.agent_id}
                 </span>
-                <span className="text-xs truncate" style={{ color: 'var(--grey1)', fontFamily: 'var(--font-mono)' }}>
+                <span
+                  className="truncate"
+                  style={{
+                    color: 'var(--aqua)',
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 500,
+                    fontSize: '11px',
+                    letterSpacing: '0.04em',
+                  }}
+                >
                   {agent.card_id}
                 </span>
                 <span className="text-sm truncate" style={{ color: 'var(--fg)' }}>

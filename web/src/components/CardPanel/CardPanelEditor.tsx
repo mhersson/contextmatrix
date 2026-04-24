@@ -3,35 +3,35 @@ import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
 
-// Lazy-load MDEditor so the ~5 MB editor chunk ships as its own bundle
-// and is only fetched when a CardPanel is actually opened.
 const MDEditor = lazy(() => import('@uiw/react-md-editor'));
+const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 interface CardPanelEditorProps {
   body: string;
   onChange: (body: string) => void;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
+  editable: boolean;
+  editing: boolean;
+  onToggleEditing?: () => void;
 }
 
 /**
- * Markdown description editor for the CardPanel. Owns:
- *  - MDEditor embedding with theme-aware `data-color-mode`
- *  - Collapsible chevron toggle with aria-expanded
- *  - Mobile/desktop height switching via VisualViewport (useEditorHeight)
- *  - Cursor-follow scroll so typing past the visible bottom stays in view
- *    (useCursorFollowScroll)
+ * Description surface for the CardPanel left column.
  *
- * MDEditor does not expose a way to set an `id` on its internal textarea, so
- * the visible label is associated via `aria-labelledby` on a wrapping
- * `role="group"` element.
+ * - `editable` gates whether edits are possible at all (false when the runner
+ *   is attached).
+ * - `editing` is the user-controlled toggle; only when `editable && editing`
+ *   is MDEditor mounted. Otherwise the body renders through
+ *   `@uiw/react-markdown-preview` so the read-only view has no editor chrome
+ *   and flows into the panel as plain content.
+ * - `onToggleEditing` is optional: when provided, an "Open in editor" /
+ *   "Close editor" button appears next to the Description eyebrow. Callers
+ *   that always want the editor open (CreateCardPanel) omit it.
+ *
+ * The visible label is associated via `aria-labelledby` on a wrapping
+ * `role="group"` element — MDEditor does not expose a way to set an `id` on
+ * its internal textarea.
  */
-export function CardPanelEditor({
-  body,
-  onChange,
-  collapsed,
-  onToggleCollapsed,
-}: CardPanelEditorProps) {
+export function CardPanelEditor({ body, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {
   const { theme } = useTheme();
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
@@ -39,26 +39,27 @@ export function CardPanelEditor({
 
   useCursorFollowScroll(editorContainerRef);
 
+  const inEditMode = editable && editing;
+  const showToggle = !!onToggleEditing && editable;
+
   return (
-    <div ref={editorContainerRef} data-color-mode={theme}>
-      <div className="flex items-center gap-1 mb-1">
-        <span id={labelId} className="text-xs text-[var(--grey1)]">
+    <section ref={editorContainerRef} data-color-mode={theme}>
+      <div className="flex items-center justify-between mb-2">
+        <div id={labelId} className="section-eyebrow">
           Description
-        </span>
-        <button
-          onClick={onToggleCollapsed}
-          className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-          aria-label={collapsed ? 'Expand description' : 'Collapse description'}
-          aria-expanded={!collapsed}
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d={collapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
-          </svg>
-        </button>
+        </div>
+        {showToggle && (
+          <button
+            type="button"
+            onClick={onToggleEditing}
+            className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
+          >
+            {editing ? 'Close editor' : 'Open in editor'}
+          </button>
+        )}
       </div>
-      {!collapsed && (
-        <div role="group" aria-labelledby={labelId}>
+      <div role="group" aria-labelledby={labelId}>
+        {inEditMode ? (
           <Suspense
             fallback={
               <textarea
@@ -74,13 +75,28 @@ export function CardPanelEditor({
               value={body}
               onChange={(val) => onChange(val || '')}
               preview="edit"
+              hideToolbar={false}
               height={editorHeight}
-              visibleDragbar={false}
+              visibleDragbar
               previewOptions={{ skipHtml: true }}
+              className="bf-mdeditor"
             />
           </Suspense>
-        </div>
-      )}
-    </div>
+        ) : (
+          <Suspense
+            fallback={
+              <div
+                className="bf-markdown-fallback whitespace-pre-wrap font-mono text-sm"
+                style={{ color: 'var(--fg)' }}
+              >
+                {body}
+              </div>
+            }
+          >
+            <MarkdownPreview source={body} skipHtml className="bf-markdown" />
+          </Suspense>
+        )}
+      </div>
+    </section>
   );
 }

@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Card, LogEntry, ProjectConfig, PatchCardInput } from '../../types';
 import { CardPanelHeader } from './CardPanelHeader';
-import { CardPanelBody } from './CardPanelBody';
-import { CardPanelSections } from './CardPanelSections';
-import { buildCardPatch, isCardDirty } from './utils';
+import { CardPanelBody, type RailTabKey } from './CardPanelBody';
+import { CardPanelLeft } from './CardPanelLeft';
+import { buildCardPanelTabs } from './buildCardPanelTabs';
+import { buildCardPatch, isCardDirty, isRunnerAttached, primaryAction } from './utils';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 interface CardPanelProps {
   card: Card;
@@ -24,6 +26,27 @@ interface CardPanelProps {
   onStopCard: () => Promise<void>;
 }
 
+/**
+ * Bifold card detail panel — full-width header row over a two-column body
+ * (left: labels + description, right: tabbed rail). The rail can be expanded
+ * to widen the whole drawer and reshape the grid to 40/60 so the plan and
+ * the rail can sit side-by-side.
+ *
+ * State layering:
+ *   - `editedCard` holds in-flight edits; `isCardDirty` drives the Save
+ *     button and the save-before-run ordering.
+ *   - `railExpanded` persists across tab switches but resets on card-state
+ *     change (so a fresh card view starts un-expanded).
+ *   - `activeTab` is persisted similarly; resets when the default tab
+ *     changes (e.g. entering HITL).
+ *   - `forcedFeatureBranch` / `forcedCreatePR` capture the pre-Run values of
+ *     those two flags so the Automation tab can render the `⚡ forced on
+ *     run` badge only when the current Run click actually flipped them.
+ *
+ * The Run handler (and the header's primary action) always awaits `onSave`
+ * before firing the runner webhook, matching the server's force-enable
+ * behavior in `internal/api/runner.go:runCard`.
+ */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
     onSubtaskClick, currentAgentId, onPromptAgentId, onRunCard, onStopCard } = props;
@@ -32,38 +55,47 @@ export function CardPanel(props: CardPanelProps) {
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  const initialIsHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
-  const [descriptionCollapsed, setDescriptionCollapsed] = useState(initialIsHITLRunning);
-  const [automationCollapsed, setAutomationCollapsed] = useState(initialIsHITLRunning);
-  const [labelsCollapsed, setLabelsCollapsed] = useState(initialIsHITLRunning);
+  const [railExpanded, setRailExpanded] = useState(false);
+  const [forcedFeatureBranch, setForcedFeatureBranch] = useState(false);
+  const [forcedCreatePR, setForcedCreatePR] = useState(false);
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   useFocusTrap(panelRef, true);
 
-  // Sync prop → local edited state on card identity change (render-time pattern).
-  const [prevCard, setPrevCard] = useState(card);
-  if (card !== prevCard) {
-    setPrevCard(card);
-    setEditedCard(card);
-  }
-
-  // Auto-collapse Description, Automation, Labels on entering HITL running;
-  // expand on leaving (including promotion mid-run). Fires only on boolean
-  // transitions so manual re-expands survive re-renders while still running.
   const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
-  const [prevIsHITLRunning, setPrevIsHITLRunning] = useState(initialIsHITLRunning);
-  if (isHITLRunning !== prevIsHITLRunning) {
-    setPrevIsHITLRunning(isHITLRunning);
-    setDescriptionCollapsed(isHITLRunning);
-    setAutomationCollapsed(isHITLRunning);
-    setLabelsCollapsed(isHITLRunning);
+  const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
+  const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
+
+  // Sync derived state with prop changes. Three tracked inputs:
+  //   1. `card` identity      → resets editedCard and all view state
+  //   2. `card.state`         → resets view state (tab, rail, forced flags)
+  //   3. `isHITLRunning` flip → resets only the default tab
+  // Collapsed into a single `sync` marker (instead of three separate useState
+  // guards) so the comparators live in one place and the branches stay
+  // mutually exclusive.
+  const [sync, setSync] = useState({ card, state: card.state, isHITLRunning });
+  if (sync.card !== card) {
+    setSync({ card, state: card.state, isHITLRunning });
+    setEditedCard(card);
+    setRailExpanded(false);
+    setForcedFeatureBranch(false);
+    setForcedCreatePR(false);
+    setActiveTab(defaultTab);
+  } else if (sync.state !== card.state) {
+    setSync({ card, state: card.state, isHITLRunning });
+    setRailExpanded(false);
+    setForcedFeatureBranch(false);
+    setForcedCreatePR(false);
+    setActiveTab(defaultTab);
+  } else if (sync.isHITLRunning !== isHITLRunning) {
+    setSync({ card, state: card.state, isHITLRunning });
+    setActiveTab(defaultTab);
   }
 
   const { branches, loading: branchesLoading, error: branchesError } =
     useBranches(card.project, !!config.remote_execution?.enabled);
 
   const isDirty = isCardDirty(editedCard, card);
-  useCardPanelKeyboard(isDirty, onClose);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -85,10 +117,10 @@ export function CardPanel(props: CardPanelProps) {
     await onRelease(card.assigned_agent);
   }, [currentAgentId, card.assigned_agent, onRelease]);
 
+  const canDelete =
+    (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;
+
   const handleDelete = useCallback(async () => {
-    // Defense-in-depth: re-check eligibility before proceeding
-    const canDelete =
-      (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;
     if (!canDelete) return;
     setIsDeleting(true);
     try {
@@ -96,17 +128,163 @@ export function CardPanel(props: CardPanelProps) {
     } finally {
       setIsDeleting(false);
     }
-  }, [card.state, card.assigned_agent, card.id, onDelete]);
+  }, [canDelete, card.id, onDelete]);
 
-  const handleClose = () => {
-    if (isDirty && !window.confirm('Discard unsaved changes?')) return;
+  const handleClose = useCallback(() => {
+    if (isDirty) {
+      setConfirmDiscardOpen(true);
+      return;
+    }
     onClose();
-  };
+  }, [isDirty, onClose]);
+
+  useCardPanelKeyboard(handleClose, handleSave);
 
   const canRun =
     config.remote_execution?.enabled !== false &&
     card.state === 'todo' &&
     (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
+
+  const runnerAttached = isRunnerAttached(card, currentAgentId);
+  const primary = primaryAction(card, editedCard.autonomous ?? false, config, canRun);
+
+  // First unfinished dep for the "Open dependency" helper (blocked cards).
+  const firstUnfinishedDep =
+    card.state === 'blocked' && card.depends_on && card.depends_on.length > 0
+      ? card.depends_on[0]
+      : null;
+
+  /**
+   * Run handler shared by the header Run button and any wrappers.
+   * Server force-enables feature_branch and create_pr on every run. We mirror
+   * that client-side so the saved state matches, and capture the pre-force
+   * values so the UI can badge the forced flags exactly once.
+   *
+   * On save failure: revert only the two fields we optimistically mutated
+   * (feature_branch, create_pr) via a functional update — leaves any
+   * concurrent user edits (title, labels, etc.) intact. The toast is fired
+   * by useCardActions; we swallow here to avoid an unhandled rejection.
+   */
+  const handleRun = useCallback(async () => {
+    const wasFeatureBranch = editedCard.feature_branch ?? false;
+    const wasCreatePR = editedCard.create_pr ?? false;
+    setForcedFeatureBranch(!wasFeatureBranch);
+    setForcedCreatePR(!wasCreatePR);
+    const next: Card = {
+      ...editedCard,
+      feature_branch: true,
+      create_pr: true,
+    };
+    setEditedCard(next);
+    const nextIsDirty = isCardDirty(next, card);
+    if (nextIsDirty) {
+      setIsSaving(true);
+      try {
+        await onSave(buildCardPatch(next, card));
+      } catch {
+        setEditedCard((curr) => ({
+          ...curr,
+          feature_branch: wasFeatureBranch,
+          create_pr: wasCreatePR,
+        }));
+        setForcedFeatureBranch(false);
+        setForcedCreatePR(false);
+        return;
+      } finally {
+        setIsSaving(false);
+      }
+    }
+    try {
+      await onRunCard(!(next.autonomous ?? false));
+    } catch {
+      // Save succeeded but the runner webhook failed. The feature_branch /
+      // create_pr values on the server are now real, so don't revert those;
+      // clear the "forced on run" badges since they only make sense next
+      // to a live runner claim.
+      setForcedFeatureBranch(false);
+      setForcedCreatePR(false);
+    }
+  }, [editedCard, card, onSave, onRunCard]);
+
+  const handleTransitionPrimary = useCallback(async (targetState: string) => {
+    const prevState = editedCard.state;
+    const next: Card = { ...editedCard, state: targetState };
+    setEditedCard(next);
+    if (isCardDirty(next, card) && !isSaving) {
+      setIsSaving(true);
+      try {
+        await onSave(buildCardPatch(next, card));
+      } catch {
+        // Revert the optimistic state change; keep any other concurrent edits.
+        setEditedCard((curr) => ({ ...curr, state: prevState }));
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  }, [editedCard, card, onSave, isSaving]);
+
+  const handlePrimary = useCallback(() => {
+    if (!primary) return;
+    if (primary.kind === 'run') void handleRun();
+    else if (primary.kind === 'transition') void handleTransitionPrimary(primary.targetState);
+    // 'stop' is handled inline by the header (has its own confirm flow).
+  }, [primary, handleRun, handleTransitionPrimary]);
+
+  const excludeStateFromPicker = primary?.kind === 'transition' ? primary.targetState : null;
+
+  const deleteTooltip = canDelete
+    ? `Delete card ${card.id}`
+    : 'Only unclaimed cards in todo or not_planned can be deleted';
+
+  // Editable surfaces lock under two predicates with different remediations.
+  // Runner-attached is automatic and clears when the runner releases.
+  // State-driven asks the user to move the card back to `todo` — the only
+  // state that can re-run. Both feed the left column (Labels) and the
+  // Automation tab (checkbox rail), so compute once here.
+  const isTodo = card.state === 'todo';
+  const stateLocksEditing = !isTodo && !runnerAttached;
+  const editingLocked = runnerAttached || stateLocksEditing;
+  const lockedReason = runnerAttached
+    ? 'locked during remote run'
+    : `locked outside todo · move card back to todo to edit (current: ${card.state.replace(/_/g, ' ')})`;
+  const automationLockedReason = runnerAttached
+    ? 'Automation locked during remote run'
+    : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
+  const canToggleEditor =
+    !runnerAttached &&
+    (card.state === 'todo' || card.state === 'done' || card.state === 'not_planned');
+
+  const { tabs, defaultTab: resolvedDefaultTab } = buildCardPanelTabs({
+    card,
+    editedCard,
+    setEditedCard,
+    config,
+    cardLogs,
+    currentAgentId,
+    runnerAttached,
+    isHITLRunning,
+    onClaim: handleClaim,
+    onRelease: handleRelease,
+    onSubtaskClick,
+    onDelete: handleDelete,
+    canDelete,
+    deleteTooltip,
+    isDeleting,
+    branches,
+    branchesLoading,
+    branchesError,
+    editingLocked,
+    automationLockedReason,
+    excludeStateFromPicker,
+    forcedFeatureBranch,
+    forcedCreatePR,
+    clearForcedFeatureBranch: () => setForcedFeatureBranch(false),
+    clearForcedCreatePR: () => setForcedCreatePR(false),
+  });
+
+  // If the active tab disappears (e.g. HITL ended, chat tab removed), fall
+  // back to the resolved default.
+  const effectiveTab = tabs.some((t) => t.key === activeTab) ? activeTab : resolvedDefaultTab;
 
   return (
     <>
@@ -114,7 +292,7 @@ export function CardPanel(props: CardPanelProps) {
 
       <div
         ref={panelRef}
-        className="card-panel animate-panel-slide-in"
+        className="card-panel card-panel-bifold animate-panel-slide-in"
         role="dialog"
         aria-modal="true"
         aria-label="Card details"
@@ -123,43 +301,53 @@ export function CardPanel(props: CardPanelProps) {
           card={card}
           editedCard={editedCard}
           config={config}
+          currentAgentId={currentAgentId}
           isDirty={isDirty}
           isSaving={isSaving}
           isDeleting={isDeleting}
-          onClose={onClose}
+          canRun={canRun}
+          onClose={handleClose}
           onSave={handleSave}
-          onDelete={handleDelete}
           onTitleChange={(title) => setEditedCard((prev) => ({ ...prev, title }))}
           onPriorityChange={(priority) => setEditedCard((prev) => ({ ...prev, priority }))}
-          onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
+          onPrimaryAction={handlePrimary}
+          onStopCard={onStopCard}
+          onOpenDependency={onSubtaskClick}
+          firstUnfinishedDep={firstUnfinishedDep}
         />
 
-        <CardPanelBody card={card} cardLogs={cardLogs} isHITLRunning={isHITLRunning}>
-          <CardPanelSections
-            card={card}
-            editedCard={editedCard}
-            setEditedCard={setEditedCard}
-            currentAgentId={currentAgentId}
-            onClaim={handleClaim}
-            onRelease={handleRelease}
-            onStopCard={onStopCard}
-            onSubtaskClick={onSubtaskClick}
-            branches={branches}
-            branchesLoading={branchesLoading}
-            branchesError={branchesError}
-            canRun={canRun}
-            isDirty={isDirty}
-            onSave={handleSave}
-            onRunCard={onRunCard}
-            descriptionCollapsed={descriptionCollapsed}
-            onToggleDescription={() => setDescriptionCollapsed((v) => !v)}
-            automationCollapsed={automationCollapsed}
-            onToggleAutomation={() => setAutomationCollapsed((v) => !v)}
-            labelsCollapsed={labelsCollapsed}
-            onToggleLabels={() => setLabelsCollapsed((v) => !v)}
-          />
-        </CardPanelBody>
+        <CardPanelBody
+          left={
+            <CardPanelLeft
+              key={card.id}
+              editedCard={editedCard}
+              setEditedCard={setEditedCard}
+              runnerAttached={runnerAttached}
+              editingLocked={editingLocked}
+              lockedReason={lockedReason}
+              canToggleEditor={canToggleEditor}
+            />
+          }
+          tabs={tabs}
+          activeTab={effectiveTab}
+          onTabChange={setActiveTab}
+          railExpanded={railExpanded}
+          onToggleRail={() => setRailExpanded((v) => !v)}
+        />
       </div>
+
+      <ConfirmModal
+        open={confirmDiscardOpen}
+        title="Discard unsaved changes?"
+        message="Your edits to this card will be lost."
+        confirmLabel="Discard"
+        variant="danger"
+        onConfirm={() => {
+          setConfirmDiscardOpen(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmDiscardOpen(false)}
+      />
     </>
   );
 }

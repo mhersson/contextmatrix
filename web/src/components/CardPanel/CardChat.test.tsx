@@ -233,3 +233,39 @@ describe('CardChat — cardLogs prop', () => {
     expect(screen.getByText(/No messages yet/)).toBeInTheDocument();
   });
 });
+
+describe('CardChat — error state lifecycle', () => {
+  it('shows the error banner after a failed send', async () => {
+    mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: 'first attempt' } });
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    expect(screen.getByText('network down')).toBeInTheDocument();
+  });
+
+  it('clears the error banner after a subsequent successful send', async () => {
+    mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+    // First send fails, error visible.
+    fireEvent.change(textarea, { target: { value: 'first' } });
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+    expect(screen.getByText('network down')).toBeInTheDocument();
+
+    // Second send succeeds — error banner should disappear.
+    mockSendCardMessage.mockResolvedValueOnce({ ok: true, message_id: 'msg-2' });
+    fireEvent.change(textarea, { target: { value: 'second' } });
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+    expect(screen.queryByText('network down')).not.toBeInTheDocument();
+  });
+});

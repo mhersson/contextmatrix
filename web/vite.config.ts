@@ -13,6 +13,12 @@ export default defineConfig({
     },
   },
   build: {
+    // The lazy-loaded md-editor chunk is ~1 MB: @uiw/react-md-editor drags in
+    // react-markdown-preview plus the full rehype/remark/mdast/hast/micromark/
+    // refractor toolchain. They all load together when the editor mounts, so
+    // splitting further just adds HTTP round-trips. 1200 kB leaves headroom
+    // for that chunk while still catching future accidental bloat.
+    chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
         manualChunks: (id) => {

@@ -1,0 +1,13 @@
+{
+  "source": "https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap",
+  "files": {
+    "fraunces/fraunces-italic-latin-0e9e2189.woff2": "f51349995e760cbc3e3d22fe85f7f04dcf2384ab09944535dddd700ace0e16ad",
+    "fraunces/fraunces-italic-latin-ext-ab9befa6.woff2": "9eca373fc1695536824716d38f8a5829e722a7bece6af19d0e676c643e756a30",
+    "fraunces/fraunces-normal-latin-8f90dc37.woff2": "7234ed860a9cc83045413c4faee63c960a8f2d1917adcf728119307d56e0d783",
+    "fraunces/fraunces-normal-latin-ext-843e59e4.woff2": "a2930b27d13a228bd9ab6a49269b5f800237892ad560cb9dd7fab01b1620f88e",
+    "geist/geist-normal-latin-678c0385.woff2": "0cbbe6286a00f356e98980783cc950a9b693751e04aedfb97d9526ff6dc2b316",
+    "geist/geist-normal-latin-ext-71d275e3.woff2": "3640f9351b2a4631515dffea38092c24e70db9df2ef1e97c10cbdeb4163e6186",
+    "jetbrains-mono/jetbrains-mono-normal-latin-0a7197f9.woff2": "83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be",
+    "jetbrains-mono/jetbrains-mono-normal-latin-ext-c8b23d7b.woff2": "db5ff4db83e580426280e9337a58dc57d3a83784a1b03ad80914651594441d52"
+  }
+}

@@ -1,11 +1,17 @@
-import type { Card, PatchCardInput } from '../../types';
+import type { Card, PatchCardInput, ProjectConfig } from '../../types';
 
-export const typeColors: Record<string, string> = {
-  task: 'var(--blue)',
-  bug: 'var(--red)',
-  feature: 'var(--green)',
-  subtask: 'var(--aqua)',
-};
+/**
+ * Maps a card state to the matching `.chip-state-*` CSS class name.
+ * Used by the Info tab's Subtasks/Depends-on lists. Falls back to
+ * `chip-state-todo` for unknown states.
+ */
+export function chipClassForState(state: string): string {
+  const known = new Set([
+    'todo', 'in_progress', 'hitl', 'review', 'done',
+    'blocked', 'stalled', 'not_planned',
+  ]);
+  return known.has(state) ? `chip-state-${state}` : 'chip-state-todo';
+}
 
 /** Shallow equality check for string arrays (used for label comparison). */
 function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -42,7 +48,7 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   if (edited.state !== original.state) updates.state = edited.state;
   if (edited.priority !== original.priority) updates.priority = edited.priority;
   if (edited.body !== original.body) updates.body = edited.body;
-  if (JSON.stringify(edited.labels) !== JSON.stringify(original.labels)) {
+  if (!arraysEqual(edited.labels, original.labels)) {
     updates.labels = edited.labels;
   }
   if ((edited.autonomous ?? false) !== (original.autonomous ?? false)) {
@@ -87,4 +93,64 @@ export function formatRelativeTime(dateStr: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHour < 24) return `${diffHour}h ago`;
   return `${diffDay}d ago`;
+}
+
+/**
+ * True when the card is "owned" by a runner or an agent claim — i.e. humans
+ * should not perform free-form state transitions or edit metadata that would
+ * conflict with the agent's in-flight work.
+ *
+ * See the workflow-safety rule in the redesign spec: human state-transition
+ * UI must only render when `runner_status not in {queued, running}` AND
+ * `assigned_agent == null` (or assigned_agent is the current human).
+ */
+export function isRunnerAttached(card: Card, currentAgentId: string | null): boolean {
+  const runnerActive = card.runner_status === 'queued' || card.runner_status === 'running';
+  const claimedByOther =
+    !!card.assigned_agent &&
+    !(currentAgentId && card.assigned_agent === currentAgentId && currentAgentId.startsWith('human:'));
+  return runnerActive || claimedByOther;
+}
+
+/**
+ * Decides which curated primary action button should appear in the top-right
+ * of the header for a given card state. Returns null when no curated action
+ * applies (fall back to the Move-to cluster in the Info tab).
+ *
+ * The returned `targetState` is the destination state the button transitions
+ * to; used by the Info-tab state picker to filter its options so the same
+ * destination isn't offered twice.
+ */
+export type PrimaryAction =
+  | { kind: 'stop' }
+  | { kind: 'run'; autonomous: boolean }
+  | { kind: 'transition'; label: string; targetState: string }
+  | null;
+
+export function primaryAction(
+  card: Card,
+  editedAutonomous: boolean,
+  config: ProjectConfig,
+  canRun: boolean,
+): PrimaryAction {
+  if (card.runner_status === 'queued' || card.runner_status === 'running') {
+    return { kind: 'stop' };
+  }
+  const targets = config.transitions[card.state] || [];
+  if (card.state === 'review' && targets.includes('done')) {
+    return { kind: 'transition', label: 'Mark done', targetState: 'done' };
+  }
+  if (card.state === 'blocked' && targets.includes('todo')) {
+    return { kind: 'transition', label: 'Unblock', targetState: 'todo' };
+  }
+  if (card.state === 'stalled' && targets.includes('todo')) {
+    return { kind: 'transition', label: 'Resume', targetState: 'todo' };
+  }
+  if (card.state === 'done' && targets.includes('todo')) {
+    return { kind: 'transition', label: 'Re-open', targetState: 'todo' };
+  }
+  if (canRun) {
+    return { kind: 'run', autonomous: editedAutonomous };
+  }
+  return null;
 }

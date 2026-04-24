@@ -175,7 +175,7 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full use-system-fonts">
       {/* Board header */}
       <div className="px-4 py-3 border-b border-[var(--bg3)] flex items-center justify-between">
         <div>

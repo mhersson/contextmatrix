@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 import { PaletteSelector } from './PaletteSelector';
 import { SyncIndicator } from './SyncIndicator';
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import type { SyncStatus } from '../../types';
 
@@ -26,7 +28,9 @@ const VIEWS = [
 export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
+  const [confirmStopAllOpen, setConfirmStopAllOpen] = useState(false);
   return (
+    <>
     <header
       className="flex items-center justify-between px-3 py-2 sm:px-6 sm:py-3 border-b"
       style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)' }}
@@ -97,7 +101,7 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         {hasActiveRunners && onStopAll && (
           <button
             type="button"
-            onClick={() => { if (window.confirm('Stop all running tasks? Containers will be destroyed.')) onStopAll(); }}
+            onClick={() => setConfirmStopAllOpen(true)}
             className="px-2 py-1 rounded text-xs font-medium hover:opacity-90 transition-opacity"
             style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}
             title="Stop all running tasks"
@@ -119,5 +123,19 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         </div>
       </div>
     </header>
+
+    <ConfirmModal
+      open={confirmStopAllOpen}
+      title="Stop all running tasks?"
+      message="All active runner containers will be destroyed and uncommitted work discarded."
+      confirmLabel="Stop all"
+      variant="danger"
+      onConfirm={() => {
+        setConfirmStopAllOpen(false);
+        onStopAll?.();
+      }}
+      onCancel={() => setConfirmStopAllOpen(false)}
+    />
+    </>
   );
 }

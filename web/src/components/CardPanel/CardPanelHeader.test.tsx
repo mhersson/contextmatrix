@@ -19,25 +19,37 @@ const baseConfig: ProjectConfig = {
   name: 'test',
   prefix: 'TEST',
   next_id: 2,
-  states: ['todo', 'in_progress', 'done'],
+  states: ['todo', 'in_progress', 'review', 'done', 'blocked', 'stalled'],
   types: ['task'],
   priorities: ['low', 'medium', 'high'],
-  transitions: { todo: ['in_progress'], in_progress: ['done'], done: [] },
+  transitions: {
+    todo: ['in_progress', 'blocked', 'not_planned'],
+    in_progress: ['review', 'blocked'],
+    review: ['done', 'in_progress'],
+    blocked: ['todo'],
+    stalled: ['todo'],
+    done: ['todo'],
+  },
+  remote_execution: { enabled: true },
 };
 
 const defaultProps = {
   card: baseCard,
   editedCard: baseCard,
   config: baseConfig,
+  currentAgentId: null,
   isDirty: false,
   isSaving: false,
   isDeleting: false,
+  canRun: true,
   onClose: vi.fn(),
   onSave: vi.fn(),
-  onDelete: vi.fn(),
   onTitleChange: vi.fn(),
   onPriorityChange: vi.fn(),
-  onStateChange: vi.fn(),
+  onPrimaryAction: vi.fn(),
+  onStopCard: vi.fn().mockResolvedValue(undefined),
+  onOpenDependency: vi.fn(),
+  firstUnfinishedDep: null,
 };
 
 // Suppress window.confirm in tests that trigger handleClose
@@ -47,11 +59,7 @@ describe('CardPanelHeader — external_url scheme validation', () => {
   it('renders an <a> link for a safe https GitHub URL', () => {
     const card: Card = {
       ...baseCard,
-      source: {
-        system: 'github',
-        external_id: '1',
-        external_url: 'https://github.com/foo/bar/issues/1',
-      },
+      source: { system: 'github', external_id: '1', external_url: 'https://github.com/foo/bar/issues/1' },
     };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
     const link = screen.getByRole('link');
@@ -62,11 +70,7 @@ describe('CardPanelHeader — external_url scheme validation', () => {
   it('does not render an <a> link for a javascript: URL', () => {
     const card: Card = {
       ...baseCard,
-      source: {
-        system: 'github',
-        external_id: '1',
-        external_url: 'javascript:alert(1)',
-      },
+      source: { system: 'github', external_id: '1', external_url: 'javascript:alert(1)' },
     };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
@@ -75,127 +79,139 @@ describe('CardPanelHeader — external_url scheme validation', () => {
   it('does not render an <a> link for a data: URL', () => {
     const card: Card = {
       ...baseCard,
-      source: {
-        system: 'github',
-        external_id: '1',
-        external_url: 'data:text/html,<script>alert(1)</script>',
-      },
-    };
-    render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
-  });
-
-  it('does not render an <a> link for a malformed / relative string', () => {
-    const card: Card = {
-      ...baseCard,
-      source: {
-        system: 'github',
-        external_id: '1',
-        external_url: '/relative/path',
-      },
+      source: { system: 'github', external_id: '1', external_url: 'data:text/html,<script>alert(1)</script>' },
     };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 });
 
-describe('CardPanelHeader — Delete button enabled/disabled states', () => {
-  beforeEach(() => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+describe('CardPanelHeader — primary action by state', () => {
+  it('renders Run HITL primary when state=todo and canRun', () => {
+    render(<CardPanelHeader {...defaultProps} canRun card={{ ...baseCard, autonomous: false }} editedCard={{ ...baseCard, autonomous: false }} />);
+    expect(screen.getByRole('button', { name: /Run HITL/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Run Auto/ })).not.toBeInTheDocument();
   });
 
-  it('Delete button is enabled for unclaimed todo card', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'todo', assigned_agent: undefined }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).not.toBeDisabled();
+  it('renders Run Auto primary when state=todo and autonomous=true', () => {
+    const card = { ...baseCard, autonomous: true };
+    render(<CardPanelHeader {...defaultProps} canRun card={card} editedCard={card} />);
+    expect(screen.getByRole('button', { name: /Run Auto/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Run HITL/ })).not.toBeInTheDocument();
   });
 
-  it('Delete button is enabled for unclaimed not_planned card', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'not_planned', assigned_agent: undefined }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).not.toBeDisabled();
+  it('renders Mark done primary when state=review', () => {
+    const card = { ...baseCard, state: 'review' };
+    render(<CardPanelHeader {...defaultProps} canRun={false} card={card} editedCard={card} />);
+    expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
   });
 
-  it('Delete button is disabled when state is in_progress', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'in_progress' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  it('renders Unblock primary when state=blocked', () => {
+    const card = { ...baseCard, state: 'blocked' };
+    render(<CardPanelHeader {...defaultProps} canRun={false} card={card} editedCard={card} />);
+    expect(screen.getByRole('button', { name: 'Unblock' })).toBeInTheDocument();
   });
 
-  it('Delete button is disabled when state is review', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'review' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  it('renders Resume primary when state=stalled', () => {
+    const card = { ...baseCard, state: 'stalled' };
+    render(<CardPanelHeader {...defaultProps} canRun={false} card={card} editedCard={card} />);
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
   });
 
-  it('Delete button is disabled when state is done', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'done' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
+  it('renders Re-open primary when state=done', () => {
+    const card = { ...baseCard, state: 'done' };
+    render(<CardPanelHeader {...defaultProps} canRun={false} card={card} editedCard={card} />);
+    expect(screen.getByRole('button', { name: 'Re-open' })).toBeInTheDocument();
   });
 
-  it('Delete button is disabled when state is blocked', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'blocked' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
-  });
-
-  it('Delete button is disabled when state is stalled', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'stalled' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
-  });
-
-  it('Delete button is disabled when assigned_agent is set even if state is todo', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'todo', assigned_agent: 'some-agent' }} />);
-    expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
-  });
-
-  it('disabled Delete button has a tooltip explaining the restriction', () => {
-    render(<CardPanelHeader {...defaultProps} card={{ ...baseCard, state: 'in_progress' }} />);
-    const btn = screen.getByRole('button', { name: 'Delete card' });
-    expect(btn).toHaveAttribute('title');
-    expect(btn.getAttribute('title')).toMatch(/unclaimed.*todo.*not_planned|Only unclaimed/i);
+  it('calls onPrimaryAction when primary button is clicked', () => {
+    const onPrimaryAction = vi.fn();
+    render(<CardPanelHeader {...defaultProps} canRun onPrimaryAction={onPrimaryAction} />);
+    fireEvent.click(screen.getByRole('button', { name: /Run HITL/ }));
+    expect(onPrimaryAction).toHaveBeenCalledOnce();
   });
 });
 
-describe('CardPanelHeader — Delete button click behavior', () => {
+describe('CardPanelHeader — workflow-safety lock', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('clicking enabled Delete button triggers window.confirm', () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const onDelete = vi.fn();
-    render(
-      <CardPanelHeader
-        {...defaultProps}
-        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
-        onDelete={onDelete}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
-    expect(confirmSpy).toHaveBeenCalledOnce();
-  });
-
-  it('onDelete fires when confirm returns true', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const onDelete = vi.fn();
-    render(
-      <CardPanelHeader
-        {...defaultProps}
-        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
-        onDelete={onDelete}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
-    expect(onDelete).toHaveBeenCalledOnce();
   });
 
-  it('onDelete does NOT fire when confirm returns false', () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const onDelete = vi.fn();
+  it('replaces the Save and primary cluster with a locked badge when runner is running', () => {
+    const card = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, assigned_agent: 'agent-1' };
+    render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
+    expect(screen.getByText(/Agent still owns this card/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop runner' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Save/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Run HITL/ })).not.toBeInTheDocument();
+  });
+
+  it('replaces the cluster when a non-current agent holds the claim', () => {
+    const card = { ...baseCard, assigned_agent: 'other-agent' };
+    render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} currentAgentId={null} />);
+    expect(screen.getByText(/Agent still owns this card/)).toBeInTheDocument();
+  });
+
+  it('does NOT lock when the current human holds the claim', () => {
+    const card = { ...baseCard, assigned_agent: 'human:alice' };
     render(
       <CardPanelHeader
         {...defaultProps}
-        card={{ ...baseCard, state: 'todo', assigned_agent: undefined }}
-        onDelete={onDelete}
-      />
+        card={card}
+        editedCard={card}
+        currentAgentId="human:alice"
+      />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
-    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Agent still owns this card/)).not.toBeInTheDocument();
+  });
+});
+
+describe('CardPanelHeader — Save button', () => {
+  it('is disabled when the panel is clean', () => {
+    render(<CardPanelHeader {...defaultProps} isDirty={false} />);
+    expect(screen.getByRole('button', { name: /Save/ })).toBeDisabled();
+  });
+
+  it('is enabled when the panel is dirty', () => {
+    render(<CardPanelHeader {...defaultProps} isDirty={true} />);
+    expect(screen.getByRole('button', { name: /Save/ })).not.toBeDisabled();
+  });
+
+  it('fires onSave when clicked while dirty', () => {
+    const onSave = vi.fn();
+    render(<CardPanelHeader {...defaultProps} isDirty onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+});
+
+describe('CardPanelHeader — Open dependency helper', () => {
+  it('renders the Open dependency button on blocked cards with unfinished deps', () => {
+    const card = { ...baseCard, state: 'blocked' };
+    render(
+      <CardPanelHeader
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        firstUnfinishedDep="TEST-999"
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Open dependency' })).toBeInTheDocument();
+  });
+
+  it('calls onOpenDependency with the dep id when clicked', () => {
+    const onOpenDependency = vi.fn();
+    const card = { ...baseCard, state: 'blocked' };
+    render(
+      <CardPanelHeader
+        {...defaultProps}
+        card={card}
+        editedCard={card}
+        firstUnfinishedDep="TEST-999"
+        onOpenDependency={onOpenDependency}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open dependency' }));
+    expect(onOpenDependency).toHaveBeenCalledWith('TEST-999');
   });
 });

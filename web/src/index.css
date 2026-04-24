@@ -1,6 +1,14 @@
 @import "tailwindcss";
+@import "./fonts.css";
 
 :root {
+  /* Hint to the browser that native form controls (select dropdowns,
+     scrollbars, date pickers) should render in their dark variant.
+     Overridden to `light` below for `[data-theme="light"]`. Without this,
+     `<select>` dropdowns ignore our CSS variables and fall back to a white
+     OS-themed popup. */
+  color-scheme: dark;
+
   /* Everforest Medium Dark - Backgrounds */
   --bg-dim: #232a2e;
   --bg0: #2d353b;
@@ -17,6 +25,8 @@
   --bg-green: #425047;
   --bg-blue: #3a515d;
   --bg-purple: #4a444e;
+  --bg-aqua: #3f5244;
+  --bg-orange: #4a3a3d;
 
   /* Foreground */
   --fg: #d3c6aa;
@@ -33,17 +43,24 @@
   --blue: #7fbbb3;
   --purple: #d699b6;
 
-  /* Fonts */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  /* Fonts — three webfonts loaded from Google Fonts in index.html. System
+     font stacks are kept as fallbacks so the UI degrades gracefully if the
+     CDN is unreachable. */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, ui-serif, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
   /* Layout */
   --col-width: 280px;
   --sidebar-width: 240px;
+  --rail-collapsed-width: 340px;
+  --rail-expanded-width: 600px;
 }
 
 /* Everforest Hard Light — sole light mode for everforest */
 [data-theme="light"] {
+  color-scheme: light;
+
   /* Backgrounds */
   --bg-dim: #f2efdf;
   --bg0:    #fffbef;
@@ -60,6 +77,8 @@
   --bg-green:  #f3f5d9;
   --bg-blue:   #ecf5ed;
   --bg-purple: #fce5d9;
+  --bg-aqua:   #e7f1e8;
+  --bg-orange: #fce4d8;
 
   /* Foreground
    * Greys and `--aqua` darkened from standard Everforest Hard Light values
@@ -106,6 +125,8 @@
   --bg-green:  #132819;  /* grass3 */
   --bg-blue:   #0d2847;  /* blue3 */
   --bg-purple: #351a35;  /* plum3 */
+  --bg-aqua:   #112e25;  /* teal3 — sits in the same step as the others */
+  --bg-orange: #331a0d;  /* orange3 */
   --bg-visual: #351a35;  /* plum3 — selection/drag highlight */
 
   /* Slate dark scale — Foreground */
@@ -141,6 +162,8 @@
   --bg-green:  #ebf9eb;  /* grass3 */
   --bg-blue:   #e6f4fe;  /* blue3 */
   --bg-purple: #fbebff;  /* plum3 */
+  --bg-aqua:   #e0f8f3;  /* teal3 */
+  --bg-orange: #ffefd6;  /* orange3 */
   --bg-visual: #fbebff;  /* plum3 — selection/drag highlight */
 
   /* Slate light scale — Foreground */
@@ -177,6 +200,8 @@
   --bg-green:  #24352e;
   --bg-blue:   #253346;
   --bg-purple: #322440;
+  --bg-aqua:   #1f3537;
+  --bg-orange: #3d2a1d;
 
   /* Foreground — Text and Subtext scale */
   --fg:    #cdd6f4;   /* text — primary */
@@ -212,6 +237,8 @@
   --bg-green:  #d7ecd0;
   --bg-blue:   #d6e3fc;
   --bg-purple: #e6d9f4;
+  --bg-aqua:   #cfe9e3;
+  --bg-orange: #fbd9c1;
 
   /* Foreground */
   --fg:    #4c4f69;   /* text — primary */
@@ -276,6 +303,11 @@ body {
   background-color: var(--bg-dim);
   color: var(--fg);
   line-height: 1.5;
+  /* Geist stylistic sets + slight tracking tightening match the bifold
+     design mock's feel. ss01/ss02 refine the numerals and alternate 'a',
+     cv11 the curled 'l'. */
+  font-feature-settings: "ss01", "ss02", "cv11";
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -387,22 +419,557 @@ input, select, textarea {
   flex-direction: column;
 }
 
+/* Reverts the typography stack on a subtree to the original system fonts
+   (no Fraunces / Geist / JetBrains Mono). Used on the Board and Dashboard
+   surfaces — the panels keep the new design fonts. Overrides the CSS
+   custom properties locally so descendants that look up `var(--font-*)`
+   pick up the system stacks transparently (chips, eyebrows, etc.). */
+.use-system-fonts {
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  --font-display: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  font-feature-settings: normal;
+}
+
+/* Pill chip — matches the design mock. Mono font, tight tracking, fully
+   rounded. Color tints are applied via inline style at the call site. */
+.chip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* Small uppercase section label — mono, wide tracking, matches the mock's
+   h4 style in the rail and left column. */
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey0);
+}
+
+/* Automation rail — spread rows from the design mock. Each row puts the
+   control label on the left and a hint/value on the right. */
+.bf-auto-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bf-spread {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--grey2);
+  min-width: 0;
+}
+.bf-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--fg);
+  min-width: 0;
+}
+.bf-switch input {
+  accent-color: var(--aqua);
+  transform: scale(1.1);
+}
+.bf-switch-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.bf-switch-label {
+  font-size: 12.5px;
+  color: var(--grey2);
+}
+.bf-hint {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--grey1);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bifold state-style select — used for State picker, Base branch selector,
+   etc. Matches the design mock's `.bf-state-select`: rounded-lg, custom
+   chevron SVG painted onto the background, mono label, focus-aqua. */
+.bf-state-select {
+  width: 100%;
+  padding: 9px 34px 9px 12px;
+  background-color: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color .12s, background-color .12s;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5l3 3 3-3' fill='none' stroke='%239da9a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+.bf-state-select:hover:not(:disabled) {
+  border-color: var(--bg5);
+  background-color: var(--bg3);
+}
+.bf-state-select:focus {
+  border-color: var(--aqua);
+  outline: none;
+}
+.bf-state-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background-color: var(--bg1);
+}
+/* Right-rail tab strip — mono labels, sticky bg, aqua underline on the
+   active tab. Mirrors the design mock's `.rail-tab` / `.rail-expand`. */
+.bf-rail-tab {
+  padding: 10px 11px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--grey1);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .12s, border-color .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  background: transparent;
+}
+.bf-rail-tab:hover { color: var(--fg); }
+.bf-rail-tab--active {
+  color: var(--fg);
+  border-bottom-color: var(--aqua);
+}
+.bf-rail-tab--danger { color: color-mix(in oklab, var(--red) 80%, var(--grey1)); }
+.bf-rail-tab--danger.bf-rail-tab--active {
+  color: var(--red);
+  border-bottom-color: var(--red);
+  background: color-mix(in oklab, var(--bg-red) 50%, transparent);
+}
+.bf-rail-expand {
+  margin-left: auto;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: color .12s, background .12s;
+  flex-shrink: 0;
+  border-left: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
+  background: transparent;
+}
+.bf-rail-expand:hover {
+  color: var(--fg);
+  background: var(--bg1);
+}
+.bf-rail-expand-arrow {
+  font-size: 15px;
+  letter-spacing: -0.05em;
+}
+
+/* Pulsing dot indicator on the chat tab — same animation as runner-active. */
+.bf-dot-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--aqua);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--aqua) 25%, transparent);
+  animation: bf-dot-pulse 1.6s ease-in-out infinite;
+  display: inline-block;
+}
+@keyframes bf-dot-pulse {
+  50% { opacity: 0.25; }
+}
+
+/* Section card for the rail's stacked sections — used in Info, Source, etc. */
+.bf-aside-section {
+  padding: 16px 18px;
+  border-bottom: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
+}
+.bf-aside-section:last-child { border-bottom: 0; }
+.bf-aside-section h4 {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey0);
+  margin: 0 0 10px;
+}
+
+/* Chip color variants — bg/fg derived from the mock palette. All built on
+   `.chip-pill` for shape/typography. */
+.chip-state-todo        { background-color: var(--bg2);        color: var(--grey2); }
+.chip-state-in_progress { background-color: var(--bg-blue);    color: var(--blue); }
+.chip-state-hitl        { background-color: var(--bg-aqua);    color: var(--aqua); }
+.chip-state-review      { background-color: var(--bg-yellow);  color: var(--yellow); }
+.chip-state-done        { background-color: var(--bg-green);   color: var(--green); }
+.chip-state-blocked     { background-color: var(--bg-red);     color: var(--red); }
+.chip-state-stalled     { background-color: var(--bg-orange);  color: var(--orange); }
+.chip-state-not_planned { background-color: color-mix(in srgb, var(--bg-purple) 85%, transparent);  color: var(--purple); }
+
+/* Related-card row — used for Subtasks and Depends-on. */
+.bf-rel-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--bg1) 60%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 6px;
+  width: 100%;
+  text-align: left;
+  transition: border-color .12s, background .12s;
+  min-width: 0;
+}
+.bf-rel-card:hover {
+  border-color: var(--bg5);
+  background: color-mix(in oklab, var(--bg1) 80%, transparent);
+}
+.bf-rel-card:last-child { margin-bottom: 0; }
+.bf-rel-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--grey1);
+  flex-shrink: 0;
+}
+.bf-rel-title {
+  color: var(--grey2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* External-source pill — used in the header eyebrow and the Info → Source
+   section. Matches the mock's `.source-link`. */
+.bf-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 99px;
+  background: var(--bg2);
+  color: var(--grey2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.bf-source-link:hover {
+  border-color: var(--bg5);
+  color: var(--fg);
+  background: var(--bg3);
+  text-decoration: none;
+}
+.bf-source-link svg { display: block; }
+
+/* Activity log — grid: dot | body | time. */
+.bf-act {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
+}
+.bf-act:last-child { border-bottom: 0; }
+.bf-act-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bg5);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.bf-act-dot.bf-act-dot-done     { background: var(--green); }
+.bf-act-dot.bf-act-dot-progress { background: var(--blue); }
+.bf-act-dot.bf-act-dot-claim    { background: var(--aqua); }
+.bf-act-dot.bf-act-dot-error    { background: var(--red); }
+.bf-act-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--grey2);
+  min-width: 0;
+}
+.bf-act-agent {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+}
+.bf-act-time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey0);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Automation tab body wrappers (top + activity below). */
+.bf-auto-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.bf-auto-top {
+  flex: 0 1 auto;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+.bf-auto-activity {
+  flex: 1 1 50%;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--bg3);
+  background: color-mix(in oklab, var(--bg0) 85%, var(--bg-dim));
+  min-height: 0;
+}
+.bf-auto-activity-head {
+  padding: 14px 18px 8px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: inherit;
+}
+.bf-auto-activity-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 18px 14px;
+  min-height: 0;
+}
+
+/* Chat compose — grid label-area + send button. */
+.bf-tk-compose {
+  padding: 14px 18px;
+  border-top: 1px solid color-mix(in oklab, var(--bg3) 80%, transparent);
+  background: color-mix(in oklab, var(--bg1) 40%, var(--bg0));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+.bf-tk-compose textarea {
+  resize: none;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  min-height: 56px;
+}
+
+/* Generic input/textarea base — matches the mock's `.input`. */
+.bf-input {
+  width: 100%;
+  background: var(--bg-dim);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--fg);
+  outline: none;
+  transition: border-color .12s, background .12s;
+}
+.bf-input:focus { border-color: var(--aqua); }
+.bf-input:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Aqua primary button (Send, etc.) — matches `.btn-primary` in the mock. */
+.bf-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: var(--aqua);
+  color: var(--bg-dim);
+  border: 1px solid transparent;
+  transition: filter .12s;
+  line-height: 1;
+  white-space: nowrap;
+}
+.bf-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.bf-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Ghost button — used for "Just claim", "Release", "+ add dependency". */
+.bf-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--bg4);
+  transition: border-color .12s, background .12s;
+  line-height: 1;
+  white-space: nowrap;
+}
+.bf-btn-ghost:hover:not(:disabled) {
+  border-color: var(--bg5);
+  background: var(--bg2);
+}
+.bf-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+.bf-btn-ghost.bf-btn-sm { padding: 5px 10px; font-size: 11.5px; }
+
+/* "🔒 Automation locked during remote run" banner. */
+.bf-locked-banner {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--yellow);
+  margin-top: 4px;
+}
+
+/* Danger tab. */
+.bf-danger-wrap {
+  padding: 18px 18px 22px;
+  overflow-y: auto;
+  height: 100%;
+}
+.bf-danger-intro { margin-bottom: 14px; }
+.bf-danger-card {
+  background: color-mix(in oklab, var(--bg-red) 18%, var(--bg1));
+  border: 1px solid color-mix(in oklab, var(--red) 22%, transparent);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.bf-danger-card:last-child { margin-bottom: 0; }
+.bf-danger-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+.bf-danger-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+.bf-danger-desc {
+  color: var(--grey2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.bf-danger-reason {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--yellow);
+  line-height: 1.5;
+}
+.bf-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: var(--bg-red);
+  color: var(--red);
+  border: 1px solid transparent;
+  transition: filter .12s;
+  line-height: 1;
+  white-space: nowrap;
+}
+.bf-btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
+.bf-btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.bf-btn-danger.bf-btn-sm { padding: 5px 10px; font-size: 11.5px; }
+
+/* Bifold card detail panel — two-column drawer. Collapsed rail = 820px,
+   expanded rail = 1240px / 90vw, reshaped to 40/60. Overrides .card-panel
+   width constraints; retains position, height, theming, z-index. */
+.card-panel-bifold {
+  /* Panel width is constant in both default and expanded modes —
+     `Expand rail` reshapes the internal split (see CardPanelBody.tsx
+     grid-template) instead of growing the drawer. The left column
+     gives up width to the rail when expanded. `min(1040px, 100vw)`
+     guarantees the panel never overflows the viewport (otherwise a
+     1025-1039px viewport would force a horizontal scroll). */
+  width: min(1040px, 100vw);
+  min-width: min(920px, 100vw);
+  max-width: 1040px;
+  background-color: var(--bg0);
+  box-shadow: -30px 0 80px -20px rgba(0, 0, 0, 0.5);
+}
+/* Rail column runs slightly darker than the left column so the two halves
+   of the bifold read as related-but-distinct surfaces — matches the mock. */
+.card-panel-bifold [data-testid="body-rail"] {
+  background-color: color-mix(in oklab, var(--bg-dim) 40%, var(--bg0));
+}
+@media (max-width: 920px) {
+  .card-panel-bifold {
+    width: 100%;
+    min-width: unset;
+    max-width: unset;
+  }
+}
+
 /* Override markdown editor styles for Everforest theme */
 .w-md-editor {
-  --color-canvas-default: var(--bg2) !important;
+  --color-canvas-default: var(--bg-dim) !important;
   --color-canvas-subtle: var(--bg1) !important;
   --color-border-default: var(--bg3) !important;
   --color-border-muted: var(--bg3) !important;
   --color-fg-default: var(--fg) !important;
   --color-fg-muted: var(--grey1) !important;
-  background-color: var(--bg2) !important;
+  background-color: var(--bg-dim) !important;
   border-color: var(--bg3) !important;
+  border-radius: 8px !important;
 }
 
 .w-md-editor-text-pre > code,
 .w-md-editor-text-input,
 .w-md-editor-text {
   color: var(--fg) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
 }
 
 .w-md-editor-toolbar {
@@ -420,12 +987,21 @@ input, select, textarea {
 }
 
 .w-md-editor-preview {
+  background-color: var(--bg-dim) !important;
+}
+
+/* Make the user-resize handle visible against bg-dim. */
+.w-md-editor-bar {
   background-color: var(--bg2) !important;
+}
+.w-md-editor-bar svg {
+  color: var(--grey2) !important;
 }
 
 .wmde-markdown {
-  background-color: var(--bg2) !important;
+  background-color: transparent !important;
   color: var(--fg) !important;
+  font-size: 14px !important;
 }
 
 .wmde-markdown code {
@@ -435,6 +1011,37 @@ input, select, textarea {
 
 .wmde-markdown pre {
   background-color: var(--bg0) !important;
+}
+
+/*
+ * Card-panel read-only markdown: render prose in the display font so the
+ * body text flows visually from the panel title (which also uses
+ * var(--font-display)). Scoped via the `.bf-markdown` class applied in
+ * CardPanelEditor — editor-mode preview, chat logs, and other wmde-markdown
+ * consumers keep the default sans stack.
+ *
+ * Code blocks and inline code override back to the mono stack so snippets
+ * stay monospaced under the prose-serif body.
+ */
+.bf-markdown,
+.bf-markdown p,
+.bf-markdown li,
+.bf-markdown h1,
+.bf-markdown h2,
+.bf-markdown h3,
+.bf-markdown h4,
+.bf-markdown h5,
+.bf-markdown h6,
+.bf-markdown blockquote {
+  font-family: var(--font-display) !important;
+}
+
+.bf-markdown code,
+.bf-markdown kbd,
+.bf-markdown samp,
+.bf-markdown pre,
+.bf-markdown pre code {
+  font-family: var(--font-mono) !important;
 }
 
 /* Card flash animation for newly created cards */

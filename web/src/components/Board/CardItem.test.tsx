@@ -42,7 +42,9 @@ describe('CardItem — parent ID badge', () => {
     it('renders parent badge when card.parent is defined', () => {
       render(<CardItem card={subtaskCard} />);
       expect(screen.getByTitle('Parent: TEST-001')).toBeInTheDocument();
-      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('TEST-001');
+      // Board card shows just the numeric suffix; full ID stays in tooltip/aria-label.
+      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('001');
+      expect(screen.getByTitle('Parent: TEST-001')).not.toHaveTextContent('TEST-001');
     });
 
     it('parent badge has correct aria-label', () => {
@@ -77,7 +79,10 @@ describe('CardItem — parent ID badge', () => {
     it('renders parent badge when card.parent is defined', () => {
       render(<CardItem card={subtaskCard} isCollapsed />);
       expect(screen.getByTitle('Parent: TEST-001')).toBeInTheDocument();
-      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('TEST-001');
+      // Collapsed view shows just the numeric suffix to save horizontal space;
+      // the full ID stays in the tooltip and aria-label.
+      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('001');
+      expect(screen.getByTitle('Parent: TEST-001')).not.toHaveTextContent('TEST-001');
     });
 
     it('parent badge has correct aria-label', () => {

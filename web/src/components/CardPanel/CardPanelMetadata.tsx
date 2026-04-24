@@ -1,296 +1,88 @@
-import { useCallback, useEffect, useId, useState } from 'react';
-import type { Card } from '../../types';
-import { api } from '../../api/client';
-import { AutomationCheckboxes } from './AutomationCheckboxes';
+import type { Card, ProjectConfig } from '../../types';
+import { MetadataStatus } from './metadata/MetadataStatus';
+import { MetadataAgent } from './metadata/MetadataAgent';
+import { MetadataRelated } from './metadata/MetadataRelated';
+import { MetadataSource } from './metadata/MetadataSource';
 
 interface CardPanelMetadataProps {
   card: Card;
-  editedLabels: string[] | undefined;
-  onLabelsChange: (labels: string[]) => void;
+  editedCard: Card;
+  config: ProjectConfig;
+  currentAgentId: string | null;
+  runnerAttached: boolean;
+  onStateChange: (state: string) => void;
   onSubtaskClick: (cardId: string) => void;
-  editedAutonomous: boolean;
-  editedUseOpusOrchestrator: boolean;
-  editedFeatureBranch: boolean;
-  editedCreatePR: boolean;
-  onAutonomousChange: (value: boolean) => void;
-  onUseOpusOrchestratorChange: (value: boolean) => void;
-  onFeatureBranchChange: (value: boolean) => void;
-  onCreatePRChange: (value: boolean) => void;
+  onClaim: () => void;
+  onRelease: () => void;
   editedVetted: boolean;
   onVettedChange: (value: boolean) => void;
-  baseBranch?: string;
-  onBaseBranchChange: (value: string) => void;
-  branches: string[];
-  branchesLoading?: boolean;
-  branchesError?: boolean;
-  canRun?: boolean;
-  onRun?: () => void | Promise<void>;
-  automationCollapsed?: boolean;
-  onToggleAutomation?: () => void;
-  labelsCollapsed?: boolean;
-  onToggleLabels?: () => void;
+  excludeStateFromPicker?: string | null;
 }
 
+/**
+ * Info rail tab — mirrors the design mock's `renderBifoldTab` info branch
+ * (`/tmp/card-panel-explorer.html:2188-2224`). Stacked sections in four
+ * peer files under `./metadata/`:
+ *
+ *   1. MetadataStatus  — state picker + hint + runner-status badge
+ *   2. MetadataAgent   — claim/release (with ConfirmModal)
+ *   3. MetadataRelated — Parent / Subtasks / Depends-on (shares hydration)
+ *   4. MetadataSource  — external-link pill + vetted checkbox
+ *
+ * This wrapper just composes them and renders the Created/Updated footer.
+ */
 export function CardPanelMetadata({
   card,
-  editedLabels,
-  onLabelsChange,
+  editedCard,
+  config,
+  currentAgentId,
+  runnerAttached,
+  onStateChange,
   onSubtaskClick,
-  editedAutonomous,
-  editedUseOpusOrchestrator,
-  editedFeatureBranch,
-  editedCreatePR,
-  onAutonomousChange,
-  onUseOpusOrchestratorChange,
-  onFeatureBranchChange,
-  onCreatePRChange,
+  onClaim,
+  onRelease,
   editedVetted,
   onVettedChange,
-  baseBranch,
-  onBaseBranchChange,
-  branches,
-  branchesLoading,
-  branchesError,
-  canRun,
-  onRun,
-  automationCollapsed = false,
-  onToggleAutomation,
-  labelsCollapsed = false,
-  onToggleLabels,
+  excludeStateFromPicker,
 }: CardPanelMetadataProps) {
-  const [labelInput, setLabelInput] = useState('');
-  const [depStates, setDepStates] = useState<Record<string, string>>({});
-  const labelInputId = useId();
-  const vettedId = useId();
-
-  useEffect(() => {
-    if (!card.depends_on?.length) return;
-    let cancelled = false;
-    const fetchDeps = async () => {
-      const states: Record<string, string> = {};
-      await Promise.all(
-        card.depends_on!.map(async (depId) => {
-          try {
-            const dep = await api.getCard(card.project, depId);
-            states[depId] = dep.state;
-          } catch {
-            states[depId] = 'unknown';
-          }
-        }),
-      );
-      if (!cancelled) {
-        setDepStates(states);
-      }
-    };
-    fetchDeps();
-    return () => { cancelled = true; };
-  }, [card.depends_on, card.project]);
-
-  const addLabel = useCallback(() => {
-    const trimmed = labelInput.trim();
-    if (trimmed && !editedLabels?.includes(trimmed)) {
-      onLabelsChange([...(editedLabels || []), trimmed]);
-      setLabelInput('');
-    }
-  }, [labelInput, editedLabels, onLabelsChange]);
-
-  const removeLabel = useCallback(
-    (label: string) => {
-      onLabelsChange((editedLabels || []).filter((l) => l !== label));
-    },
-    [editedLabels, onLabelsChange],
-  );
-
   return (
-    <>
-      {/* Labels */}
-      <div>
-        <div className="flex items-center gap-1 mb-1">
-          <label htmlFor={labelInputId} className="text-xs text-[var(--grey1)]">Labels</label>
-          {onToggleLabels && (
-            <button
-              onClick={onToggleLabels}
-              className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-              aria-label={labelsCollapsed ? 'Expand labels' : 'Collapse labels'}
-              aria-expanded={!labelsCollapsed}
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d={labelsCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
-              </svg>
-            </button>
-          )}
-        </div>
-        {!labelsCollapsed && (
-          <>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {editedLabels?.map((label) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-[var(--bg-purple)] text-[var(--purple)]"
-                >
-                  {label}
-                  <button
-                    onClick={() => removeLabel(label)}
-                    className="hover:text-[var(--red)] transition-colors"
-                    aria-label={`Remove label ${label}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                id={labelInputId}
-                type="text"
-                value={labelInput}
-                onChange={(e) => setLabelInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addLabel()}
-                placeholder="Add label..."
-                className="flex-1 min-w-0 px-3 py-1.5 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
-              />
-              <button
-                onClick={addLabel}
-                className="px-3 py-1.5 rounded bg-[var(--bg3)] text-[var(--grey2)] hover:bg-[var(--bg4)] transition-colors text-sm"
-              >
-                Add
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <MetadataStatus
+        card={card}
+        editedCard={editedCard}
+        config={config}
+        runnerAttached={runnerAttached}
+        onStateChange={onStateChange}
+        excludeStateFromPicker={excludeStateFromPicker}
+      />
 
-      {/* Parent */}
-      {card.parent && (
-        <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Parent</label>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => onSubtaskClick(card.parent!)}
-              className="px-2 py-1 rounded bg-[var(--bg-blue)] text-[var(--aqua)] hover:bg-[var(--bg3)] transition-colors text-sm font-mono"
-            >
-              {card.parent}
-            </button>
-          </div>
-        </div>
-      )}
+      <MetadataAgent
+        card={card}
+        currentAgentId={currentAgentId}
+        runnerAttached={runnerAttached}
+        onClaim={onClaim}
+        onRelease={onRelease}
+      />
 
-      {/* Subtasks */}
-      {card.subtasks && card.subtasks.length > 0 && (
-        <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Subtasks</label>
-          <div className="flex flex-wrap gap-2">
-            {card.subtasks.map((subtaskId) => (
-              <button
-                key={subtaskId}
-                onClick={() => onSubtaskClick(subtaskId)}
-                className="px-2 py-1 rounded bg-[var(--bg2)] text-[var(--aqua)] hover:bg-[var(--bg3)] transition-colors text-sm font-mono"
-              >
-                {subtaskId}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <MetadataRelated
+        card={card}
+        runnerAttached={runnerAttached}
+        onSubtaskClick={onSubtaskClick}
+      />
 
-      {/* Dependencies */}
-      {card.depends_on && card.depends_on.length > 0 && (
-        <div>
-          <label className="block text-xs text-[var(--grey1)] mb-1">Dependencies</label>
-          <div className="flex flex-wrap gap-2">
-            {card.depends_on.map((depId) => {
-              const state = depStates[depId];
-              const isDone = state === 'done';
-              return (
-                <button
-                  key={depId}
-                  onClick={() => onSubtaskClick(depId)}
-                  className={`px-2 py-1 rounded hover:bg-[var(--bg3)] transition-colors text-sm font-mono ${
-                    isDone
-                      ? 'bg-[var(--bg-green)] text-[var(--green)]'
-                      : 'bg-[var(--bg-red)] text-[var(--red)]'
-                  }`}
-                >
-                  {depId}{state ? ` (${state})` : ''}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Automation — only for parent/standalone cards */}
-      {!card.parent && (
-        <div>
-          <div className="flex items-center gap-1 mb-2">
-            <span className="text-xs text-[var(--grey1)]">Automation</span>
-            {onToggleAutomation && (
-              <button
-                onClick={onToggleAutomation}
-                className="flex items-center justify-center text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-                aria-label={automationCollapsed ? 'Expand automation' : 'Collapse automation'}
-                aria-expanded={!automationCollapsed}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d={automationCollapsed ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'} />
-                </svg>
-              </button>
-            )}
-          </div>
-          {!automationCollapsed && (
-            <AutomationCheckboxes
-              autonomous={editedAutonomous}
-              useOpusOrchestrator={editedUseOpusOrchestrator}
-              featureBranch={editedFeatureBranch}
-              createPR={editedCreatePR}
-              onAutonomousChange={onAutonomousChange}
-              onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
-              onFeatureBranchChange={onFeatureBranchChange}
-              onCreatePRChange={onCreatePRChange}
-              branchName={card.branch_name}
-              prUrl={card.pr_url}
-              reviewAttempts={card.review_attempts}
-              baseBranch={baseBranch}
-              onBaseBranchChange={onBaseBranchChange}
-              branches={branches}
-              branchesLoading={branchesLoading}
-              branchesError={branchesError}
-              canRun={canRun}
-              onRun={onRun}
-            />
-          )}
-        </div>
-      )}
-
-      {/* External Import */}
-      {card.source && (
-        <div>
-          <div className="block text-xs text-[var(--grey1)] mb-2">External Import</div>
-          <label htmlFor={vettedId} className="flex items-center gap-2 cursor-pointer">
-            <input
-              id={vettedId}
-              type="checkbox"
-              checked={editedVetted}
-              onChange={(e) => onVettedChange(e.target.checked)}
-              className="rounded border-[var(--bg3)] bg-[var(--bg2)] accent-[var(--green)]"
-            />
-            <span className="text-sm text-[var(--fg)]">Content vetted</span>
-          </label>
-          {!editedVetted && (
-            <p className="mt-1 text-xs text-[var(--yellow)]">
-              Agents cannot claim this card until it is marked as vetted.
-            </p>
-          )}
-        </div>
-      )}
+      <MetadataSource
+        card={card}
+        editedVetted={editedVetted}
+        onVettedChange={onVettedChange}
+      />
 
       {/* Metadata footer */}
-      <div className="pt-2 border-t border-[var(--bg3)] text-xs text-[var(--grey0)]">
-        <div>Created: {new Date(card.created).toLocaleString()}</div>
-        <div>Updated: {new Date(card.updated).toLocaleString()}</div>
-      </div>
-    </>
+      <section className="bf-aside-section">
+        <div className="text-xs text-[var(--grey0)]">
+          <div>Created: {new Date(card.created).toLocaleString()}</div>
+          <div>Updated: {new Date(card.updated).toLocaleString()}</div>
+        </div>
+      </section>
+    </div>
   );
 }

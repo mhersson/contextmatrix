@@ -10,8 +10,20 @@ function StatTile({ label, value, color }: { label: string; value: string; color
       className="rounded-lg p-4"
       style={{ backgroundColor: 'var(--bg1)' }}
     >
-      <div className="text-2xl font-bold truncate" style={{ color }}>{value}</div>
-      <div className="text-sm mt-1" style={{ color: 'var(--grey1)' }}>{label}</div>
+      <div
+        className="truncate"
+        style={{
+          color,
+          fontFamily: 'var(--font-display)',
+          fontWeight: 500,
+          fontSize: '28px',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1,
+        }}
+      >
+        {value}
+      </div>
+      <div className="section-eyebrow mt-2">{label}</div>
     </div>
   );
 }
