@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CardPanelHeader } from './CardPanelHeader';
 import type { Card, ProjectConfig } from '../../types';
@@ -51,9 +51,6 @@ const defaultProps = {
   onOpenDependency: vi.fn(),
   firstUnfinishedDep: null,
 };
-
-// Suppress window.confirm in tests that trigger handleClose
-vi.spyOn(window, 'confirm').mockReturnValue(false);
 
 describe('CardPanelHeader — external_url scheme validation', () => {
   it('renders an <a> link for a safe https GitHub URL', () => {
@@ -133,10 +130,6 @@ describe('CardPanelHeader — primary action by state', () => {
 });
 
 describe('CardPanelHeader — workflow-safety lock', () => {
-  beforeEach(() => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-  });
-
   it('replaces the Save and primary cluster with a locked badge when runner is running', () => {
     const card = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, assigned_agent: 'agent-1' };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
