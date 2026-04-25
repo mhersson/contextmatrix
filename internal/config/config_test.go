@@ -1974,4 +1974,34 @@ func TestValidate_PATMissingToken(t *testing.T) {
 }
 
 // REMOVED IN TASK 16: TestLoad_ExampleFile_HasLogFields — config.yaml.example rewritten in Task 16 with new auth_mode schema
+
+func TestValidate_AppMode_RejectsPATToken(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{
+			AuthMode: "app",
+			App: GitHubAppConfig{
+				AppID: 1, InstallationID: 1, PrivateKeyPath: "/k",
+			},
+			PAT: GitHubPATConfig{Token: "leak"},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pat.token must be empty")
+}
+
+func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{
+			AuthMode: "pat",
+			PAT:      GitHubPATConfig{Token: "x"},
+			App:      GitHubAppConfig{AppID: 99},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.app.* must be empty")
+}
 // REMOVED IN TASK 16: TestConfigYamlExampleTokenCosts — config.yaml.example rewritten in Task 16
