@@ -382,15 +382,24 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 Do both of these before branching:
 
 1. Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag.
-2. Run `printenv CM_INTERACTIVE`.
+2. Detect whether you're running inside a runner container by checking for
+   the `CM_CARD_ID` env var. The runner sets `CM_CARD_ID`, `CM_PROJECT`,
+   `CM_REPO_URL`, and `CM_MCP_URL` on every worker container; a local
+   Claude Code session has none of them. Run:
+
+   ```bash
+   [ -n "${CM_CARD_ID:-}" ] && echo runner || echo local
+   ```
+
+   Always outputs exactly one line — `runner` or `local`.
 
 Select exactly one mode from the table — the two inputs fully determine it:
 
-| `autonomous` | `CM_INTERACTIVE` | Mode            | Path to follow            |
-| ------------ | ---------------- | --------------- | ------------------------- |
-| `true`       | any              | **Autonomous**  | Auto-commit path (Step 2) |
-| `false`      | `1`              | **Remote HITL** | Auto-commit path (Step 2) |
-| `false`      | unset or `0`     | **Local HITL**  | Prompt path (Step 3)      |
+| `autonomous` | Environment | Mode            | Path to follow            |
+| ------------ | ----------- | --------------- | ------------------------- |
+| `true`       | any         | **Autonomous**  | Auto-commit path (Step 2) |
+| `false`      | `runner`    | **Remote HITL** | Auto-commit path (Step 2) |
+| `false`      | `local`     | **Local HITL**  | Prompt path (Step 3)      |
 
 Only one of Step 2 or Step 3 runs. Do not read the other step.
 

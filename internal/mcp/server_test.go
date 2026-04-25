@@ -2690,11 +2690,11 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 		"create-plan.md Phase 9 must have push step")
 }
 
-// TestCreatePlanSkill_Phase9CMInteractiveBranches verifies that Phase 9 of
-// skills/create-plan.md contains both the CM_INTERACTIVE=1 auto-commit branch
+// TestCreatePlanSkill_Phase9RunnerContextBranches verifies that Phase 9 of
+// skills/create-plan.md contains both the runner-context auto-commit branch
 // for remote HITL and the local-HITL user prompts. This is a regression guard
 // so that accidental removal of either branch is caught.
-func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
+func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "skills/create-plan.md must be readable")
@@ -2706,10 +2706,12 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 		content,
 		"create-plan.md Phase 9 must reference Remote HITL")
 
-	// Remote HITL path must run printenv to detect context.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv\s+CM_INTERACTIVE`,
+	// Remote HITL path must detect runner context via CM_CARD_ID presence,
+	// not via the older CM_INTERACTIVE check (which produced ambiguous
+	// agent-side reads when the env var was unset).
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_CARD_ID`,
 		content,
-		"create-plan.md Phase 9 must use printenv CM_INTERACTIVE to detect context")
+		"create-plan.md Phase 9 must use CM_CARD_ID to detect runner context")
 
 	// Auto-commit path (autonomous + remote HITL) must forbid prompting. The
 	// "do not prompt" rule must appear after the Remote HITL branch reference
@@ -2726,10 +2728,11 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 	assert.Contains(t, content, "Want me to push and create a PR?",
 		"create-plan.md Phase 9 must retain local-HITL push prompt")
 
-	// Local HITL path must be gated on CM_INTERACTIVE being unset or 0.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE.*unset or.*0.*local HITL`,
+	// Local HITL path must be gated on the runner-context detection landing
+	// on the `local` outcome.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*` + "`local`" + `.*Local HITL`,
 		content,
-		"create-plan.md Phase 9 must describe local HITL as CM_INTERACTIVE unset or 0")
+		"create-plan.md Phase 9 must describe local HITL as the `local` runner-context outcome")
 }
 
 // TestCreatePlanSkillIsSelfContained verifies that skills/create-plan.md is a
@@ -2951,9 +2954,9 @@ func TestUpdateCard_AcceptsSkills(t *testing.T) {
 
 	skills := []string{"typescript-react"}
 	result := callTool(t, env, "update_card", map[string]any{
-		"project":  "test-project",
-		"card_id":  card.ID,
-		"skills":   skills,
+		"project": "test-project",
+		"card_id": card.ID,
+		"skills":  skills,
 	})
 	require.False(t, result.IsError)
 
