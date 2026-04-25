@@ -201,7 +201,7 @@ func newMultiProjectService(b *testing.B, numProjects int) *CardService {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(b, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(b))
 	require.NoError(b, err)
 
 	bus := events.NewBus()

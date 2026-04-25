@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -17,22 +18,15 @@ type BranchFetcher interface {
 // branchHandlers contains handlers for the branch listing endpoint.
 type branchHandlers struct {
 	svc              *service.CardService
-	githubToken      string
+	provider         githubauth.TokenGenerator
 	githubAPIBaseURL string
 	allowedHosts     []string
-	newBranchClient  func(token, baseURL string) BranchFetcher
+	newBranchClient  func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
 }
 
 // listBranches handles GET /api/projects/{project}/branches.
 // It returns a JSON array of branch name strings from the project's GitHub repo.
 func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
-	if h.githubToken == "" {
-		writeError(w, http.StatusServiceUnavailable, "NO_GITHUB_TOKEN",
-			"GitHub token is not configured", "")
-
-		return
-	}
-
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
@@ -55,7 +49,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := h.newBranchClient(h.githubToken, h.githubAPIBaseURL)
+	client := h.newBranchClient(h.provider, h.githubAPIBaseURL)
 
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
@@ -69,7 +63,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, branches)
 }
 
-// defaultBranchClient creates a real GitHub API client.
-func defaultBranchClient(token, baseURL string) BranchFetcher {
-	return github.NewClientWithBaseURL(token, baseURL)
+// defaultBranchClient returns a github.Client constructed from the provider.
+func defaultBranchClient(provider githubauth.TokenGenerator, baseURL string) BranchFetcher {
+	return github.NewClientWithBaseURL(provider, baseURL)
 }

@@ -70,7 +70,7 @@ func setupMCP(t *testing.T) *testEnv {
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", nil)
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -329,7 +329,6 @@ func TestTransitionCard_Invalid(t *testing.T) {
 			"new_state": "done",
 		},
 	})
-
 	// The SDK wraps tool handler errors as IsError results for regular errors,
 	// or returns an rpc error. Either way we should detect the failure.
 	if err != nil {

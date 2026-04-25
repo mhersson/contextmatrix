@@ -1044,26 +1044,35 @@ maintenance_interval: "10m"
 # HMAC-sign the GET /autonomous verify check sent to ContextMatrix
 use_hmac_for_verify_autonomous: true
 
-# Claude Code auth
-# The runner must be installed on a machine with a browser
-# for initial `claude login` OAuth flow. Auth tokens are
-# mounted into containers at runtime.
+# GitHub auth — covers all git operations inside worker containers.
+# auth_mode: "app" (recommended) or "pat".
+# For end-to-end setup see docs/github-auth-setup.md.
+github:
+  auth_mode: "app"  # CMR_GITHUB_AUTH_MODE
+  host: ""          # CMR_GITHUB_HOST — GHE/GHEC-DR hostname; empty for github.com
+  api_base_url: ""  # CMR_GITHUB_API_BASE_URL — override for non-standard enterprise URLs
 
-# GitHub App credentials
-github_app:
-  app_id: 0
-  installation_id: 0
-  private_key_path: ""
-  # For GHEC-DR or GHES: set to the enterprise API base URL.
-  # Must match github.api_base_url (or its derived value) in ContextMatrix config.
-  # api_base_url: "https://api.acme.ghe.com"  # Env: CMR_GITHUB_API_BASE_URL
+  # GitHub App credentials (required when auth_mode is "app")
+  app:
+    app_id: 0            # CMR_GITHUB_APP_ID
+    installation_id: 0   # CMR_GITHUB_INSTALLATION_ID
+    private_key_path: "" # CMR_GITHUB_PRIVATE_KEY_PATH
+
+  # Fine-grained PAT (required when auth_mode is "pat")
+  pat:
+    token: "" # CMR_GITHUB_PAT_TOKEN
 ```
 
-When using GitHub Enterprise, both sides must target the same host: set
-`github.host` (or `github.api_base_url`) in ContextMatrix and
-`github_app.api_base_url` in the runner to the same enterprise API endpoint. The
-runner entrypoint derives the git host automatically from the repo URL sent in
-the trigger payload, so no additional git configuration is needed.
+For end-to-end auth setup, see
+[`docs/github-auth-setup.md`](github-auth-setup.md). The runner uses
+the same model: a single identity (`app` with App credentials, or `pat`
+with a fine-grained PAT) covers all git operations inside worker containers.
+
+When using GitHub Enterprise, set `github.host` (and optionally
+`github.api_base_url`) in both ContextMatrix and the runner to target
+the same enterprise instance. The runner entrypoint derives the git host
+automatically from the repo URL sent in the trigger payload, so no
+additional git configuration is needed.
 
 ### Operator Endpoints
 

@@ -94,7 +94,7 @@ func TestLoadProjectConfig_MalformedYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".board.yaml")
 
-	err := os.WriteFile(path, []byte("invalid: yaml: content: ["), 0644)
+	err := os.WriteFile(path, []byte("invalid: yaml: content: ["), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadProjectConfig(dir)
@@ -115,7 +115,7 @@ transitions:
   todo: [done]
   done: [todo]
 `
-	err := os.WriteFile(path, []byte(yaml), 0644)
+	err := os.WriteFile(path, []byte(yaml), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadProjectConfig(dir)
@@ -136,7 +136,7 @@ transitions:
   todo: [done]
   done: [todo]
 `
-	err := os.WriteFile(path, []byte(yaml), 0644)
+	err := os.WriteFile(path, []byte(yaml), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadProjectConfig(dir)
@@ -158,7 +158,7 @@ transitions:
   done: [todo]
   stalled: [todo]
 `
-	err := os.WriteFile(path, []byte(yaml), 0644)
+	err := os.WriteFile(path, []byte(yaml), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadProjectConfig(dir)
@@ -180,7 +180,7 @@ transitions:
   done: [todo]
   stalled: [todo]
 `
-	err := os.WriteFile(path, []byte(yaml), 0644)
+	err := os.WriteFile(path, []byte(yaml), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadProjectConfig(dir)
@@ -353,7 +353,7 @@ func TestGenerateCardID_Rollover999To1000(t *testing.T) {
 func TestLoadTemplates_AllTypes(t *testing.T) {
 	dir := t.TempDir()
 	templatesPath := filepath.Join(dir, "templates")
-	err := os.MkdirAll(templatesPath, 0755)
+	err := os.MkdirAll(templatesPath, 0o755)
 	require.NoError(t, err)
 
 	// Create template files
@@ -365,7 +365,7 @@ func TestLoadTemplates_AllTypes(t *testing.T) {
 
 	for name, content := range templateContents {
 		path := filepath.Join(templatesPath, name+".md")
-		err := os.WriteFile(path, []byte(content), 0644)
+		err := os.WriteFile(path, []byte(content), 0o644)
 		require.NoError(t, err)
 	}
 
@@ -389,7 +389,7 @@ func TestLoadTemplates_NoTemplatesDir(t *testing.T) {
 
 func TestLoadTemplates_EmptyTemplatesDir(t *testing.T) {
 	dir := t.TempDir()
-	err := os.MkdirAll(filepath.Join(dir, "templates"), 0755)
+	err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755)
 	require.NoError(t, err)
 
 	templates, err := LoadTemplates(dir)
@@ -400,7 +400,7 @@ func TestLoadTemplates_EmptyTemplatesDir(t *testing.T) {
 func TestLoadTemplates_IgnoresNonMdFiles(t *testing.T) {
 	dir := t.TempDir()
 	templatesPath := filepath.Join(dir, "templates")
-	err := os.MkdirAll(templatesPath, 0755)
+	err := os.MkdirAll(templatesPath, 0o755)
 	require.NoError(t, err)
 
 	// Create various files
@@ -412,7 +412,7 @@ func TestLoadTemplates_IgnoresNonMdFiles(t *testing.T) {
 
 	for name, content := range files {
 		path := filepath.Join(templatesPath, name)
-		err := os.WriteFile(path, []byte(content), 0644)
+		err := os.WriteFile(path, []byte(content), 0o644)
 		require.NoError(t, err)
 	}
 
@@ -428,14 +428,14 @@ func TestLoadTemplates_IgnoresNonMdFiles(t *testing.T) {
 func TestLoadTemplates_IgnoresDirectories(t *testing.T) {
 	dir := t.TempDir()
 	templatesPath := filepath.Join(dir, "templates")
-	err := os.MkdirAll(templatesPath, 0755)
+	err := os.MkdirAll(templatesPath, 0o755)
 	require.NoError(t, err)
 
 	// Create a subdirectory and a file
-	err = os.MkdirAll(filepath.Join(templatesPath, "subdir.md"), 0755)
+	err = os.MkdirAll(filepath.Join(templatesPath, "subdir.md"), 0o755)
 	require.NoError(t, err)
 
-	err = os.WriteFile(filepath.Join(templatesPath, "task.md"), []byte("# Task"), 0644)
+	err = os.WriteFile(filepath.Join(templatesPath, "task.md"), []byte("# Task"), 0o644)
 	require.NoError(t, err)
 
 	templates, err := LoadTemplates(dir)
@@ -493,11 +493,11 @@ func TestDiscoverProjects_SkipsInvalidDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create directory without .board.yaml
-	err = os.MkdirAll(filepath.Join(boardsDir, "no-config"), 0755)
+	err = os.MkdirAll(filepath.Join(boardsDir, "no-config"), 0o755)
 	require.NoError(t, err)
 
 	// Create a regular file (not a directory)
-	err = os.WriteFile(filepath.Join(boardsDir, "not-a-dir"), []byte("file"), 0644)
+	err = os.WriteFile(filepath.Join(boardsDir, "not-a-dir"), []byte("file"), 0o644)
 	require.NoError(t, err)
 
 	projects, err := DiscoverProjects(boardsDir)
@@ -526,10 +526,10 @@ func TestDiscoverProjects_LoadsTemplates(t *testing.T) {
 
 	// Add templates
 	templatesPath := filepath.Join(projectDir, "templates")
-	err = os.MkdirAll(templatesPath, 0755)
+	err = os.MkdirAll(templatesPath, 0o755)
 	require.NoError(t, err)
 
-	err = os.WriteFile(filepath.Join(templatesPath, "task.md"), []byte("# Task Template"), 0644)
+	err = os.WriteFile(filepath.Join(templatesPath, "task.md"), []byte("# Task Template"), 0o644)
 	require.NoError(t, err)
 
 	projects, err := DiscoverProjects(boardsDir)
@@ -551,9 +551,9 @@ func TestDiscoverProjects_SkipsMalformedConfigs(t *testing.T) {
 
 	// Create project with malformed config
 	malformedDir := filepath.Join(boardsDir, "malformed")
-	err = os.MkdirAll(malformedDir, 0755)
+	err = os.MkdirAll(malformedDir, 0o755)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(malformedDir, ".board.yaml"), []byte("invalid: [yaml"), 0644)
+	err = os.WriteFile(filepath.Join(malformedDir, ".board.yaml"), []byte("invalid: [yaml"), 0o644)
 	require.NoError(t, err)
 
 	projects, err := DiscoverProjects(boardsDir)
@@ -575,7 +575,7 @@ func TestDiscoverProjects_SkipsInvalidConfigs(t *testing.T) {
 
 	// Create project with missing stalled state (valid YAML, invalid config)
 	invalidDir := filepath.Join(boardsDir, "invalid")
-	err = os.MkdirAll(invalidDir, 0755)
+	err = os.MkdirAll(invalidDir, 0o755)
 	require.NoError(t, err)
 
 	yaml := `name: invalid
@@ -587,7 +587,7 @@ priorities: [medium]
 transitions:
   todo: []
 `
-	err = os.WriteFile(filepath.Join(invalidDir, ".board.yaml"), []byte(yaml), 0644)
+	err = os.WriteFile(filepath.Join(invalidDir, ".board.yaml"), []byte(yaml), 0o644)
 	require.NoError(t, err)
 
 	projects, err := DiscoverProjects(boardsDir)

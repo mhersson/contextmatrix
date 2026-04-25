@@ -59,11 +59,25 @@ func (c *IssueImportingConfig) SyncIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.SyncInterval)
 }
 
+// GitHubAppConfig holds GitHub App credentials.
+type GitHubAppConfig struct {
+	AppID          int64  `yaml:"app_id"`
+	InstallationID int64  `yaml:"installation_id"`
+	PrivateKeyPath string `yaml:"private_key_path"`
+}
+
+// GitHubPATConfig holds a Personal Access Token credential.
+type GitHubPATConfig struct {
+	Token string `yaml:"token"`
+}
+
 // GitHubConfig holds configuration for GitHub integration.
 type GitHubConfig struct {
-	Token          string               `yaml:"token"`
+	AuthMode       string               `yaml:"auth_mode"`
 	Host           string               `yaml:"host"`
 	APIBaseURL     string               `yaml:"api_base_url"`
+	App            GitHubAppConfig      `yaml:"app"`
+	PAT            GitHubPATConfig      `yaml:"pat"`
 	IssueImporting IssueImportingConfig `yaml:"issue_importing"`
 }
 
@@ -102,7 +116,13 @@ type BoardsConfig struct {
 	GitPullInterval   string `yaml:"git_pull_interval"`
 	GitCloneOnEmpty   bool   `yaml:"git_clone_on_empty"`
 	GitRemoteURL      string `yaml:"git_remote_url"`
-	GitAuthMode       string `yaml:"git_auth_mode"`
+}
+
+// TaskSkillsConfig holds configuration for the task-skills directory and its optional git backing.
+type TaskSkillsConfig struct {
+	Dir             string `yaml:"dir"`
+	GitCloneOnEmpty bool   `yaml:"git_clone_on_empty"`
+	GitRemoteURL    string `yaml:"git_remote_url"`
 }
 
 // Config holds the application configuration.
@@ -112,7 +132,7 @@ type Config struct {
 	HeartbeatTimeout  string               `yaml:"heartbeat_timeout"`
 	CORSOrigin        string               `yaml:"cors_origin"`
 	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
-	TaskSkillsDir     string               `yaml:"task_skills_dir"`
+	TaskSkills        TaskSkillsConfig     `yaml:"task_skills"`
 	Theme             string               `yaml:"theme"`
 	TokenCosts        map[string]ModelCost `yaml:"token_costs"`
 	MCPAPIKey         string               `yaml:"mcp_api_key"`
@@ -134,12 +154,11 @@ func defaults() *Config {
 			GitAutoPush:     false,
 			GitAutoPull:     false,
 			GitPullInterval: "60s",
-			GitAuthMode:     "ssh",
 		},
 		HeartbeatTimeout:  "30m",
 		CORSOrigin:        "http://localhost:5173",
 		WorkflowSkillsDir: "",
-		TaskSkillsDir:     "",
+		TaskSkills:        TaskSkillsConfig{},
 		Theme:             "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
@@ -159,6 +178,35 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
 	}
 
+	switch c.GitHub.AuthMode {
+	case "app":
+		if c.GitHub.App.AppID == 0 {
+			return fmt.Errorf("github.app.app_id is required when github.auth_mode is \"app\"")
+		}
+
+		if c.GitHub.App.InstallationID == 0 {
+			return fmt.Errorf("github.app.installation_id is required when github.auth_mode is \"app\"")
+		}
+
+		if c.GitHub.App.PrivateKeyPath == "" {
+			return fmt.Errorf("github.app.private_key_path is required when github.auth_mode is \"app\"")
+		}
+
+		if c.GitHub.PAT.Token != "" {
+			return fmt.Errorf("github.pat.token must be empty when github.auth_mode is \"app\"")
+		}
+	case "pat":
+		if c.GitHub.PAT.Token == "" {
+			return fmt.Errorf("github.pat.token is required when github.auth_mode is \"pat\"")
+		}
+
+		if c.GitHub.App.AppID != 0 || c.GitHub.App.InstallationID != 0 || c.GitHub.App.PrivateKeyPath != "" {
+			return fmt.Errorf("github.app.* must be empty when github.auth_mode is \"pat\"")
+		}
+	default:
+		return fmt.Errorf("github.auth_mode is required: must be \"app\" or \"pat\" (got %q)", c.GitHub.AuthMode)
+	}
+
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
@@ -174,33 +222,20 @@ func (c *Config) Validate() error {
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
-
-	if c.Boards.GitAuthMode == "" {
-		c.Boards.GitAuthMode = "ssh"
+	// All git remote URLs must be HTTPS — SSH is no longer supported.
+	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
+		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
 	}
 
-	switch c.Boards.GitAuthMode {
-	case "ssh", "pat":
-		// valid
-	default:
-		return fmt.Errorf("invalid boards.git_auth_mode %q: must be \"ssh\" or \"pat\"", c.Boards.GitAuthMode)
+	if c.TaskSkills.GitCloneOnEmpty && c.TaskSkills.GitRemoteURL == "" {
+		return fmt.Errorf("task_skills.git_remote_url is required when task_skills.git_clone_on_empty is enabled")
 	}
 
-	if c.Boards.GitAuthMode == "pat" {
-		if c.GitHub.Token == "" {
-			return fmt.Errorf("github.token is required when boards.git_auth_mode is \"pat\"")
-		}
-
-		if !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
-			return fmt.Errorf("boards.git_remote_url must start with https:// when boards.git_auth_mode is \"pat\" (got %q)", c.Boards.GitRemoteURL)
-		}
+	if c.TaskSkills.GitRemoteURL != "" && !strings.HasPrefix(c.TaskSkills.GitRemoteURL, "https://") {
+		return fmt.Errorf("task_skills.git_remote_url must start with https:// (got %q)", c.TaskSkills.GitRemoteURL)
 	}
 
 	if c.GitHub.IssueImporting.Enabled {
-		if c.GitHub.Token == "" {
-			return fmt.Errorf("github.token is required when github.issue_importing.enabled is true")
-		}
-
 		if c.GitHub.IssueImporting.SyncInterval == "" {
 			c.GitHub.IssueImporting.SyncInterval = "5m"
 		}
@@ -374,15 +409,15 @@ func resolvePaths(cfg *Config, configPath string) error {
 		cfg.WorkflowSkillsDir = filepath.Join(filepath.Dir(configPath), "workflow-skills")
 	}
 
-	taskSkillsDir, err := expandTilde(cfg.TaskSkillsDir)
+	taskSkillsDir, err := expandTilde(cfg.TaskSkills.Dir)
 	if err != nil {
 		return err
 	}
 
-	cfg.TaskSkillsDir = taskSkillsDir
+	cfg.TaskSkills.Dir = taskSkillsDir
 
-	if cfg.TaskSkillsDir == "" {
-		cfg.TaskSkillsDir = filepath.Join(filepath.Dir(configPath), "task-skills")
+	if cfg.TaskSkills.Dir == "" {
+		cfg.TaskSkills.Dir = filepath.Join(filepath.Dir(configPath), "task-skills")
 	}
 
 	return nil
@@ -430,8 +465,32 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Boards.GitRemoteURL = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
-		cfg.Boards.GitAuthMode = v
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_AUTH_MODE"); v != "" {
+		cfg.GitHub.AuthMode = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_APP_ID"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.GitHub.App.AppID = id
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_GITHUB_APP_ID", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_INSTALLATION_ID"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.GitHub.App.InstallationID = id
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_GITHUB_INSTALLATION_ID", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH"); v != "" {
+		cfg.GitHub.App.PrivateKeyPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN"); v != "" {
+		cfg.GitHub.PAT.Token = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
@@ -447,7 +506,15 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {
-		cfg.TaskSkillsDir = v
+		cfg.TaskSkills.Dir = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL"); v != "" {
+		cfg.TaskSkills.GitRemoteURL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY"); v != "" {
+		cfg.TaskSkills.GitCloneOnEmpty = v == "true" || v == "1"
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
@@ -480,10 +547,6 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
 		cfg.Runner.ReconcileInterval = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
-		cfg.GitHub.Token = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {

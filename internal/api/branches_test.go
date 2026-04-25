@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -48,7 +49,7 @@ transitions:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -71,34 +72,15 @@ func (m *mockBranchFetcher) FetchBranches(_ context.Context, _, _ string) ([]str
 	return m.branches, m.err
 }
 
-func TestListBranches_NoToken(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	// No GitHubToken set — expect 503
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	resp, err := http.Get(server.URL + "/api/projects/test-project/branches")
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, "NO_GITHUB_TOKEN", apiErr.Code)
-}
-
 func TestListBranches_NoGitHubRepo(t *testing.T) {
 	// testSetup creates a project with no repo URL
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -120,7 +102,10 @@ func TestListBranches_NonGitHubRepo(t *testing.T) {
 	svc, bus, cleanup := testSetupWithGitHubRepo(t, "https://gitlab.com/owner/repo")
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -141,7 +126,10 @@ func TestListBranches_ProjectNotFound(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubToken: "test-token"})
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, GitHubTokenProvider: provider})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -164,11 +152,14 @@ func TestListBranches_Success(t *testing.T) {
 
 	mock := &mockBranchFetcher{branches: []string{"develop", "feature/abc", "main"}}
 
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
 	bh := &branchHandlers{
 		svc:             svc,
-		githubToken:     "test-token",
+		provider:        provider,
 		allowedHosts:    []string{"github.com"},
-		newBranchClient: func(_, _ string) BranchFetcher { return mock },
+		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
 	mux := http.NewServeMux()
@@ -195,11 +186,14 @@ func TestListBranches_FetchError(t *testing.T) {
 
 	mock := &mockBranchFetcher{err: errors.New("network error")}
 
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
 	bh := &branchHandlers{
 		svc:             svc,
-		githubToken:     "test-token",
+		provider:        provider,
 		allowedHosts:    []string{"github.com"},
-		newBranchClient: func(_, _ string) BranchFetcher { return mock },
+		newBranchClient: func(_ githubauth.TokenGenerator, _ string) BranchFetcher { return mock },
 	}
 
 	mux := http.NewServeMux()
@@ -218,4 +212,37 @@ func TestListBranches_FetchError(t *testing.T) {
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
+}
+
+func TestBranchHandler_UsesProviderToken(t *testing.T) {
+	var gotAuth string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer upstream.Close()
+
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	svc, bus, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")
+	defer cleanup()
+
+	cfg := RouterConfig{
+		Service:             svc,
+		Bus:                 bus,
+		GitHubTokenProvider: provider,
+		GitHubAPIBaseURL:    upstream.URL,
+		GitHubAllowedHosts:  []string{"github.com"},
+	}
+	mux := NewRouter(cfg)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/gh-project/branches", nil)
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, "Bearer test-token", gotAuth)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
@@ -34,19 +35,18 @@ type Manager struct {
 	repo     *git.Repository
 	repoPath string
 	author   object.Signature
-	authMode string
-	token    string
+	label    string                    // short identifier used in log messages
+	provider githubauth.TokenGenerator // REPLACES authMode + token
 	mu       sync.Mutex
 }
 
 // NewManager opens an existing git repository or initializes a new one.
-// The repoPath should be the boards directory (cfg.BoardsDir).
-// If cloneURL is non-empty and no repository exists at repoPath, it will
-// be cloned from the given URL instead of initialized as empty.
-// authMode and token configure PAT authentication for shell git operations:
-// use "ssh" (or "") to preserve the default environment, or "pat" to inject
-// an Authorization Bearer header via GIT_CONFIG_* env vars.
-func NewManager(repoPath string, cloneURL string, authMode string, token string) (*Manager, error) {
+// repoPath is the directory backing the repository (e.g. cfg.Boards.Dir).
+// If cloneURL is non-empty and no repository exists at repoPath, it is
+// cloned from the URL using the provided token generator for HTTPS auth.
+// label is a short identifier used in log messages to distinguish
+// multiple manager instances ("boards", "task-skills", etc.).
+func NewManager(repoPath, cloneURL, label string, provider githubauth.TokenGenerator) (*Manager, error) {
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -54,7 +54,6 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 
 	var repo *git.Repository
 
-	// Try to open existing repository
 	repo, err = git.PlainOpen(absPath)
 	if err != nil {
 		if !errors.Is(err, git.ErrRepositoryNotExists) {
@@ -62,11 +61,9 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 		}
 
 		if cloneURL != "" {
-			// Clone from remote with the configured auth env.
-			repo, err = cloneRepo(absPath, cloneURL, GitAuthEnv(authMode, token))
+			repo, err = cloneRepo(context.Background(), absPath, cloneURL, label, provider)
 		} else {
-			// Initialize new empty repository
-			slog.Info("initializing new git repository", "path", absPath)
+			slog.Info("initializing new git repository", "label", label, "path", absPath)
 			repo, err = git.PlainInit(absPath, false)
 		}
 
@@ -79,32 +76,40 @@ func NewManager(repoPath string, cloneURL string, authMode string, token string)
 		repo:     repo,
 		repoPath: absPath,
 		author:   DefaultAuthor,
-		authMode: authMode,
-		token:    token,
+		label:    label,
+		provider: provider,
 	}
 
 	// If a remote URL is provided but the repo was opened (not cloned),
 	// ensure the origin remote is configured for auto_push/auto_pull.
 	if cloneURL != "" && !mgr.hasRemote() {
 		if addErr := mgr.AddRemote(context.Background(), "origin", cloneURL); addErr != nil {
-			slog.Warn("failed to add origin remote", "error", addErr)
+			slog.Warn("failed to add origin remote", "label", label, "error", addErr)
 		}
 	}
 
 	return mgr, nil
 }
 
+// Label returns the short identifier used in log messages.
+func (m *Manager) Label() string {
+	return m.label
+}
+
 // cloneRepo clones a git repository from the given URL into the target directory
 // using shell git (consistent with push/pull operations).
-// authEnv contains additional environment variables (e.g. GIT_CONFIG_* for PAT
-// auth) to pass to the git subprocess; nil preserves the default environment.
-func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error) {
-	slog.Info("cloning boards repository", "url", url, "target", targetDir)
+func cloneRepo(ctx context.Context, targetDir, url, label string, provider githubauth.TokenGenerator) (*git.Repository, error) {
+	slog.Info("cloning git repository", "label", label, "url", url, "target", targetDir)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	authEnv, err := AuthEnvFromProvider(ctx, provider)
+	if err != nil {
+		return nil, fmt.Errorf("build auth env: %w", err)
+	}
+
+	cloneCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "clone", url, targetDir)
+	cmd := exec.CommandContext(cloneCtx, "git", "clone", url, targetDir)
 	if len(authEnv) > 0 {
 		cmd.Env = append(os.Environ(), authEnv...)
 	}
@@ -124,7 +129,7 @@ func cloneRepo(targetDir, url string, authEnv []string) (*git.Repository, error)
 		return nil, fmt.Errorf("open cloned repository: %w", err)
 	}
 
-	slog.Info("boards repository cloned successfully", "path", targetDir)
+	slog.Info("git repository cloned successfully", "label", label, "path", targetDir)
 
 	return repo, nil
 }
@@ -370,12 +375,12 @@ func (m *Manager) reloadRepo() error {
 // Must be called without mu held (or from a context that already holds it,
 // as this method does not re-acquire the lock).
 // Auth environment variables (e.g. GIT_CONFIG_* for PAT) are appended
-// automatically based on the Manager's configured authMode and token.
+// automatically from the Manager's provider.
 func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
 
-	if env := GitAuthEnv(m.authMode, m.token); len(env) > 0 {
+	if env, err := AuthEnvFromProvider(ctx, m.provider); err == nil && len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
 
@@ -555,4 +560,33 @@ func (m *Manager) DeleteFile(ctx context.Context, path string) error {
 	}
 
 	return nil
+}
+
+// AuthEnv returns the four-element GIT_CONFIG_* env slice that injects
+// an http.extraheader Authorization Bearer header derived from the
+// configured TokenGenerator. The token is freshly minted (or returned
+// from cache, if the provider is a CachingProvider) on every call.
+func (m *Manager) AuthEnv(ctx context.Context) ([]string, error) {
+	return AuthEnvFromProvider(ctx, m.provider)
+}
+
+// AuthEnvFromProvider asks provider for a token and returns the four-element
+// GIT_CONFIG_* env slice that injects an http.extraheader Authorization
+// header. If provider is nil, returns an error.
+func AuthEnvFromProvider(ctx context.Context, provider githubauth.TokenGenerator) ([]string, error) {
+	if provider == nil {
+		return nil, errors.New("nil token provider")
+	}
+
+	token, _, err := provider.GenerateToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Bearer " + token,
+		"GIT_TERMINAL_PROMPT=0",
+	}, nil
 }

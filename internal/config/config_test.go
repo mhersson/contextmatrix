@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -37,6 +38,10 @@ boards:
   git_deferred_commit: true
 heartbeat_timeout: "15m"
 cors_origin: "https://example.com"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -61,6 +66,10 @@ boards:
   dir: `+boardsDir+`
   git_auto_pull: true
   git_pull_interval: "30s"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -79,10 +88,17 @@ func TestLoad_MissingFile_FallsBackToDefaults(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	// Set the required boards.dir via env so validation passes.
-	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", boardsDir)
+	// Minimal config: only set required fields; everything else should be defaults.
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+`)
 
-	cfg, err := Load(filepath.Join(dir, "nonexistent.yaml"))
+	cfg, err := Load(path)
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.Port)
@@ -119,6 +135,10 @@ boards:
   git_auto_push: false
 heartbeat_timeout: "30m"
 cors_origin: "http://localhost:5173"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	tests := []struct {
@@ -274,10 +294,10 @@ cors_origin: "http://localhost:5173"
 		{
 			name:     "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
-			envValue: "git@github.com:user/boards.git",
+			envValue: "https://github.com/user/boards.git",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+				assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 			},
 		},
 		{
@@ -320,6 +340,10 @@ func TestLoad_InvalidPortEnv_SilentlyIgnored(t *testing.T) {
 port: 9090
 boards:
   dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_PORT", "abc")
@@ -344,6 +368,10 @@ boards:
   dir: `+boardsDir+`
 heartbeat_timeout: "15m"
 cors_origin: "http://localhost:5173"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_PORT", "4000")
@@ -385,6 +413,7 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 			cfg := &Config{
 				Boards:           BoardsConfig{Dir: "/some/path"},
 				HeartbeatTimeout: tt.timeout,
+				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
@@ -397,6 +426,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
 	assert.NoError(t, err)
@@ -460,6 +490,10 @@ func TestLoad_TildeExpansion(t *testing.T) {
 	path := writeConfigFile(t, dir, `
 boards:
   dir: "~/test-boards"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -471,9 +505,17 @@ func TestLoad_TildeExpansion_MissingFile(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
-	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", "~/env-boards")
+	dir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: "~/env-boards"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+`)
 
-	cfg, err := Load(filepath.Join(t.TempDir(), "nonexistent.yaml"))
+	cfg, err := Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, "env-boards"), cfg.Boards.Dir)
 }
@@ -549,10 +591,14 @@ func TestLoad_PartialYAML_DefaultsFillIn(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	// Only set boards.dir; everything else should be defaults.
+	// Only set required fields; everything else should be defaults.
 	path := writeConfigFile(t, dir, `
 boards:
   dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -576,6 +622,10 @@ func TestLoad_ValidationFailure_InvalidPullInterval(t *testing.T) {
 boards:
   dir: `+boardsDir+`
   git_pull_interval: "notaduration"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	_, err := Load(path)
@@ -597,6 +647,7 @@ func TestValidate_EmptyPullInterval_CoercedToDefault(t *testing.T) {
 			GitPullInterval: "",
 		},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 
 	require.NoError(t, cfg.Validate())
@@ -616,6 +667,10 @@ func TestLoad_ValidationFailure_InvalidHeartbeat(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 heartbeat_timeout: "notaduration"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	_, err := Load(path)
@@ -657,6 +712,10 @@ runner:
   enabled: true
   url: "http://localhost:9090"
   api_key: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -673,7 +732,7 @@ func TestLoad_RunnerDisabledByDefault(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -688,6 +747,7 @@ func TestValidate_RunnerEnabledMissingURL(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Runner:           RunnerConfig{Enabled: true, APIKey: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"},
 	}
 	err := cfg.Validate()
@@ -699,6 +759,7 @@ func TestValidate_RunnerEnabledMissingAPIKey(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090"},
 	}
 	err := cfg.Validate()
@@ -710,6 +771,7 @@ func TestValidate_RunnerEnabledShortAPIKey(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: "too-short"},
 	}
 	err := cfg.Validate()
@@ -721,6 +783,7 @@ func TestValidate_RunnerDisabledNoValidation(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Runner:           RunnerConfig{Enabled: false},
 	}
 	err := cfg.Validate()
@@ -732,7 +795,7 @@ func TestLoad_RunnerEnvOverrides(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	t.Setenv("CONTEXTMATRIX_RUNNER_ENABLED", "true")
 	t.Setenv("CONTEXTMATRIX_RUNNER_URL", "http://runner:9090")
@@ -793,7 +856,7 @@ func TestLoad_WorkflowSkillsDirDerivedFromConfigDir(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -805,7 +868,7 @@ func TestLoad_WorkflowSkillsDirExplicitInYAML(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: /opt/skills\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: /opt/skills\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -817,7 +880,7 @@ func TestLoad_WorkflowSkillsDirEnvOverride(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 	t.Setenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR", "/custom/skills")
 
 	cfg, err := Load(path)
@@ -833,7 +896,7 @@ func TestLoad_WorkflowSkillsDirTildeExpansion(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: \"~/my-skills\"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: \"~/my-skills\"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -845,51 +908,11 @@ func TestLoad_WorkflowSkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", boardsDir)
-
-	// Load from a nonexistent file — workflow_skills_dir derived from its directory
-	cfg, err := Load(filepath.Join(dir, "nonexistent.yaml"))
+	// Use a config file with required auth_mode — workflow_skills_dir derived from its directory
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
+	cfg, err := Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
-}
-
-func TestLoad_TaskSkillsDirDefault(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(dir, "task-skills"), cfg.TaskSkillsDir,
-		"empty task_skills_dir should fall back to <config-dir>/task-skills")
-}
-
-func TestLoad_TaskSkillsDirExplicit(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "/etc/cm/task-skills", cfg.TaskSkillsDir)
-}
-
-func TestLoad_TaskSkillsDirEnvOverride(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
-	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_DIR", "/var/lib/cm/task-skills")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "/var/lib/cm/task-skills", cfg.TaskSkillsDir,
-		"env override must win over config file")
 }
 
 func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
@@ -897,14 +920,17 @@ func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
 	require.NoError(t, err)
 
 	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: \"~/my-task-skills\"\n")
-
+	boardsDir := t.TempDir()
+	yaml := `
+boards: {dir: ` + boardsDir + `}
+github: {auth_mode: "pat", pat: {token: "x"}}
+task_skills: {dir: "~/my-skills"}
+`
+	path := writeConfigFile(t, dir, yaml)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, "my-task-skills"), cfg.TaskSkillsDir)
+
+	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.TaskSkills.Dir)
 }
 
 func TestLoad_CloneOnEmptyFields(t *testing.T) {
@@ -916,14 +942,18 @@ func TestLoad_CloneOnEmptyFields(t *testing.T) {
 boards:
   dir: `+boardsDir+`
   git_clone_on_empty: true
-  git_remote_url: "git@github.com:user/boards.git"
+  git_remote_url: "https://github.com/user/boards.git"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 }
 
 func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
@@ -931,7 +961,7 @@ func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -945,16 +975,16 @@ func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", "true")
-	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL", "git@github.com:user/boards.git")
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL", "https://github.com/user/boards.git")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 }
 
 func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
@@ -965,6 +995,7 @@ func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
 			GitRemoteURL:    "",
 		},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -976,9 +1007,10 @@ func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
 		Boards: BoardsConfig{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: true,
-			GitRemoteURL:    "git@github.com:user/boards.git",
+			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
 	assert.NoError(t, err)
@@ -989,95 +1021,16 @@ func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
 		Boards: BoardsConfig{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: false,
-			GitRemoteURL:    "git@github.com:user/boards.git",
+			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
 	assert.NoError(t, err)
 }
 
-func TestLoad_ExampleFile(t *testing.T) {
-	// config.yaml.example lives in the repo root, two directories above this
-	// package (internal/config → repo root).
-	examplePath := filepath.Join("..", "..", "config.yaml.example")
-
-	cfg, err := Load(examplePath)
-	require.NoError(t, err, "config.yaml.example must parse and validate without error")
-
-	// Verify key field values match the documented defaults in the example file.
-	assert.Equal(t, 8080, cfg.Port)
-	assert.False(t, cfg.Boards.GitDeferredCommit)
-	assert.True(t, cfg.Boards.GitAutoCommit)
-	assert.False(t, cfg.Boards.GitAutoPush)
-	assert.False(t, cfg.Boards.GitAutoPull)
-	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
-	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
-	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
-
-	// boards.dir must be non-empty (tilde-expanded from ~/contextmatrix-boards).
-	assert.NotEmpty(t, cfg.Boards.Dir)
-
-	// heartbeat_timeout must be a valid duration.
-	d, err := cfg.HeartbeatDuration()
-	require.NoError(t, err)
-	assert.Equal(t, 30*time.Minute, d)
-
-	// token_costs section should have at least one entry.
-	assert.NotEmpty(t, cfg.TokenCosts)
-
-	// GitHub issue importing should be disabled by default in the example file.
-	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-	assert.Equal(t, "5m", cfg.GitHub.IssueImporting.SyncInterval)
-	assert.Empty(t, cfg.GitHub.Token)
-}
-
 // ---------- GitHub issue importing config tests ----------
-
-func TestLoad_GitHubIssueImporting_Enabled(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-github:
-  token: "ghp_test_token"
-  issue_importing:
-    enabled: true
-    sync_interval: "10m"
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "ghp_test_token", cfg.GitHub.Token)
-	assert.True(t, cfg.GitHub.IssueImporting.Enabled)
-	assert.Equal(t, "10m", cfg.GitHub.IssueImporting.SyncInterval)
-}
-
-func TestLoad_GitHubIssueImporting_Disabled(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	// Token set but issue importing explicitly disabled — should still load cleanly.
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-github:
-  token: "ghp_test_token"
-  issue_importing:
-    enabled: false
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "ghp_test_token", cfg.GitHub.Token)
-	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-}
 
 func TestLoad_GitHubIssueImporting_DefaultSyncInterval(t *testing.T) {
 	dir := t.TempDir()
@@ -1089,7 +1042,9 @@ func TestLoad_GitHubIssueImporting_DefaultSyncInterval(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 github:
-  token: "ghp_test_token"
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test_token"
   issue_importing:
     enabled: true
 `)
@@ -1103,131 +1058,13 @@ github:
 	assert.Equal(t, 5*time.Minute, d)
 }
 
-func TestLoad_GitHubIssueImporting_NoTokenNoError_WhenDisabled(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	// issue_importing disabled and no token — should not error.
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Empty(t, cfg.GitHub.Token)
-	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-}
-
-func TestValidate_GitHubIssueImporting_EnabledWithoutToken(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub: GitHubConfig{
-			Token: "",
-			IssueImporting: IssueImportingConfig{
-				Enabled:      true,
-				SyncInterval: "5m",
-			},
-		},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "github.token is required when github.issue_importing.enabled is true")
-}
-
-func TestValidate_GitHubIssueImporting_InvalidSyncInterval(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub: GitHubConfig{
-			Token: "ghp_test",
-			IssueImporting: IssueImportingConfig{
-				Enabled:      true,
-				SyncInterval: "notaduration",
-			},
-		},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid github.issue_importing.sync_interval")
-}
-
-func TestValidate_GitHubIssueImporting_SyncIntervalTooShort(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub: GitHubConfig{
-			Token: "ghp_test",
-			IssueImporting: IssueImportingConfig{
-				Enabled:      true,
-				SyncInterval: "1m",
-			},
-		},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "github.issue_importing.sync_interval must be at least 5m")
-}
-
-func TestValidate_GitHubIssueImporting_ValidConfig(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub: GitHubConfig{
-			Token: "ghp_test",
-			IssueImporting: IssueImportingConfig{
-				Enabled:      true,
-				SyncInterval: "5m",
-			},
-		},
-	}
-	err := cfg.Validate()
-	assert.NoError(t, err)
-}
-
-func TestValidate_GitHubIssueImporting_TokenWithoutEnabled_NoError(t *testing.T) {
-	// Token present but issue importing disabled — valid (token used for branches).
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub: GitHubConfig{
-			Token: "ghp_test",
-			IssueImporting: IssueImportingConfig{
-				Enabled: false,
-			},
-		},
-	}
-	err := cfg.Validate()
-	assert.NoError(t, err)
-}
-
-func TestLoad_GitHubIssueImporting_EnvOverrides(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
-
-	t.Setenv("CONTEXTMATRIX_GITHUB_TOKEN", "ghp_env_token")
-	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", "true")
-	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL", "15m")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "ghp_env_token", cfg.GitHub.Token)
-	assert.True(t, cfg.GitHub.IssueImporting.Enabled)
-	assert.Equal(t, "15m", cfg.GitHub.IssueImporting.SyncInterval)
-}
-
 func TestLoad_GitHubIssueImporting_EnvEnabled1(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
-	t.Setenv("CONTEXTMATRIX_GITHUB_TOKEN", "ghp_env_token")
 	t.Setenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", "1")
 
 	cfg, err := Load(path)
@@ -1246,7 +1083,9 @@ func TestLoad_GitHubIssueImporting_EnvDisabled(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 github:
-  token: "ghp_test"
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
   issue_importing:
     enabled: true
     sync_interval: "5m"
@@ -1258,14 +1097,6 @@ github:
 	require.NoError(t, err)
 
 	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-}
-
-func TestDefaults_GitHubIssueImporting(t *testing.T) {
-	cfg := defaults()
-
-	assert.Empty(t, cfg.GitHub.Token)
-	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
-	assert.Empty(t, cfg.GitHub.IssueImporting.SyncInterval)
 }
 
 func TestSyncIntervalDuration(t *testing.T) {
@@ -1308,6 +1139,9 @@ func TestLoad_GitHubHostAndAPIBaseURL_YAMLLoading(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
   host: "acme.ghe.com"
   api_base_url: "https://api.acme.ghe.com"
 `)
@@ -1324,7 +1158,7 @@ func TestLoad_GitHubHostAndAPIBaseURL_Defaults(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -1338,7 +1172,7 @@ func TestLoad_GitHubHostAndAPIBaseURL_EnvOverrides(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	t.Setenv("CONTEXTMATRIX_GITHUB_HOST", "enterprise.example.com")
 	t.Setenv("CONTEXTMATRIX_GITHUB_API_BASE_URL", "https://api.enterprise.example.com")
@@ -1359,6 +1193,9 @@ func TestLoad_GitHubHostEnvOverridesYAML(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
   host: "yaml-host.example.com"
   api_base_url: "https://yaml-api.example.com"
 `)
@@ -1439,197 +1276,6 @@ func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
 	assert.Empty(t, cfg.GitHub.APIBaseURL)
 }
 
-// ---------- GitAuthMode tests ----------
-
-func TestDefaults_GitAuthMode(t *testing.T) {
-	cfg := defaults()
-	assert.Equal(t, "ssh", cfg.Boards.GitAuthMode)
-}
-
-func TestLoad_GitAuthMode_DefaultIsSSH(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "ssh", cfg.Boards.GitAuthMode)
-}
-
-func TestLoad_GitAuthMode_EnvOverride(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-  git_remote_url: "https://github.com/user/boards.git"
-github:
-  token: "ghp_test_pat_token"
-`)
-
-	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE", "pat")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "pat", cfg.Boards.GitAuthMode)
-}
-
-func TestValidate_GitAuthMode_UnknownValueRejected(t *testing.T) {
-	tests := []struct {
-		name string
-		mode string
-	}{
-		{name: "typo", mode: "SSH"},
-		{name: "kebab", mode: "ssh-key"},
-		{name: "empty via explicit set", mode: "token"},
-		{name: "garbage", mode: "ftp"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				Boards:           BoardsConfig{Dir: "/some/path", GitAuthMode: tt.mode},
-				HeartbeatTimeout: "30m",
-			}
-			err := cfg.Validate()
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid boards.git_auth_mode")
-		})
-	}
-}
-
-func TestValidate_GitAuthMode_PATMissingToken(t *testing.T) {
-	cfg := &Config{
-		Boards: BoardsConfig{
-			Dir:          "/some/path",
-			GitAuthMode:  "pat",
-			GitRemoteURL: "https://github.com/user/boards.git",
-		},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{Token: ""},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "github.token is required when boards.git_auth_mode is \"pat\"")
-}
-
-func TestValidate_GitAuthMode_PATWithSSHURL(t *testing.T) {
-	tests := []struct {
-		name string
-		url  string
-	}{
-		{name: "ssh scheme", url: "ssh://git@github.com/user/boards.git"},
-		{name: "scp-style", url: "git@github.com:user/boards.git"},
-		{name: "empty URL", url: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				Boards: BoardsConfig{
-					Dir:          "/some/path",
-					GitAuthMode:  "pat",
-					GitRemoteURL: tt.url,
-				},
-				HeartbeatTimeout: "30m",
-				GitHub:           GitHubConfig{Token: "ghp_test_token"},
-			}
-			err := cfg.Validate()
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "boards.git_remote_url must start with https://")
-		})
-	}
-}
-
-func TestValidate_GitAuthMode_PATWithHTTPSURLAndToken(t *testing.T) {
-	cfg := &Config{
-		Boards: BoardsConfig{
-			Dir:          "/some/path",
-			GitAuthMode:  "pat",
-			GitRemoteURL: "https://github.com/user/boards.git",
-		},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{Token: "ghp_test_valid_token"},
-	}
-	err := cfg.Validate()
-	assert.NoError(t, err)
-}
-
-func TestValidate_GitAuthMode_SSHIsValidWithAnyRemote(t *testing.T) {
-	tests := []struct {
-		name string
-		url  string
-	}{
-		{name: "scp-style", url: "git@github.com:user/boards.git"},
-		{name: "ssh scheme", url: "ssh://git@github.com/user/boards.git"},
-		{name: "https", url: "https://github.com/user/boards.git"},
-		{name: "empty", url: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				Boards: BoardsConfig{
-					Dir:          "/some/path",
-					GitAuthMode:  "ssh",
-					GitRemoteURL: tt.url,
-				},
-				HeartbeatTimeout: "30m",
-			}
-			err := cfg.Validate()
-			assert.NoError(t, err)
-		})
-	}
-}
-
-func TestLoad_GitAuthMode_YAMLField(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-  git_auth_mode: "ssh"
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "ssh", cfg.Boards.GitAuthMode)
-}
-
-func TestLoad_GitAuthMode_PATFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-  git_remote_url: "https://github.com/user/boards.git"
-  git_auth_mode: "pat"
-github:
-  token: "ghp_yaml_pat_token"
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	assert.Equal(t, "pat", cfg.Boards.GitAuthMode)
-	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
-}
-
-func TestLoad_GitAuthMode_ExampleFileHasSSHDefault(t *testing.T) {
-	examplePath := filepath.Join("..", "..", "config.yaml.example")
-
-	cfg, err := Load(examplePath)
-	require.NoError(t, err, "config.yaml.example must parse and validate without error")
-	assert.Equal(t, "ssh", cfg.Boards.GitAuthMode)
-}
-
 // ---------- Theme config tests ----------
 
 func TestDefaults_Theme(t *testing.T) {
@@ -1642,7 +1288,7 @@ func TestLoad_Theme_DefaultIsEverforest(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -1658,6 +1304,10 @@ func TestLoad_Theme_ValidRadix(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 theme: "radix"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -1674,6 +1324,10 @@ func TestLoad_Theme_InvalidValueRejected(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 theme: "dracula"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	_, err := Load(path)
@@ -1686,7 +1340,7 @@ func TestLoad_Theme_EnvOverride(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	t.Setenv("CONTEXTMATRIX_THEME", "radix")
 
@@ -1699,6 +1353,7 @@ func TestValidate_Theme_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Theme:            "monokai",
 	}
 	err := cfg.Validate()
@@ -1712,6 +1367,7 @@ func TestValidate_Theme_ValidValues(t *testing.T) {
 			cfg := &Config{
 				Boards:           BoardsConfig{Dir: "/some/path"},
 				HeartbeatTimeout: "30m",
+				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 				Theme:            theme,
 			}
 			err := cfg.Validate()
@@ -1724,6 +1380,7 @@ func TestValidate_LogFormat_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		LogFormat:        "yaml",
 	}
 	err := cfg.Validate()
@@ -1735,6 +1392,7 @@ func TestValidate_LogLevel_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		LogLevel:         "warm", // typo for "warn"
 	}
 	err := cfg.Validate()
@@ -1748,6 +1406,7 @@ func TestValidate_AdminPort_OutOfRange(t *testing.T) {
 			cfg := &Config{
 				Boards:           BoardsConfig{Dir: "/some/path"},
 				HeartbeatTimeout: "30m",
+				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 				AdminPort:        p,
 			}
 			err := cfg.Validate()
@@ -1761,6 +1420,7 @@ func TestValidate_AdminPort_CollisionWithPort(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Port:             8080,
 		AdminPort:        8080,
 	}
@@ -1773,6 +1433,7 @@ func TestValidate_AdminBindAddr_DefaultsToLoopback(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		AdminPort:        9091,
 	}
 	require.NoError(t, cfg.Validate())
@@ -1792,6 +1453,10 @@ boards:
 runner:
   orchestrator_sonnet_model: "claude-sonnet-4-99"
   orchestrator_opus_model: "claude-opus-4-99"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -1806,7 +1471,7 @@ func TestLoad_OrchestratorModels_DefaultsApplyWhenYAMLOmits(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -1826,6 +1491,10 @@ boards:
 runner:
   orchestrator_sonnet_model: "claude-sonnet-4-yaml"
   orchestrator_opus_model: "claude-opus-4-yaml"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-4-env")
@@ -1870,6 +1539,10 @@ boards:
   dir: `+boardsDir+`
 runner:
   reconcile_interval: "120s"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL", "30s")
@@ -1894,6 +1567,10 @@ runner:
   url: "http://localhost:9090"
   api_key: "0123456789012345678901234567890123"
   reconcile_interval: "not-a-duration"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	_, err := Load(path)
@@ -1921,6 +1598,10 @@ boards:
 log_format: "json"
 log_level: "debug"
 admin_port: 6060
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	cfg, err := Load(path)
@@ -1942,6 +1623,10 @@ boards:
 log_format: "text"
 log_level: "info"
 admin_port: 0
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_LOG_FORMAT", "json")
@@ -1965,6 +1650,10 @@ func TestLoad_LogFormat_EnvOverridesYAML(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 log_format: "text"
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_LOG_FORMAT", "json")
@@ -1984,6 +1673,10 @@ func TestLoad_InvalidAdminPortEnv_SilentlyIgnored(t *testing.T) {
 boards:
   dir: `+boardsDir+`
 admin_port: 6060
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
 `)
 
 	t.Setenv("CONTEXTMATRIX_ADMIN_PORT", "notanumber")
@@ -2043,6 +1736,105 @@ func TestBuildSlogHandler_LevelInfo_FiltersDebug(t *testing.T) {
 
 	assert.NotContains(t, buf.String(), "should not appear")
 	assert.Contains(t, buf.String(), "should appear")
+}
+
+// ---------- New auth-mode schema tests (Task 2) ----------
+
+func TestLoad_GitHubAuthModeApp_Parses(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := `
+boards:
+  dir: ` + boardsDir + `
+github:
+  auth_mode: "app"
+  app:
+    app_id: 12345
+    installation_id: 67890
+    private_key_path: /etc/keys/app.pem
+`
+	path := writeConfigFile(t, dir, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "app", cfg.GitHub.AuthMode)
+	assert.Equal(t, int64(12345), cfg.GitHub.App.AppID)
+	assert.Equal(t, int64(67890), cfg.GitHub.App.InstallationID)
+	assert.Equal(t, "/etc/keys/app.pem", cfg.GitHub.App.PrivateKeyPath)
+	assert.Empty(t, cfg.GitHub.PAT.Token)
+}
+
+func TestLoad_GitHubAuthModePAT_Parses(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := `
+boards:
+  dir: ` + boardsDir + `
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+`
+	path := writeConfigFile(t, dir, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "pat", cfg.GitHub.AuthMode)
+	assert.Equal(t, "ghp_test", cfg.GitHub.PAT.Token)
+}
+
+func TestLoad_BoardsHasNoAuthMode(t *testing.T) {
+	cfg := defaults()
+
+	v := reflect.TypeOf(cfg.Boards)
+	for i := 0; i < v.NumField(); i++ {
+		assert.NotEqual(t, "GitAuthMode", v.Field(i).Name,
+			"BoardsConfig.GitAuthMode must be removed")
+	}
+}
+
+func TestLoad_TaskSkills_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := `
+boards:
+  dir: ` + boardsDir + `
+github:
+  auth_mode: "pat"
+  pat:
+    token: "x"
+`
+	path := writeConfigFile(t, dir, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(dir, "task-skills"), cfg.TaskSkills.Dir)
+	assert.False(t, cfg.TaskSkills.GitCloneOnEmpty)
+	assert.Empty(t, cfg.TaskSkills.GitRemoteURL)
+}
+
+func TestLoad_TaskSkills_Explicit(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := `
+boards:
+  dir: ` + boardsDir + `
+github:
+  auth_mode: "pat"
+  pat:
+    token: "x"
+task_skills:
+  dir: /opt/skills
+  git_clone_on_empty: true
+  git_remote_url: https://github.com/example/skills.git
+`
+	path := writeConfigFile(t, dir, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/opt/skills", cfg.TaskSkills.Dir)
+	assert.True(t, cfg.TaskSkills.GitCloneOnEmpty)
+	assert.Equal(t, "https://github.com/example/skills.git", cfg.TaskSkills.GitRemoteURL)
 }
 
 func TestBuildSlogHandler_LevelEmptyDefaultsToInfo(t *testing.T) {
@@ -2107,8 +1899,67 @@ func TestBuildSlogHandler_JSONEmitsValidStructure(t *testing.T) {
 	assert.Contains(t, output, `"value"`)
 }
 
+// ---------- auth_mode discriminator validation tests (Task 3) ----------
+
+func TestValidate_AuthModeMissing(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.auth_mode is required")
+}
+
+func TestValidate_AuthModeInvalid(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{AuthMode: "bogus"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.auth_mode")
+}
+
+func TestValidate_AppMissingFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		app     GitHubAppConfig
+		wantMsg string
+	}{
+		{"no app_id", GitHubAppConfig{InstallationID: 1, PrivateKeyPath: "/k"}, "app_id is required"},
+		{"no installation_id", GitHubAppConfig{AppID: 1, PrivateKeyPath: "/k"}, "installation_id is required"},
+		{"no private_key_path", GitHubAppConfig{AppID: 1, InstallationID: 1}, "private_key_path is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Boards: BoardsConfig{Dir: "/tmp/x"},
+				GitHub: GitHubConfig{AuthMode: "app", App: tc.app},
+			}
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestValidate_PATMissingToken(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{AuthMode: "pat"},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pat.token is required")
+}
+
 func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	// The example ships with auth_mode:"app" and placeholder zeros. Override to
+	// PAT mode so Validate() passes without real App credentials.
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "test-token")
 
 	cfg, err := Load(examplePath)
 	require.NoError(t, err, "config.yaml.example must parse without error")
@@ -2118,6 +1969,36 @@ func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
 	assert.Equal(t, 0, cfg.AdminPort)
 }
 
+func TestValidate_AppMode_RejectsPATToken(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{
+			AuthMode: "app",
+			App: GitHubAppConfig{
+				AppID: 1, InstallationID: 1, PrivateKeyPath: "/k",
+			},
+			PAT: GitHubPATConfig{Token: "leak"},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pat.token must be empty")
+}
+
+func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
+	cfg := &Config{
+		Boards: BoardsConfig{Dir: "/tmp/x"},
+		GitHub: GitHubConfig{
+			AuthMode: "pat",
+			PAT:      GitHubPATConfig{Token: "x"},
+			App:      GitHubAppConfig{AppID: 99},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github.app.* must be empty")
+}
+
 // TestConfigYamlExampleTokenCosts verifies that config.yaml.example ships with
 // sane token cost entries for every supported model:
 //   - every entry has both prompt and completion > 0 (non-zero rates)
@@ -2125,6 +2006,11 @@ func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
 //   - the expected set of model keys is present
 func TestConfigYamlExampleTokenCosts(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	// The example ships with auth_mode:"app" and placeholder zeros. Override to
+	// PAT mode so Validate() passes without real App credentials.
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "test-token")
 
 	cfg, err := Load(examplePath)
 	require.NoError(t, err, "config.yaml.example must parse without error")
@@ -2154,4 +2040,113 @@ func TestConfigYamlExampleTokenCosts(t *testing.T) {
 		_, ok := cfg.TokenCosts[model]
 		assert.True(t, ok, "expected model %q to be present in token_costs", model)
 	}
+}
+
+// ---------- HTTPS-only URL validation tests (Task 5) ----------
+
+// validBaseConfig returns a Config that passes Validate() except for the
+// field under test.
+func validBaseConfig(t *testing.T) *Config {
+	t.Helper()
+
+	return &Config{
+		Boards:           BoardsConfig{Dir: "/tmp/boards"},
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			AuthMode: "pat",
+			PAT:      GitHubPATConfig{Token: "x"},
+		},
+	}
+}
+
+func TestValidate_BoardsRemoteURLNotHTTPS(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitRemoteURL = "ssh://git@github.com/foo/bar.git"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boards.git_remote_url must start with https://")
+}
+
+func TestValidate_BoardsRemoteURL_HTTPS_OK(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitRemoteURL = "https://github.com/foo/bar.git"
+	require.NoError(t, cfg.Validate())
+}
+
+func TestValidate_BoardsCloneOnEmptyRequiresURL(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitCloneOnEmpty = true
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boards.git_remote_url is required when boards.git_clone_on_empty")
+}
+
+func TestValidate_TaskSkillsRemoteURLNotHTTPS(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.TaskSkills.GitRemoteURL = "git@github.com:foo/bar.git"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task_skills.git_remote_url must start with https://")
+}
+
+func TestValidate_TaskSkillsCloneOnEmptyRequiresURL(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.TaskSkills.GitCloneOnEmpty = true
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task_skills.git_remote_url is required when task_skills.git_clone_on_empty")
+}
+
+// ---------- Env-var overrides for new fields (Task 6) ----------
+
+func TestEnvOverrides_GitHub(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "app")
+	t.Setenv("CONTEXTMATRIX_GITHUB_APP_ID", "111")
+	t.Setenv("CONTEXTMATRIX_GITHUB_INSTALLATION_ID", "222")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH", "/etc/k.pem")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `boards: {dir: `+boardsDir+`}`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "app", cfg.GitHub.AuthMode)
+	assert.Equal(t, int64(111), cfg.GitHub.App.AppID)
+	assert.Equal(t, int64(222), cfg.GitHub.App.InstallationID)
+	assert.Equal(t, "/etc/k.pem", cfg.GitHub.App.PrivateKeyPath)
+}
+
+func TestEnvOverrides_GitHubPAT(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "ghp_env")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `boards: {dir: `+boardsDir+`}`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "pat", cfg.GitHub.AuthMode)
+	assert.Equal(t, "ghp_env", cfg.GitHub.PAT.Token)
+}
+
+func TestEnvOverrides_TaskSkills(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_DIR", "/var/skills")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL", "https://github.com/x/y.git")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY", "true")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/var/skills", cfg.TaskSkills.Dir)
+	assert.Equal(t, "https://github.com/x/y.git", cfg.TaskSkills.GitRemoteURL)
+	assert.True(t, cfg.TaskSkills.GitCloneOnEmpty)
 }
