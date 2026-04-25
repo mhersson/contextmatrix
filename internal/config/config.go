@@ -178,6 +178,31 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
 	}
 
+	switch c.GitHub.AuthMode {
+	case "app":
+		if c.GitHub.App.AppID == 0 {
+			return fmt.Errorf("github.app.app_id is required when github.auth_mode is \"app\"")
+		}
+		if c.GitHub.App.InstallationID == 0 {
+			return fmt.Errorf("github.app.installation_id is required when github.auth_mode is \"app\"")
+		}
+		if c.GitHub.App.PrivateKeyPath == "" {
+			return fmt.Errorf("github.app.private_key_path is required when github.auth_mode is \"app\"")
+		}
+		if c.GitHub.PAT.Token != "" {
+			return fmt.Errorf("github.pat.token must be empty when github.auth_mode is \"app\"")
+		}
+	case "pat":
+		if c.GitHub.PAT.Token == "" {
+			return fmt.Errorf("github.pat.token is required when github.auth_mode is \"pat\"")
+		}
+		if c.GitHub.App.AppID != 0 || c.GitHub.App.InstallationID != 0 || c.GitHub.App.PrivateKeyPath != "" {
+			return fmt.Errorf("github.app.* must be empty when github.auth_mode is \"pat\"")
+		}
+	default:
+		return fmt.Errorf("github.auth_mode is required: must be \"app\" or \"pat\" (got %q)", c.GitHub.AuthMode)
+	}
+
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
@@ -194,12 +219,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
 
-	// REWRITTEN IN TASK 3: auth_mode discriminator validation replaces the
-	// old git_auth_mode / github.token validation below.
-
 	if c.GitHub.IssueImporting.Enabled {
-		// TODO(Task 3): token check rewritten to use auth_mode discriminator.
-
 		if c.GitHub.IssueImporting.SyncInterval == "" {
 			c.GitHub.IssueImporting.SyncInterval = "5m"
 		}
