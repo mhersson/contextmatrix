@@ -562,6 +562,14 @@ func (m *Manager) DeleteFile(ctx context.Context, path string) error {
 	return nil
 }
 
+// AuthEnv returns the four-element GIT_CONFIG_* env slice that injects
+// an http.extraheader Authorization Bearer header derived from the
+// configured TokenGenerator. The token is freshly minted (or returned
+// from cache, if the provider is a CachingProvider) on every call.
+func (m *Manager) AuthEnv(ctx context.Context) ([]string, error) {
+	return AuthEnvFromProvider(ctx, m.provider)
+}
+
 // AuthEnvFromProvider asks provider for a token and returns the four-element
 // GIT_CONFIG_* env slice that injects an http.extraheader Authorization
 // header. If provider is nil, returns an error.

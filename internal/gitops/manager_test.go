@@ -1112,3 +1112,20 @@ func TestNewManager_AcceptsLabelAndProvider(t *testing.T) {
 	require.NotNil(t, mgr)
 	assert.Equal(t, "boards", mgr.Label())
 }
+
+func TestManager_AuthEnv_BuildsExpectedSlice(t *testing.T) {
+	dir := t.TempDir()
+	provider, err := githubauth.NewPATProvider("ghp_xyz")
+	require.NoError(t, err)
+
+	mgr, err := NewManager(dir, "", "test", provider)
+	require.NoError(t, err)
+
+	env, err := mgr.AuthEnv(context.Background())
+	require.NoError(t, err)
+	require.Len(t, env, 4)
+	assert.Equal(t, "GIT_CONFIG_COUNT=1", env[0])
+	assert.Equal(t, "GIT_CONFIG_KEY_0=http.extraheader", env[1])
+	assert.Equal(t, "GIT_CONFIG_VALUE_0=Authorization: Bearer ghp_xyz", env[2])
+	assert.Equal(t, "GIT_TERMINAL_PROMPT=0", env[3])
+}
