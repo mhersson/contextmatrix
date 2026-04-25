@@ -2924,3 +2924,41 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 		assert.True(t, result.IsError, "promote must error for done card")
 	})
 }
+
+func TestCreateCard_AcceptsSkills(t *testing.T) {
+	env := setupMCP(t)
+
+	skills := []string{"go-development"}
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Skill test card",
+		"type":     "task",
+		"priority": "medium",
+		"skills":   skills,
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+	assert.NotNil(t, card.Skills)
+	assert.Equal(t, skills, *card.Skills)
+}
+
+func TestUpdateCard_AcceptsSkills(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Update skill test", "task", "low")
+
+	skills := []string{"typescript-react"}
+	result := callTool(t, env, "update_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"skills":   skills,
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+	assert.NotNil(t, card.Skills)
+	assert.Equal(t, skills, *card.Skills)
+}
