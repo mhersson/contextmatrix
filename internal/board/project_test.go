@@ -597,3 +597,56 @@ transitions:
 	assert.Len(t, projects, 1)
 	assert.Equal(t, "test-project", projects[0].Name)
 }
+
+func TestProjectConfig_DefaultSkillsRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &ProjectConfig{
+		Name:        "alpha",
+		Prefix:      "ALPHA",
+		NextID:      1,
+		States:      []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:       []string{"task"},
+		Priorities:  []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":         {"in_progress", "not_planned"},
+			"in_progress":  {"done", "stalled"},
+			"done":         {},
+			"stalled":      {"in_progress"},
+			"not_planned":  {"todo"},
+		},
+		DefaultSkills: &[]string{"go-development", "documentation"},
+	}
+
+	require.NoError(t, SaveProjectConfig(dir, cfg))
+
+	loaded, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+	require.NotNil(t, loaded.DefaultSkills)
+	assert.Equal(t, []string{"go-development", "documentation"}, *loaded.DefaultSkills)
+}
+
+func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &ProjectConfig{
+		Name:        "alpha",
+		Prefix:      "ALPHA",
+		NextID:      1,
+		States:      []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:       []string{"task"},
+		Priorities:  []string{"low"},
+		Transitions: map[string][]string{
+			"todo":         {"in_progress"},
+			"in_progress":  {"done", "stalled"},
+			"done":         {},
+			"stalled":      {"in_progress"},
+			"not_planned":  {"todo"},
+		},
+	}
+
+	require.NoError(t, SaveProjectConfig(dir, cfg))
+
+	data, err := os.ReadFile(filepath.Join(dir, ".board.yaml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "default_skills",
+		"nil DefaultSkills should not appear in the YAML")
+}
