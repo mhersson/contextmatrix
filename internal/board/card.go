@@ -48,10 +48,11 @@ type Card struct {
 
 // ActivityEntry represents a log entry from an agent working on a card.
 type ActivityEntry struct {
-	Agent     string    `yaml:"agent"   json:"agent"`
-	Timestamp time.Time `yaml:"ts"      json:"ts"`
-	Action    string    `yaml:"action"  json:"action"`
-	Message   string    `yaml:"message" json:"message"`
+	Agent     string    `yaml:"agent"           json:"agent"`
+	Timestamp time.Time `yaml:"ts"              json:"ts"`
+	Action    string    `yaml:"action"          json:"action"`
+	Message   string    `yaml:"message"         json:"message"`
+	Skill     string    `yaml:"skill,omitempty" json:"skill,omitempty"` // set for skill_engaged actions
 }
 
 // Source tracks the external origin of imported cards.

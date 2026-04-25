@@ -904,3 +904,58 @@ body
 		assert.Contains(t, string(out), "documentation")
 	})
 }
+
+func TestActivityEntry_SkillField(t *testing.T) {
+	t.Run("skill field omitted when empty", func(t *testing.T) {
+		input := `---
+id: ALPHA-001
+title: t
+project: p
+type: task
+state: todo
+priority: low
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+activity_log:
+  - agent: claude-7a3f
+    ts: 2026-04-25T10:00:00Z
+    action: status_update
+    message: working
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.Len(t, card.ActivityLog, 1)
+		assert.Empty(t, card.ActivityLog[0].Skill)
+
+		out, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.NotContains(t, string(out), "skill:")
+	})
+
+	t.Run("skill field round-trips", func(t *testing.T) {
+		input := `---
+id: ALPHA-002
+title: t
+project: p
+type: task
+state: todo
+priority: low
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+activity_log:
+  - agent: claude-7a3f
+    ts: 2026-04-25T10:00:00Z
+    action: skill_engaged
+    message: engaged go-development
+    skill: go-development
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.Len(t, card.ActivityLog, 1)
+		assert.Equal(t, "go-development", card.ActivityLog[0].Skill)
+	})
+}

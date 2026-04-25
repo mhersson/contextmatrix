@@ -2493,6 +2493,12 @@ func TestAPI_RunnerSkillEngaged(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
+	// Create a real card so RecordSkillEngaged can find it.
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Skill test", Type: "task", Priority: "low",
+	})
+	require.NoError(t, err)
+
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
@@ -2503,8 +2509,8 @@ func TestAPI_RunnerSkillEngaged(t *testing.T) {
 	defer server.Close()
 
 	body := map[string]any{
-		"card_id":    "ALPHA-001",
-		"project":    "alpha",
+		"card_id":    card.ID,
+		"project":    "test-project",
 		"skill_name": "go-development",
 	}
 
