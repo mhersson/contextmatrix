@@ -2947,18 +2947,46 @@ func TestCreateCard_AcceptsSkills(t *testing.T) {
 func TestUpdateCard_AcceptsSkills(t *testing.T) {
 	env := setupMCP(t)
 
-	createTestCard(t, env, "Update skill test", "task", "low")
+	card := createTestCard(t, env, "Update skill test", "task", "low")
 
 	skills := []string{"typescript-react"}
 	result := callTool(t, env, "update_card", map[string]any{
 		"project":  "test-project",
-		"card_id":  "TEST-001",
+		"card_id":  card.ID,
 		"skills":   skills,
+	})
+	require.False(t, result.IsError)
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+	assert.NotNil(t, updated.Skills)
+	assert.Equal(t, skills, *updated.Skills)
+}
+
+func TestCreateCard_PreservesSkillsThroughDependsOn(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create a blocker card so depends_on points at a real ID
+	blocker := createTestCard(t, env, "Blocker card", "task", "medium")
+
+	// Create main card with both skills AND depends_on
+	skills := []string{"go-development"}
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":    "test-project",
+		"title":      "Main card with skills and deps",
+		"type":       "task",
+		"priority":   "medium",
+		"skills":     skills,
+		"depends_on": []string{blocker.ID},
 	})
 	require.False(t, result.IsError)
 
 	var card board.Card
 	unmarshalResult(t, result, &card)
+
+	// Assert: returned card has the skills set (proving the depends_on follow-up
+	// did not strip them)
 	assert.NotNil(t, card.Skills)
 	assert.Equal(t, skills, *card.Skills)
+	assert.Equal(t, []string{blocker.ID}, card.DependsOn)
 }
