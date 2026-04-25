@@ -62,6 +62,9 @@ details.
 - **goldmark** — markdown rendering for preview (`github.com/yuin/goldmark`)
 - **Go MCP SDK** — MCP server via Streamable HTTP
   (`github.com/modelcontextprotocol/go-sdk`)
+- **`github.com/mhersson/contextmatrix-githubauth`** — shared GitHub
+  auth module (App + PAT + caching). Imported by both the server and
+  the runner.
 - **React 19 + TypeScript** — frontend
 - **Vite** — frontend build
 - **Tailwind CSS** — styling
@@ -91,6 +94,10 @@ details.
 - Prefer returning concrete types from constructors, interfaces from consumers.
 - All exported functions that write to disk or network must accept
   `context.Context`.
+- GitHub authentication is handled exclusively via
+  `githubauth.TokenGenerator` from the shared module. Do not introduce
+  new code paths that read raw tokens from config or env vars; the
+  provider abstraction is the only entry point.
 
 ### Frontend
 
