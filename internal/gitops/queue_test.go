@@ -422,7 +422,7 @@ func TestCommitQueue_CtxCancelledBeforePickup(t *testing.T) {
 func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	mgr, err := NewManager(tmpDir, "", "ssh", "")
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
 	require.NoError(t, err)
 
 	q := NewCommitQueue(mgr, 0)
