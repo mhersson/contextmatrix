@@ -120,7 +120,9 @@ run_test_fresh_install() {
     fi
 
     # config.yaml should contain content from config.yaml.example.
-    assert_file_contains "${config_dir}/config.yaml" "boards_dir" "config.yaml has boards_dir field"
+    # config.yaml uses the nested form `boards:\n  dir: …`, so we assert the
+    # parent key as proof that the example template was actually copied.
+    assert_file_contains "${config_dir}/config.yaml" "boards:" "config.yaml has boards: section"
 
     teardown
 }
@@ -207,7 +209,7 @@ run_test_force_overwrites_config() {
     # config.yaml should now be the example file, not the sentinel.
     assert_file_not_contains "${config_dir}/config.yaml" "OLD_SENTINEL" \
         "config.yaml sentinel was replaced by --force"
-    assert_file_contains "${config_dir}/config.yaml" "boards_dir" \
+    assert_file_contains "${config_dir}/config.yaml" "boards:" \
         "config.yaml contains example content after --force"
 
     teardown
