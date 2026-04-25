@@ -2387,6 +2387,7 @@ default_skills:
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
 			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 		}))
 		t.Cleanup(mockRunner.Close)
@@ -2408,6 +2409,7 @@ default_skills:
 			server.URL+"/api/projects/test-project/cards/"+cardID+"/run", nil)
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2481,4 +2483,114 @@ default_skills:
 		assert.Empty(t, *payload.TaskSkills,
 			"explicit empty card Skills must win over project default_skills")
 	})
+}
+
+// --- POST /api/runner/skill-engaged ---
+
+func TestAPI_RunnerSkillEngaged(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := map[string]any{
+		"card_id":    "ALPHA-001",
+		"project":    "alpha",
+		"skill_name": "go-development",
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/runner/skill-engaged", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature-256", sigHeader)
+	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAPI_RunnerSkillEngaged_InvalidSignature(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	bodyBytes := []byte(`{"card_id":"ALPHA-001","project":"alpha","skill_name":"go-development"}`)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/runner/skill-engaged", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature-256", "sha256=0000000000000000000000000000000000000000000000000000000000000000")
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestAPI_RunnerSkillEngaged_MissingFields(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Missing skill_name.
+	bodyBytes := []byte(`{"card_id":"ALPHA-001","project":"alpha"}`)
+	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/runner/skill-engaged", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature-256", sigHeader)
+	req.Header.Set("X-Webhook-Timestamp", tsHeader)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

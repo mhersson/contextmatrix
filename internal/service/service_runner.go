@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -461,4 +462,17 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	s.enrichDependenciesMet(ctx, card)
 
 	return card, nil
+}
+
+// RecordSkillEngaged appends a skill_engaged activity log entry to the card.
+// Full implementation (with dedup) lands in Task 22; this stub is here to
+// allow the API endpoint to compile and route.
+func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, skillName string) error {
+	slog.InfoContext(ctx, "skill engaged (stub)",
+		"project", project,
+		"card_id", cardID,
+		"skill", skillName,
+	)
+
+	return nil
 }
