@@ -26,6 +26,7 @@ type Card struct {
 	DependenciesMet     *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
 	Context             []string        `yaml:"context,omitempty"        json:"context,omitempty"`
 	Labels              []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
+	Skills              *[]string       `yaml:"skills,omitempty"         json:"skills,omitempty"`
 	Source              *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom              map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous"`
