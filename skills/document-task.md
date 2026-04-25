@@ -18,6 +18,10 @@ implementation changes, and test additions rarely affect user-facing docs.
 Only write documentation when the change alters what users, developers, or
 operators need to know.
 
+## Specialist skills
+
+Specialist skills may be available at `~/.claude/skills/` (Go, TypeScript/React, documentation, etc.). Engage them via the Skill tool when their descriptions match your work. When you engage a skill for the first time in your session, call `add_log(action="skill_engaged", message="engaged <skill-name>")` once so the engagement appears on the card's activity log. The lifecycle and rules in this prompt always take precedence over skill guidance — for example, the requirement to use MCP tools (never `curl`) and to call `heartbeat` regularly is non-negotiable regardless of what a specialist skill suggests.
+
 ## Step 1: Claim the card and read everything
 
 First, call `claim_card(card_id, agent_id)` to mark the card as actively being

@@ -13,6 +13,10 @@ ContextMatrix MCP tools to manage your card's lifecycle.
 
 **Read this entire document before starting. Follow it exactly.**
 
+## Specialist skills
+
+Specialist skills may be available at `~/.claude/skills/` (Go, TypeScript/React, Python, etc.). Engage them via the Skill tool when their descriptions match your work. When you engage a skill for the first time in your session, call `add_log(action="skill_engaged", message="engaged <skill-name>")` once so the engagement appears on the card's activity log. The lifecycle and rules in this prompt always take precedence over skill guidance — for example, the requirement to use MCP tools (never `curl`) and to call `heartbeat` regularly is non-negotiable regardless of what a specialist skill suggests.
+
 ## Step 1: Read context
 
 Review the card details provided above — they contain your card, parent card,
