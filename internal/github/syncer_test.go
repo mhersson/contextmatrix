@@ -95,7 +95,7 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 
 	boardsDir := t.TempDir()
 	projectDir := filepath.Join(boardsDir, projectName)
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 
 	cfg := &board.ProjectConfig{
 		Name:       projectName,
@@ -132,8 +132,10 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 
 func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	issues := []Issue{
-		{Number: 1, Title: "First issue", Body: "Body 1", HTMLURL: "https://github.com/testorg/testrepo/issues/1",
-			Labels: []Label{{Name: "bug"}, {Name: "help wanted"}}},
+		{
+			Number: 1, Title: "First issue", Body: "Body 1", HTMLURL: "https://github.com/testorg/testrepo/issues/1",
+			Labels: []Label{{Name: "bug"}, {Name: "help wanted"}},
+		},
 		{Number: 2, Title: "Second issue", Body: "Body 2", HTMLURL: "https://github.com/testorg/testrepo/issues/2"},
 	}
 
@@ -148,6 +150,7 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("t")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
@@ -202,6 +205,7 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("t")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
@@ -272,6 +276,7 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("t")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 

@@ -113,7 +113,7 @@ func SaveProjectConfig(dir string, cfg *ProjectConfig) error {
 		return err
 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create project directory: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func SaveProjectConfig(dir string, cfg *ProjectConfig) error {
 	}
 
 	path := filepath.Join(dir, boardConfigFile)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("write project config: %w", err)
 	}
 

@@ -183,12 +183,15 @@ func (c *Config) Validate() error {
 		if c.GitHub.App.AppID == 0 {
 			return fmt.Errorf("github.app.app_id is required when github.auth_mode is \"app\"")
 		}
+
 		if c.GitHub.App.InstallationID == 0 {
 			return fmt.Errorf("github.app.installation_id is required when github.auth_mode is \"app\"")
 		}
+
 		if c.GitHub.App.PrivateKeyPath == "" {
 			return fmt.Errorf("github.app.private_key_path is required when github.auth_mode is \"app\"")
 		}
+
 		if c.GitHub.PAT.Token != "" {
 			return fmt.Errorf("github.pat.token must be empty when github.auth_mode is \"app\"")
 		}
@@ -196,6 +199,7 @@ func (c *Config) Validate() error {
 		if c.GitHub.PAT.Token == "" {
 			return fmt.Errorf("github.pat.token is required when github.auth_mode is \"pat\"")
 		}
+
 		if c.GitHub.App.AppID != 0 || c.GitHub.App.InstallationID != 0 || c.GitHub.App.PrivateKeyPath != "" {
 			return fmt.Errorf("github.app.* must be empty when github.auth_mode is \"pat\"")
 		}
@@ -222,9 +226,11 @@ func (c *Config) Validate() error {
 	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
 		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
 	}
+
 	if c.TaskSkills.GitCloneOnEmpty && c.TaskSkills.GitRemoteURL == "" {
 		return fmt.Errorf("task_skills.git_remote_url is required when task_skills.git_clone_on_empty is enabled")
 	}
+
 	if c.TaskSkills.GitRemoteURL != "" && !strings.HasPrefix(c.TaskSkills.GitRemoteURL, "https://") {
 		return fmt.Errorf("task_skills.git_remote_url must start with https:// (got %q)", c.TaskSkills.GitRemoteURL)
 	}

@@ -255,7 +255,6 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 				"agent_id": "agent:foo",
 			},
 		})
-
 		// The SDK may surface the error as a protocol-level error or as an IsError result.
 		if err != nil {
 			assert.Contains(t, err.Error(), "promote requires human agent")

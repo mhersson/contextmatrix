@@ -329,7 +329,6 @@ func TestTransitionCard_Invalid(t *testing.T) {
 			"new_state": "done",
 		},
 	})
-
 	// The SDK wraps tool handler errors as IsError results for regular errors,
 	// or returns an rpc error. Either way we should detect the failure.
 	if err != nil {

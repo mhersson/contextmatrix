@@ -15,15 +15,19 @@ import (
 
 func newTestClient(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
+
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	return NewClientWithBaseURL(p, srv.URL)
 }
 
 func TestFetchOpenIssues_BasicResponse(t *testing.T) {
 	issues := []Issue{
-		{Number: 1, Title: "Bug report", Body: "Details", HTMLURL: "https://github.com/o/r/issues/1",
-			Labels: []Label{{Name: "bug"}}},
+		{
+			Number: 1, Title: "Bug report", Body: "Details", HTMLURL: "https://github.com/o/r/issues/1",
+			Labels: []Label{{Name: "bug"}},
+		},
 		{Number: 2, Title: "Feature request", Body: "More details", HTMLURL: "https://github.com/o/r/issues/2"},
 	}
 
@@ -280,6 +284,7 @@ func TestParseLinkNext(t *testing.T) {
 	// parseLinkNext is now a method; use a client with the default base URL.
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	c := NewClient(p)
 
 	tests := []struct {
@@ -330,6 +335,7 @@ func TestNewClientWithBaseURL(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	_, err = client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
@@ -346,6 +352,7 @@ func TestNewClientWithBaseURL_TrailingSlashTrimmed(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL+"/")
 	// baseURL should have trailing slash removed.
 	assert.Equal(t, srv.URL, client.baseURL)
@@ -356,6 +363,7 @@ func TestNewClientWithBaseURL_TrailingSlashTrimmed(t *testing.T) {
 func TestNewClientWithBaseURL_EmptyFallsToDefault(t *testing.T) {
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, "")
 	assert.Equal(t, defaultBaseURL, client.baseURL)
 }
@@ -363,6 +371,7 @@ func TestNewClientWithBaseURL_EmptyFallsToDefault(t *testing.T) {
 func TestNewClient_DelegatesToNewClientWithBaseURL(t *testing.T) {
 	p, err := githubauth.NewPATProvider("my-token")
 	require.NoError(t, err)
+
 	client := NewClient(p)
 	assert.Equal(t, defaultBaseURL, client.baseURL)
 	assert.Equal(t, p, client.provider)
@@ -373,6 +382,7 @@ func TestParseLinkNext_WithCustomHost(t *testing.T) {
 	// pointing at that same host, and reject others.
 	p, err := githubauth.NewPATProvider("tok")
 	require.NoError(t, err)
+
 	c := NewClientWithBaseURL(p, "https://github.example.corp/api/v3")
 
 	// Same host: accepted.
@@ -410,6 +420,7 @@ func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
@@ -430,6 +441,7 @@ func TestParseLinkNext_SSRFRejectedWithCustomBaseURL(t *testing.T) {
 
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
+
 	client := NewClientWithBaseURL(p, srv.URL)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
@@ -440,8 +452,10 @@ func TestParseLinkNext_SSRFRejectedWithCustomBaseURL(t *testing.T) {
 
 func TestClient_UsesProviderToken(t *testing.T) {
 	var gotAuth string
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[]`)) // empty array; suits issues + branches
 	}))

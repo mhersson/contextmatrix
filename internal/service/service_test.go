@@ -62,11 +62,11 @@ func setupTestTB(tb testing.TB) (*CardService, string, func()) {
 	// Create temp directory
 	tmpDir := tb.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(tb, os.MkdirAll(boardsDir, 0755))
+	require.NoError(tb, os.MkdirAll(boardsDir, 0o755))
 
 	// Create test project
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(tb, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(tb, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(tb, board.SaveProjectConfig(projectDir, testProject()))
 
 	// Create dependencies
@@ -718,11 +718,11 @@ func TestGetCardContext(t *testing.T) {
 
 	// Create template
 	templateDir := filepath.Join(tmpDir, "boards", "test-project", "templates")
-	require.NoError(t, os.MkdirAll(templateDir, 0755))
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(templateDir, "task.md"),
 		[]byte("## Plan\n\n## Progress\n"),
-		0644,
+		0o644,
 	))
 
 	// Create card
@@ -789,11 +789,11 @@ func TestConcurrentCardCreation(t *testing.T) {
 func TestTimeoutCheckerIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	// Create test project
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	// Fake clock drives both the heartbeat cutoff and the ticker — advancing
@@ -1139,10 +1139,10 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectWithReview()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -1579,10 +1579,10 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -1961,7 +1961,7 @@ func setupEmptyTest(t *testing.T) (*CardService, string) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
@@ -2377,10 +2377,10 @@ func TestDeleteProject_NotFound(t *testing.T) {
 func TestGitAutoCommitDisabled(t *testing.T) {
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -2422,10 +2422,10 @@ func setupDeferredTest(t *testing.T) (*CardService, *gitops.Manager) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -2551,10 +2551,10 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 func TestDeferredCommitFlushOnStalled(t *testing.T) {
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -3306,10 +3306,10 @@ func setupDeferredTestWithReview(t *testing.T) (*CardService, *gitops.Manager) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectWithReview()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -3989,10 +3989,10 @@ func TestNotPlannedReleasesAgent(t *testing.T) {
 func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -5899,10 +5899,10 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -6006,10 +6006,10 @@ func TestCreateCard_RollbackErrorsJoined(t *testing.T) {
 	// Build a fresh service environment.
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0755))
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
 	realStore, err := storage.NewFilesystemStore(boardsDir)
