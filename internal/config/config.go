@@ -111,7 +111,7 @@ type Config struct {
 	Boards           BoardsConfig         `yaml:"boards"`
 	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
 	CORSOrigin       string               `yaml:"cors_origin"`
-	SkillsDir        string               `yaml:"skills_dir"`
+	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
 	TaskSkillsDir    string               `yaml:"task_skills_dir"`
 	Theme            string               `yaml:"theme"`
 	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
@@ -138,7 +138,7 @@ func defaults() *Config {
 		},
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
-		SkillsDir:        "",
+		WorkflowSkillsDir: "",
 		TaskSkillsDir:    "",
 		Theme:            "everforest",
 		Runner: RunnerConfig{
@@ -363,15 +363,15 @@ func resolvePaths(cfg *Config, configPath string) error {
 
 	cfg.Boards.Dir = boardsDir
 
-	skillsDir, err := expandTilde(cfg.SkillsDir)
+	workflowSkillsDir, err := expandTilde(cfg.WorkflowSkillsDir)
 	if err != nil {
 		return err
 	}
 
-	cfg.SkillsDir = skillsDir
+	cfg.WorkflowSkillsDir = workflowSkillsDir
 
-	if cfg.SkillsDir == "" {
-		cfg.SkillsDir = filepath.Join(filepath.Dir(configPath), "skills")
+	if cfg.WorkflowSkillsDir == "" {
+		cfg.WorkflowSkillsDir = filepath.Join(filepath.Dir(configPath), "workflow-skills")
 	}
 
 	taskSkillsDir, err := expandTilde(cfg.TaskSkillsDir)
@@ -442,8 +442,8 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.CORSOrigin = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
-		cfg.SkillsDir = v
+	if v := os.Getenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR"); v != "" {
+		cfg.WorkflowSkillsDir = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {

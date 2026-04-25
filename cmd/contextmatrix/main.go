@@ -235,7 +235,7 @@ func main() {
 	slog.Info("session log manager initialized")
 
 	// Create MCP server
-	mcpSrv := mcpserver.NewServer(svc, cfg.SkillsDir)
+	mcpSrv := mcpserver.NewServer(svc, cfg.WorkflowSkillsDir)
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
 	if cfg.MCPAPIKey != "" {
