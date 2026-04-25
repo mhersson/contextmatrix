@@ -40,8 +40,6 @@ type Syncer struct {
 	interval time.Duration
 	autoPull bool
 	autoPush bool
-	authMode string
-	token    string
 
 	// clk drives the periodic-pull ticker. Defaults to clock.Real();
 	// tests can inject a fake clock via SetClock before calling Start.
@@ -63,9 +61,7 @@ type Syncer struct {
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
 // configured or the git binary is not found — sync is silently disabled.
-// authMode and token configure PAT authentication for shell git operations:
-// use "ssh" (or "") to preserve the default environment, or "pat" to inject
-// an Authorization Bearer header via GIT_CONFIG_* env vars.
+// Auth credentials are obtained at call time via the Manager's AuthEnv method.
 func NewSyncer(
 	git *gitops.Manager,
 	store *storage.FilesystemStore,
@@ -75,8 +71,6 @@ func NewSyncer(
 	autoPull bool,
 	autoPush bool,
 	interval time.Duration,
-	authMode string,
-	token string,
 ) *Syncer {
 	if !git.HasRemote() {
 		slog.Info("git sync disabled: no remote configured")
@@ -99,8 +93,6 @@ func NewSyncer(
 		interval: interval,
 		autoPull: autoPull,
 		autoPush: autoPush,
-		authMode: authMode,
-		token:    token,
 		clk:      clock.Real(),
 		pushCh:   make(chan struct{}, 1),
 	}

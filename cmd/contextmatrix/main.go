@@ -169,7 +169,7 @@ func main() {
 		pullInterval, _ := cfg.PullIntervalDuration()
 
 		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.Boards.Dir,
-			cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
+			cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval)
 		if syncer != nil {
 			if err := syncer.PullOnStartup(ctx); err != nil {
 				slog.Warn("initial pull failed", "error", err)
