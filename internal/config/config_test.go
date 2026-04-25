@@ -915,11 +915,6 @@ func TestLoad_WorkflowSkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
 }
 
-// REMOVED IN TASK 8: TestLoad_TaskSkillsDirDefault — replaced by TestLoad_TaskSkills_Defaults
-// REMOVED IN TASK 8: TestLoad_TaskSkillsDirExplicit — replaced by TestLoad_TaskSkills_Explicit
-// REMOVED IN TASK 8: TestLoad_TaskSkillsDirEnvOverride — rewritten in Task 6/7
-// REMOVED IN TASK 8: TestLoad_TaskSkillsDirTildeExpansion — rewritten in Task 7
-
 func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -1035,13 +1030,7 @@ func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// REMOVED IN TASK 8: TestLoad_ExampleFile — references cfg.GitHub.Token (removed field);
-// rewritten in Task 8 to use the new auth_mode schema.
-
 // ---------- GitHub issue importing config tests ----------
-
-// REMOVED IN TASK 8: TestLoad_GitHubIssueImporting_Enabled — references cfg.GitHub.Token
-// REMOVED IN TASK 8: TestLoad_GitHubIssueImporting_Disabled — references cfg.GitHub.Token
 
 func TestLoad_GitHubIssueImporting_DefaultSyncInterval(t *testing.T) {
 	dir := t.TempDir()
@@ -1068,16 +1057,6 @@ github:
 	require.NoError(t, err)
 	assert.Equal(t, 5*time.Minute, d)
 }
-
-// REMOVED IN TASK 8: TestLoad_GitHubIssueImporting_NoTokenNoError_WhenDisabled — references cfg.GitHub.Token
-
-// REMOVED IN TASK 8: TestValidate_GitHubIssueImporting_EnabledWithoutToken — references GitHubConfig{Token:}
-// REMOVED IN TASK 8: TestValidate_GitHubIssueImporting_InvalidSyncInterval — references GitHubConfig{Token:}
-// REMOVED IN TASK 8: TestValidate_GitHubIssueImporting_SyncIntervalTooShort — references GitHubConfig{Token:}
-// REMOVED IN TASK 8: TestValidate_GitHubIssueImporting_ValidConfig — references GitHubConfig{Token:}
-// REMOVED IN TASK 8: TestValidate_GitHubIssueImporting_TokenWithoutEnabled_NoError — references GitHubConfig{Token:}
-
-// REMOVED IN TASK 8: TestLoad_GitHubIssueImporting_EnvOverrides — references cfg.GitHub.Token
 
 func TestLoad_GitHubIssueImporting_EnvEnabled1(t *testing.T) {
 	dir := t.TempDir()
@@ -1119,8 +1098,6 @@ github:
 
 	assert.False(t, cfg.GitHub.IssueImporting.Enabled)
 }
-
-// REMOVED IN TASK 8: TestDefaults_GitHubIssueImporting — references cfg.GitHub.Token
 
 func TestSyncIntervalDuration(t *testing.T) {
 	tests := []struct {
@@ -1298,22 +1275,6 @@ func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
 	assert.Empty(t, cfg.GitHub.Host)
 	assert.Empty(t, cfg.GitHub.APIBaseURL)
 }
-
-// ---------- GitAuthMode tests — REMOVED IN TASK 8 ----------
-// All tests below reference BoardsConfig.GitAuthMode and GitHubConfig.Token,
-// which were removed in Task 2. Replacements written in Tasks 3–5 and deleted here in Task 8.
-//
-// REMOVED IN TASK 8: TestDefaults_GitAuthMode
-// REMOVED IN TASK 8: TestLoad_GitAuthMode_DefaultIsSSH
-// REMOVED IN TASK 8: TestLoad_GitAuthMode_EnvOverride
-// REMOVED IN TASK 8: TestValidate_GitAuthMode_UnknownValueRejected
-// REMOVED IN TASK 8: TestValidate_GitAuthMode_PATMissingToken
-// REMOVED IN TASK 8: TestValidate_GitAuthMode_PATWithSSHURL
-// REMOVED IN TASK 8: TestValidate_GitAuthMode_PATWithHTTPSURLAndToken
-// REMOVED IN TASK 8: TestValidate_GitAuthMode_SSHIsValidWithAnyRemote
-// REMOVED IN TASK 8: TestLoad_GitAuthMode_YAMLField
-// REMOVED IN TASK 8: TestLoad_GitAuthMode_PATFromYAML
-// REMOVED IN TASK 8: TestLoad_GitAuthMode_ExampleFileHasSSHDefault
 
 // ---------- Theme config tests ----------
 
