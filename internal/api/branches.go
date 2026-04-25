@@ -18,22 +18,15 @@ type BranchFetcher interface {
 // branchHandlers contains handlers for the branch listing endpoint.
 type branchHandlers struct {
 	svc              *service.CardService
-	githubToken      string
+	provider         githubauth.TokenGenerator
 	githubAPIBaseURL string
 	allowedHosts     []string
-	newBranchClient  func(token, baseURL string) BranchFetcher
+	newBranchClient  func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
 }
 
 // listBranches handles GET /api/projects/{project}/branches.
 // It returns a JSON array of branch name strings from the project's GitHub repo.
 func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
-	if h.githubToken == "" {
-		writeError(w, http.StatusServiceUnavailable, "NO_GITHUB_TOKEN",
-			"GitHub token is not configured", "")
-
-		return
-	}
-
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
@@ -56,7 +49,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := h.newBranchClient(h.githubToken, h.githubAPIBaseURL)
+	client := h.newBranchClient(h.provider, h.githubAPIBaseURL)
 
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {
@@ -70,14 +63,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, branches)
 }
 
-// defaultBranchClient creates a real GitHub API client.
-// token is a PAT string; Task 14 will replace this with a provider-based approach.
-func defaultBranchClient(token, baseURL string) BranchFetcher {
-	p, err := githubauth.NewPATProvider(token)
-	if err != nil {
-		// token is already validated non-empty by listBranches before calling here.
-		panic("defaultBranchClient: empty token reached NewPATProvider: " + err.Error())
-	}
-
-	return github.NewClientWithBaseURL(p, baseURL)
+// defaultBranchClient returns a github.Client constructed from the provider.
+func defaultBranchClient(provider githubauth.TokenGenerator, baseURL string) BranchFetcher {
+	return github.NewClientWithBaseURL(provider, baseURL)
 }

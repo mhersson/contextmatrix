@@ -13,10 +13,12 @@ import (
 
 	"github.com/google/uuid"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
@@ -72,21 +74,22 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service            *service.CardService
-	Bus                *events.Bus
-	CORSOrigin         string
-	Syncer             Syncer
-	Runner             *runner.Client
-	RunnerCfg          config.RunnerConfig
-	MCPAPIKey          string
-	Port               int
-	GitHubToken        string
-	GitHubAPIBaseURL   string
-	GitHubAllowedHosts []string
-	SessionManager     *sessionlog.Manager // optional; enables card-scoped SSE log path
-	Theme              string              // active color palette ("everforest" or "radix")
-	Version            string              // build version string for display
-	MCPHandler         http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
+	Service             *service.CardService
+	Bus                 *events.Bus
+	CORSOrigin          string
+	Syncer              Syncer
+	Runner              *runner.Client
+	RunnerCfg           config.RunnerConfig
+	MCPAPIKey           string
+	Port                int
+	GitHubTokenProvider githubauth.TokenGenerator
+	TaskSkillsGit       *gitops.Manager // reserved for next-week's task-skills UI
+	GitHubAPIBaseURL    string
+	GitHubAllowedHosts  []string
+	SessionManager      *sessionlog.Manager // optional; enables card-scoped SSE log path
+	Theme               string              // active color palette ("everforest" or "radix")
+	Version             string              // build version string for display
+	MCPHandler          http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -105,7 +108,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
 	bh := &branchHandlers{
 		svc:              cfg.Service,
-		githubToken:      cfg.GitHubToken,
+		provider:         cfg.GitHubTokenProvider,
 		githubAPIBaseURL: cfg.GitHubAPIBaseURL,
 		allowedHosts:     cfg.GitHubAllowedHosts,
 		newBranchClient:  defaultBranchClient,
