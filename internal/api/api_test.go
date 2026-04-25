@@ -3308,11 +3308,8 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		var card board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
 
-		assert.NotNil(t, card.Skills)
-
-		if card.Skills != nil {
-			assert.Equal(t, []string{"go-development", "documentation"}, *card.Skills)
-		}
+		require.NotNil(t, card.Skills)
+		assert.Equal(t, []string{"go-development", "documentation"}, *card.Skills)
 	})
 
 	t.Run("create without skills omits field in JSON output", func(t *testing.T) {
@@ -3392,10 +3389,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&patchedCard))
 
 		// After patch with explicit empty, skills should be empty slice
-		assert.NotNil(t, patchedCard.Skills)
-
-		if patchedCard.Skills != nil {
-			assert.Empty(t, *patchedCard.Skills)
-		}
+		require.NotNil(t, patchedCard.Skills)
+		assert.Empty(t, *patchedCard.Skills)
 	})
 }
