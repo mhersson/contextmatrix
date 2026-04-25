@@ -1276,11 +1276,15 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("update claimed card with matching agent", func(t *testing.T) {
+		// Internal cards (no Source) are always vetted; a non-human agent
+		// must echo the existing Vetted=true on PUT to avoid the
+		// human-only-fields guard.
 		body := updateCardRequest{
 			Title:    "Updated By Owner",
 			Type:     "task",
 			State:    "in_progress",
 			Priority: "high",
+			Vetted:   true,
 		}
 		jsonBody, _ := json.Marshal(body)
 

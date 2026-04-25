@@ -324,12 +324,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		Body:                input.Body,
 	}
 
-	// Cards without an external source are implicitly vetted.
-	// GitHub/Jira importers set Source but leave Vetted false (Go zero value)
-	// until a human approves, so only auto-default when no source is set.
-	if input.Source == nil {
-		card.Vetted = true
-	}
+	enforceVettingInvariant(card)
 
 	// Auto-generate branch name when feature_branch is enabled.
 	if card.FeatureBranch {
@@ -566,6 +561,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
+		enforceVettingInvariant(card)
 
 		// BranchName is immutable after first generation — only set when empty.
 		if card.FeatureBranch && card.BranchName == "" {
@@ -706,6 +702,8 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		if input.Vetted != nil {
 			card.Vetted = *input.Vetted
 		}
+
+		enforceVettingInvariant(card)
 
 		if input.Skills != nil {
 			card.Skills = input.Skills

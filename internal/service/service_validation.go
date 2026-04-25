@@ -153,3 +153,15 @@ func validateSkillNames(skills *[]string) error {
 
 	return nil
 }
+
+// enforceVettingInvariant guarantees that any card without an external Source
+// is treated as vetted. Cards from external importers (GitHub/Jira) keep
+// whatever Vetted value the caller set; only when Source is nil do we
+// auto-correct. Called from CreateCard and from the PUT/PATCH apply paths so
+// the invariant holds regardless of which write path got called and whether
+// the caller remembered to pass Vetted through.
+func enforceVettingInvariant(card *board.Card) {
+	if card.Source == nil {
+		card.Vetted = true
+	}
+}
