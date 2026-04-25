@@ -495,11 +495,13 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 
 	// Dedup: scan recent entries for a same-skill skill_engaged within the window.
 	cutoff := time.Now().Add(-SkillEngagedDedupWindow)
+
 	for i := len(card.ActivityLog) - 1; i >= 0; i-- {
 		e := card.ActivityLog[i]
 		if e.Timestamp.Before(cutoff) {
 			break
 		}
+
 		if e.Action == "skill_engaged" && skillNameOf(e) == skillName {
 			// Already logged within the window; suppress.
 			s.writeMu.Unlock()
@@ -515,6 +517,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 		Message:   "engaged " + skillName,
 		Skill:     skillName,
 	}
+
 	card.ActivityLog = append(card.ActivityLog, entry)
 	if len(card.ActivityLog) > maxActivityLogEntries {
 		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
@@ -567,9 +570,11 @@ func skillNameOf(e board.ActivityEntry) string {
 	if e.Skill != "" {
 		return e.Skill
 	}
+
 	const prefix = "engaged "
 	if strings.HasPrefix(e.Message, prefix) {
 		return strings.TrimPrefix(e.Message, prefix)
 	}
+
 	return ""
 }

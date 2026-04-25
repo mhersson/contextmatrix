@@ -92,6 +92,7 @@ func TestRecordSkillEngaged_DedupsAcrossPathAandPathB(t *testing.T) {
 func TestRecordSkillEngaged_AfterWindowAppendsAgain(t *testing.T) {
 	prev := SkillEngagedDedupWindow
 	SkillEngagedDedupWindow = 10 * time.Millisecond
+
 	t.Cleanup(func() { SkillEngagedDedupWindow = prev })
 
 	svc, _, cleanup := setupTest(t)

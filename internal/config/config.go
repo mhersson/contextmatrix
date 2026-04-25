@@ -107,21 +107,21 @@ type BoardsConfig struct {
 
 // Config holds the application configuration.
 type Config struct {
-	Port             int                  `yaml:"port"`
-	Boards           BoardsConfig         `yaml:"boards"`
-	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
-	CORSOrigin       string               `yaml:"cors_origin"`
+	Port              int                  `yaml:"port"`
+	Boards            BoardsConfig         `yaml:"boards"`
+	HeartbeatTimeout  string               `yaml:"heartbeat_timeout"`
+	CORSOrigin        string               `yaml:"cors_origin"`
 	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
-	TaskSkillsDir    string               `yaml:"task_skills_dir"`
-	Theme            string               `yaml:"theme"`
-	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
-	MCPAPIKey        string               `yaml:"mcp_api_key"`
-	Runner           RunnerConfig         `yaml:"runner"`
-	GitHub           GitHubConfig         `yaml:"github"`
-	LogFormat        string               `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel         string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort        int                  `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr    string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	TaskSkillsDir     string               `yaml:"task_skills_dir"`
+	Theme             string               `yaml:"theme"`
+	TokenCosts        map[string]ModelCost `yaml:"token_costs"`
+	MCPAPIKey         string               `yaml:"mcp_api_key"`
+	Runner            RunnerConfig         `yaml:"runner"`
+	GitHub            GitHubConfig         `yaml:"github"`
+	LogFormat         string               `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel          string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort         int                  `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr     string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 }
 
 // defaults returns a Config with default values.
@@ -136,11 +136,11 @@ func defaults() *Config {
 			GitPullInterval: "60s",
 			GitAuthMode:     "ssh",
 		},
-		HeartbeatTimeout: "30m",
-		CORSOrigin:       "http://localhost:5173",
+		HeartbeatTimeout:  "30m",
+		CORSOrigin:        "http://localhost:5173",
 		WorkflowSkillsDir: "",
-		TaskSkillsDir:    "",
-		Theme:            "everforest",
+		TaskSkillsDir:     "",
+		Theme:             "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
 			OrchestratorOpusModel:   "claude-opus-4-7",

@@ -601,18 +601,18 @@ transitions:
 func TestProjectConfig_DefaultSkillsRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &ProjectConfig{
-		Name:        "alpha",
-		Prefix:      "ALPHA",
-		NextID:      1,
-		States:      []string{"todo", "in_progress", "done", "stalled", "not_planned"},
-		Types:       []string{"task"},
-		Priorities:  []string{"low", "medium", "high"},
+		Name:       "alpha",
+		Prefix:     "ALPHA",
+		NextID:     1,
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task"},
+		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
-			"todo":         {"in_progress", "not_planned"},
-			"in_progress":  {"done", "stalled"},
-			"done":         {},
-			"stalled":      {"in_progress"},
-			"not_planned":  {"todo"},
+			"todo":        {"in_progress", "not_planned"},
+			"in_progress": {"done", "stalled"},
+			"done":        {},
+			"stalled":     {"in_progress"},
+			"not_planned": {"todo"},
 		},
 		DefaultSkills: &[]string{"go-development", "documentation"},
 	}
@@ -628,18 +628,18 @@ func TestProjectConfig_DefaultSkillsRoundtrip(t *testing.T) {
 func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &ProjectConfig{
-		Name:        "alpha",
-		Prefix:      "ALPHA",
-		NextID:      1,
-		States:      []string{"todo", "in_progress", "done", "stalled", "not_planned"},
-		Types:       []string{"task"},
-		Priorities:  []string{"low"},
+		Name:       "alpha",
+		Prefix:     "ALPHA",
+		NextID:     1,
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task"},
+		Priorities: []string{"low"},
 		Transitions: map[string][]string{
-			"todo":         {"in_progress"},
-			"in_progress":  {"done", "stalled"},
-			"done":         {},
-			"stalled":      {"in_progress"},
-			"not_planned":  {"todo"},
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "stalled"},
+			"done":        {},
+			"stalled":     {"in_progress"},
+			"not_planned": {"todo"},
 		},
 	}
 

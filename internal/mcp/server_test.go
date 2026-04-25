@@ -2730,7 +2730,7 @@ func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 
 	// Local HITL path must be gated on the runner-context detection landing
 	// on the `local` outcome.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*` + "`local`" + `.*Local HITL`,
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*`+"`local`"+`.*Local HITL`,
 		content,
 		"create-plan.md Phase 9 must describe local HITL as the `local` runner-context outcome")
 }
