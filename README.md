@@ -411,7 +411,7 @@ full architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
 
-When a GitHub token is configured and a project has `github.import_issues`
+When GitHub authentication is configured and a project has `github.import_issues`
 enabled in its `.board.yaml`, ContextMatrix periodically fetches open issues and
 creates cards in the project's `todo` column. Duplicate issues are detected by
 external ID and never imported twice.
@@ -419,9 +419,18 @@ external ID and never imported twice.
 ```yaml
 # config.yaml (global)
 github:
-  token: "ghp_..." # Fine-grained PAT with Issues: Read
-  sync_interval: "5m" # Minimum 5m
+  auth_mode: "app" # "app" (recommended) or "pat"
+  app:
+    app_id: 12345
+    installation_id: 67890
+    private_key_path: "/path/to/private-key.pem"
+  issue_importing:
+    enabled: true
+    sync_interval: "5m" # Minimum 5m
 ```
+
+See [docs/github-auth-setup.md](docs/github-auth-setup.md) for end-to-end
+authentication setup.
 
 ### GitHub Enterprise
 
@@ -430,7 +439,7 @@ Server (GHES), set `host` and optionally `api_base_url`:
 
 ```yaml
 github:
-  token: "ghp_..."
+  auth_mode: "app"
   host: acme.ghe.com # enterprise hostname
   # api_base_url is derived as https://api.<host> when omitted
   # api_base_url: https://api.acme.ghe.com # set only for non-standard API paths
@@ -654,26 +663,32 @@ format.
 | `port`                       | `8080`                  | HTTP server port                                                                              |
 | `heartbeat_timeout`          | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
 | `cors_origin`                | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
-| `workflow_skills_dir`        | `./workflow-skills`     | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts)       |
-| `task_skills_dir`            | `./task-skills`         | Path to the curated task-skills git repo (specialist skills mounted into runner workers)      |
-| `token_costs`                | ---                     | Per-model token cost rates (see example below)                                                |
-| `mcp_api_key`                | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
-| `boards.dir`                 | ---                     | Path to boards git repo (required)                                                            |
-| `boards.git_auto_commit`     | `true`                  | Auto-commit card mutations to git                                                             |
-| `boards.git_deferred_commit` | `false`                 | Batch commits until a terminal state (done/not_planned) is reached                            |
-| `boards.git_auto_push`       | `false`                 | Auto-push after each commit                                                                   |
-| `boards.git_auto_pull`       | `false`                 | Pull from remote on startup and at `boards.git_pull_interval`                                 |
-| `boards.git_pull_interval`   | `"60s"`                 | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                 |
-| `boards.git_remote_url`      | `""`                    | Remote URL for the boards repo (SSH or HTTPS); required for clone-on-empty and PAT mode       |
-| `boards.git_clone_on_empty`  | `false`                 | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup       |
-| `boards.git_auth_mode`       | `"ssh"`                 | Auth mode for boards git ops: `ssh` (deploy key) or `pat` (GitHub fine-grained PAT)           |
-| `runner.enabled`             | `false`                 | Enable remote execution integration                                                           |
-| `runner.url`                 | `""`                    | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
-| `runner.api_key`             | `""`                    | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
-| `github.token`               | `""`                    | GitHub fine-grained PAT; used for issue import and for boards git auth in PAT mode            |
-| `github.host`                | `""`                    | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
-| `github.api_base_url`        | `""`                    | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
-| `github.sync_interval`       | `"5m"`                  | How often to check GitHub for new issues (minimum 5m)                                         |
+| `workflow_skills_dir`              | `./workflow-skills`           | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts)       |
+| `task_skills.dir`                  | `<config-dir>/task-skills`    | Path to the curated task-skills repo (specialist skills mounted into runner workers)          |
+| `task_skills.git_clone_on_empty`   | `false`                       | Clone on first start when `task_skills.dir` is empty                                         |
+| `task_skills.git_remote_url`       | `""`                          | HTTPS URL used for clone-on-empty                                                             |
+| `token_costs`                      | ---                           | Per-model token cost rates (see example below)                                                |
+| `mcp_api_key`                      | `""`                          | Bearer token for MCP endpoint authentication (empty = no auth)                                |
+| `boards.dir`                       | ---                           | Path to boards git repo (required)                                                            |
+| `boards.git_auto_commit`           | `true`                        | Auto-commit card mutations to git                                                             |
+| `boards.git_deferred_commit`       | `false`                       | Batch commits until a terminal state (done/not_planned) is reached                           |
+| `boards.git_auto_push`             | `false`                       | Auto-push after each commit                                                                   |
+| `boards.git_auto_pull`             | `false`                       | Pull from remote on startup and at `boards.git_pull_interval`                                 |
+| `boards.git_pull_interval`         | `"60s"`                       | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                 |
+| `boards.git_remote_url`            | `""`                          | Remote URL for the boards repo (HTTPS); required for clone-on-empty                          |
+| `boards.git_clone_on_empty`        | `false`                       | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup       |
+| `runner.enabled`                   | `false`                       | Enable remote execution integration                                                           |
+| `runner.url`                       | `""`                          | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
+| `runner.api_key`                   | `""`                          | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
+| `github.auth_mode`                 | (required)                    | `"app"` (recommended) or `"pat"`                                                              |
+| `github.host`                      | `""`                          | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
+| `github.api_base_url`              | `""`                          | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
+| `github.app.app_id`                | `0`                           | GitHub App ID (required when `auth_mode` is `"app"`)                                          |
+| `github.app.installation_id`       | `0`                           | App installation ID                                                                           |
+| `github.app.private_key_path`      | `""`                          | Path to PEM private key                                                                       |
+| `github.pat.token`                 | `""`                          | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                       |
+| `github.issue_importing.enabled`   | `false`                       | Periodically fetch open issues from project repos that have `import_issues` set               |
+| `github.issue_importing.sync_interval` | `"5m"`                    | How often to check GitHub for new issues (minimum 5m)                                         |
 
 Token cost configuration:
 
@@ -697,19 +712,33 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL`
 - `CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY`
 - `CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL`
-- `CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE`
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
 - `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`
 - `CONTEXTMATRIX_TASK_SKILLS_DIR`
+- `CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL`
+- `CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY`
 - `CONTEXTMATRIX_MCP_API_KEY`
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
-- `CONTEXTMATRIX_GITHUB_TOKEN`
+- `CONTEXTMATRIX_GITHUB_AUTH_MODE`
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
-- `CONTEXTMATRIX_GITHUB_SYNC_INTERVAL`
+- `CONTEXTMATRIX_GITHUB_APP_ID`
+- `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`
+- `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`
+- `CONTEXTMATRIX_GITHUB_PAT_TOKEN`
+- `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED`
+- `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL`
+
+## GitHub Authentication
+
+ContextMatrix authenticates to GitHub via a single identity used for both git
+operations (boards repo, task-skills repo) and REST API calls (issue import,
+branch listing). Two methods are supported: GitHub App (recommended) or
+fine-grained PAT. SSH deploy keys are no longer supported. See
+[docs/github-auth-setup.md](docs/github-auth-setup.md) for end-to-end setup.
 
 ## Security
 
