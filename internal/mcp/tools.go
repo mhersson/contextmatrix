@@ -15,7 +15,7 @@ import (
 )
 
 // registerTools adds all MCP tools to the server.
-func registerTools(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	registerListProjects(server, svc)
 	registerListCards(server, svc)
 	registerGetCard(server, svc)
@@ -36,8 +36,8 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
-	registerStartWorkflow(server, svc, skillsDir)
-	registerGetSkill(server, svc, skillsDir)
+	registerStartWorkflow(server, svc, workflowSkillsDir)
+	registerGetSkill(server, svc, workflowSkillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
@@ -924,7 +924,7 @@ type startWorkflowOutput struct {
 	Inline    bool   `json:"inline,omitempty"`
 }
 
-func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "start_workflow",
 		Description: "Start the workflow for a card. Call this when a user asks to " +
@@ -945,7 +945,7 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsD
 
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, skill, skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, skill, skillArgs{
 			CardID: input.CardID,
 		}, includePreamble)
 		if err != nil {
@@ -981,7 +981,7 @@ type getSkillOutput struct {
 	Inline    bool   `json:"inline,omitempty"`
 }
 
-func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_skill",
 		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, " +
@@ -992,7 +992,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
 			Description: input.Description,
 			Name:        input.Name,

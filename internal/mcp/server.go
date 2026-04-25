@@ -15,7 +15,7 @@ import (
 )
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
-func NewServer(svc *service.CardService, skillsDir string) *mcp.Server {
+func NewServer(svc *service.CardService, workflowSkillsDir string) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "contextmatrix",
@@ -24,8 +24,8 @@ func NewServer(svc *service.CardService, skillsDir string) *mcp.Server {
 		nil,
 	)
 
-	registerTools(server, svc, skillsDir)
-	registerPrompts(server, svc, skillsDir)
+	registerTools(server, svc, workflowSkillsDir)
+	registerPrompts(server, svc, workflowSkillsDir)
 
 	return server
 }
