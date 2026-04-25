@@ -2351,3 +2351,134 @@ func TestGetCardAutonomous_RunnerDisabled(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+// TestRunCard_TaskSkillsResolution verifies the four resolution cases for
+// task_skills in the TriggerPayload: card.Skills wins over project default,
+// project default used when card has nil, nil when neither is set, and explicit
+// empty card skills wins over project default.
+func TestRunCard_TaskSkillsResolution(t *testing.T) {
+	ctx := context.Background()
+
+	// boardConfigWithDefaultSkills adds default_skills to the project config.
+	const boardConfigWithDefaultSkills = `name: test-project
+prefix: TEST
+next_id: 1
+repo: https://github.com/example/project.git
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: my-runner:latest
+default_skills:
+  - go-development
+`
+
+	triggerCard := func(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) runner.TriggerPayload {
+		t.Helper()
+
+		var capturedPayload runner.TriggerPayload
+
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		}))
+		t.Cleanup(mockRunner.Close)
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			RunnerCfg: config.RunnerConfig{
+				Enabled: true,
+				URL:     mockRunner.URL,
+				APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			},
+		})
+
+		server := httptest.NewServer(router)
+		t.Cleanup(server.Close)
+
+		req, _ := http.NewRequest("POST",
+			server.URL+"/api/projects/test-project/cards/"+cardID+"/run", nil)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+		return capturedPayload
+	}
+
+	t.Run("card.Skills wins over project default", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithDefaultSkills)
+		defer cleanup()
+
+		cardSkills := []string{"python-development"}
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Card with skills", Type: "task", Priority: "medium",
+			Skills: &cardSkills,
+		})
+		require.NoError(t, err)
+
+		payload := triggerCard(t, svc, bus, card.ID)
+
+		require.NotNil(t, payload.TaskSkills, "TaskSkills must not be nil")
+		assert.Equal(t, []string{"python-development"}, *payload.TaskSkills,
+			"card.Skills must win over project default_skills")
+	})
+
+	t.Run("falls through to project default when card has nil", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithDefaultSkills)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Card without skills", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		payload := triggerCard(t, svc, bus, card.ID)
+
+		require.NotNil(t, payload.TaskSkills, "TaskSkills must not be nil")
+		assert.Equal(t, []string{"go-development"}, *payload.TaskSkills,
+			"project default_skills must be used when card has nil Skills")
+	})
+
+	t.Run("nil when neither set", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "No skills anywhere", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		payload := triggerCard(t, svc, bus, card.ID)
+
+		assert.Nil(t, payload.TaskSkills, "TaskSkills must be nil when neither card nor project has skills")
+	})
+
+	t.Run("explicit empty card skills wins over project default", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithDefaultSkills)
+		defer cleanup()
+
+		emptySkills := []string{}
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Card with empty skills", Type: "task", Priority: "medium",
+			Skills: &emptySkills,
+		})
+		require.NoError(t, err)
+
+		payload := triggerCard(t, svc, bus, card.ID)
+
+		require.NotNil(t, payload.TaskSkills, "TaskSkills must not be nil for explicit empty slice")
+		assert.Empty(t, *payload.TaskSkills,
+			"explicit empty card Skills must win over project default_skills")
+	})
+}

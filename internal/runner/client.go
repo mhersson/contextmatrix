@@ -32,14 +32,15 @@ var BackoffBase = time.Second
 
 // TriggerPayload is sent to the runner to start a task.
 type TriggerPayload struct {
-	CardID      string `json:"card_id"`
-	Project     string `json:"project"`
-	RepoURL     string `json:"repo_url"`
-	MCPAPIKey   string `json:"mcp_api_key,omitempty"`
-	RunnerImage string `json:"runner_image,omitempty"`
-	BaseBranch  string `json:"base_branch,omitempty"`
-	Interactive bool   `json:"interactive,omitempty"`
-	Model       string `json:"model,omitempty"`
+	CardID      string    `json:"card_id"`
+	Project     string    `json:"project"`
+	RepoURL     string    `json:"repo_url"`
+	MCPAPIKey   string    `json:"mcp_api_key,omitempty"`
+	RunnerImage string    `json:"runner_image,omitempty"`
+	BaseBranch  string    `json:"base_branch,omitempty"`
+	Interactive bool      `json:"interactive,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	TaskSkills  *[]string `json:"task_skills,omitempty"`
 }
 
 // KillPayload is sent to the runner to stop a specific task.

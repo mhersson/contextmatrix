@@ -140,6 +140,15 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		model = h.runnerCfg.OrchestratorOpusModel
 	}
 
+	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
+	var taskSkills *[]string
+	switch {
+	case card.Skills != nil:
+		taskSkills = card.Skills
+	case projectCfg.DefaultSkills != nil:
+		taskSkills = projectCfg.DefaultSkills
+	}
+
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
@@ -148,6 +157,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
 		Model:       model,
+		TaskSkills:  taskSkills,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
