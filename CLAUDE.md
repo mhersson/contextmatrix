@@ -205,13 +205,17 @@ config directory. The config directory is resolved via the XDG spec:
 
 ```bash
 # Fresh install: create config dir, copy config.yaml.example → config.yaml,
-# copy skills/ directory. Skips config.yaml if it already exists.
+# copy workflow skills into <config-dir>/workflow-skills/. Skips config.yaml
+# if it already exists.
 make install-config
 # or equivalently:
 scripts/install.sh
 
-# Only update the skills/ directory; config.yaml is not touched.
-scripts/install.sh --update-skills
+# Only update the workflow-skills/ directory; config.yaml is not touched.
+scripts/install.sh --update-workflow-skills
+
+# Add-only refresh of task-skills/ — never overwrites user edits.
+scripts/install.sh --update-task-skills
 
 # Overwrite config.yaml even if it already exists (re-install).
 scripts/install.sh --force
@@ -219,9 +223,9 @@ scripts/install.sh --force
 
 On a fresh install the script creates `~/.config/contextmatrix/config.yaml` from
 the template. Edit `boards.dir` (and any other fields) before starting the
-server. Skills are always refreshed from the repo's `skills/` directory even
-without `--update-skills` — that flag simply skips the config.yaml step
-entirely.
+server. Workflow skills are always refreshed from the repo's `skills/` directory
+even without `--update-workflow-skills` — that flag simply skips the config.yaml
+step entirely.
 
 ## Agent permissions in target projects
 
