@@ -50,6 +50,7 @@ skills_dir: skills
 # Path to the curated task skills git repo. Read by CM for UI listing and
 # validation. NOT the same as skills_dir, which is the workflow skills
 # directory for MCP-served prompts. Empty falls back to <config-dir>/task-skills.
+# Tilde expansion is supported.
 # Env: CONTEXTMATRIX_TASK_SKILLS_DIR
 task_skills_dir: ""
 

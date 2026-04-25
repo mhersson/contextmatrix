@@ -892,6 +892,21 @@ func TestLoad_TaskSkillsDirEnvOverride(t *testing.T) {
 		"env override must win over config file")
 }
 
+func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: \"~/my-task-skills\"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "my-task-skills"), cfg.TaskSkillsDir)
+}
+
 func TestLoad_CloneOnEmptyFields(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
