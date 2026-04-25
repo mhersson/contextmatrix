@@ -13,6 +13,93 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+func TestCreateCard_SkillsInheritance(t *testing.T) {
+	t.Run("nil parent skills, nil subtask skills → nil", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "parent", Type: "task", Priority: "low",
+		})
+		require.NoError(t, err)
+
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "child", Type: "task", Priority: "low", Parent: parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, child.Skills, "nil parent + nil subtask should yield nil")
+	})
+
+	t.Run("populated parent skills, nil subtask skills → inherit", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		skills := []string{"go-development"}
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "parent", Type: "task", Priority: "low",
+			Skills: &skills,
+		})
+		require.NoError(t, err)
+
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "child", Type: "task", Priority: "low", Parent: parent.ID,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, child.Skills)
+		assert.Equal(t, []string{"go-development"}, *child.Skills)
+	})
+
+	t.Run("explicit empty subtask skills → preserved (not inherited)", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		parentSkills := []string{"go-development"}
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "parent", Type: "task", Priority: "low",
+			Skills: &parentSkills,
+		})
+		require.NoError(t, err)
+
+		empty := []string{}
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "child", Type: "task", Priority: "low", Parent: parent.ID,
+			Skills: &empty,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, child.Skills)
+		assert.Empty(t, *child.Skills, "explicit empty must be preserved")
+	})
+
+	t.Run("explicit subtask skills override parent", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		parentSkills := []string{"go-development"}
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "parent", Type: "task", Priority: "low",
+			Skills: &parentSkills,
+		})
+		require.NoError(t, err)
+
+		childSkills := []string{"typescript-react"}
+		child, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "child", Type: "task", Priority: "low", Parent: parent.ID,
+			Skills: &childSkills,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, child.Skills)
+		assert.Equal(t, []string{"typescript-react"}, *child.Skills)
+	})
+}
+
 // TestListCardsPage_WalkAllPages seeds a project with 50 cards, walks the
 // paginated listing with limit=10, and asserts the walk visits every card
 // exactly once in ID-ascending order. Guards against off-by-one slicing and
