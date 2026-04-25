@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# install.sh — Install ContextMatrix config and skills files into the user config directory.
+# install.sh — Install ContextMatrix config and skill files into the user config directory.
 #
 # Usage:
-#   scripts/install.sh                 # Fresh install: create config dir, copy config.yaml and skills/
-#   scripts/install.sh --update-skills       # Only update the skills/ directory (safe to re-run)
-#   scripts/install.sh --update-task-skills  # Add-only refresh of task-skills/
-#   scripts/install.sh --force               # Overwrite config.yaml even if it already exists
-#   scripts/install.sh --update-skills --force  # Both flags may be combined (--force is ignored for --update-skills mode)
+#   scripts/install.sh                            # Fresh install: create config dir, copy config.yaml and workflow-skills/
+#   scripts/install.sh --update-workflow-skills   # Only update the workflow-skills/ directory (safe to re-run)
+#   scripts/install.sh --update-task-skills       # Add-only refresh of task-skills/
+#   scripts/install.sh --force                    # Overwrite config.yaml even if it already exists
+#   scripts/install.sh --update-workflow-skills --force  # Combinable (--force is ignored for --update-workflow-skills mode)
 #
 # Config directory resolution (XDG):
 #   $XDG_CONFIG_HOME/contextmatrix     if XDG_CONFIG_HOME is set
 #   ~/.config/contextmatrix            otherwise
+#
+# Migration note (post-rename, 2026-04-25): the workflow-skills directory was
+# previously installed as <config-dir>/skills/ and selected via the --update-skills
+# flag. Existing installs should:
+#   1. mv <config-dir>/skills <config-dir>/workflow-skills
+#   2. Update config.yaml: skills_dir → workflow_skills_dir
+#   3. Update any env var: CONTEXTMATRIX_SKILLS_DIR → CONTEXTMATRIX_WORKFLOW_SKILLS_DIR
 
 set -euo pipefail
 
@@ -34,14 +41,14 @@ fi
 # ---------------------------------------------------------------------------
 # Parse arguments.
 # ---------------------------------------------------------------------------
-UPDATE_SKILLS=false
+UPDATE_WORKFLOW_SKILLS=false
 UPDATE_TASK_SKILLS=0
 FORCE=false
 
 for arg in "$@"; do
     case "${arg}" in
-        --update-skills)
-            UPDATE_SKILLS=true
+        --update-workflow-skills)
+            UPDATE_WORKFLOW_SKILLS=true
             ;;
         --update-task-skills)
             UPDATE_TASK_SKILLS=1
@@ -51,7 +58,7 @@ for arg in "$@"; do
             ;;
         *)
             echo "Unknown argument: ${arg}" >&2
-            echo "Usage: $0 [--update-skills] [--update-task-skills] [--force]" >&2
+            echo "Usage: $0 [--update-workflow-skills] [--update-task-skills] [--force]" >&2
             exit 1
             ;;
     esac
@@ -75,27 +82,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Copy skills/ directory (always done, whether default or --update-skills).
+# Copy workflow skills (always done, whether default or --update-workflow-skills).
+# Source on disk in this repo is `skills/` (internal name, unchanged); the
+# install destination is `<config-dir>/workflow-skills/` for symmetry with
+# `task-skills/` and to match the renamed `workflow_skills_dir` config field.
 # ---------------------------------------------------------------------------
-SKILLS_SRC="${REPO_ROOT}/skills"
-SKILLS_DST="${CONFIG_DIR}/skills"
+WORKFLOW_SKILLS_SRC="${REPO_ROOT}/skills"
+WORKFLOW_SKILLS_DST="${CONFIG_DIR}/workflow-skills"
 
-if [[ ! -d "${SKILLS_SRC}" ]]; then
-    echo "[install] ERROR: skills directory not found at ${SKILLS_SRC}" >&2
+if [[ ! -d "${WORKFLOW_SKILLS_SRC}" ]]; then
+    echo "[install] ERROR: workflow skills source not found at ${WORKFLOW_SKILLS_SRC}" >&2
     exit 1
 fi
 
-mkdir -p "${SKILLS_DST}"
+mkdir -p "${WORKFLOW_SKILLS_DST}"
 
 # Copy each skill file individually so we report per-file.
 while IFS= read -r -d '' skill_file; do
-    rel="${skill_file#${SKILLS_SRC}/}"
-    dest="${SKILLS_DST}/${rel}"
+    rel="${skill_file#${WORKFLOW_SKILLS_SRC}/}"
+    dest="${WORKFLOW_SKILLS_DST}/${rel}"
     dest_dir="$(dirname "${dest}")"
     mkdir -p "${dest_dir}"
     cp "${skill_file}" "${dest}"
-    copied "skills/${rel} → ${dest}"
-done < <(find "${SKILLS_SRC}" -type f -print0)
+    copied "workflow-skills/${rel} → ${dest}"
+done < <(find "${WORKFLOW_SKILLS_SRC}" -type f -print0)
 
 # ---------------------------------------------------------------------------
 # Task skills: seed on fresh install (skip if exists), refresh missing files
@@ -146,10 +156,10 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
-# If --update-skills was requested, stop here.
+# If --update-workflow-skills was requested, stop here.
 # ---------------------------------------------------------------------------
-if [[ "${UPDATE_SKILLS}" == true ]]; then
-    info "Skills updated. config.yaml was not touched."
+if [[ "${UPDATE_WORKFLOW_SKILLS}" == true ]]; then
+    info "Workflow skills updated. config.yaml was not touched."
     exit 0
 fi
 
