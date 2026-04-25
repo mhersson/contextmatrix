@@ -8,16 +8,16 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestClient(srv *httptest.Server) *Client {
-	return &Client{
-		httpClient: srv.Client(),
-		token:      "test-token",
-		baseURL:    srv.URL,
-	}
+func newTestClient(t *testing.T, srv *httptest.Server) *Client {
+	t.Helper()
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	return NewClientWithBaseURL(p, srv.URL)
 }
 
 func TestFetchOpenIssues_BasicResponse(t *testing.T) {
@@ -36,7 +36,7 @@ func TestFetchOpenIssues_BasicResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
@@ -57,7 +57,7 @@ func TestFetchOpenIssues_ExcludesPullRequests(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -73,7 +73,7 @@ func TestFetchOpenIssues_LabelFilter(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "o", "r", []string{"bug", "good first issue"})
 	require.NoError(t, err)
 }
@@ -87,7 +87,7 @@ func TestFetchOpenIssues_URLEncoding(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "my org", "my repo", nil)
 	require.NoError(t, err)
 }
@@ -103,7 +103,7 @@ func TestFetchOpenIssues_RateLimitedMidPage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.ErrorIs(t, err, ErrRateLimited)
 	// The valid data from this page should still be returned.
@@ -117,7 +117,7 @@ func TestFetchOpenIssues_403Forbidden(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	assert.ErrorIs(t, err, ErrRateLimited)
 }
@@ -128,7 +128,7 @@ func TestFetchOpenIssues_429TooManyRequests(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	assert.ErrorIs(t, err, ErrRateLimited)
 }
@@ -140,7 +140,7 @@ func TestFetchOpenIssues_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 500")
@@ -154,7 +154,7 @@ func TestFetchOpenIssues_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode response")
@@ -176,7 +176,7 @@ func TestFetchBranches_BasicResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	result, err := client.FetchBranches(context.Background(), "o", "r")
 	require.NoError(t, err)
 	require.Len(t, result, 3)
@@ -222,7 +222,7 @@ func TestFetchBranches_Pagination(t *testing.T) {
 	}))
 	defer srv2.Close()
 
-	client := newTestClient(srv2)
+	client := newTestClient(t, srv2)
 	result, err := client.FetchBranches(context.Background(), "o", "r")
 	require.NoError(t, err)
 	assert.Equal(t, 1, reqCount)
@@ -236,7 +236,7 @@ func TestFetchBranches_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchBranches(context.Background(), "o", "r")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 500")
@@ -248,7 +248,7 @@ func TestFetchBranches_RateLimited(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchBranches(context.Background(), "o", "r")
 	assert.ErrorIs(t, err, ErrRateLimited)
 }
@@ -259,7 +259,7 @@ func TestFetchBranches_429TooManyRequests(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	_, err := client.FetchBranches(context.Background(), "o", "r")
 	assert.ErrorIs(t, err, ErrRateLimited)
 }
@@ -270,7 +270,7 @@ func TestFetchBranches_EmptyRepo(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newTestClient(srv)
+	client := newTestClient(t, srv)
 	result, err := client.FetchBranches(context.Background(), "o", "r")
 	require.NoError(t, err)
 	assert.Empty(t, result)
@@ -278,7 +278,9 @@ func TestFetchBranches_EmptyRepo(t *testing.T) {
 
 func TestParseLinkNext(t *testing.T) {
 	// parseLinkNext is now a method; use a client with the default base URL.
-	c := NewClient("test-token")
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	c := NewClient(p)
 
 	tests := []struct {
 		name   string
@@ -326,8 +328,10 @@ func TestNewClientWithBaseURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClientWithBaseURL("test-token", srv.URL)
-	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
+	_, err = client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/repos/o/r/issues", requestPath)
 	assert.Equal(t, srv.URL, client.baseURL)
@@ -340,28 +344,36 @@ func TestNewClientWithBaseURL_TrailingSlashTrimmed(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClientWithBaseURL("test-token", srv.URL+"/")
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL+"/")
 	// baseURL should have trailing slash removed.
 	assert.Equal(t, srv.URL, client.baseURL)
-	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	_, err = client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 }
 
 func TestNewClientWithBaseURL_EmptyFallsToDefault(t *testing.T) {
-	client := NewClientWithBaseURL("test-token", "")
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, "")
 	assert.Equal(t, defaultBaseURL, client.baseURL)
 }
 
 func TestNewClient_DelegatesToNewClientWithBaseURL(t *testing.T) {
-	client := NewClient("my-token")
+	p, err := githubauth.NewPATProvider("my-token")
+	require.NoError(t, err)
+	client := NewClient(p)
 	assert.Equal(t, defaultBaseURL, client.baseURL)
-	assert.Equal(t, "my-token", client.token)
+	assert.Equal(t, p, client.provider)
 }
 
 func TestParseLinkNext_WithCustomHost(t *testing.T) {
 	// A client with a custom enterprise base URL should accept Link headers
 	// pointing at that same host, and reject others.
-	c := NewClientWithBaseURL("tok", "https://github.example.corp/api/v3")
+	p, err := githubauth.NewPATProvider("tok")
+	require.NoError(t, err)
+	c := NewClientWithBaseURL(p, "https://github.example.corp/api/v3")
 
 	// Same host: accepted.
 	got := c.parseLinkNext(`<https://github.example.corp/api/v3/repos/o/r/issues?page=2>; rel="next"`)
@@ -396,7 +408,9 @@ func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClientWithBaseURL("test-token", srv.URL)
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
@@ -414,10 +428,31 @@ func TestParseLinkNext_SSRFRejectedWithCustomBaseURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClientWithBaseURL("test-token", srv.URL)
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
 	// Only one page returned — the evil next URL was rejected.
 	require.Len(t, result, 1)
 	assert.Equal(t, "Only issue", result[0].Title)
+}
+
+func TestClient_UsesProviderToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`)) // empty array; suits issues + branches
+	}))
+	defer server.Close()
+
+	provider, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	client := NewClientWithBaseURL(provider, server.URL)
+	_, err = client.FetchOpenIssues(context.Background(), "owner", "repo", nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Bearer test-token", gotAuth)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -70,6 +71,13 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // defaultBranchClient creates a real GitHub API client.
+// token is a PAT string; Task 14 will replace this with a provider-based approach.
 func defaultBranchClient(token, baseURL string) BranchFetcher {
-	return github.NewClientWithBaseURL(token, baseURL)
+	p, err := githubauth.NewPATProvider(token)
+	if err != nil {
+		// token is already validated non-empty by listBranches before calling here.
+		panic("defaultBranchClient: empty token reached NewPATProvider: " + err.Error())
+	}
+
+	return github.NewClientWithBaseURL(p, baseURL)
 }

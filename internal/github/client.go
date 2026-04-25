@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 )
 
 // ErrRateLimited is returned when the GitHub API rate limit is exhausted.
@@ -43,21 +45,22 @@ type Label struct {
 // Client is a GitHub REST API client.
 type Client struct {
 	httpClient *http.Client
-	token      string
+	provider   githubauth.TokenGenerator
 	baseURL    string // configurable for testing; defaults to https://api.github.com
 }
 
-// NewClient creates a new GitHub API client with the given token.
+// NewClient creates a new GitHub API client with the given token provider.
 // It uses the default GitHub API base URL (https://api.github.com).
-func NewClient(token string) *Client {
-	return NewClientWithBaseURL(token, "")
+func NewClient(provider githubauth.TokenGenerator) *Client {
+	return NewClientWithBaseURL(provider, "")
 }
 
-// NewClientWithBaseURL creates a new GitHub API client with the given token and
-// base URL. The base URL is trimmed of any trailing slash. If baseURL is empty,
-// it defaults to https://api.github.com. Use this constructor when targeting
-// GitHub Enterprise Server instances that expose the API at a custom host.
-func NewClientWithBaseURL(token, baseURL string) *Client {
+// NewClientWithBaseURL creates a new GitHub API client with the given token
+// provider and base URL. The base URL is trimmed of any trailing slash. If
+// baseURL is empty, it defaults to https://api.github.com. Use this constructor
+// when targeting GitHub Enterprise Server instances that expose the API at a
+// custom host.
+func NewClientWithBaseURL(provider githubauth.TokenGenerator, baseURL string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -65,7 +68,7 @@ func NewClientWithBaseURL(token, baseURL string) *Client {
 
 	return &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		token:      token,
+		provider:   provider,
 		baseURL:    baseURL,
 	}
 }
@@ -179,9 +182,12 @@ func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, 
 	req.Header.Set("User-Agent", "contextmatrix")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	token, _, err := c.provider.GenerateToken(req.Context())
+	if err != nil {
+		return nil, "", false, fmt.Errorf("get github token: %w", err)
 	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -237,9 +243,12 @@ func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string,
 	req.Header.Set("User-Agent", "contextmatrix")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	token, _, err := c.provider.GenerateToken(req.Context())
+	if err != nil {
+		return nil, "", false, fmt.Errorf("get github token: %w", err)
 	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

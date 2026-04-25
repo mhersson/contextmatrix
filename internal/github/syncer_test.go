@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -119,7 +120,7 @@ func setupTestProject(t *testing.T, projectName string, ghCfg *board.GitHubImpor
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "ssh", nil)
 	require.NoError(t, err)
 
 	bus := events.NewBus()
@@ -145,7 +146,9 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	ghCfg := &board.GitHubImportConfig{ImportIssues: true}
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
-	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
@@ -197,7 +200,9 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	ghCfg := &board.GitHubImportConfig{ImportIssues: true}
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
-	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
@@ -265,7 +270,9 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	}
 	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
 
-	client := &Client{httpClient: srv.Client(), token: "t", baseURL: srv.URL}
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+	client := NewClientWithBaseURL(p, srv.URL)
 	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
