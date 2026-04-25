@@ -59,11 +59,25 @@ func (c *IssueImportingConfig) SyncIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.SyncInterval)
 }
 
+// GitHubAppConfig holds GitHub App credentials.
+type GitHubAppConfig struct {
+	AppID          int64  `yaml:"app_id"`
+	InstallationID int64  `yaml:"installation_id"`
+	PrivateKeyPath string `yaml:"private_key_path"`
+}
+
+// GitHubPATConfig holds a Personal Access Token credential.
+type GitHubPATConfig struct {
+	Token string `yaml:"token"`
+}
+
 // GitHubConfig holds configuration for GitHub integration.
 type GitHubConfig struct {
-	Token          string               `yaml:"token"`
+	AuthMode       string               `yaml:"auth_mode"`
 	Host           string               `yaml:"host"`
 	APIBaseURL     string               `yaml:"api_base_url"`
+	App            GitHubAppConfig      `yaml:"app"`
+	PAT            GitHubPATConfig      `yaml:"pat"`
 	IssueImporting IssueImportingConfig `yaml:"issue_importing"`
 }
 
@@ -102,7 +116,13 @@ type BoardsConfig struct {
 	GitPullInterval   string `yaml:"git_pull_interval"`
 	GitCloneOnEmpty   bool   `yaml:"git_clone_on_empty"`
 	GitRemoteURL      string `yaml:"git_remote_url"`
-	GitAuthMode       string `yaml:"git_auth_mode"`
+}
+
+// TaskSkillsConfig holds configuration for the task-skills directory and its optional git backing.
+type TaskSkillsConfig struct {
+	Dir             string `yaml:"dir"`
+	GitCloneOnEmpty bool   `yaml:"git_clone_on_empty"`
+	GitRemoteURL    string `yaml:"git_remote_url"`
 }
 
 // Config holds the application configuration.
@@ -112,7 +132,7 @@ type Config struct {
 	HeartbeatTimeout  string               `yaml:"heartbeat_timeout"`
 	CORSOrigin        string               `yaml:"cors_origin"`
 	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
-	TaskSkillsDir     string               `yaml:"task_skills_dir"`
+	TaskSkills        TaskSkillsConfig     `yaml:"task_skills"`
 	Theme             string               `yaml:"theme"`
 	TokenCosts        map[string]ModelCost `yaml:"token_costs"`
 	MCPAPIKey         string               `yaml:"mcp_api_key"`
@@ -134,12 +154,11 @@ func defaults() *Config {
 			GitAutoPush:     false,
 			GitAutoPull:     false,
 			GitPullInterval: "60s",
-			GitAuthMode:     "ssh",
 		},
 		HeartbeatTimeout:  "30m",
 		CORSOrigin:        "http://localhost:5173",
 		WorkflowSkillsDir: "",
-		TaskSkillsDir:     "",
+		TaskSkills:        TaskSkillsConfig{},
 		Theme:             "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
@@ -175,31 +194,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
 
-	if c.Boards.GitAuthMode == "" {
-		c.Boards.GitAuthMode = "ssh"
-	}
-
-	switch c.Boards.GitAuthMode {
-	case "ssh", "pat":
-		// valid
-	default:
-		return fmt.Errorf("invalid boards.git_auth_mode %q: must be \"ssh\" or \"pat\"", c.Boards.GitAuthMode)
-	}
-
-	if c.Boards.GitAuthMode == "pat" {
-		if c.GitHub.Token == "" {
-			return fmt.Errorf("github.token is required when boards.git_auth_mode is \"pat\"")
-		}
-
-		if !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
-			return fmt.Errorf("boards.git_remote_url must start with https:// when boards.git_auth_mode is \"pat\" (got %q)", c.Boards.GitRemoteURL)
-		}
-	}
+	// REWRITTEN IN TASK 3: auth_mode discriminator validation replaces the
+	// old git_auth_mode / github.token validation below.
 
 	if c.GitHub.IssueImporting.Enabled {
-		if c.GitHub.Token == "" {
-			return fmt.Errorf("github.token is required when github.issue_importing.enabled is true")
-		}
+		// TODO(Task 3): token check rewritten to use auth_mode discriminator.
 
 		if c.GitHub.IssueImporting.SyncInterval == "" {
 			c.GitHub.IssueImporting.SyncInterval = "5m"
@@ -374,15 +373,15 @@ func resolvePaths(cfg *Config, configPath string) error {
 		cfg.WorkflowSkillsDir = filepath.Join(filepath.Dir(configPath), "workflow-skills")
 	}
 
-	taskSkillsDir, err := expandTilde(cfg.TaskSkillsDir)
+	taskSkillsDir, err := expandTilde(cfg.TaskSkills.Dir)
 	if err != nil {
 		return err
 	}
 
-	cfg.TaskSkillsDir = taskSkillsDir
+	cfg.TaskSkills.Dir = taskSkillsDir
 
-	if cfg.TaskSkillsDir == "" {
-		cfg.TaskSkillsDir = filepath.Join(filepath.Dir(configPath), "task-skills")
+	if cfg.TaskSkills.Dir == "" {
+		cfg.TaskSkills.Dir = filepath.Join(filepath.Dir(configPath), "task-skills")
 	}
 
 	return nil
@@ -430,9 +429,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Boards.GitRemoteURL = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE"); v != "" {
-		cfg.Boards.GitAuthMode = v
-	}
+	// CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE removed in Task 2 (REWRITTEN IN TASK 6)
 
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v
@@ -446,9 +443,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.WorkflowSkillsDir = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {
-		cfg.TaskSkillsDir = v
-	}
+	// CONTEXTMATRIX_TASK_SKILLS_DIR removed in Task 2 (REWRITTEN IN TASK 6)
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
 		cfg.Theme = v
@@ -482,9 +477,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Runner.ReconcileInterval = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_GITHUB_TOKEN"); v != "" {
-		cfg.GitHub.Token = v
-	}
+	// CONTEXTMATRIX_GITHUB_TOKEN removed in Task 2 (REWRITTEN IN TASK 6)
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
 		cfg.GitHub.Host = v
