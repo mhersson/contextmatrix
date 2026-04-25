@@ -136,6 +136,55 @@ details.
 feature branch and PR are always created regardless of the execution mode chosen
 at launch.
 
+## Task skills mount
+
+The runner bind-mounts `task_skills_dir` (configured per runner host) read-only into worker containers at `/host-skills`. The entrypoint copies the resolved subset of skills into `~/.claude/skills/` for Claude Code to discover.
+
+### Trigger payload field
+
+CM resolves the skill list (per `docs/data-model.md`) and ships it in the `/trigger` payload:
+
+```json
+{
+  "card_id": "ALPHA-001",
+  "project": "alpha",
+  "repo_url": "...",
+  "task_skills": ["go-development", "documentation"]
+}
+```
+
+`task_skills` is omitted when the resolved list is `nil` (mount full set). Empty array means "explicit none — mount nothing."
+
+### Runner env vars
+
+The runner forwards the resolution to the container as:
+
+- `CM_TASK_SKILLS_SET=1` whenever the payload had a non-nil `task_skills` field.
+- `CM_TASK_SKILLS=<csv>` containing the comma-joined list (empty allowed).
+
+`CM_TASK_SKILLS_SET` distinguishes "unset → mount all" from "set-but-empty → mount nothing" — the env var alone isn't enough because `unset` and `empty string` are indistinguishable in shell.
+
+### Entrypoint behaviour
+
+```
+if /host-skills exists:
+    if CM_TASK_SKILLS_SET set:
+        for each name in CM_TASK_SKILLS:
+            validate name
+            cp -r /host-skills/<name> ~/.claude/skills/
+            (skip with warning if name not present)
+    else:
+        cp -r /host-skills/*/ ~/.claude/skills/
+```
+
+### On-trigger pull
+
+Before constructing the container config, the runner runs `git pull --ff-only` on `task_skills_dir`. On failure, the runner logs and continues with the existing local clone — the trigger never aborts because of a sync issue.
+
+### Required tool
+
+The container's `--allowed-tools` allowlist must include `Skill` for Claude Code's native skill engagement to work.
+
 #### POST {runner_url}/kill
 
 Sent when a user clicks "Stop" on a running card, or by the end-session
