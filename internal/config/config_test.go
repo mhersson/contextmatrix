@@ -920,6 +920,24 @@ func TestLoad_WorkflowSkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 // REMOVED IN TASK 8: TestLoad_TaskSkillsDirEnvOverride — rewritten in Task 6/7
 // REMOVED IN TASK 8: TestLoad_TaskSkillsDirTildeExpansion — rewritten in Task 7
 
+func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := `
+boards: {dir: ` + boardsDir + `}
+github: {auth_mode: "pat", pat: {token: "x"}}
+task_skills: {dir: "~/my-skills"}
+`
+	path := writeConfigFile(t, dir, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.TaskSkills.Dir)
+}
+
 func TestLoad_CloneOnEmptyFields(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
