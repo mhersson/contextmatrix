@@ -459,7 +459,33 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Boards.GitRemoteURL = v
 	}
 
-	// CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE removed in Task 2 (REWRITTEN IN TASK 6)
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_AUTH_MODE"); v != "" {
+		cfg.GitHub.AuthMode = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_APP_ID"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.GitHub.App.AppID = id
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_GITHUB_APP_ID", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_INSTALLATION_ID"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.GitHub.App.InstallationID = id
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_GITHUB_INSTALLATION_ID", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH"); v != "" {
+		cfg.GitHub.App.PrivateKeyPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN"); v != "" {
+		cfg.GitHub.PAT.Token = v
+	}
 
 	if v := os.Getenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT"); v != "" {
 		cfg.HeartbeatTimeout = v
@@ -473,7 +499,17 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.WorkflowSkillsDir = v
 	}
 
-	// CONTEXTMATRIX_TASK_SKILLS_DIR removed in Task 2 (REWRITTEN IN TASK 6)
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {
+		cfg.TaskSkills.Dir = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL"); v != "" {
+		cfg.TaskSkills.GitRemoteURL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY"); v != "" {
+		cfg.TaskSkills.GitCloneOnEmpty = v == "true" || v == "1"
+	}
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
 		cfg.Theme = v
@@ -506,8 +542,6 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
 		cfg.Runner.ReconcileInterval = v
 	}
-
-	// CONTEXTMATRIX_GITHUB_TOKEN removed in Task 2 (REWRITTEN IN TASK 6)
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
 		cfg.GitHub.Host = v

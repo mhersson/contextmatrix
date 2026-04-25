@@ -2060,3 +2060,57 @@ func TestValidate_TaskSkillsCloneOnEmptyRequiresURL(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "task_skills.git_remote_url is required when task_skills.git_clone_on_empty")
 }
+
+// ---------- Env-var overrides for new fields (Task 6) ----------
+
+func TestEnvOverrides_GitHub(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "app")
+	t.Setenv("CONTEXTMATRIX_GITHUB_APP_ID", "111")
+	t.Setenv("CONTEXTMATRIX_GITHUB_INSTALLATION_ID", "222")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH", "/etc/k.pem")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `boards: {dir: `+boardsDir+`}`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "app", cfg.GitHub.AuthMode)
+	assert.Equal(t, int64(111), cfg.GitHub.App.AppID)
+	assert.Equal(t, int64(222), cfg.GitHub.App.InstallationID)
+	assert.Equal(t, "/etc/k.pem", cfg.GitHub.App.PrivateKeyPath)
+}
+
+func TestEnvOverrides_GitHubPAT(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "ghp_env")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `boards: {dir: `+boardsDir+`}`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "pat", cfg.GitHub.AuthMode)
+	assert.Equal(t, "ghp_env", cfg.GitHub.PAT.Token)
+}
+
+func TestEnvOverrides_TaskSkills(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_DIR", "/var/skills")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL", "https://github.com/x/y.git")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY", "true")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/var/skills", cfg.TaskSkills.Dir)
+	assert.Equal(t, "https://github.com/x/y.git", cfg.TaskSkills.GitRemoteURL)
+	assert.True(t, cfg.TaskSkills.GitCloneOnEmpty)
+}
