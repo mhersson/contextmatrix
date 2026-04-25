@@ -4,8 +4,7 @@ ContextMatrix authenticates to GitHub via a single identity used for
 both git operations (boards repo, task-skills repo, project repos in
 the runner) and REST API calls (issue importing, branch listing).
 
-This guide covers end-to-end setup for both supported methods. SSH
-deploy keys are no longer supported.
+This guide covers end-to-end setup for both supported methods.
 
 ## Choosing a method
 
@@ -24,10 +23,10 @@ for concrete examples.
 | Use case | App permission | Equivalent PAT scope |
 |---|---|---|
 | Boards repo clone/pull/push | Contents: read & write | Contents: read and write |
-| Task-skills repo clone (and write, after the create/edit UI ships) | Contents: read & write | Contents: read and write |
+| Task-skills repo clone/pull/push | Contents: read & write | Contents: read and write |
 | Issue importing (project repos) | Issues: read | Issues: read |
 | Branch listing (project repos) | Contents: read | Contents: read |
-| (Future: PR status checks) | Pull requests: read | Pull requests: read |
+| Pull request creation (runner) | Pull requests: read & write | Pull requests: read and write |
 
 App-installation tokens automatically include `Metadata: read` — that's
 not a separate setting. Fine-grained PAT users have to remember to
@@ -45,7 +44,7 @@ include it explicitly.
 3. Under **Permissions → Repository permissions**, set:
    - **Contents**: read & write
    - **Issues**: read (only if you'll use issue importing)
-   - **Pull requests**: read (only if you'll use PR status — currently a future feature)
+   - **Pull requests**: read & write (the runner creates PRs)
 4. Under **Where can this GitHub App be installed?**, choose **Only on this account** (recommended) or **Any account** if you want to install it on multiple orgs.
 5. Click **Create GitHub App**.
 
@@ -115,7 +114,7 @@ the **Contents: read & write** permission).
    - **Contents**: Read and write
    - **Issues**: Read (for issue importing)
    - **Metadata**: Read (auto-included; double-check it's there)
-   - **Pull requests**: Read (only if needed)
+   - **Pull requests**: Read and write (the runner creates PRs)
 4. Click **Generate token**, copy it (it's shown only once), and store it in your secrets manager.
 
 ### 2. Configure ContextMatrix
