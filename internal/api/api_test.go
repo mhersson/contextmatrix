@@ -3275,3 +3275,127 @@ func TestRequestIDLogging(t *testing.T) {
 	assert.Contains(t, logOutput, "request_id="+wantID,
 		"log output should contain the request_id from the header")
 }
+
+func TestCardAPI_SkillsRoundTrip(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	t.Run("create with skills", func(t *testing.T) {
+		body := createCardRequest{
+			Title:    "skills-test",
+			Type:     "task",
+			Priority: "low",
+			Skills:   &[]string{"go-development", "documentation"},
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		resp, err := http.Post(
+			server.URL+"/api/projects/test-project/cards",
+			"application/json",
+			bytes.NewReader(jsonBody),
+		)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+
+		assert.NotNil(t, card.Skills)
+
+		if card.Skills != nil {
+			assert.Equal(t, []string{"go-development", "documentation"}, *card.Skills)
+		}
+	})
+
+	t.Run("create without skills omits field in JSON output", func(t *testing.T) {
+		body := createCardRequest{
+			Title:    "no-skills-test",
+			Type:     "task",
+			Priority: "low",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		resp, err := http.Post(
+			server.URL+"/api/projects/test-project/cards",
+			"application/json",
+			bytes.NewReader(jsonBody),
+		)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		// Decode into map to check raw JSON keys
+		var respMap map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respMap))
+
+		// When skills is nil, the field should be omitted from JSON
+		_, hasSkills := respMap["skills"]
+		assert.False(t, hasSkills, "skills key should be absent when not set")
+	})
+
+	t.Run("patch with explicit empty clears", func(t *testing.T) {
+		// Create card with skills
+		createBody := createCardRequest{
+			Title:    "patch-test",
+			Type:     "task",
+			Priority: "low",
+			Skills:   &[]string{"go-development"},
+		}
+		createJSON, _ := json.Marshal(createBody)
+
+		resp, err := http.Post(
+			server.URL+"/api/projects/test-project/cards",
+			"application/json",
+			bytes.NewReader(createJSON),
+		)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+		cardID := card.ID
+
+		// Patch with explicit empty skills
+		patchBody := patchCardRequest{
+			Skills: &[]string{},
+		}
+		patchJSON, _ := json.Marshal(patchBody)
+
+		patchResp, err := http.NewRequest(
+			http.MethodPatch,
+			server.URL+"/api/projects/test-project/cards/"+cardID,
+			bytes.NewReader(patchJSON),
+		)
+
+		require.NoError(t, err)
+		patchResp.Header.Set("Content-Type", "application/json")
+
+		resp, err = http.DefaultClient.Do(patchResp)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var patchedCard board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&patchedCard))
+
+		// After patch with explicit empty, skills should be empty slice
+		assert.NotNil(t, patchedCard.Skills)
+
+		if patchedCard.Skills != nil {
+			assert.Empty(t, *patchedCard.Skills)
+		}
+	})
+}
