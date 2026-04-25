@@ -44,20 +44,12 @@ admin_bind_addr: "127.0.0.1"
 # Path to the directory containing the workflow skill files (create-plan.md,
 # execute-task.md, review-task.md, document-task.md, run-autonomous.md, etc.).
 # These are the lifecycle scaffolding the MCP server hands to agents as
-# prompts; they are NOT the same as task_skills_dir below.
+# prompts; they are NOT the same as the task_skills block below.
 # When left empty, defaults to a "workflow-skills" directory next to this
 # config file.
 # Tilde expansion is supported.
 # Env: CONTEXTMATRIX_WORKFLOW_SKILLS_DIR
 workflow_skills_dir: workflow-skills
-
-# Path to the curated task skills git repo. Read by CM for UI listing and
-# validation. NOT the same as workflow_skills_dir above — task skills are the
-# specialist filesystem skills (Go, TypeScript/React, etc.) mounted into
-# runner worker containers. Empty falls back to <config-dir>/task-skills.
-# Tilde expansion is supported.
-# Env: CONTEXTMATRIX_TASK_SKILLS_DIR
-task_skills_dir: ""
 
 # How long an agent can go without sending a heartbeat before the card is
 # automatically moved to the "stalled" state and the agent claim is released.
@@ -141,50 +133,40 @@ boards:
   # Env: CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL
   git_pull_interval: "60s"
 
-  # Clone the boards repository from a remote URL if boards.dir is empty
-  # (no existing git repository). Useful for container deployments where
-  # persistent storage starts empty. Requires boards.git_remote_url to be set.
+  # Clone-on-empty + remote URL — useful in container deployments where
+  # persistent storage starts empty. Requires git_remote_url to be set.
+  # HTTPS only; SSH is no longer supported.
   # Default: false
   # Env: CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY (true/false/1/0)
   git_clone_on_empty: false
 
-  # Remote URL for the boards repository. Used for clone-on-empty and as
+  # HTTPS URL for the boards repository. Used for clone-on-empty and as
   # the default origin remote when no remote is configured.
-  # Example (SSH):   git@github.com:user/boards.git
-  # Example (HTTPS): https://github.com/user/boards.git
+  # Authentication uses the global github.* config below.
+  # Example: https://github.com/user/boards.git
   # Env: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
   git_remote_url: ""
 
-  # Authentication mode for git operations on the boards repository.
-  # Allowed values: "ssh" (default) | "pat"
-  #
-  #   ssh — Use an SSH deploy key already configured in the git environment
-  #          (e.g. ~/.ssh/id_rsa). No additional configuration required beyond
-  #          the key being present and trusted by the remote host.
-  #
-  #   pat — Inject a GitHub fine-grained Personal Access Token via the
-  #          GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0 env
-  #          variables (http.extraheader=Authorization: Bearer <token>).
-  #          The token is NEVER embedded in boards.git_remote_url, keeping it
-  #          out of process argument lists and git config files on disk.
-  #
-  #          Required PAT permissions:
-  #            boards repository : contents:write   (clone, pull, push)
-  #            project repos     : issues:read      (GitHub issue import)
-  #
-  #          When pat is selected:
-  #            • github.token must be non-empty
-  #            • boards.git_remote_url must start with https://
-  #
-  # Default: ssh
-  # Env: CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE
-  git_auth_mode: "ssh"
+# Task-skills repository configuration. The curated set of specialist filesystem
+# skills (Go, TypeScript/React, etc.) that the runner mounts into worker
+# containers. NOT the same as workflow_skills_dir above — that one is the
+# lifecycle scaffolding handed to agents via MCP prompts.
+task_skills:
+  # Path to the directory that holds the task-skills repo. When empty,
+  # defaults to a "task-skills" directory next to this config file.
+  # Tilde expansion supported.
+  # Env: CONTEXTMATRIX_TASK_SKILLS_DIR
+  dir: ""
 
-# PAT example — to activate PAT auth for the boards repo:
-#   1. In the boards: section above, set:
-#        git_auth_mode: "pat"
-#        git_remote_url: "https://github.com/your-org/boards.git"
-#   2. Set github.token via the CONTEXTMATRIX_GITHUB_TOKEN env var — never hard-code
+  # Clone the repo if dir is empty (no existing .git). Useful in
+  # container deployments. Requires git_remote_url to be set.
+  # Env: CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY
+  git_clone_on_empty: false
+
+  # HTTPS URL only (SSH no longer supported).
+  # Authentication uses the global github.* config above.
+  # Env: CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL
+  git_remote_url: ""
 
 # Remote execution runner configuration.
 # The runner is a separate binary (contextmatrix-runner) that executes
@@ -236,54 +218,47 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL
   reconcile_interval: "60s"
 
-# GitHub integration configuration.
-# A fine-grained PAT (token) is used for reading branches, importing issues,
-# and — when boards.git_auth_mode is "pat" — authenticating the boards repo.
-# The token is always required when any GitHub feature is in use.
+# GitHub authentication and integration.
+# Used for boards git, task-skills git, issue importing, and branch listing.
 github:
-  # GitHub personal access token (fine-grained recommended).
-  #
-  # One token covers all three GitHub-touching features:
-  #   • boards repo auth — when boards.git_auth_mode is "pat", this token is
-  #     injected via git's http.extraheader to clone/pull/push the boards repo
-  #     (see boards.git_auth_mode above for required PAT permissions).
-  #   • issue importing — required when github.issue_importing.enabled is true.
-  #   • branch listing  — used by the web UI's branch picker even when issue
-  #     importing is disabled.
-  #
-  # SECURITY: always supply this via the CONTEXTMATRIX_GITHUB_TOKEN env var —
-  # never hard-code it in this file. Inline tokens get committed to config
-  # repos, leak through backups, and end up in shell history. The YAML field
-  # is retained only for local development/testing against a throwaway token.
-  # Env: CONTEXTMATRIX_GITHUB_TOKEN
-  token: ""
+  # Auth method. Allowed values: "app" (recommended) | "pat"
+  # Env: CONTEXTMATRIX_GITHUB_AUTH_MODE
+  auth_mode: "app"
 
-  # GitHub Enterprise Cloud with Data Residency (GHEC-DR) or GitHub Enterprise
-  # Server hostname. Leave empty for standard github.com.
+  # GitHub Enterprise Cloud with Data Residency (GHEC-DR) or GHES hostname.
+  # Leave empty for standard github.com.
   # Example: acme.ghe.com
   # Env: CONTEXTMATRIX_GITHUB_HOST
-  # host: acme.ghe.com
+  host: ""
 
-  # GitHub API base URL. When left empty, derived from host:
-  #   host empty     → https://api.github.com
-  #   host set       → https://api.<host>
-  # Set explicitly only when your enterprise instance uses a non-standard URL.
-  # Example: https://api.acme.ghe.com
+  # GitHub API base URL. When empty, derived from host:
+  #   host empty → https://api.github.com
+  #   host set   → https://api.<host>
+  # Set explicitly only for non-standard enterprise URLs.
   # Env: CONTEXTMATRIX_GITHUB_API_BASE_URL
-  # api_base_url: https://api.acme.ghe.com
+  api_base_url: ""
 
-  # Issue importing configuration.
-  # When enabled, ContextMatrix periodically fetches open GitHub issues and
-  # creates cards in projects that have github.import_issues set in .board.yaml.
+  # GitHub App credentials. Required when auth_mode is "app".
+  app:
+    # Env: CONTEXTMATRIX_GITHUB_APP_ID
+    app_id: 0
+    # Env: CONTEXTMATRIX_GITHUB_INSTALLATION_ID
+    installation_id: 0
+    # Path to the App's PEM private key file.
+    # Env: CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH
+    private_key_path: ""
+
+  # Fine-grained PAT (alternative to GitHub App).
+  # Mutually exclusive with app.*.
+  pat:
+    # Never hard-code in production. Supply via env var.
+    # Env: CONTEXTMATRIX_GITHUB_PAT_TOKEN
+    token: ""
+
+  # Issue importing.
   issue_importing:
-    # Enable periodic GitHub issue import.
-    # Requires github.token to be set.
-    # Default: false
     # Env: CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED
     enabled: false
-
-    # How often to check GitHub for new issues.
-    # Accepts Go duration strings: e.g. "5m", "10m", "15m".
-    # Minimum: 5m. Default: 5m
+    # Min: 5m. Default: 5m.
     # Env: CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL
     sync_interval: "5m"

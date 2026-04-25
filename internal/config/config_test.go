@@ -1785,6 +1785,7 @@ github:
 
 func TestLoad_BoardsHasNoAuthMode(t *testing.T) {
 	cfg := defaults()
+
 	v := reflect.TypeOf(cfg.Boards)
 	for i := 0; i < v.NumField(); i++ {
 		assert.NotEqual(t, "GitAuthMode", v.Field(i).Name,
@@ -1952,7 +1953,21 @@ func TestValidate_PATMissingToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "pat.token is required")
 }
 
-// REMOVED IN TASK 16: TestLoad_ExampleFile_HasLogFields — config.yaml.example rewritten in Task 16 with new auth_mode schema
+func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	// The example ships with auth_mode:"app" and placeholder zeros. Override to
+	// PAT mode so Validate() passes without real App credentials.
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "test-token")
+
+	cfg, err := Load(examplePath)
+	require.NoError(t, err, "config.yaml.example must parse without error")
+
+	assert.Equal(t, "text", cfg.LogFormat)
+	assert.Equal(t, "info", cfg.LogLevel)
+	assert.Equal(t, 0, cfg.AdminPort)
+}
 
 func TestValidate_AppMode_RejectsPATToken(t *testing.T) {
 	cfg := &Config{
@@ -1984,7 +1999,48 @@ func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 	assert.Contains(t, err.Error(), "github.app.* must be empty")
 }
 
-// REMOVED IN TASK 16: TestConfigYamlExampleTokenCosts — config.yaml.example rewritten in Task 16
+// TestConfigYamlExampleTokenCosts verifies that config.yaml.example ships with
+// sane token cost entries for every supported model:
+//   - every entry has both prompt and completion > 0 (non-zero rates)
+//   - no rate is absurdly high (> $1000/M tokens = > 0.001/token) — catches unit errors
+//   - the expected set of model keys is present
+func TestConfigYamlExampleTokenCosts(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "config.yaml.example")
+
+	// The example ships with auth_mode:"app" and placeholder zeros. Override to
+	// PAT mode so Validate() passes without real App credentials.
+	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "pat")
+	t.Setenv("CONTEXTMATRIX_GITHUB_PAT_TOKEN", "test-token")
+
+	cfg, err := Load(examplePath)
+	require.NoError(t, err, "config.yaml.example must parse without error")
+
+	require.NotEmpty(t, cfg.TokenCosts, "token_costs must not be empty in config.yaml.example")
+
+	const maxRatePerToken = 0.001 // $1000 per million tokens — unit-error sentinel
+
+	for model, cost := range cfg.TokenCosts {
+		t.Run(model, func(t *testing.T) {
+			assert.Greater(t, cost.Prompt, 0.0, "prompt rate must be > 0 for %s", model)
+			assert.Greater(t, cost.Completion, 0.0, "completion rate must be > 0 for %s", model)
+			assert.Less(t, cost.Prompt, maxRatePerToken, "prompt rate suspiciously high for %s (units error?)", model)
+			assert.Less(t, cost.Completion, maxRatePerToken, "completion rate suspiciously high for %s (units error?)", model)
+		})
+	}
+
+	// Assert the expected model keys are present. Update this list when new models ship.
+	expectedModels := []string{
+		"claude-haiku-4-5",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6",
+		"claude-opus-4-7",
+	}
+
+	for _, model := range expectedModels {
+		_, ok := cfg.TokenCosts[model]
+		assert.True(t, ok, "expected model %q to be present in token_costs", model)
+	}
+}
 
 // ---------- HTTPS-only URL validation tests (Task 5) ----------
 
@@ -1992,6 +2048,7 @@ func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 // field under test.
 func validBaseConfig(t *testing.T) *Config {
 	t.Helper()
+
 	return &Config{
 		Boards:           BoardsConfig{Dir: "/tmp/boards"},
 		HeartbeatTimeout: "30m",
