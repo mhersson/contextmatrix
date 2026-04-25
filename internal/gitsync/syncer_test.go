@@ -366,17 +366,18 @@ func assertHasEventType(t *testing.T, evts []events.Event, typ events.EventType)
 }
 
 // TestNewSyncer_SSHMode verifies that NewSyncer stores the ssh auth mode and
-// that GitAuthEnv returns nil for it (no env injection, preserves SSH agent).
+// that a nil provider produces nil auth env (no env injection, preserves SSH agent).
 func TestNewSyncer_SSHMode(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 	assert.Equal(t, "ssh", syncer.authMode)
 	assert.Empty(t, syncer.token)
-	assert.Nil(t, gitops.GitAuthEnv(syncer.authMode, syncer.token),
-		"ssh mode must produce nil auth env")
+	env, err := gitops.AuthEnvFromProvider(context.Background(), nil)
+	assert.Error(t, err, "nil provider must return an error")
+	assert.Nil(t, env, "nil provider must produce nil auth env")
 }
 
 // TestNewSyncer_PATMode verifies that NewSyncer stores the pat auth mode and
-// token, and that GitAuthEnv returns the four expected entries.
+// token, and that AuthEnvFromProvider returns the four expected entries.
 func TestNewSyncer_PATMode(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not found")
@@ -396,7 +397,10 @@ func TestNewSyncer_PATMode(t *testing.T) {
 	run(t, clone, "git", "commit", "-m", "initial")
 	run(t, clone, "git", "push", "origin", "HEAD")
 
-	gitMgr, err := gitops.NewManager(clone, "", "test", gitopsTestProvider(t))
+	provider, err := githubauth.NewPATProvider(token)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(clone, "", "test", provider)
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(clone)
@@ -412,8 +416,8 @@ func TestNewSyncer_PATMode(t *testing.T) {
 	assert.Equal(t, "pat", syncer.authMode)
 	assert.Equal(t, token, syncer.token)
 
-	env := gitops.GitAuthEnv(syncer.authMode, syncer.token)
-	require.NotNil(t, env)
+	env, err := gitops.AuthEnvFromProvider(context.Background(), provider)
+	require.NoError(t, err)
 	require.Len(t, env, 4)
 	assert.Contains(t, env, "GIT_CONFIG_COUNT=1")
 	assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.extraheader")
@@ -426,7 +430,11 @@ func TestNewSyncer_PATMode(t *testing.T) {
 func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
 	const token = "ghp_supersecret_should_not_leak"
 
-	env := gitops.GitAuthEnv("pat", token)
+	provider, err := githubauth.NewPATProvider(token)
+	require.NoError(t, err)
+
+	env, err := gitops.AuthEnvFromProvider(context.Background(), provider)
+	require.NoError(t, err)
 	require.NotNil(t, env)
 
 	// The token must appear exactly once — in GIT_CONFIG_VALUE_0 only.
