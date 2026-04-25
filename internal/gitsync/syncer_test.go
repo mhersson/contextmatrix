@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -70,7 +71,7 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	run(t, clone, "git", "push", "origin", "HEAD")
 
 	// Set up Go objects.
-	gitMgr, err := gitops.NewManager(clone, "", "ssh", "")
+	gitMgr, err := gitops.NewManager(clone, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(clone)
@@ -103,7 +104,7 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 
 func TestNewSyncer_NoRemote(t *testing.T) {
 	dir := t.TempDir()
-	gitMgr, err := gitops.NewManager(dir, "", "ssh", "")
+	gitMgr, err := gitops.NewManager(dir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	syncer := NewSyncer(gitMgr, nil, nil, nil, dir, true, true, time.Minute, "ssh", "")
@@ -395,7 +396,7 @@ func TestNewSyncer_PATMode(t *testing.T) {
 	run(t, clone, "git", "commit", "-m", "initial")
 	run(t, clone, "git", "push", "origin", "HEAD")
 
-	gitMgr, err := gitops.NewManager(clone, "", "pat", token)
+	gitMgr, err := gitops.NewManager(clone, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(clone)
@@ -738,4 +739,13 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 	syncer.wg.Wait()
 
 	assert.GreaterOrEqual(t, callCount, 2, "pushHook must have been called at least twice")
+}
+
+func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
+	t.Helper()
+
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	return p
 }

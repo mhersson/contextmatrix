@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -67,7 +68,7 @@ transitions:
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
 	// Initialize git (boards directory is the git repo)
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	// Seed an initial commit so HEAD exists and CurrentBranch() works.
@@ -717,7 +718,7 @@ transitions:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	// Seed an initial commit so HEAD exists and git check passes.
@@ -2003,7 +2004,7 @@ func emptyTestSetup(t *testing.T) (*service.CardService, *events.Bus) {
 	boardsDir := filepath.Join(tmpDir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -2607,7 +2608,7 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfigYAML), 0o644))
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)
@@ -3396,4 +3397,13 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		require.NotNil(t, patchedCard.Skills)
 		assert.Empty(t, *patchedCard.Skills)
 	})
+}
+
+func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
+	t.Helper()
+
+	p, err := githubauth.NewPATProvider("test-token")
+	require.NoError(t, err)
+
+	return p
 }

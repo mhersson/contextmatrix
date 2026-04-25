@@ -48,7 +48,7 @@ transitions:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfig), 0o644))
 
-	git, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	store, err := storage.NewFilesystemStore(boardsDir)

@@ -48,7 +48,7 @@ func newAsyncTestService(t *testing.T, extraProjects ...string) (*CardService, *
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
 
-	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", "")
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
 	require.NoError(t, err)
 
 	bus := events.NewBus()
