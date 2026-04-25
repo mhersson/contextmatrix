@@ -112,6 +112,7 @@ type Config struct {
 	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
 	CORSOrigin       string               `yaml:"cors_origin"`
 	SkillsDir        string               `yaml:"skills_dir"`
+	TaskSkillsDir    string               `yaml:"task_skills_dir"`
 	Theme            string               `yaml:"theme"`
 	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
 	MCPAPIKey        string               `yaml:"mcp_api_key"`
@@ -138,6 +139,7 @@ func defaults() *Config {
 		HeartbeatTimeout: "30m",
 		CORSOrigin:       "http://localhost:5173",
 		SkillsDir:        "",
+		TaskSkillsDir:    "",
 		Theme:            "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
@@ -372,6 +374,17 @@ func resolvePaths(cfg *Config, configPath string) error {
 		cfg.SkillsDir = filepath.Join(filepath.Dir(configPath), "skills")
 	}
 
+	taskSkillsDir, err := expandTilde(cfg.TaskSkillsDir)
+	if err != nil {
+		return err
+	}
+
+	cfg.TaskSkillsDir = taskSkillsDir
+
+	if cfg.TaskSkillsDir == "" {
+		cfg.TaskSkillsDir = filepath.Join(filepath.Dir(configPath), "task-skills")
+	}
+
 	return nil
 }
 
@@ -431,6 +444,10 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
 		cfg.SkillsDir = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {
+		cfg.TaskSkillsDir = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {

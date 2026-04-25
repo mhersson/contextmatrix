@@ -853,6 +853,45 @@ func TestLoad_SkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
 }
 
+func TestLoad_TaskSkillsDirDefault(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "task-skills"), cfg.TaskSkillsDir,
+		"empty task_skills_dir should fall back to <config-dir>/task-skills")
+}
+
+func TestLoad_TaskSkillsDirExplicit(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/cm/task-skills", cfg.TaskSkillsDir)
+}
+
+func TestLoad_TaskSkillsDirEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_DIR", "/var/lib/cm/task-skills")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/var/lib/cm/task-skills", cfg.TaskSkillsDir,
+		"env override must win over config file")
+}
+
 func TestLoad_CloneOnEmptyFields(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
