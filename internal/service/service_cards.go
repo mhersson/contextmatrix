@@ -341,6 +341,11 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, err
 	}
 
+	// Validate skill names.
+	if err := validateSkillNames(card.Skills); err != nil {
+		return nil, err
+	}
+
 	// Validate card fields
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
@@ -492,6 +497,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 // all mutable fields from input onto the loaded card.
 func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInput) func(*board.Card, *board.ProjectConfig) error {
 	return func(card *board.Card, cfg *board.ProjectConfig) error {
+		// Validate skill names before applying any mutations.
+		if err := validateSkillNames(input.Skills); err != nil {
+			return err
+		}
+
 		oldState := card.State
 		stateChanged := input.State != oldState
 
@@ -625,6 +635,11 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		// backward-compatible callers that do not supply an agent ID.
 		if input.AgentID != "" && card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
 			return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
+		}
+
+		// Validate skill names before applying any mutations.
+		if err := validateSkillNames(input.Skills); err != nil {
+			return err
 		}
 
 		oldState := card.State

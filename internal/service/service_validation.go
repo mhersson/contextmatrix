@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -129,4 +130,26 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 
 	met, _ := s.checkDependencies(ctx, card.Project, card.DependsOn)
 	card.DependenciesMet = &met
+}
+
+// taskSkillNamePattern restricts skill names to a safe charset that cannot
+// reach outside a task-skills mount via path traversal. Mirrors the runner-
+// side ValidateTaskSkills check.
+var taskSkillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+// validateSkillNames returns an error if any name in the slice fails the
+// allowlist pattern. Nil and empty slices are valid (no skills).
+func validateSkillNames(skills *[]string) error {
+	if skills == nil {
+		return nil
+	}
+
+	for _, s := range *skills {
+		if !taskSkillNamePattern.MatchString(s) {
+			return fmt.Errorf("invalid skill name %q: must match %s: %w",
+				s, taskSkillNamePattern.String(), ErrFieldTooLong)
+		}
+	}
+
+	return nil
 }

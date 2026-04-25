@@ -258,3 +258,125 @@ func TestListCardsPage_FilterDoesNotAffectTotal(t *testing.T) {
 	assert.True(t, page.HasTotal)
 	assert.Equal(t, 3, page.Total, "Total must reflect un-filtered project size")
 }
+
+func TestCreateCard_RejectsBadSkillNames(t *testing.T) {
+	cases := []struct {
+		name  string
+		input []string
+	}{
+		{"path traversal", []string{"../etc/passwd"}},
+		{"uppercase", []string{"Go-Development"}},
+		{"space", []string{"go development"}},
+		{"leading dash", []string{"-go-development"}},
+		{"leading dot", []string{".secret"}},
+		{"slash", []string{"a/b"}},
+		{"empty string", []string{""}},
+		{"dotdot", []string{".."}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			skills := c.input
+			_, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{
+				Title:    "t",
+				Type:     "task",
+				Priority: "low",
+				Skills:   &skills,
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid skill name")
+		})
+	}
+}
+
+func TestCreateCard_AcceptsValidSkillNames(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	skills := []string{"go-development", "documentation", "v1.0", "code_review"}
+	card, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{
+		Title:    "t",
+		Type:     "task",
+		Priority: "low",
+		Skills:   &skills,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, card.Skills)
+	assert.Equal(t, skills, *card.Skills)
+}
+
+func TestUpdateCard_RejectsBadSkillNames(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card with valid skills.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "parent",
+		Type:     "task",
+		Priority: "low",
+		Skills:   nil,
+	})
+	require.NoError(t, err)
+
+	// Try to update with invalid skill names.
+	badSkills := []string{"../etc/passwd"}
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:    card.Title,
+		Type:     card.Type,
+		Priority: card.Priority,
+		Skills:   &badSkills,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid skill name")
+}
+
+func TestPatchCard_RejectsBadSkillNames(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	// Try to patch with invalid skill names.
+	badSkills := []string{"Uppercase"}
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Skills: &badSkills,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid skill name")
+}
+
+func TestPatchCard_AcceptsValidSkillNames(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a card without skills.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	// Patch with valid skills.
+	skills := []string{"go-development", "code-review"}
+	updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Skills: &skills,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Skills)
+	assert.Equal(t, skills, *updated.Skills)
+}
