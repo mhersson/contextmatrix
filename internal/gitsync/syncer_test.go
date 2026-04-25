@@ -2,6 +2,7 @@ package gitsync
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -386,7 +387,9 @@ func TestNewSyncer_PATMode(t *testing.T) {
 	require.Len(t, env, 4)
 	assert.Contains(t, env, "GIT_CONFIG_COUNT=1")
 	assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.extraheader")
-	assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token)
+
+	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred)
 	assert.Contains(t, env, "GIT_TERMINAL_PROMPT=0")
 }
 
@@ -402,14 +405,19 @@ func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, env)
 
-	// The token must appear exactly once — in GIT_CONFIG_VALUE_0 only.
+	// The token (and its base64-encoded credential) must appear exactly once
+	// — in GIT_CONFIG_VALUE_0 only.
+	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+
 	for _, e := range env {
-		if e == "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token {
+		if e == "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred {
 			continue // correct placement
 		}
 
 		assert.NotContains(t, e, token,
-			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
+			"raw token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
+		assert.NotContains(t, e, expectedCred,
+			"encoded credential must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
 	}
 }
 

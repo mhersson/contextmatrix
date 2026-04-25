@@ -5,6 +5,7 @@ package gitops
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -573,6 +574,11 @@ func (m *Manager) AuthEnv(ctx context.Context) ([]string, error) {
 // AuthEnvFromProvider asks provider for a token and returns the four-element
 // GIT_CONFIG_* env slice that injects an http.extraheader Authorization
 // header. If provider is nil, returns an error.
+//
+// The header uses HTTP Basic auth (username "x-access-token", password = the
+// token) which is what GitHub accepts for git-over-HTTPS with App-installation
+// tokens. The Bearer scheme works for the REST API but is rejected by git's
+// HTTPS endpoint.
 func AuthEnvFromProvider(ctx context.Context, provider githubauth.TokenGenerator) ([]string, error) {
 	if provider == nil {
 		return nil, errors.New("nil token provider")
@@ -583,10 +589,12 @@ func AuthEnvFromProvider(ctx context.Context, provider githubauth.TokenGenerator
 		return nil, fmt.Errorf("generate token: %w", err)
 	}
 
+	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+
 	return []string{
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http.extraheader",
-		"GIT_CONFIG_VALUE_0=Authorization: Bearer " + token,
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + cred,
 		"GIT_TERMINAL_PROMPT=0",
 	}, nil
 }

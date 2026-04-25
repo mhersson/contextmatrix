@@ -2,6 +2,7 @@ package gitops
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -889,7 +890,9 @@ func TestAuthEnvFromProvider_PATProvider(t *testing.T) {
 	require.Len(t, env, 4)
 	assert.Contains(t, env, "GIT_CONFIG_COUNT=1")
 	assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.extraheader")
-	assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token)
+
+	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred)
 	assert.Contains(t, env, "GIT_TERMINAL_PROMPT=0")
 }
 
@@ -918,14 +921,19 @@ func TestAuthEnvFromProvider_TokenNotInArgs(t *testing.T) {
 	env, err := AuthEnvFromProvider(context.Background(), p)
 	require.NoError(t, err)
 
-	// Confirm token is in the env value, not any key or standalone entry.
+	// Confirm the token (and its base64-encoded form) only appears in
+	// GIT_CONFIG_VALUE_0, never in any other entry or as a standalone arg.
+	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+
 	for _, e := range env {
-		if e == "GIT_CONFIG_VALUE_0=Authorization: Bearer "+token {
+		if e == "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred {
 			continue // correct placement
 		}
 
 		assert.NotContains(t, e, token,
-			"token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
+			"raw token must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
+		assert.NotContains(t, e, expectedCred,
+			"encoded credential must only appear in GIT_CONFIG_VALUE_0, not in: %s", e)
 	}
 }
 
@@ -1126,6 +1134,8 @@ func TestManager_AuthEnv_BuildsExpectedSlice(t *testing.T) {
 	require.Len(t, env, 4)
 	assert.Equal(t, "GIT_CONFIG_COUNT=1", env[0])
 	assert.Equal(t, "GIT_CONFIG_KEY_0=http.extraheader", env[1])
-	assert.Equal(t, "GIT_CONFIG_VALUE_0=Authorization: Bearer ghp_xyz", env[2])
+
+	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:ghp_xyz"))
+	assert.Equal(t, "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred, env[2])
 	assert.Equal(t, "GIT_TERMINAL_PROMPT=0", env[3])
 }
