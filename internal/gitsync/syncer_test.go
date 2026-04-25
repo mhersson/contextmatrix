@@ -369,7 +369,7 @@ func assertHasEventType(t *testing.T, evts []events.Event, typ events.EventType)
 // (no env injection, preserving the SSH agent).
 func TestNewSyncer_SSHMode(t *testing.T) {
 	env, err := gitops.AuthEnvFromProvider(context.Background(), nil)
-	assert.Error(t, err, "nil provider must return an error")
+	require.Error(t, err, "nil provider must return an error")
 	assert.Nil(t, env, "nil provider must produce nil auth env")
 }
 

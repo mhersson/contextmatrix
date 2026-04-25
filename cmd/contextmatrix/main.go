@@ -21,6 +21,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
+
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -84,7 +86,33 @@ func main() {
 	slog.SetDefault(logger)
 
 	slog.Info("config loaded", "path", *configPath)
-	slog.Info("boards git auth", "mode", cfg.Boards.GitAuthMode)
+
+	// Construct the GitHub token provider (used by boards git, task-skills
+	// git, REST API for issue importing, REST API for branch listing).
+	var inner githubauth.TokenGenerator
+
+	switch cfg.GitHub.AuthMode {
+	case "app":
+		inner, err = githubauth.NewAppProvider(
+			cfg.GitHub.App.AppID,
+			cfg.GitHub.App.InstallationID,
+			cfg.GitHub.App.PrivateKeyPath,
+			githubauth.WithAPIBaseURL(cfg.GitHub.ResolvedAPIBaseURL()),
+		)
+	case "pat":
+		inner, err = githubauth.NewPATProvider(cfg.GitHub.PAT.Token)
+	default:
+		err = fmt.Errorf("unreachable: invalid auth_mode %q", cfg.GitHub.AuthMode)
+	}
+
+	if err != nil {
+		slog.Error("failed to construct github token provider", "error", err)
+		os.Exit(1)
+	}
+
+	tokenProvider := githubauth.NewCachingProvider(inner)
+
+	slog.Info("github token provider initialized", "auth_mode", cfg.GitHub.AuthMode)
 
 	// Parse heartbeat timeout
 	heartbeatTimeout, err := cfg.HeartbeatDuration()
@@ -95,18 +123,37 @@ func main() {
 
 	// Initialize git manager (boards directory IS the git repo).
 	// Must run before storage so clone-on-empty can populate the directory.
-	cloneURL := ""
+	boardsCloneURL := ""
 	if cfg.Boards.GitCloneOnEmpty {
-		cloneURL = cfg.Boards.GitRemoteURL
+		boardsCloneURL = cfg.Boards.GitRemoteURL
 	}
 
-	git, err := gitops.NewManager(cfg.Boards.Dir, cloneURL, cfg.Boards.GitAuthMode, cfg.GitHub.Token)
+	git, err := gitops.NewManager(cfg.Boards.Dir, boardsCloneURL, "boards", tokenProvider)
 	if err != nil {
-		slog.Error("failed to create git manager", "error", err)
+		slog.Error("failed to create boards git manager", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("git manager initialized", "repo_path", cfg.Boards.Dir)
+	slog.Info("boards git manager initialized", "repo_path", cfg.Boards.Dir)
+
+	// Initialize task-skills git manager.
+	taskSkillsCloneURL := ""
+	if cfg.TaskSkills.GitCloneOnEmpty {
+		taskSkillsCloneURL = cfg.TaskSkills.GitRemoteURL
+	}
+
+	taskSkillsGit, err := gitops.NewManager(
+		cfg.TaskSkills.Dir,
+		taskSkillsCloneURL,
+		"task-skills",
+		tokenProvider,
+	)
+	if err != nil {
+		slog.Error("failed to create task-skills git manager", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("task-skills git manager initialized", "repo_path", cfg.TaskSkills.Dir)
 
 	// Initialize storage
 	store, err := storage.NewFilesystemStore(cfg.Boards.Dir)
@@ -193,7 +240,7 @@ func main() {
 
 	if cfg.GitHub.IssueImporting.Enabled {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
-		ghClient := ghimport.NewClientWithBaseURL(cfg.GitHub.Token, cfg.GitHub.ResolvedAPIBaseURL())
+		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, cfg.GitHub.ResolvedAPIBaseURL())
 		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
 		ghSyncer.Start(ctx)
 		slog.Info("github issue sync enabled", "interval", syncInterval)
@@ -251,21 +298,22 @@ func main() {
 	}
 
 	mux := api.NewRouter(api.RouterConfig{
-		Service:            svc,
-		Bus:                bus,
-		CORSOrigin:         cfg.CORSOrigin,
-		Syncer:             apiSyncer,
-		Runner:             runnerClient,
-		RunnerCfg:          cfg.Runner,
-		MCPAPIKey:          cfg.MCPAPIKey,
-		Port:               cfg.Port,
-		GitHubToken:        cfg.GitHub.Token,
-		GitHubAPIBaseURL:   cfg.GitHub.ResolvedAPIBaseURL(),
-		GitHubAllowedHosts: cfg.GitHub.AllowedHosts(),
-		SessionManager:     sessionMgr,
-		Theme:              cfg.Theme,
-		Version:            buildVersion(),
-		MCPHandler:         mcpHandler,
+		Service:             svc,
+		Bus:                 bus,
+		CORSOrigin:          cfg.CORSOrigin,
+		Syncer:              apiSyncer,
+		Runner:              runnerClient,
+		RunnerCfg:           cfg.Runner,
+		MCPAPIKey:           cfg.MCPAPIKey,
+		Port:                cfg.Port,
+		GitHubTokenProvider: tokenProvider,
+		TaskSkillsGit:       taskSkillsGit,
+		GitHubAPIBaseURL:    cfg.GitHub.ResolvedAPIBaseURL(),
+		GitHubAllowedHosts:  cfg.GitHub.AllowedHosts(),
+		SessionManager:      sessionMgr,
+		Theme:               cfg.Theme,
+		Version:             buildVersion(),
+		MCPHandler:          mcpHandler,
 	})
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")
