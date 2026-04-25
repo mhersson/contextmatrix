@@ -294,10 +294,10 @@ github:
 		{
 			name:     "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL",
-			envValue: "git@github.com:user/boards.git",
+			envValue: "https://github.com/user/boards.git",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+				assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 			},
 		},
 		{
@@ -929,7 +929,7 @@ func TestLoad_CloneOnEmptyFields(t *testing.T) {
 boards:
   dir: `+boardsDir+`
   git_clone_on_empty: true
-  git_remote_url: "git@github.com:user/boards.git"
+  git_remote_url: "https://github.com/user/boards.git"
 github:
   auth_mode: "pat"
   pat:
@@ -940,7 +940,7 @@ github:
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 }
 
 func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
@@ -965,13 +965,13 @@ func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
 	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
 	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", "true")
-	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL", "git@github.com:user/boards.git")
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL", "https://github.com/user/boards.git")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
 	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "git@github.com:user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
 }
 
 func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
@@ -994,7 +994,7 @@ func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
 		Boards: BoardsConfig{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: true,
-			GitRemoteURL:    "git@github.com:user/boards.git",
+			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1008,7 +1008,7 @@ func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
 		Boards: BoardsConfig{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: false,
-			GitRemoteURL:    "git@github.com:user/boards.git",
+			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -2004,4 +2004,59 @@ func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "github.app.* must be empty")
 }
+
 // REMOVED IN TASK 16: TestConfigYamlExampleTokenCosts — config.yaml.example rewritten in Task 16
+
+// ---------- HTTPS-only URL validation tests (Task 5) ----------
+
+// validBaseConfig returns a Config that passes Validate() except for the
+// field under test.
+func validBaseConfig(t *testing.T) *Config {
+	t.Helper()
+	return &Config{
+		Boards:           BoardsConfig{Dir: "/tmp/boards"},
+		HeartbeatTimeout: "30m",
+		GitHub: GitHubConfig{
+			AuthMode: "pat",
+			PAT:      GitHubPATConfig{Token: "x"},
+		},
+	}
+}
+
+func TestValidate_BoardsRemoteURLNotHTTPS(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitRemoteURL = "ssh://git@github.com/foo/bar.git"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boards.git_remote_url must start with https://")
+}
+
+func TestValidate_BoardsRemoteURL_HTTPS_OK(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitRemoteURL = "https://github.com/foo/bar.git"
+	require.NoError(t, cfg.Validate())
+}
+
+func TestValidate_BoardsCloneOnEmptyRequiresURL(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Boards.GitCloneOnEmpty = true
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boards.git_remote_url is required when boards.git_clone_on_empty")
+}
+
+func TestValidate_TaskSkillsRemoteURLNotHTTPS(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.TaskSkills.GitRemoteURL = "git@github.com:foo/bar.git"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task_skills.git_remote_url must start with https://")
+}
+
+func TestValidate_TaskSkillsCloneOnEmptyRequiresURL(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.TaskSkills.GitCloneOnEmpty = true
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task_skills.git_remote_url is required when task_skills.git_clone_on_empty")
+}

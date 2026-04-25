@@ -218,6 +218,16 @@ func (c *Config) Validate() error {
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
+	// All git remote URLs must be HTTPS — SSH is no longer supported.
+	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
+		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
+	}
+	if c.TaskSkills.GitCloneOnEmpty && c.TaskSkills.GitRemoteURL == "" {
+		return fmt.Errorf("task_skills.git_remote_url is required when task_skills.git_clone_on_empty is enabled")
+	}
+	if c.TaskSkills.GitRemoteURL != "" && !strings.HasPrefix(c.TaskSkills.GitRemoteURL, "https://") {
+		return fmt.Errorf("task_skills.git_remote_url must start with https:// (got %q)", c.TaskSkills.GitRemoteURL)
+	}
 
 	if c.GitHub.IssueImporting.Enabled {
 		if c.GitHub.IssueImporting.SyncInterval == "" {
