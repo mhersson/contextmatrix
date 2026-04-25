@@ -15,7 +15,7 @@ import (
 )
 
 // registerTools adds all MCP tools to the server.
-func registerTools(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	registerListProjects(server, svc)
 	registerListCards(server, svc)
 	registerGetCard(server, svc)
@@ -36,8 +36,8 @@ func registerTools(server *mcp.Server, svc *service.CardService, skillsDir strin
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
-	registerStartWorkflow(server, svc, skillsDir)
-	registerGetSkill(server, svc, skillsDir)
+	registerStartWorkflow(server, svc, workflowSkillsDir)
+	registerGetSkill(server, svc, workflowSkillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
@@ -88,26 +88,28 @@ type getCardInput struct {
 }
 
 type createCardInput struct {
-	Project   string   `json:"project" jsonschema:"required,project name"`
-	Title     string   `json:"title" jsonschema:"required,card title"`
-	Type      string   `json:"type" jsonschema:"required,card type (task/bug/feature). Overridden to 'subtask' when parent is set."`
-	Priority  string   `json:"priority" jsonschema:"required,priority (low/medium/high/critical)"`
-	Labels    []string `json:"labels,omitempty" jsonschema:"optional labels"`
-	Body      string   `json:"body,omitempty" jsonschema:"optional markdown body"`
-	Parent    string   `json:"parent,omitempty" jsonschema:"parent card ID for subtasks"`
-	DependsOn []string `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
+	Project   string    `json:"project" jsonschema:"required,project name"`
+	Title     string    `json:"title" jsonschema:"required,card title"`
+	Type      string    `json:"type" jsonschema:"required,card type (task/bug/feature). Overridden to 'subtask' when parent is set."`
+	Priority  string    `json:"priority" jsonschema:"required,priority (low/medium/high/critical)"`
+	Labels    []string  `json:"labels,omitempty" jsonschema:"optional labels"`
+	Skills    *[]string `json:"skills,omitempty" jsonschema:"optional task-skill names to mount in the runner container; nil inherits from parent or project default, [] means none, [list] constrains"`
+	Body      string    `json:"body,omitempty" jsonschema:"optional markdown body"`
+	Parent    string    `json:"parent,omitempty" jsonschema:"parent card ID for subtasks"`
+	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
 }
 
 // NOTE: vetted, autonomous, feature_branch, create_pr are intentionally
 // excluded — they are human-only fields.
 type updateCardInput struct {
-	Project  string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID   string   `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string   `json:"agent_id,omitempty" jsonschema:"agent performing the update — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
-	Title    *string  `json:"title,omitempty" jsonschema:"new title"`
-	Priority *string  `json:"priority,omitempty" jsonschema:"new priority"`
-	Labels   []string `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
-	Body     *string  `json:"body,omitempty" jsonschema:"new markdown body"`
+	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
+	AgentID  string    `json:"agent_id,omitempty" jsonschema:"agent performing the update — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	Title    *string   `json:"title,omitempty" jsonschema:"new title"`
+	Priority *string   `json:"priority,omitempty" jsonschema:"new priority"`
+	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
+	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
+	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
 }
 
 type transitionCardInput struct {
@@ -275,6 +277,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			Type:     input.Type,
 			Priority: input.Priority,
 			Labels:   input.Labels,
+			Skills:   input.Skills,
 			Body:     input.Body,
 			Parent:   input.Parent,
 		}
@@ -292,6 +295,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 				State:     card.State,
 				Priority:  card.Priority,
 				Labels:    card.Labels,
+				Skills:    card.Skills,
 				Parent:    card.Parent,
 				DependsOn: input.DependsOn,
 				Body:      card.Body,
@@ -320,6 +324,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			Title:    input.Title,
 			Priority: input.Priority,
 			Labels:   input.Labels,
+			Skills:   input.Skills,
 			Body:     input.Body,
 		}
 
@@ -919,7 +924,7 @@ type startWorkflowOutput struct {
 	Inline    bool   `json:"inline,omitempty"`
 }
 
-func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "start_workflow",
 		Description: "Start the workflow for a card. Call this when a user asks to " +
@@ -940,7 +945,7 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, skillsD
 
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, skill, skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, skill, skillArgs{
 			CardID: input.CardID,
 		}, includePreamble)
 		if err != nil {
@@ -976,7 +981,7 @@ type getSkillOutput struct {
 	Inline    bool   `json:"inline,omitempty"`
 }
 
-func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_skill",
 		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, " +
@@ -987,7 +992,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, skillsDir st
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, input.SkillName, skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, input.SkillName, skillArgs{
 			CardID:      input.CardID,
 			Description: input.Description,
 			Name:        input.Name,

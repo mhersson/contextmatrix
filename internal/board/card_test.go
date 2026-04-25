@@ -829,3 +829,133 @@ func TestRoundTrip_CustomFields(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "data", nested["inner"])
 }
+
+func TestCard_SkillsFieldRoundtrip(t *testing.T) {
+	t.Run("nil skills (field absent)", func(t *testing.T) {
+		input := `---
+id: ALPHA-001
+title: t
+project: p
+type: task
+state: todo
+priority: low
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		assert.Nil(t, card.Skills, "absent skills field should parse as nil pointer")
+
+		out, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.NotContains(t, string(out), "skills", "nil skills should be omitted from YAML")
+	})
+
+	t.Run("empty skills list", func(t *testing.T) {
+		input := `---
+id: ALPHA-002
+title: t
+project: p
+type: task
+state: todo
+priority: low
+skills: []
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.NotNil(t, card.Skills, "empty list should parse as non-nil pointer")
+		assert.Empty(t, *card.Skills, "value should be an empty slice")
+
+		out, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.Contains(t, string(out), "skills: []", "empty skills should serialize as 'skills: []'")
+	})
+
+	t.Run("populated skills list", func(t *testing.T) {
+		input := `---
+id: ALPHA-003
+title: t
+project: p
+type: task
+state: todo
+priority: low
+skills:
+  - go-development
+  - documentation
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.NotNil(t, card.Skills)
+		assert.Equal(t, []string{"go-development", "documentation"}, *card.Skills)
+
+		out, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.Contains(t, string(out), "go-development")
+		assert.Contains(t, string(out), "documentation")
+	})
+}
+
+func TestActivityEntry_SkillField(t *testing.T) {
+	t.Run("skill field omitted when empty", func(t *testing.T) {
+		input := `---
+id: ALPHA-001
+title: t
+project: p
+type: task
+state: todo
+priority: low
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+activity_log:
+  - agent: claude-7a3f
+    ts: 2026-04-25T10:00:00Z
+    action: status_update
+    message: working
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.Len(t, card.ActivityLog, 1)
+		assert.Empty(t, card.ActivityLog[0].Skill)
+
+		out, err := SerializeCard(card)
+		require.NoError(t, err)
+		assert.NotContains(t, string(out), "skill:")
+	})
+
+	t.Run("skill field round-trips", func(t *testing.T) {
+		input := `---
+id: ALPHA-002
+title: t
+project: p
+type: task
+state: todo
+priority: low
+created: 2026-04-25T10:00:00Z
+updated: 2026-04-25T10:00:00Z
+activity_log:
+  - agent: claude-7a3f
+    ts: 2026-04-25T10:00:00Z
+    action: skill_engaged
+    message: engaged go-development
+    skill: go-development
+---
+body
+`
+		card, err := ParseCard([]byte(input))
+		require.NoError(t, err)
+		require.Len(t, card.ActivityLog, 1)
+		assert.Equal(t, "go-development", card.ActivityLog[0].Skill)
+	})
+}

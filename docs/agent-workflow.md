@@ -116,6 +116,39 @@ the agent sees the `start_workflow` tool and calls it to get the executable
 workflow content directly. If the card cannot be found, both paths return an
 error.
 
+## Task skills
+
+In addition to the workflow skills served via MCP prompts (lifecycle scaffolding), the runner mounts a curated set of **task skills** at `~/.claude/skills/` in the worker container. These are standard Claude Code skills with `SKILL.md` files, discovered by the model via the native Skill tool and engaged when their descriptions match the work being done.
+
+### Two-channel design
+
+Workflow skills (existing): MCP prompts injected into the orchestrator's or a sub-agent's first message. Drives lifecycle.
+
+Task skills (new): Filesystem at `~/.claude/skills/<name>/SKILL.md`. Engaged automatically by the model based on description matching.
+
+The two channels never overlap: workflow skills tell the agent *what to do*, task skills tell the agent *how to do it well*.
+
+### Selection
+
+A card's `skills` field constrains which task skills are mounted. See `docs/data-model.md` for the field's three-state semantics. Resolution at trigger time:
+
+1. `card.skills` if set (including explicit empty);
+2. else `project.default_skills` if set;
+3. else mount the full curated set from `task_skills_dir`.
+
+### Guard / Permit
+
+Workflow skill files include a one-line guard (orchestrator) or permit (sub-agent) so engagement stays scoped to the right phase:
+
+- `run-autonomous`: **guard** — orchestrator does not engage specialists; sub-agents will.
+- `execute-task`, `review-task`, `document-task`: **permit** — engage when descriptions match. Workflow rules always take precedence over skill guidance.
+- `create-plan`: no nudge (runs inline on the orchestrator, covered by the run-autonomous guard).
+- `create-task`, `init-project`: no nudge (interview/bootstrap, no implementation work).
+
+### Description-writing convention
+
+Skills are engaged by description match. Authors should anchor descriptions in **observable activities and file types**, not subject areas. See `task-skills/README.md` (in the user's task-skills repo) for the full convention.
+
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:

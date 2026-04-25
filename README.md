@@ -142,13 +142,17 @@ The install script copies the configuration template and agent skill files into
 your user config directory.
 
 ```bash
-# Fresh install: create config dir, copy config.yaml from template, copy skills/
+# Fresh install: create config dir, copy config.yaml from template, copy
+# workflow skills into <config-dir>/workflow-skills/.
 make install-config
 # or equivalently:
 scripts/install.sh
 
-# Only update the skills/ directory — config.yaml is not touched
-scripts/install.sh --update-skills
+# Only update the workflow-skills/ directory — config.yaml is not touched
+scripts/install.sh --update-workflow-skills
+
+# Add-only refresh of task-skills/ — never overwrites user edits
+scripts/install.sh --update-task-skills
 
 # Overwrite config.yaml even if it already exists (re-install)
 scripts/install.sh --force
@@ -163,13 +167,17 @@ scripts/install.sh --force
 
 - `config.yaml` — copied from `config.yaml.example` (skipped if it already
   exists, unless `--force`)
-- `skills/` — the agent skill files from the repo's `skills/` directory (always
-  refreshed)
+- `workflow-skills/` — the lifecycle workflow skill files (create-plan,
+  execute-task, review-task, etc.) from the repo's `skills/` source directory.
+  Always refreshed.
+- `task-skills/` — curated specialist task skills (Go, TypeScript/React, etc.)
+  seeded on fresh install. Never overwritten on subsequent runs (only
+  `--update-task-skills` adds missing entries).
 
 After a fresh install, edit `boards.dir` in
 `~/.config/contextmatrix/config.yaml` before starting the server. The
-`skills_dir` defaults to the `skills/` directory next to the config file, so no
-manual path update is needed.
+`workflow_skills_dir` defaults to the `workflow-skills/` directory next to the
+config file, so no manual path update is needed.
 
 ## MCP Integration
 
@@ -286,9 +294,10 @@ Skill dependencies on specific states:
 If you remove or rename states (e.g. drop `review`), the default skills will
 break. In that case:
 
-1. Copy the `skills/` directory to a custom location.
+1. Copy the `workflow-skills/` directory (or the repo's `skills/` source) to a
+   custom location.
 2. Edit the relevant skill files to match your state names.
-3. Set `skills_dir` in `config.yaml` to point to your custom directory.
+3. Set `workflow_skills_dir` in `config.yaml` to point to your custom directory.
 
 The default skills are always refreshed from the repo by `scripts/install.sh`;
 your custom directory is never touched by the install script.
@@ -645,7 +654,8 @@ format.
 | `port`                       | `8080`                  | HTTP server port                                                                              |
 | `heartbeat_timeout`          | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
 | `cors_origin`                | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
-| `skills_dir`                 | `./skills`              | Path to skill file markdown directory                                                         |
+| `workflow_skills_dir`        | `./workflow-skills`     | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts)       |
+| `task_skills_dir`            | `./task-skills`         | Path to the curated task-skills git repo (specialist skills mounted into runner workers)      |
 | `token_costs`                | ---                     | Per-model token cost rates (see example below)                                                |
 | `mcp_api_key`                | `""`                    | Bearer token for MCP endpoint authentication (empty = no auth)                                |
 | `boards.dir`                 | ---                     | Path to boards git repo (required)                                                            |
@@ -690,7 +700,8 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE`
 - `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
 - `CONTEXTMATRIX_CORS_ORIGIN`
-- `CONTEXTMATRIX_SKILLS_DIR`
+- `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`
+- `CONTEXTMATRIX_TASK_SKILLS_DIR`
 - `CONTEXTMATRIX_MCP_API_KEY`
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`

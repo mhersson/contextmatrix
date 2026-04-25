@@ -98,7 +98,7 @@ CONFIG_DIR() {
 
 run_test_fresh_install() {
     echo ""
-    echo "Test: fresh install creates config.yaml and skills/"
+    echo "Test: fresh install creates config.yaml and workflow-skills/"
     setup
 
     "${INSTALL_SCRIPT}"
@@ -108,19 +108,21 @@ run_test_fresh_install() {
 
     assert_exists "${config_dir}" "config dir"
     assert_exists "${config_dir}/config.yaml" "config.yaml"
-    assert_exists "${config_dir}/skills" "skills dir"
+    assert_exists "${config_dir}/workflow-skills" "workflow-skills dir"
 
     # Verify at least one skill file was copied.
     local skill_count
-    skill_count=$(find "${config_dir}/skills" -type f | wc -l)
+    skill_count=$(find "${config_dir}/workflow-skills" -type f | wc -l)
     if [[ "${skill_count}" -gt 0 ]]; then
-        pass "skills directory contains ${skill_count} file(s)"
+        pass "workflow-skills directory contains ${skill_count} file(s)"
     else
-        fail "skills directory is empty after fresh install"
+        fail "workflow-skills directory is empty after fresh install"
     fi
 
     # config.yaml should contain content from config.yaml.example.
-    assert_file_contains "${config_dir}/config.yaml" "boards_dir" "config.yaml has boards_dir field"
+    # config.yaml uses the nested form `boards:\n  dir: …`, so we assert the
+    # parent key as proof that the example template was actually copied.
+    assert_file_contains "${config_dir}/config.yaml" "boards:" "config.yaml has boards: section"
 
     teardown
 }
@@ -150,7 +152,7 @@ run_test_rerun_skips_config() {
 
 run_test_update_skills_only_touches_skills() {
     echo ""
-    echo "Test: --update-skills only copies skills, does not touch config.yaml"
+    echo "Test: --update-workflow-skills only copies workflow skills, does not touch config.yaml"
     setup
 
     # First do a full install to establish the config dir.
@@ -162,27 +164,27 @@ run_test_update_skills_only_touches_skills() {
     # Write a sentinel into config.yaml.
     echo "# SENTINEL_SHOULD_REMAIN" > "${config_dir}/config.yaml"
 
-    # Remove skills dir to confirm it gets recreated.
-    rm -rf "${config_dir}/skills"
-    assert_not_exists "${config_dir}/skills" "skills dir removed before --update-skills"
+    # Remove workflow-skills dir to confirm it gets recreated.
+    rm -rf "${config_dir}/workflow-skills"
+    assert_not_exists "${config_dir}/workflow-skills" "workflow-skills dir removed before --update-workflow-skills"
 
-    # Run with --update-skills.
-    "${INSTALL_SCRIPT}" --update-skills
+    # Run with --update-workflow-skills.
+    "${INSTALL_SCRIPT}" --update-workflow-skills
 
-    # Skills should be back.
-    assert_exists "${config_dir}/skills" "skills dir recreated by --update-skills"
+    # Workflow skills should be back.
+    assert_exists "${config_dir}/workflow-skills" "workflow-skills dir recreated by --update-workflow-skills"
 
     local skill_count
-    skill_count=$(find "${config_dir}/skills" -type f | wc -l)
+    skill_count=$(find "${config_dir}/workflow-skills" -type f | wc -l)
     if [[ "${skill_count}" -gt 0 ]]; then
-        pass "--update-skills restored ${skill_count} skill file(s)"
+        pass "--update-workflow-skills restored ${skill_count} skill file(s)"
     else
-        fail "--update-skills left skills directory empty"
+        fail "--update-workflow-skills left workflow-skills directory empty"
     fi
 
     # config.yaml must be untouched.
     assert_file_contains "${config_dir}/config.yaml" "SENTINEL_SHOULD_REMAIN" \
-        "config.yaml untouched by --update-skills"
+        "config.yaml untouched by --update-workflow-skills"
 
     teardown
 }
@@ -207,7 +209,7 @@ run_test_force_overwrites_config() {
     # config.yaml should now be the example file, not the sentinel.
     assert_file_not_contains "${config_dir}/config.yaml" "OLD_SENTINEL" \
         "config.yaml sentinel was replaced by --force"
-    assert_file_contains "${config_dir}/config.yaml" "boards_dir" \
+    assert_file_contains "${config_dir}/config.yaml" "boards:" \
         "config.yaml contains example content after --force"
 
     teardown
@@ -228,7 +230,7 @@ run_test_xdg_fallback() {
     "${INSTALL_SCRIPT}"
 
     assert_exists "${HOME}/.config/contextmatrix/config.yaml" "config.yaml in HOME fallback path"
-    assert_exists "${HOME}/.config/contextmatrix/skills" "skills in HOME fallback path"
+    assert_exists "${HOME}/.config/contextmatrix/workflow-skills" "workflow-skills in HOME fallback path"
 
     # Restore.
     export XDG_CONFIG_HOME="${saved_xdg}"

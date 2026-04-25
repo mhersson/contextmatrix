@@ -41,11 +41,23 @@ admin_port: 0
 # Env: CONTEXTMATRIX_ADMIN_BIND_ADDR
 admin_bind_addr: "127.0.0.1"
 
-# Path to the directory containing agent skill files (markdown).
-# When left empty, defaults to a "skills" directory next to this config file.
+# Path to the directory containing the workflow skill files (create-plan.md,
+# execute-task.md, review-task.md, document-task.md, run-autonomous.md, etc.).
+# These are the lifecycle scaffolding the MCP server hands to agents as
+# prompts; they are NOT the same as task_skills_dir below.
+# When left empty, defaults to a "workflow-skills" directory next to this
+# config file.
 # Tilde expansion is supported.
-# Env: CONTEXTMATRIX_SKILLS_DIR
-skills_dir: skills
+# Env: CONTEXTMATRIX_WORKFLOW_SKILLS_DIR
+workflow_skills_dir: workflow-skills
+
+# Path to the curated task skills git repo. Read by CM for UI listing and
+# validation. NOT the same as workflow_skills_dir above — task skills are the
+# specialist filesystem skills (Go, TypeScript/React, etc.) mounted into
+# runner worker containers. Empty falls back to <config-dir>/task-skills.
+# Tilde expansion is supported.
+# Env: CONTEXTMATRIX_TASK_SKILLS_DIR
+task_skills_dir: ""
 
 # How long an agent can go without sending a heartbeat before the card is
 # automatically moved to the "stalled" state and the agent claim is released.

@@ -107,20 +107,21 @@ type BoardsConfig struct {
 
 // Config holds the application configuration.
 type Config struct {
-	Port             int                  `yaml:"port"`
-	Boards           BoardsConfig         `yaml:"boards"`
-	HeartbeatTimeout string               `yaml:"heartbeat_timeout"`
-	CORSOrigin       string               `yaml:"cors_origin"`
-	SkillsDir        string               `yaml:"skills_dir"`
-	Theme            string               `yaml:"theme"`
-	TokenCosts       map[string]ModelCost `yaml:"token_costs"`
-	MCPAPIKey        string               `yaml:"mcp_api_key"`
-	Runner           RunnerConfig         `yaml:"runner"`
-	GitHub           GitHubConfig         `yaml:"github"`
-	LogFormat        string               `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel         string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort        int                  `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr    string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Port              int                  `yaml:"port"`
+	Boards            BoardsConfig         `yaml:"boards"`
+	HeartbeatTimeout  string               `yaml:"heartbeat_timeout"`
+	CORSOrigin        string               `yaml:"cors_origin"`
+	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
+	TaskSkillsDir     string               `yaml:"task_skills_dir"`
+	Theme             string               `yaml:"theme"`
+	TokenCosts        map[string]ModelCost `yaml:"token_costs"`
+	MCPAPIKey         string               `yaml:"mcp_api_key"`
+	Runner            RunnerConfig         `yaml:"runner"`
+	GitHub            GitHubConfig         `yaml:"github"`
+	LogFormat         string               `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel          string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort         int                  `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr     string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 }
 
 // defaults returns a Config with default values.
@@ -135,10 +136,11 @@ func defaults() *Config {
 			GitPullInterval: "60s",
 			GitAuthMode:     "ssh",
 		},
-		HeartbeatTimeout: "30m",
-		CORSOrigin:       "http://localhost:5173",
-		SkillsDir:        "",
-		Theme:            "everforest",
+		HeartbeatTimeout:  "30m",
+		CORSOrigin:        "http://localhost:5173",
+		WorkflowSkillsDir: "",
+		TaskSkillsDir:     "",
+		Theme:             "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
 			OrchestratorOpusModel:   "claude-opus-4-7",
@@ -361,15 +363,26 @@ func resolvePaths(cfg *Config, configPath string) error {
 
 	cfg.Boards.Dir = boardsDir
 
-	skillsDir, err := expandTilde(cfg.SkillsDir)
+	workflowSkillsDir, err := expandTilde(cfg.WorkflowSkillsDir)
 	if err != nil {
 		return err
 	}
 
-	cfg.SkillsDir = skillsDir
+	cfg.WorkflowSkillsDir = workflowSkillsDir
 
-	if cfg.SkillsDir == "" {
-		cfg.SkillsDir = filepath.Join(filepath.Dir(configPath), "skills")
+	if cfg.WorkflowSkillsDir == "" {
+		cfg.WorkflowSkillsDir = filepath.Join(filepath.Dir(configPath), "workflow-skills")
+	}
+
+	taskSkillsDir, err := expandTilde(cfg.TaskSkillsDir)
+	if err != nil {
+		return err
+	}
+
+	cfg.TaskSkillsDir = taskSkillsDir
+
+	if cfg.TaskSkillsDir == "" {
+		cfg.TaskSkillsDir = filepath.Join(filepath.Dir(configPath), "task-skills")
 	}
 
 	return nil
@@ -429,8 +442,12 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.CORSOrigin = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_SKILLS_DIR"); v != "" {
-		cfg.SkillsDir = v
+	if v := os.Getenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR"); v != "" {
+		cfg.WorkflowSkillsDir = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_DIR"); v != "" {
+		cfg.TaskSkillsDir = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {

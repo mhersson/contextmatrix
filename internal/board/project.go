@@ -41,6 +41,7 @@ type ProjectConfig struct {
 	Transitions     map[string][]string    `yaml:"transitions" json:"transitions"`
 	RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
 	GitHub          *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
+	DefaultSkills   *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
 	Templates       map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 

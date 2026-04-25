@@ -564,7 +564,7 @@ boards:
 	assert.False(t, cfg.Boards.GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
-	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
+	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
 }
 
 func TestLoad_ValidationFailure_InvalidPullInterval(t *testing.T) {
@@ -637,7 +637,7 @@ func TestDefaults(t *testing.T) {
 	assert.Empty(t, cfg.Boards.GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
-	assert.Empty(t, cfg.SkillsDir)
+	assert.Empty(t, cfg.WorkflowSkillsDir)
 	assert.Empty(t, cfg.MCPAPIKey)
 	assert.False(t, cfg.Runner.Enabled)
 	assert.Empty(t, cfg.Runner.URL)
@@ -788,7 +788,7 @@ func TestFindConfigPath_XDGSetButNoFile(t *testing.T) {
 	assert.Equal(t, "config.yaml", got)
 }
 
-func TestLoad_SkillsDirDerivedFromConfigDir(t *testing.T) {
+func TestLoad_WorkflowSkillsDirDerivedFromConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
@@ -797,35 +797,35 @@ func TestLoad_SkillsDirDerivedFromConfigDir(t *testing.T) {
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
+	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
 }
 
-func TestLoad_SkillsDirExplicitInYAML(t *testing.T) {
+func TestLoad_WorkflowSkillsDirExplicitInYAML(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nskills_dir: /opt/skills\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: /opt/skills\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, "/opt/skills", cfg.SkillsDir)
+	assert.Equal(t, "/opt/skills", cfg.WorkflowSkillsDir)
 }
 
-func TestLoad_SkillsDirEnvOverride(t *testing.T) {
+func TestLoad_WorkflowSkillsDirEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
-	t.Setenv("CONTEXTMATRIX_SKILLS_DIR", "/custom/skills")
+	t.Setenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR", "/custom/skills")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, "/custom/skills", cfg.SkillsDir)
+	assert.Equal(t, "/custom/skills", cfg.WorkflowSkillsDir)
 }
 
-func TestLoad_SkillsDirTildeExpansion(t *testing.T) {
+func TestLoad_WorkflowSkillsDirTildeExpansion(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -833,24 +833,78 @@ func TestLoad_SkillsDirTildeExpansion(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nskills_dir: \"~/my-skills\"\n")
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\nworkflow_skills_dir: \"~/my-skills\"\n")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.SkillsDir)
+	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.WorkflowSkillsDir)
 }
 
-func TestLoad_SkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
+func TestLoad_WorkflowSkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
 	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", boardsDir)
 
-	// Load from a nonexistent file — skills_dir derived from its directory
+	// Load from a nonexistent file — workflow_skills_dir derived from its directory
 	cfg, err := Load(filepath.Join(dir, "nonexistent.yaml"))
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(dir, "skills"), cfg.SkillsDir)
+	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
+}
+
+func TestLoad_TaskSkillsDirDefault(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "task-skills"), cfg.TaskSkillsDir,
+		"empty task_skills_dir should fall back to <config-dir>/task-skills")
+}
+
+func TestLoad_TaskSkillsDirExplicit(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/cm/task-skills", cfg.TaskSkillsDir)
+}
+
+func TestLoad_TaskSkillsDirEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: /etc/cm/task-skills\n")
+	t.Setenv("CONTEXTMATRIX_TASK_SKILLS_DIR", "/var/lib/cm/task-skills")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "/var/lib/cm/task-skills", cfg.TaskSkillsDir,
+		"env override must win over config file")
+}
+
+func TestLoad_TaskSkillsDirTildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ntask_skills_dir: \"~/my-task-skills\"\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "my-task-skills"), cfg.TaskSkillsDir)
 }
 
 func TestLoad_CloneOnEmptyFields(t *testing.T) {

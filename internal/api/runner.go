@@ -140,6 +140,16 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		model = h.runnerCfg.OrchestratorOpusModel
 	}
 
+	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
+	var taskSkills *[]string
+
+	switch {
+	case card.Skills != nil:
+		taskSkills = card.Skills
+	case projectCfg.DefaultSkills != nil:
+		taskSkills = projectCfg.DefaultSkills
+	}
+
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
@@ -148,6 +158,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
 		Model:       model,
+		TaskSkills:  taskSkills,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
@@ -619,6 +630,92 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 	}
 
 	return true
+}
+
+// skillEngagedRequest is the JSON body sent by the runner when the agent
+// invokes the Skill tool.
+type skillEngagedRequest struct {
+	CardID    string `json:"card_id"`
+	Project   string `json:"project"`
+	SkillName string `json:"skill_name"`
+}
+
+// handleRunnerSkillEngaged handles POST /api/runner/skill-engaged — runner
+// callback notifying CM that the agent has engaged a named skill.
+func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.authenticateRunnerPost(w, r)
+	if !ok {
+		return
+	}
+
+	var req skillEngagedRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
+
+		return
+	}
+
+	if req.CardID == "" || req.Project == "" || req.SkillName == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "card_id, project, skill_name required", "")
+
+		return
+	}
+
+	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.SkillName); err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// authenticateRunnerPost reads the request body, verifies the HMAC-SHA256
+// signature over method+path+body. Returns (body, true) on success; on
+// failure it writes the 403/400 response and returns (nil, false).
+func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	if h.runnerCfg.APIKey == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
+
+		return nil, false
+	}
+
+	sigHeader := r.Header.Get("X-Signature-256")
+	if sigHeader == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
+
+		return nil, false
+	}
+
+	tsHeader := r.Header.Get("X-Webhook-Timestamp")
+	if tsHeader == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
+
+		return nil, false
+	}
+
+	if !strings.HasPrefix(sigHeader, "sha256=") {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
+
+		return nil, false
+	}
+
+	sig := strings.TrimPrefix(sigHeader, "sha256=")
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "failed to read request body", "")
+
+		return nil, false
+	}
+
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.Path, sig, tsHeader, body, runner.DefaultMaxClockSkew) {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
+
+		return nil, false
+	}
+
+	return body, true
 }
 
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,

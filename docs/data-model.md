@@ -224,6 +224,18 @@ The frontmatter is delimited by `---` lines. The body is freeform markdown. When
 parsing, split on `---` — first element is empty (before opening delimiter),
 second is YAML, third is body.
 
+### `skills` (optional, `*[]string`)
+
+List of task-skill names mounted into the worker container's `~/.claude/skills/` directory. Three states:
+
+- **field absent** (`nil`): inherit from project's `default_skills`, or mount the full curated set if that's also unset.
+- **`skills: []`**: explicit "no specialist skills for this card." Container's `~/.claude/skills/` is empty.
+- **`skills: [name1, name2]`**: constrain to this list. Only these are mounted.
+
+**Inheritance:** When a subtask is created with `parent` set and no `skills` of its own, the parent's `skills` value is copied onto the subtask at creation time (one-shot). Later edits to the parent do not propagate. Pass `skills` explicitly to `create_card` to override.
+
+**Override path:** The `skills` field can be set via `update_card` MCP tool, the REST `PATCH` endpoint, or by hand-editing the YAML. The web UI multi-select is a follow-up feature.
+
 ## Go type definitions
 
 These are the authoritative struct definitions.
@@ -386,3 +398,7 @@ transitions — the server injects this automatically (needed for heartbeat
 timeout). `not_planned` follows normal transition rules: only states that
 explicitly list `not_planned` in their transitions can reach it (e.g.,
 `todo: [in_progress, not_planned]`).
+
+### `default_skills` (optional, `*[]string`)
+
+Project-wide fallback when a card has no `skills` field of its own. Same three-state semantics. A card's explicit `skills` (including explicit empty) overrides this.

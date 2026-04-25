@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# install.sh — Install ContextMatrix config and skills files into the user config directory.
+# install.sh — Install ContextMatrix config and skill files into the user config directory.
 #
 # Usage:
-#   scripts/install.sh                 # Fresh install: create config dir, copy config.yaml and skills/
-#   scripts/install.sh --update-skills # Only update the skills/ directory (safe to re-run)
-#   scripts/install.sh --force         # Overwrite config.yaml even if it already exists
-#   scripts/install.sh --update-skills --force  # Both flags may be combined (--force is ignored for --update-skills mode)
+#   scripts/install.sh                            # Fresh install: create config dir, copy config.yaml and workflow-skills/
+#   scripts/install.sh --update-workflow-skills   # Only update the workflow-skills/ directory (safe to re-run)
+#   scripts/install.sh --update-task-skills       # Add-only refresh of task-skills/
+#   scripts/install.sh --force                    # Overwrite config.yaml even if it already exists
+#   scripts/install.sh --update-workflow-skills --force  # Combinable (--force is ignored for --update-workflow-skills mode)
 #
 # Config directory resolution (XDG):
 #   $XDG_CONFIG_HOME/contextmatrix     if XDG_CONFIG_HOME is set
 #   ~/.config/contextmatrix            otherwise
+#
+# Migration note (post-rename, 2026-04-25): the workflow-skills directory was
+# previously installed as <config-dir>/skills/ and selected via the --update-skills
+# flag. Existing installs should:
+#   1. mv <config-dir>/skills <config-dir>/workflow-skills
+#   2. Update config.yaml: skills_dir → workflow_skills_dir
+#   3. Update any env var: CONTEXTMATRIX_SKILLS_DIR → CONTEXTMATRIX_WORKFLOW_SKILLS_DIR
 
 set -euo pipefail
 
@@ -33,20 +41,24 @@ fi
 # ---------------------------------------------------------------------------
 # Parse arguments.
 # ---------------------------------------------------------------------------
-UPDATE_SKILLS=false
+UPDATE_WORKFLOW_SKILLS=false
+UPDATE_TASK_SKILLS=0
 FORCE=false
 
 for arg in "$@"; do
     case "${arg}" in
-        --update-skills)
-            UPDATE_SKILLS=true
+        --update-workflow-skills)
+            UPDATE_WORKFLOW_SKILLS=true
+            ;;
+        --update-task-skills)
+            UPDATE_TASK_SKILLS=1
             ;;
         --force)
             FORCE=true
             ;;
         *)
             echo "Unknown argument: ${arg}" >&2
-            echo "Usage: $0 [--update-skills] [--force]" >&2
+            echo "Usage: $0 [--update-workflow-skills] [--update-task-skills] [--force]" >&2
             exit 1
             ;;
     esac
@@ -70,33 +82,84 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Copy skills/ directory (always done, whether default or --update-skills).
+# Copy workflow skills (always done, whether default or --update-workflow-skills).
+# Source on disk in this repo is `skills/` (internal name, unchanged); the
+# install destination is `<config-dir>/workflow-skills/` for symmetry with
+# `task-skills/` and to match the renamed `workflow_skills_dir` config field.
 # ---------------------------------------------------------------------------
-SKILLS_SRC="${REPO_ROOT}/skills"
-SKILLS_DST="${CONFIG_DIR}/skills"
+WORKFLOW_SKILLS_SRC="${REPO_ROOT}/skills"
+WORKFLOW_SKILLS_DST="${CONFIG_DIR}/workflow-skills"
 
-if [[ ! -d "${SKILLS_SRC}" ]]; then
-    echo "[install] ERROR: skills directory not found at ${SKILLS_SRC}" >&2
+if [[ ! -d "${WORKFLOW_SKILLS_SRC}" ]]; then
+    echo "[install] ERROR: workflow skills source not found at ${WORKFLOW_SKILLS_SRC}" >&2
     exit 1
 fi
 
-mkdir -p "${SKILLS_DST}"
+mkdir -p "${WORKFLOW_SKILLS_DST}"
 
 # Copy each skill file individually so we report per-file.
 while IFS= read -r -d '' skill_file; do
-    rel="${skill_file#${SKILLS_SRC}/}"
-    dest="${SKILLS_DST}/${rel}"
+    rel="${skill_file#${WORKFLOW_SKILLS_SRC}/}"
+    dest="${WORKFLOW_SKILLS_DST}/${rel}"
     dest_dir="$(dirname "${dest}")"
     mkdir -p "${dest_dir}"
     cp "${skill_file}" "${dest}"
-    copied "skills/${rel} → ${dest}"
-done < <(find "${SKILLS_SRC}" -type f -print0)
+    copied "workflow-skills/${rel} → ${dest}"
+done < <(find "${WORKFLOW_SKILLS_SRC}" -type f -print0)
 
 # ---------------------------------------------------------------------------
-# If --update-skills was requested, stop here.
+# Task skills: seed on fresh install (skip if exists), refresh missing files
+# on --update-task-skills. Never overwrite — the user owns this directory.
 # ---------------------------------------------------------------------------
-if [[ "${UPDATE_SKILLS}" == true ]]; then
-    info "Skills updated. config.yaml was not touched."
+TASK_SKILLS_SRC="${REPO_ROOT}/task-skills"
+TASK_SKILLS_DEST="${CONFIG_DIR}/task-skills"
+
+if [[ -d "$TASK_SKILLS_SRC" ]]; then
+    if [[ "${UPDATE_TASK_SKILLS}" -eq 1 ]]; then
+        # Add-only refresh: copy any starter skill the user doesn't have.
+        echo "Refreshing task skills (add-only) from ${TASK_SKILLS_SRC}..."
+        mkdir -p "$TASK_SKILLS_DEST"
+        for src in "$TASK_SKILLS_SRC"/*/; do
+            [ -d "$src" ] || continue
+            name=$(basename "$src")
+            if [[ ! -d "$TASK_SKILLS_DEST/$name" ]]; then
+                echo "  + adding $name"
+                cp -r "$src" "$TASK_SKILLS_DEST/"
+            else
+                echo "  = $name (already present, leaving alone)"
+            fi
+        done
+        # README.md: only copy if missing.
+        if [[ -f "$TASK_SKILLS_SRC/README.md" && ! -f "$TASK_SKILLS_DEST/README.md" ]]; then
+            cp "$TASK_SKILLS_SRC/README.md" "$TASK_SKILLS_DEST/"
+        fi
+    elif [[ ! -d "$TASK_SKILLS_DEST" ]]; then
+        # Fresh install: seed from the starter set.
+        echo "Seeding task skills at ${TASK_SKILLS_DEST}..."
+        cp -r "$TASK_SKILLS_SRC" "$TASK_SKILLS_DEST"
+        cat <<EOF
+
+Task skills installed at ${TASK_SKILLS_DEST}
+
+To turn this directory into a tracked repo:
+
+  cd ${TASK_SKILLS_DEST}
+  git init
+  git add .
+  git commit -m 'initial task skills'
+
+For a remote topology, push this repo to your git host and clone it on the
+runner machine. The runner will pull --ff-only before each container start.
+
+EOF
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# If --update-workflow-skills was requested, stop here.
+# ---------------------------------------------------------------------------
+if [[ "${UPDATE_WORKFLOW_SKILLS}" == true ]]; then
+    info "Workflow skills updated. config.yaml was not touched."
     exit 0
 fi
 

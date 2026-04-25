@@ -57,7 +57,9 @@ The repo includes a multi-stage Dockerfile:
 - **Stage 2**: Go — compiles the binary with embedded frontend
 - **Stage 3**: Alpine runtime with `git` and `openssh-client`
 
-Skills are baked into the image at `/etc/contextmatrix/skills/`.
+Workflow skills are baked into the image at `/etc/contextmatrix/workflow-skills/`
+(set `workflow_skills_dir` or `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` if you bake
+them at a different path).
 
 ```bash
 docker build -t contextmatrix:latest .

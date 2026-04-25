@@ -52,6 +52,7 @@ type createCardRequest struct {
 	FeatureBranch       bool          `json:"feature_branch"`
 	CreatePR            bool          `json:"create_pr"`
 	Vetted              bool          `json:"vetted"`
+	Skills              *[]string     `json:"skills,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
@@ -73,21 +74,23 @@ type updateCardRequest struct {
 	FeatureBranch       bool           `json:"feature_branch"`
 	CreatePR            bool           `json:"create_pr"`
 	Vetted              bool           `json:"vetted"`
+	Skills              *[]string      `json:"skills,omitempty"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
 type patchCardRequest struct {
-	Title               *string  `json:"title,omitempty"`
-	State               *string  `json:"state,omitempty"`
-	Priority            *string  `json:"priority,omitempty"`
-	Labels              []string `json:"labels,omitempty"`
-	Body                *string  `json:"body,omitempty"`
-	Autonomous          *bool    `json:"autonomous,omitempty"`
-	UseOpusOrchestrator *bool    `json:"use_opus_orchestrator,omitempty"`
-	FeatureBranch       *bool    `json:"feature_branch,omitempty"`
-	CreatePR            *bool    `json:"create_pr,omitempty"`
-	Vetted              *bool    `json:"vetted,omitempty"`
-	BaseBranch          *string  `json:"base_branch,omitempty"`
+	Title               *string   `json:"title,omitempty"`
+	State               *string   `json:"state,omitempty"`
+	Priority            *string   `json:"priority,omitempty"`
+	Labels              []string  `json:"labels,omitempty"`
+	Body                *string   `json:"body,omitempty"`
+	Autonomous          *bool     `json:"autonomous,omitempty"`
+	UseOpusOrchestrator *bool     `json:"use_opus_orchestrator,omitempty"`
+	FeatureBranch       *bool     `json:"feature_branch,omitempty"`
+	CreatePR            *bool     `json:"create_pr,omitempty"`
+	Vetted              *bool     `json:"vetted,omitempty"`
+	BaseBranch          *string   `json:"base_branch,omitempty"`
+	Skills              *[]string `json:"skills,omitempty"`
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
@@ -290,6 +293,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		FeatureBranch:       req.FeatureBranch,
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
+		Skills:              req.Skills,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -386,6 +390,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		FeatureBranch:       req.FeatureBranch,
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
+		Skills:              req.Skills,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -451,6 +456,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
 		BaseBranch:          req.BaseBranch,
+		Skills:              req.Skills,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

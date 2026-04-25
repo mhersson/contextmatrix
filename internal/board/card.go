@@ -26,6 +26,7 @@ type Card struct {
 	DependenciesMet     *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
 	Context             []string        `yaml:"context,omitempty"        json:"context,omitempty"`
 	Labels              []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
+	Skills              *[]string       `yaml:"skills,omitempty"         json:"skills,omitempty"`
 	Source              *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom              map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous"`
@@ -47,10 +48,11 @@ type Card struct {
 
 // ActivityEntry represents a log entry from an agent working on a card.
 type ActivityEntry struct {
-	Agent     string    `yaml:"agent"   json:"agent"`
-	Timestamp time.Time `yaml:"ts"      json:"ts"`
-	Action    string    `yaml:"action"  json:"action"`
-	Message   string    `yaml:"message" json:"message"`
+	Agent     string    `yaml:"agent"           json:"agent"`
+	Timestamp time.Time `yaml:"ts"              json:"ts"`
+	Action    string    `yaml:"action"          json:"action"`
+	Message   string    `yaml:"message"         json:"message"`
+	Skill     string    `yaml:"skill,omitempty" json:"skill,omitempty"` // set for skill_engaged actions
 }
 
 // Source tracks the external origin of imported cards.

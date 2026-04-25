@@ -177,6 +177,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}

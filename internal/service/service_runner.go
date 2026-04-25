@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -461,4 +462,119 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	s.enrichDependenciesMet(ctx, card)
 
 	return card, nil
+}
+
+// SkillEngagedDedupWindow is how long after a skill_engaged entry is recorded
+// the service suppresses subsequent duplicates for the same card+skill.
+// Tunable via package-level var so tests can override.
+var SkillEngagedDedupWindow = 60 * time.Second
+
+// RecordSkillEngaged appends a skill_engaged activity log entry for the
+// given card+skill, suppressing duplicates within SkillEngagedDedupWindow.
+// Source-agnostic: handles entries from the runner callback path AND from
+// agent-side add_log calls (Path A) via a single dedup point.
+func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, skillName string) error {
+	cardID = strings.ToUpper(cardID)
+
+	s.writeMu.Lock()
+
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get card: %w", err)
+	}
+
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	// Dedup: scan recent entries for a same-skill skill_engaged within the window.
+	cutoff := time.Now().Add(-SkillEngagedDedupWindow)
+
+	for i := len(card.ActivityLog) - 1; i >= 0; i-- {
+		e := card.ActivityLog[i]
+		if e.Timestamp.Before(cutoff) {
+			break
+		}
+
+		if e.Action == "skill_engaged" && skillNameOf(e) == skillName {
+			// Already logged within the window; suppress.
+			s.writeMu.Unlock()
+
+			return nil
+		}
+	}
+
+	entry := board.ActivityEntry{
+		Agent:     "runner",
+		Timestamp: time.Now(),
+		Action:    "skill_engaged",
+		Message:   "engaged " + skillName,
+		Skill:     skillName,
+	}
+
+	card.ActivityLog = append(card.ActivityLog, entry)
+	if len(card.ActivityLog) > maxActivityLogEntries {
+		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	card.Updated = time.Now()
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("save card: %w", err)
+	}
+
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "runner", "log: skill_engaged")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return rollbackErr
+	}
+
+	slog.InfoContext(ctx, "skill engaged recorded",
+		"project", project,
+		"card_id", cardID,
+		"skill", skillName,
+	)
+
+	s.bus.Publish(events.Event{
+		Type:    events.CardLogAdded,
+		Project: project,
+		CardID:  cardID,
+		Agent:   "runner",
+		Data: map[string]any{
+			"action":  "skill_engaged",
+			"message": "engaged " + skillName,
+		},
+	})
+
+	return nil
+}
+
+// skillNameOf extracts the skill name from an activity entry. Prefers the
+// structured Skill field (set by the runner callback path); falls back to
+// parsing "engaged X" from the message (set by agent-side add_log calls).
+func skillNameOf(e board.ActivityEntry) string {
+	if e.Skill != "" {
+		return e.Skill
+	}
+
+	const prefix = "engaged "
+	if strings.HasPrefix(e.Message, prefix) {
+		return strings.TrimPrefix(e.Message, prefix)
+	}
+
+	return ""
 }

@@ -230,14 +230,14 @@ func buildDocumentTaskDelegationPrompt(model, cardID, getSkillArgs string) strin
 }
 
 // registerPrompts adds all MCP prompts (slash commands) to the server.
-func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir string) {
+func registerPrompts(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "create-task",
 		Description: "Start a guided task creation workflow. Optionally provide a description to seed the conversation.",
 		Arguments: []*mcp.PromptArgument{
 			{Name: "description", Description: "Optional free-text description of the task to create"},
 		},
-	}, createTaskPromptHandler(svc, skillsDir))
+	}, createTaskPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "create-plan",
@@ -245,7 +245,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Card ID to plan (e.g. ALPHA-001)", Required: true},
 		},
-	}, createPlanPromptHandler(svc, skillsDir))
+	}, createPlanPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "execute-task",
@@ -253,7 +253,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Card ID to execute (e.g. ALPHA-003)", Required: true},
 		},
-	}, executeTaskPromptHandler(svc, skillsDir))
+	}, executeTaskPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "review-task",
@@ -261,7 +261,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Parent card ID to review (e.g. ALPHA-001)", Required: true},
 		},
-	}, reviewTaskPromptHandler(svc, skillsDir))
+	}, reviewTaskPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "document-task",
@@ -269,7 +269,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Parent card ID to document (e.g. ALPHA-001)", Required: true},
 		},
-	}, documentTaskPromptHandler(svc, skillsDir))
+	}, documentTaskPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "init-project",
@@ -277,7 +277,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "name", Description: "Optional project name (auto-detected from repo if omitted)"},
 		},
-	}, initProjectPromptHandler(svc, skillsDir))
+	}, initProjectPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "run-autonomous",
@@ -285,7 +285,7 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Card ID to run autonomously (e.g. ALPHA-001)", Required: true},
 		},
-	}, runAutonomousPromptHandler(svc, skillsDir))
+	}, runAutonomousPromptHandler(svc, workflowSkillsDir))
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "start-workflow",
@@ -293,13 +293,13 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, skillsDir str
 		Arguments: []*mcp.PromptArgument{
 			{Name: "card_id", Description: "Card ID to start the workflow for (e.g. ALPHA-001)", Required: true},
 		},
-	}, startWorkflowPromptHandler(svc, skillsDir))
+	}, startWorkflowPromptHandler(svc, workflowSkillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
-func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func createTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		result, err := buildSkillContent(ctx, svc, skillsDir, "create-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "create-task", skillArgs{
 			Description: req.Params.Arguments["description"],
 		}, true)
 		if err != nil {
@@ -319,7 +319,7 @@ func createTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 // If the card has autonomous: true, returns a redirect to run-autonomous.
 // Otherwise, returns the full create-plan skill content (Agent Configuration
 // stripped) so the invoking agent drives the workflow directly.
-func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func createPlanPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
 
@@ -350,7 +350,7 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 			}, nil
 		}
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "create-plan", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "create-plan", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
@@ -367,11 +367,11 @@ func createPlanPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 }
 
 // executeTaskPromptHandler returns the handler for execute-task prompt.
-func executeTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func executeTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "execute-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "execute-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
@@ -475,11 +475,11 @@ func buildReviewTaskDelegationPrompt(model, cardID, getSkillArgs string) string 
 // It uses a two-step delegation prompt to avoid sub-agent timeouts during
 // user approval: the review sub-agent writes findings to the card body and
 // returns immediately, and the orchestrator handles user approve/reject directly.
-func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func reviewTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "review-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "review-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
@@ -507,11 +507,11 @@ func reviewTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.Pro
 }
 
 // documentTaskPromptHandler returns the handler for document-task prompt.
-func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func documentTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "document-task", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "document-task", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
@@ -535,11 +535,11 @@ func documentTaskPromptHandler(svc *service.CardService, skillsDir string) mcp.P
 }
 
 // initProjectPromptHandler returns the handler for init-project prompt.
-func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func initProjectPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		name := req.Params.Arguments["name"]
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "init-project", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "init-project", skillArgs{
 			Name: name,
 		}, true)
 		if err != nil {
@@ -559,9 +559,9 @@ func initProjectPromptHandler(svc *service.CardService, skillsDir string) mcp.Pr
 // It inspects the card's autonomous flag and delegates to runAutonomousPromptHandler
 // (autonomous: true) or createPlanPromptHandler (autonomous: false / unset).
 // No routing logic is duplicated — it calls through to the captured handlers directly.
-func startWorkflowPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
-	autonomousHandler := runAutonomousPromptHandler(svc, skillsDir)
-	planHandler := createPlanPromptHandler(svc, skillsDir)
+func startWorkflowPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
+	autonomousHandler := runAutonomousPromptHandler(svc, workflowSkillsDir)
+	planHandler := createPlanPromptHandler(svc, workflowSkillsDir)
 
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
@@ -581,11 +581,11 @@ func startWorkflowPromptHandler(svc *service.CardService, skillsDir string) mcp.
 
 // runAutonomousPromptHandler returns the handler for run-autonomous prompt.
 // It reads the card state and returns the appropriate full-chain delegation prompt.
-func runAutonomousPromptHandler(svc *service.CardService, skillsDir string) mcp.PromptHandler {
+func runAutonomousPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		cardID := req.Params.Arguments["card_id"]
 
-		result, err := buildSkillContent(ctx, svc, skillsDir, "run-autonomous", skillArgs{
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "run-autonomous", skillArgs{
 			CardID: cardID,
 		}, true)
 		if err != nil {
@@ -623,7 +623,7 @@ var validSkillNames = []string{
 // When includePreamble is false, the workflow rules preamble is omitted to
 // avoid re-injecting it into agents that already have it (e.g. orchestrators
 // calling get_skill multiple times during an autonomous run).
-func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir, skillName string, args skillArgs, includePreamble bool) (skillResult, error) {
+func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSkillsDir, skillName string, args skillArgs, includePreamble bool) (skillResult, error) {
 	var (
 		content string
 		err     error
@@ -631,19 +631,19 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 
 	switch skillName {
 	case "create-task":
-		content, err = buildCreateTask(skillsDir, args.Description)
+		content, err = buildCreateTask(workflowSkillsDir, args.Description)
 	case "create-plan":
-		content, err = buildCardSkill(ctx, svc, skillsDir, "create-plan.md", args.CardID, false)
+		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "create-plan.md", args.CardID, false)
 	case "execute-task":
-		content, err = buildCardSkill(ctx, svc, skillsDir, "execute-task.md", args.CardID, true)
+		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "execute-task.md", args.CardID, true)
 	case "review-task":
-		content, err = buildSubtaskSkill(ctx, svc, skillsDir, "review-task.md", args.CardID)
+		content, err = buildSubtaskSkill(ctx, svc, workflowSkillsDir, "review-task.md", args.CardID)
 	case "document-task":
-		content, err = buildSubtaskSkill(ctx, svc, skillsDir, "document-task.md", args.CardID)
+		content, err = buildSubtaskSkill(ctx, svc, workflowSkillsDir, "document-task.md", args.CardID)
 	case "init-project":
-		content, err = buildInitProject(ctx, svc, skillsDir, args.Name)
+		content, err = buildInitProject(ctx, svc, workflowSkillsDir, args.Name)
 	case "run-autonomous":
-		content, err = buildRunAutonomous(ctx, svc, skillsDir, args.CardID)
+		content, err = buildRunAutonomous(ctx, svc, workflowSkillsDir, args.CardID)
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
@@ -663,8 +663,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, skillsDir,
 	}, nil
 }
 
-func buildCreateTask(skillsDir, description string) (string, error) {
-	skill, err := readSkillFile(skillsDir, "create-task.md")
+func buildCreateTask(workflowSkillsDir, description string) (string, error) {
+	skill, err := readSkillFile(workflowSkillsDir, "create-task.md")
 	if err != nil {
 		return "", err
 	}
@@ -678,12 +678,12 @@ func buildCreateTask(skillsDir, description string) (string, error) {
 
 // buildCardSkill handles skills that need a single card's context, optionally
 // including parent and sibling cards (for execute-task).
-func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, filename, cardID string, includeFamily bool) (string, error) {
+func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, includeFamily bool) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
 
-	skill, err := readSkillFile(skillsDir, filename)
+	skill, err := readSkillFile(workflowSkillsDir, filename)
 	if err != nil {
 		return "", err
 	}
@@ -725,12 +725,12 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, skillsDir, fi
 
 // buildSubtaskSkill handles skills that need a card plus all its subtasks
 // (review-task, document-task).
-func buildSubtaskSkill(ctx context.Context, svc *service.CardService, skillsDir, filename, cardID string) (string, error) {
+func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
 
-	skill, err := readSkillFile(skillsDir, filename)
+	skill, err := readSkillFile(workflowSkillsDir, filename)
 	if err != nil {
 		return "", err
 	}
@@ -755,12 +755,12 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, skillsDir,
 	return strings.Join(parts, "\n") + "\n\n" + skill, nil
 }
 
-func buildRunAutonomous(ctx context.Context, svc *service.CardService, skillsDir, cardID string) (string, error) {
+func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowSkillsDir, cardID string) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
 
-	skill, err := readSkillFile(skillsDir, "run-autonomous.md")
+	skill, err := readSkillFile(workflowSkillsDir, "run-autonomous.md")
 	if err != nil {
 		return "", err
 	}
@@ -813,8 +813,8 @@ func classifyComplexity(card *board.Card, subtasks []*board.Card, subtaskErr err
 	return "standard"
 }
 
-func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, name string) (string, error) {
-	skill, err := readSkillFile(skillsDir, "init-project.md")
+func buildInitProject(ctx context.Context, svc *service.CardService, workflowSkillsDir, name string) (string, error) {
+	skill, err := readSkillFile(workflowSkillsDir, "init-project.md")
 	if err != nil {
 		return "", err
 	}
@@ -839,8 +839,8 @@ func buildInitProject(ctx context.Context, svc *service.CardService, skillsDir, 
 // --- Helpers ---
 
 // readSkillFile reads a skill file from the skills directory.
-func readSkillFile(skillsDir, filename string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(skillsDir, filename))
+func readSkillFile(workflowSkillsDir, filename string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(workflowSkillsDir, filename))
 	if err != nil {
 		return "", fmt.Errorf("read skill file %s: %w", filename, err)
 	}

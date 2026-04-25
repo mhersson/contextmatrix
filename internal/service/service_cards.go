@@ -34,6 +34,7 @@ type CreateCardInput struct {
 	FeatureBranch       bool
 	CreatePR            bool
 	Vetted              bool
+	Skills              *[]string
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -57,6 +58,7 @@ type UpdateCardInput struct {
 	FeatureBranch       bool
 	CreatePR            bool
 	Vetted              bool
+	Skills              *[]string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -73,6 +75,7 @@ type PatchCardInput struct {
 	FeatureBranch       *bool
 	CreatePR            *bool
 	Vetted              *bool
+	Skills              *[]string // nil = don't change; non-nil = set (empty allowed)
 	BaseBranch          *string
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
@@ -315,17 +318,13 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		FeatureBranch:       input.FeatureBranch,
 		CreatePR:            input.CreatePR,
 		Vetted:              input.Vetted,
+		Skills:              input.Skills,
 		Created:             now,
 		Updated:             now,
 		Body:                input.Body,
 	}
 
-	// Cards without an external source are implicitly vetted.
-	// GitHub/Jira importers set Source but leave Vetted false (Go zero value)
-	// until a human approves, so only auto-default when no source is set.
-	if input.Source == nil {
-		card.Vetted = true
-	}
+	enforceVettingInvariant(card)
 
 	// Auto-generate branch name when feature_branch is enabled.
 	if card.FeatureBranch {
@@ -337,6 +336,11 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, err
 	}
 
+	// Validate skill names.
+	if err := validateSkillNames(card.Skills); err != nil {
+		return nil, err
+	}
+
 	// Validate card fields
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
@@ -345,6 +349,17 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Validate parent references an existing card
 	if err := s.validateCardReferences(ctx, project, card.Parent, nil); err != nil {
 		return nil, err
+	}
+
+	// Inherit skills from parent when the subtask doesn't specify its own.
+	// Inheritance is one-shot at create time; later parent edits don't propagate.
+	if parentID != "" && card.Skills == nil {
+		parentCard, getErr := s.store.GetCard(ctx, project, parentID)
+		if getErr == nil && parentCard.Skills != nil {
+			// Copy the slice so subsequent parent edits can't mutate the child.
+			copied := append([]string(nil), (*parentCard.Skills)...)
+			card.Skills = &copied
+		}
 	}
 
 	// Dedup guard: if this is a subtask, check for an existing subtask with the
@@ -477,6 +492,11 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 // all mutable fields from input onto the loaded card.
 func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInput) func(*board.Card, *board.ProjectConfig) error {
 	return func(card *board.Card, cfg *board.ProjectConfig) error {
+		// Validate skill names before applying any mutations.
+		if err := validateSkillNames(input.Skills); err != nil {
+			return err
+		}
+
 		oldState := card.State
 		stateChanged := input.State != oldState
 
@@ -540,6 +560,8 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.UseOpusOrchestrator = input.UseOpusOrchestrator
 		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
+		card.Skills = input.Skills // PUT replaces wholesale; nil clears
+		enforceVettingInvariant(card)
 
 		// BranchName is immutable after first generation — only set when empty.
 		if card.FeatureBranch && card.BranchName == "" {
@@ -611,6 +633,11 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 		}
 
+		// Validate skill names before applying any mutations.
+		if err := validateSkillNames(input.Skills); err != nil {
+			return err
+		}
+
 		oldState := card.State
 
 		if input.Title != nil {
@@ -674,6 +701,12 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.Vetted != nil {
 			card.Vetted = *input.Vetted
+		}
+
+		enforceVettingInvariant(card)
+
+		if input.Skills != nil {
+			card.Skills = input.Skills
 		}
 
 		if input.BaseBranch != nil {

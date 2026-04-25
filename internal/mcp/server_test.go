@@ -2690,11 +2690,11 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 		"create-plan.md Phase 9 must have push step")
 }
 
-// TestCreatePlanSkill_Phase9CMInteractiveBranches verifies that Phase 9 of
-// skills/create-plan.md contains both the CM_INTERACTIVE=1 auto-commit branch
+// TestCreatePlanSkill_Phase9RunnerContextBranches verifies that Phase 9 of
+// skills/create-plan.md contains both the runner-context auto-commit branch
 // for remote HITL and the local-HITL user prompts. This is a regression guard
 // so that accidental removal of either branch is caught.
-func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
+func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "skills/create-plan.md must be readable")
@@ -2706,10 +2706,12 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 		content,
 		"create-plan.md Phase 9 must reference Remote HITL")
 
-	// Remote HITL path must run printenv to detect context.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*printenv\s+CM_INTERACTIVE`,
+	// Remote HITL path must detect runner context via CM_CARD_ID presence,
+	// not via the older CM_INTERACTIVE check (which produced ambiguous
+	// agent-side reads when the env var was unset).
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_CARD_ID`,
 		content,
-		"create-plan.md Phase 9 must use printenv CM_INTERACTIVE to detect context")
+		"create-plan.md Phase 9 must use CM_CARD_ID to detect runner context")
 
 	// Auto-commit path (autonomous + remote HITL) must forbid prompting. The
 	// "do not prompt" rule must appear after the Remote HITL branch reference
@@ -2726,10 +2728,11 @@ func TestCreatePlanSkill_Phase9CMInteractiveBranches(t *testing.T) {
 	assert.Contains(t, content, "Want me to push and create a PR?",
 		"create-plan.md Phase 9 must retain local-HITL push prompt")
 
-	// Local HITL path must be gated on CM_INTERACTIVE being unset or 0.
-	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_INTERACTIVE.*unset or.*0.*local HITL`,
+	// Local HITL path must be gated on the runner-context detection landing
+	// on the `local` outcome.
+	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*`+"`local`"+`.*Local HITL`,
 		content,
-		"create-plan.md Phase 9 must describe local HITL as CM_INTERACTIVE unset or 0")
+		"create-plan.md Phase 9 must describe local HITL as the `local` runner-context outcome")
 }
 
 // TestCreatePlanSkillIsSelfContained verifies that skills/create-plan.md is a
@@ -2923,4 +2926,70 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 		})
 		assert.True(t, result.IsError, "promote must error for done card")
 	})
+}
+
+func TestCreateCard_AcceptsSkills(t *testing.T) {
+	env := setupMCP(t)
+
+	skills := []string{"go-development"}
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":  "test-project",
+		"title":    "Skill test card",
+		"type":     "task",
+		"priority": "medium",
+		"skills":   skills,
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+	assert.NotNil(t, card.Skills)
+	assert.Equal(t, skills, *card.Skills)
+}
+
+func TestUpdateCard_AcceptsSkills(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "Update skill test", "task", "low")
+
+	skills := []string{"typescript-react"}
+	result := callTool(t, env, "update_card", map[string]any{
+		"project": "test-project",
+		"card_id": card.ID,
+		"skills":  skills,
+	})
+	require.False(t, result.IsError)
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+	assert.NotNil(t, updated.Skills)
+	assert.Equal(t, skills, *updated.Skills)
+}
+
+func TestCreateCard_PreservesSkillsThroughDependsOn(t *testing.T) {
+	env := setupMCP(t)
+
+	// Create a blocker card so depends_on points at a real ID
+	blocker := createTestCard(t, env, "Blocker card", "task", "medium")
+
+	// Create main card with both skills AND depends_on
+	skills := []string{"go-development"}
+	result := callTool(t, env, "create_card", map[string]any{
+		"project":    "test-project",
+		"title":      "Main card with skills and deps",
+		"type":       "task",
+		"priority":   "medium",
+		"skills":     skills,
+		"depends_on": []string{blocker.ID},
+	})
+	require.False(t, result.IsError)
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+
+	// Assert: returned card has the skills set (proving the depends_on follow-up
+	// did not strip them)
+	assert.NotNil(t, card.Skills)
+	assert.Equal(t, skills, *card.Skills)
+	assert.Equal(t, []string{blocker.ID}, card.DependsOn)
 }

@@ -537,6 +537,33 @@ func TestClient_ListContainers_RunnerError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestTriggerPayload_TaskSkillsField(t *testing.T) {
+	t.Run("nil omitted", func(t *testing.T) {
+		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u"}
+		body, err := json.Marshal(p)
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "task_skills",
+			"nil TaskSkills should be omitted from JSON")
+	})
+
+	t.Run("populated emitted", func(t *testing.T) {
+		skills := []string{"go-development"}
+		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &skills}
+		body, err := json.Marshal(p)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"task_skills":["go-development"]`)
+	})
+
+	t.Run("empty list emitted", func(t *testing.T) {
+		empty := []string{}
+		p := TriggerPayload{CardID: "X", Project: "P", RepoURL: "u", TaskSkills: &empty}
+		body, err := json.Marshal(p)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"task_skills":[]`,
+			"explicit empty slice must be emitted (preserves nil-vs-empty distinction)")
+	})
+}
+
 // TestClient_ListContainers_RunnerOKFalse rejects a 200 OK body with ok=false
 // so the sweep doesn't act on an ambiguous response.
 func TestClient_ListContainers_RunnerOKFalse(t *testing.T) {

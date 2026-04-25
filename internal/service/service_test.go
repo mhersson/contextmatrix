@@ -5265,7 +5265,11 @@ func TestPatchCard_VettedToggle(t *testing.T) {
 		assert.True(t, updated.Vetted)
 	})
 
-	t.Run("set vetted=false on internal card", func(t *testing.T) {
+	t.Run("vetted=false on internal card is auto-corrected to true", func(t *testing.T) {
+		// Vetting is a security gate for externally-sourced cards (GitHub/Jira).
+		// Internal cards (Source == nil) have nothing to vet, so the service
+		// enforces Vetted=true at every write. A caller passing vetted=false
+		// here is silently corrected.
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -5280,7 +5284,7 @@ func TestPatchCard_VettedToggle(t *testing.T) {
 		vetted := false
 		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Vetted: &vetted})
 		require.NoError(t, err)
-		assert.False(t, updated.Vetted)
+		assert.True(t, updated.Vetted, "internal cards stay vetted regardless of caller-supplied value")
 	})
 
 	t.Run("nil Vetted leaves field unchanged", func(t *testing.T) {
@@ -5306,7 +5310,13 @@ func TestPatchCard_VettedToggle(t *testing.T) {
 func TestUpdateCard_VettedField(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("vetted=false on full update clears field", func(t *testing.T) {
+	t.Run("vetted=false on full update of internal card is auto-corrected", func(t *testing.T) {
+		// Internal cards (Source == nil) keep Vetted=true at every write.
+		// A PUT that passes Vetted=false (zero value or explicit) on such a
+		// card cannot un-vet it. This protects against callers that build
+		// UpdateCardInput from the request body without copying the existing
+		// Vetted state — for example, the depends_on follow-up inside the
+		// MCP create_card path used to silently strip the auto-vetted flag.
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -5326,7 +5336,7 @@ func TestUpdateCard_VettedField(t *testing.T) {
 			Vetted:   false,
 		})
 		require.NoError(t, err)
-		assert.False(t, updated.Vetted)
+		assert.True(t, updated.Vetted, "internal cards stay vetted across PUT writes")
 	})
 
 	t.Run("vetted=true on full update sets field", func(t *testing.T) {
@@ -5354,6 +5364,92 @@ func TestUpdateCard_VettedField(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.True(t, updated.Vetted)
+	})
+}
+
+// TestVettingInvariant verifies that internal cards (Source == nil) keep
+// Vetted=true at every write path, regardless of what the caller passes.
+// External cards (Source != nil) keep whatever Vetted value was set, since
+// vetting is meaningful for them.
+func TestVettingInvariant(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("CreateCard auto-vets internal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Internal task",
+			Type:     "task",
+			Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.Vetted)
+	})
+
+	t.Run("CreateCard preserves Vetted=false on external card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "Imported issue",
+			Type:     "task",
+			Priority: "medium",
+			Source:   &board.Source{System: "github", ExternalID: "1"},
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Vetted, "external cards default to unvetted")
+	})
+
+	t.Run("UpdateCard PUT cannot un-vet an internal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Internal", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
+			Vetted: false,
+		})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted)
+	})
+
+	t.Run("PatchCard cannot un-vet an internal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Internal", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		vetted := false
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Vetted: &vetted})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted)
+	})
+
+	t.Run("UpdateCard PUT can vet an external card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "External", Type: "task", Priority: "medium",
+			Source: &board.Source{System: "github", ExternalID: "2"},
+		})
+		require.NoError(t, err)
+		assert.False(t, card.Vetted)
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
+			Vetted: true,
+		})
+		require.NoError(t, err)
+		assert.True(t, updated.Vetted, "human approval can vet an external card")
 	})
 }
 

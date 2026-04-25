@@ -20,7 +20,7 @@ Read these when working on the relevant area:
 | Document                                               | Contents                                                                                                                                                    |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)         | Component responsibilities, data flow, git repo scope, file layout. Read when modifying service layer, store, git, or lock interactions.                    |
-| [`docs/agent-workflow.md`](docs/agent-workflow.md)     | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination.          |
+| [`docs/agent-workflow.md`](docs/agent-workflow.md)     | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. § Task skills: two-channel design, guard/permit, description convention. |
 | [`docs/data-model.md`](docs/data-model.md)             | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation. |
 | [`docs/api-reference.md`](docs/api-reference.md)       | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                          |
 | [`docs/gotchas.md`](docs/gotchas.md)                   | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                            |
@@ -205,13 +205,17 @@ config directory. The config directory is resolved via the XDG spec:
 
 ```bash
 # Fresh install: create config dir, copy config.yaml.example → config.yaml,
-# copy skills/ directory. Skips config.yaml if it already exists.
+# copy workflow skills into <config-dir>/workflow-skills/. Skips config.yaml
+# if it already exists.
 make install-config
 # or equivalently:
 scripts/install.sh
 
-# Only update the skills/ directory; config.yaml is not touched.
-scripts/install.sh --update-skills
+# Only update the workflow-skills/ directory; config.yaml is not touched.
+scripts/install.sh --update-workflow-skills
+
+# Add-only refresh of task-skills/ — never overwrites user edits.
+scripts/install.sh --update-task-skills
 
 # Overwrite config.yaml even if it already exists (re-install).
 scripts/install.sh --force
@@ -219,9 +223,9 @@ scripts/install.sh --force
 
 On a fresh install the script creates `~/.config/contextmatrix/config.yaml` from
 the template. Edit `boards.dir` (and any other fields) before starting the
-server. Skills are always refreshed from the repo's `skills/` directory even
-without `--update-skills` — that flag simply skips the config.yaml step
-entirely.
+server. Workflow skills are always refreshed from the repo's `skills/` directory
+even without `--update-workflow-skills` — that flag simply skips the config.yaml
+step entirely.
 
 ## Agent permissions in target projects
 
