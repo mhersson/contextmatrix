@@ -90,6 +90,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"document-task.md":  "claude-sonnet-4-6",
 		"init-project.md":   "claude-sonnet-4-6",
 		"run-autonomous.md": "claude-sonnet-4-6",
+		"brainstorming.md":  "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -2176,6 +2177,46 @@ func TestGetSkill_UnknownSkill(t *testing.T) {
 	require.True(t, result.IsError, "expected error result for unknown skill")
 	text := result.Content[0].(*mcp.TextContent).Text
 	assert.Contains(t, text, "unknown skill")
+}
+
+func TestGetSkill_Brainstorming(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Improve the dashboard", "task", "medium")
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "brainstorming",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "brainstorming", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
+	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
+	assert.Contains(t, out.Content, "Improve the dashboard", "skill content should include the card title")
+}
+
+func TestGetSkill_BrainstormingInline(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Inline test card", "task", "low")
+
+	// brainstorming is on the inline-eligible whitelist; when caller_model
+	// matches the skill model (both Sonnet), the response must come back
+	// with Inline: true wrapped in the lifecycle envelope. This is required
+	// for create-plan to run brainstorming inline rather than spawning a
+	// sub-agent (sub-agents have no chat channel for dialogue).
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "brainstorming",
+		"card_id":      card.ID,
+		"caller_model": "sonnet",
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "brainstorming should be inline-eligible when caller_model matches")
+	assert.Contains(t, out.Content, "INLINE EXECUTION", "inline response must include the lifecycle envelope")
 }
 
 func TestWorkflowPreambleInjected(t *testing.T) {

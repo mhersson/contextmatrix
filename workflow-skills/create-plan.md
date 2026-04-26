@@ -23,6 +23,65 @@ the card from drafting through finalization in a single top-to-bottom flow.
 
 ---
 
+# Phase 0: Brainstorming Gate (HITL only)
+
+For HITL cards, run a brainstorming pass before drafting the plan. This
+catches under-specified cards and refines the design with the user
+*before* you commit to a plan structure that may need to be torn up.
+
+## Step 0: Ensure the card is claimed
+
+If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
+Hold this claim through Phase 5.
+
+## Step 1: Check the autonomous flag
+
+Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
+is the ONLY source of truth for mode.
+
+- **If `autonomous: true`:** skip this phase entirely and proceed to
+  Phase 1. Brainstorming requires user dialogue, which is not available
+  in autonomous runs. Phase 1 Step 2.5 is the fallback for vague
+  designs in autonomous mode.
+- **If `autonomous: false` (HITL):** proceed to Step 2.
+
+## Step 2: Load and run brainstorming inline
+
+Call:
+
+```
+get_skill(skill_name='brainstorming', card_id=<parent_id>,
+          caller_model='<your_model>')
+```
+
+The response will include `inline: true` (brainstorming is on the
+inline-eligible whitelist; create-plan and brainstorming both run on
+Sonnet). Run the returned `content` directly in this same session.
+
+**Do NOT spawn a sub-agent for brainstorming.** Sub-agents have no chat
+channel back to the user; dialogue requires running inline.
+
+The brainstorming skill will:
+
+- Read the card body and detect whether it already has a `## Design`
+  section (short-circuit path).
+- For under-specified cards: dialogue with the user (clarifying
+  questions one at a time, 2–3 approach proposals, design presentation
+  in sections), then update the card body via `update_card` with the
+  agreed `## Design` section.
+- Return when the user confirms the updated body.
+
+Heartbeat before each prompt to the user. Heartbeat on resume. See the
+Heartbeat section.
+
+## Step 3: Proceed to Phase 1
+
+When brainstorming returns, proceed to Phase 1 below. Phase 1 will
+re-read the card body (now containing the agreed design) and use it as
+input for plan drafting.
+
+---
+
 # Phase 1: Plan Drafting
 
 ## Step 0: Ensure the card is claimed
@@ -77,8 +136,11 @@ check each item:
 
 **Placeholder scan.** Any "TBD", "TODO", incomplete sections, or vague
 requirements? Fix them now. If you can't fix something because the
-underlying design is unclear, that's a spec issue — pause and request
-clarification (HITL) or transition the card back to drafting (autonomous).
+underlying design is unclear, that's a spec issue. In HITL, this should
+be rare — Phase 0 brainstorming should have caught it; if it didn't,
+re-engage by calling `get_skill('brainstorming', ...)` again to clarify
+the missing piece. In autonomous, transition the card back to drafting
+or `not_planned` so a human can refine the spec.
 
 **Spec coverage.** Re-read the parent card body. Does every requirement
 map to at least one subtask? Are there acceptance criteria that no
