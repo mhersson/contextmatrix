@@ -233,13 +233,22 @@ On transitions of the sync inputs, UI state is reset as follows:
   panel is open): resets `activeTab → defaultTab` and sets
   `railExpanded → true`.
 - **`isHITLRunning` flip to `false`** (e.g. HITL→Auto promotion mid-run,
-  or a run ending): resets `activeTab → defaultTab` since the tab set
-  changes. `railExpanded` is preserved.
+  or a run ending): collapses the chat tab back to `defaultTab`, but only
+  after **two consecutive sync events** have observed `isHITLRunning ===
+  false`. The counter (`sync.hitlOffCount`) increments on each sync that
+  still sees the run as off and triggers the tab reset on reaching 2. A
+  single transient SSE glitch (e.g. `runner_status` momentarily stale)
+  therefore does not switch the tab away from `chat`. The counter resets
+  on a HITL-on flip, on card-id change, and on any user-initiated tab
+  change. `railExpanded` is preserved throughout.
 
 The transitions are handled in a single in-render `useState` marker block
-(`sync`, keyed by `cardId`) in `CardPanel.tsx` — not a `useEffect` — so the
-reset is synchronous with the prop change and avoids the double-render that
-a reactive effect would cause.
+(`sync`, keyed by `cardId`, carrying `card`, `isHITLRunning`, and
+`hitlOffCount`) in `CardPanel.tsx` — not a `useEffect` — so the reset is
+synchronous with the prop change and avoids the double-render that a
+reactive effect would cause. The debounce counter lives in this same
+state object (not a `useRef`) to comply with the `react-hooks/refs` lint
+rule, which forbids reading or writing refs during render.
 
 Mounting into an already-HITL card lands on the `chat` tab and starts with the
 rail expanded via the initial `useState(isHITLRunning)` — no transition needed.
@@ -310,7 +319,7 @@ interference on touch devices.
 | File | Role |
 |---|---|
 | `web/src/hooks/useRingBuffer.ts` | Fixed-capacity circular buffer hook. `useRingBuffer(maxEntries)` returns `{ logs: readonly LogEntry[], append(entries), clear() }`. Backed by `createRingBufferStore` — a plain JS store exposing `subscribe`, `getSnapshot`, `append`, `clear`. Maintains a pre-allocated array and `head` index; `append` writes at `head` and advances modulo capacity (O(1) per entry, no array copy). The snapshot array is built lazily on `getSnapshot` and cached against a monotonic version counter, so it is rebuilt at most once per render regardless of how many appends fired between commits. `useRingBuffer` reads via `useSyncExternalStore` for concurrent-safe reads across StrictMode/Suspense/transitions. Capacity is clamped to ≥ 1. |
-| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000, cardId? }`. When `cardId` is set, connects to the card-scoped session endpoint (`?project=P&card_id=X`). Without `cardId`, connects to the project-scoped session endpoint (`?project=P`). Both paths replay the server-side snapshot on connect so no events are lost across reconnects. Delegates all log-array management to `useRingBuffer`. Clears the buffer when opening the stream (`enabled` becoming `true`), or when `project`/`cardId` changes, so a fresh server-snapshot replay on reconnect does not duplicate entries. Exponential backoff reconnect (1s → 30s max). Tracks last-seen `seq` and inserts a `gap` marker on discontinuity. `dropped` frames render as gap markers. `terminal` frames stop the reconnect loop and clear `connected`. Returns `{ logs, connected, error, clear }`. |
+| `web/src/hooks/useRunnerLogs.ts` | EventSource hook. `{ project, enabled, maxEntries=5000, cardId? }`. When `cardId` is set, connects to the card-scoped session endpoint (`?project=P&card_id=X`). Without `cardId`, connects to the project-scoped session endpoint (`?project=P`). Both paths replay the server-side snapshot on connect so no events are lost across reconnects. Delegates all log-array management to `useRingBuffer`. Clears the buffer when opening the stream (`enabled` becoming `true`), or when `project`/`cardId` changes, so a fresh server-snapshot replay on reconnect does not duplicate entries. Exponential backoff reconnect (1s → 30s max). Tracks last-seen `seq` and inserts a `gap` marker on discontinuity. `dropped` frames render as gap markers. `terminal` frames stop the reconnect loop and clear `connected` — but only if at least one log entry has been delivered during the current connect cycle (`logsReceivedRef > 0`). A `terminal` arriving on an empty buffer is treated as the session-manager fast-path race (server emitted terminal before any snapshot frames) and triggers a backoff reconnect instead of halting, so the next connect can pick up a clean snapshot. Returns `{ logs, connected, error, clear }`. |
 | `web/src/hooks/useResizeDivider.ts` | Pointer-event-based resize hook. Returns `{ boardPercent, isDragging, handleProps }`. Spread `handleProps` onto the divider element. |
 | `web/src/components/RunnerConsole/RunnerConsole.tsx` | Root component. Owns `cardFilter` state. Derives `uniqueCardIds` and `filteredLogs` via `useMemo`. |
 | `web/src/components/RunnerConsole/RunnerConsoleHeader.tsx` | Header bar: title, connection dot (green/red), card-ID filter `<select>`, Clear button, Close button. |
