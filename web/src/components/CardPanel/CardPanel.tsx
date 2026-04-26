@@ -56,17 +56,18 @@ export function CardPanel(props: CardPanelProps) {
   const [editedCard, setEditedCard] = useState(card);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [railExpanded, setRailExpanded] = useState(false);
-  const [forcedFeatureBranch, setForcedFeatureBranch] = useState(false);
-  const [forcedCreatePR, setForcedCreatePR] = useState(false);
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   useFocusTrap(panelRef, true);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
   const defaultTab: RailTabKey = isHITLRunning ? 'chat' : isMobile ? 'card' : 'automation';
+
+  const [railExpanded, setRailExpanded] = useState(isHITLRunning);
   const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
+  const [forcedFeatureBranch, setForcedFeatureBranch] = useState(false);
+  const [forcedCreatePR, setForcedCreatePR] = useState(false);
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   // Sync derived state with prop changes. Reset the rail/tab/badges only on
   // card identity change (user selected a different card) — SSE-driven
@@ -79,7 +80,7 @@ export function CardPanel(props: CardPanelProps) {
   if (sync.cardId !== card.id) {
     setSync({ cardId: card.id, card, isHITLRunning });
     setEditedCard(card);
-    setRailExpanded(false);
+    setRailExpanded(isHITLRunning);
     setForcedFeatureBranch(false);
     setForcedCreatePR(false);
     setActiveTab(defaultTab);
@@ -89,6 +90,7 @@ export function CardPanel(props: CardPanelProps) {
     setSync({ cardId: card.id, card, isHITLRunning });
     if (cardRefChanged) setEditedCard(card);
     if (hitlFlipped) setActiveTab(defaultTab);
+    if (hitlFlipped && isHITLRunning) setRailExpanded(true);
   }
 
   const { branches, loading: branchesLoading, error: branchesError } =

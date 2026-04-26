@@ -145,8 +145,9 @@ describe('CardPanel — bifold layout', () => {
     const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);
     const grid = screen.getByTestId('body-bifold');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand rail' }));
+    // HITL cards auto-expand the rail on mount — no manual click needed.
     expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
 
     // Simulate an SSE-driven card refresh: same id, new object reference,
     // different state. The rail must stay expanded so mid-HITL users don't
@@ -548,5 +549,80 @@ describe('CardPanel — keydown listener stability', () => {
     expect(finalDocKeydown - initialDocKeydown).toBeLessThanOrEqual(4);
 
     docAddSpy.mockRestore();
+  });
+});
+
+describe('CardPanel — rail auto-expand behavior', () => {
+  it('HITL card mounts with rail expanded and Chat tab selected', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+        })}
+      />,
+    );
+    const grid = screen.getByTestId('body-bifold');
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switching card identity from non-HITL to HITL expands the rail', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    const grid = screen.getByTestId('body-bifold');
+    expect(grid.style.gridTemplateColumns).toContain('340px');
+
+    const hitlCard = {
+      ...baseCard,
+      id: 'TEST-002',
+      state: 'in_progress',
+      runner_status: 'running' as const,
+      autonomous: false,
+    };
+    rerender(<CardPanel {...makeProps({ card: hitlCard })} />);
+
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('HITL-flip on the same card (non-HITL → HITL mid-session) expands the rail', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    const grid = screen.getByTestId('body-bifold');
+    expect(grid.style.gridTemplateColumns).toContain('340px');
+
+    const hitlFlipped = {
+      ...baseCard,
+      state: 'in_progress',
+      runner_status: 'running' as const,
+      autonomous: false,
+    };
+    rerender(<CardPanel {...makeProps({ card: hitlFlipped })} />);
+
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('manual collapse survives an SSE refresh of the same card', () => {
+    const initial = {
+      ...baseCard,
+      state: 'in_progress',
+      runner_status: 'running' as const,
+      autonomous: false,
+    };
+    const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);
+    const grid = screen.getByTestId('body-bifold');
+
+    // HITL card starts expanded; manually collapse it.
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse rail' }));
+    expect(grid.style.gridTemplateColumns).toContain('340px');
+    expect(screen.getByRole('button', { name: 'Expand rail' })).toHaveAttribute('aria-pressed', 'false');
+
+    // SSE refresh: same id, new object, state change — rail must stay collapsed.
+    const refreshed = { ...initial, state: 'review' };
+    rerender(<CardPanel {...makeProps({ card: refreshed })} />);
+
+    expect(grid.style.gridTemplateColumns).toContain('340px');
+    expect(screen.getByRole('button', { name: 'Expand rail' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
