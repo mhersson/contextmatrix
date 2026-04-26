@@ -46,7 +46,14 @@ export function MetadataSkills({
   void card;
 
   const value = editedCard.skills;
-  const mode = modeFor(value);
+
+  // Track previous value to detect external resets during render (derived-state pattern).
+  const [prevValue, setPrevValue] = useState(value);
+  const [localMode, setLocalMode] = useState<Mode>(modeFor(value));
+  if (prevValue !== value) {
+    setPrevValue(value);
+    setLocalMode(modeFor(value));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -79,9 +86,10 @@ export function MetadataSkills({
   const selected = useMemo(() => new Set(value ?? []), [value]);
 
   const setMode = (next: Mode) => {
+    setLocalMode(next);
     if (next === 'inherit') onSkillsChange(null);
     else if (next === 'none') onSkillsChange([]);
-    else onSkillsChange(value && value.length > 0 ? value : []);
+    // 'specific': do NOT call onSkillsChange — checkboxes appear via localMode
   };
 
   const toggle = (name: string) => {
@@ -96,7 +104,7 @@ export function MetadataSkills({
       <div className="space-y-2.5">
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="inherit"
           label={
             config.default_skills === null || config.default_skills === undefined
@@ -109,13 +117,13 @@ export function MetadataSkills({
         />
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="specific"
           label="Specific skills"
           onChange={setMode}
           disabled={projectAllowsNone}
         />
-        {mode === 'specific' && (
+        {localMode === 'specific' && (
           <div className="pl-6">
             {loading && <div className="text-xs" style={{ color: 'var(--grey1)' }}>Loading…</div>}
             {error && <div className="text-xs" style={{ color: 'var(--red)' }}>{error}</div>}
@@ -143,7 +151,7 @@ export function MetadataSkills({
         )}
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="none"
           label="Mount no skills"
           onChange={setMode}
