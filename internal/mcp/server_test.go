@@ -83,14 +83,15 @@ func setupMCP(t *testing.T) *testEnv {
 	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))
 
 	skillModels := map[string]string{
-		"create-task.md":    "claude-sonnet-4-6",
-		"create-plan.md":    "claude-sonnet-4-6",
-		"execute-task.md":   "claude-sonnet-4-6",
-		"review-task.md":    "claude-opus-4-6",
-		"document-task.md":  "claude-sonnet-4-6",
-		"init-project.md":   "claude-sonnet-4-6",
-		"run-autonomous.md": "claude-sonnet-4-6",
-		"brainstorming.md":  "claude-sonnet-4-6",
+		"create-task.md":          "claude-sonnet-4-6",
+		"create-plan.md":          "claude-sonnet-4-6",
+		"execute-task.md":         "claude-sonnet-4-6",
+		"review-task.md":          "claude-opus-4-6",
+		"document-task.md":        "claude-sonnet-4-6",
+		"init-project.md":         "claude-sonnet-4-6",
+		"run-autonomous.md":       "claude-sonnet-4-6",
+		"brainstorming.md":        "claude-sonnet-4-6",
+		"systematic-debugging.md": "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -2197,6 +2198,29 @@ func TestGetSkill_Brainstorming(t *testing.T) {
 	assert.Contains(t, out.Content, "Improve the dashboard", "skill content should include the card title")
 }
 
+func TestGetSkill_SystematicDebugging(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Login crashes on submit", "bug", "high")
+
+	// systematic-debugging is NOT inline-eligible — it always runs as a
+	// sub-agent. Even when caller_model matches, Inline must be false so
+	// the orchestrator spawns it via the Agent tool with worktree isolation.
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "systematic-debugging",
+		"card_id":      card.ID,
+		"caller_model": "sonnet",
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "systematic-debugging", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
+	assert.False(t, out.Inline, "systematic-debugging must not be inline-eligible")
+	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
+	assert.Contains(t, out.Content, "Login crashes on submit", "skill content should include the card title")
+}
+
 func TestGetSkill_BrainstormingInline(t *testing.T) {
 	env := setupMCP(t)
 	card := createTestCard(t, env, "Inline test card", "task", "low")
@@ -2430,10 +2454,12 @@ func TestBuildInlineExecutionPrompt(t *testing.T) {
 func TestIsInlineEligible(t *testing.T) {
 	assert.True(t, isInlineEligible("review-task"))
 	assert.True(t, isInlineEligible("create-plan"))
+	assert.True(t, isInlineEligible("brainstorming"))
 	assert.False(t, isInlineEligible("execute-task"))
 	assert.False(t, isInlineEligible("document-task"))
 	assert.False(t, isInlineEligible("create-task"))
 	assert.False(t, isInlineEligible("init-project"))
+	assert.False(t, isInlineEligible("systematic-debugging"))
 	assert.False(t, isInlineEligible("nonexistent"))
 }
 

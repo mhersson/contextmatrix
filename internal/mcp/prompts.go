@@ -619,7 +619,7 @@ type skillArgs struct {
 var validSkillNames = []string{
 	"create-task", "create-plan", "execute-task",
 	"review-task", "document-task", "init-project",
-	"run-autonomous", "brainstorming",
+	"run-autonomous", "brainstorming", "systematic-debugging",
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -651,6 +651,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSk
 		content, err = buildRunAutonomous(ctx, svc, workflowSkillsDir, args.CardID)
 	case "brainstorming":
 		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "brainstorming.md", args.CardID, false)
+	case "systematic-debugging":
+		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "systematic-debugging.md", args.CardID, false)
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}

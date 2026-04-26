@@ -967,8 +967,8 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 }
 
 type getSkillInput struct {
-	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project, brainstorming"`
-	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming)"`
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project, brainstorming, systematic-debugging"`
+	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`

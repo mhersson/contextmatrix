@@ -23,10 +23,12 @@ the card from drafting through finalization in a single top-to-bottom flow.
 
 ---
 
-# Phase 0: Brainstorming Gate (HITL only)
+# Phase 0: Pre-planning Gate
 
-For HITL cards, run a brainstorming pass before drafting the plan. This
-catches under-specified cards and refines the design with the user
+Before drafting the plan, route the card through one of three branches:
+brainstorming (creative work, HITL only), systematic-debugging (bug-like
+work, both modes), or skip (pure maintenance). This catches under-specified
+cards and produces a `## Design` or `## Diagnosis` section on the card body
 *before* you commit to a plan structure that may need to be torn up.
 
 ## Step 0: Ensure the card is claimed
@@ -39,39 +41,82 @@ Hold this claim through Phase 5.
 Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
 is the ONLY source of truth for mode.
 
-- **If `autonomous: true`:** skip this phase entirely and proceed to
-  Phase 1. Brainstorming requires user dialogue, which is not available
-  in autonomous runs. Phase 1 Step 2.5 is the fallback for vague
-  designs in autonomous mode.
-- **If `autonomous: false` (HITL):** proceed to Step 1.5.
+- **If `autonomous: true`:** the brainstorming branch (Branch C below)
+  is skipped — it requires user dialogue not available in autonomous
+  runs. The systematic-debugging branch (Branch B) still runs in
+  autonomous mode; the maintenance-skip branch (Branch A) still applies.
+  Phase 1 Step 2.5 is the fallback for vague designs in autonomous
+  creative cards.
+- **If `autonomous: false` (HITL):** all three branches are available.
 
-## Step 1.5: Should brainstorming run?
+Proceed to Step 1.5 to pick the branch.
 
-Brainstorming exists for creative work — new features, new components,
-new functionality, or behavior changes — that warrants up-front design
-discussion.
+## Step 1.5: Pick the Phase 0 branch
 
-**Skip immediately if the card's `type` is `bug`.** No further checks
-needed: bug fixes have a defined desired outcome (restore broken
-behavior), not a design to negotiate.
+Three branches, evaluated in order. The first match wins.
 
-Also skip Phase 0 entirely (proceed to Phase 1) when any of these
-apply:
+### Branch A — Pure maintenance, skip Phase 0 (both modes)
 
-- Labels include `bug`, `bugfix`, `chore`, `dependencies`, `infra`,
-  `refactor`, or `simple`. (`simple` triggers the fast path defined
-  in `run-autonomous` — no design ceremony needed.)
-- Title describes a repair or maintenance task ("Fix...", "Repair...",
-  "Bump...", "Update <dep>...").
-- Body describes a known broken behavior to restore, not new product
-  behavior to design.
+Skip Phase 0 entirely (proceed to Phase 1) when ALL of the following hold:
 
-Otherwise (the card describes new product behavior to design),
-proceed to Step 2.
+- Labels include `simple`, `chore`, `dependencies`, or `infra`, AND
+- Title clearly describes a mechanical action ("Bump...", "Update <dep>...",
+  "Rename...", "Move...", "Pin...").
 
-## Step 2: Load and run brainstorming inline
+The maintenance label wins over bug indicators: a card with `type=bug`
+and label `simple` skips Phase 0. The `simple` label triggers the fast
+path defined in `run-autonomous` — no diagnosis or design ceremony
+needed.
+
+### Branch B — Bug-like, run systematic-debugging (both modes)
+
+Run the systematic-debugging investigation when ANY of the following
+applies and Branch A did not match:
+
+- `card.type == "bug"`
+- Labels include `bug` or `bugfix`
+- Title contains: "Fix...", "Bugfix...", "Repair...", "Resolve...",
+  "Investigate...", "Debug..."
+- Body language: "doesn't work", "is broken", "throws", "crashes",
+  "fails when", "unexpected behavior", "regression", "should X but Y
+  happens", or quotes a stack trace / error code.
 
 Call:
+
+```
+get_skill(skill_name='systematic-debugging', card_id=<parent_id>,
+          caller_model='<your_model>')
+```
+
+The response will include `inline: false` — systematic-debugging is NOT
+on the inline-eligible whitelist. Spawn a sub-agent via the **`Agent`**
+tool with:
+
+- `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
+- `description`: `"diagnose <card_id>"`
+- `prompt`: the `content` from `get_skill`
+- `isolation`: `"worktree"` — required for context isolation
+
+Block on completion (do **NOT** use `run_in_background` — Phase 1 needs
+the diagnosis in hand). Heartbeat the parent card every 5 minutes while
+the sub-agent runs; call `report_usage` after each heartbeat.
+
+When the sub-agent prints `DIAGNOSIS_COMPLETE`, re-read the card body
+via `get_card` to confirm the `## Diagnosis` section is present, then
+proceed to Phase 1. If it prints `DIAGNOSIS_BLOCKED`, transition the
+card to `blocked` with the reason and stop.
+
+### Branch C — Creative work, run brainstorming (HITL only)
+
+When none of the above match, the card describes creative work — new
+features, new components, new functionality, or behavior changes — that
+warrants up-front design discussion.
+
+**In autonomous mode, this branch is skipped** (no user channel for
+dialogue). Proceed directly to Phase 1; Phase 1 Step 2.5 catches vague
+designs in autonomous creative cards.
+
+**In HITL mode**, call:
 
 ```
 get_skill(skill_name='brainstorming', card_id=<parent_id>,
@@ -98,11 +143,21 @@ The brainstorming skill will:
 Heartbeat before each prompt to the user. Heartbeat on resume. See the
 Heartbeat section.
 
-## Step 3: Proceed to Phase 1
+### Disambiguation
 
-When brainstorming returns, proceed to Phase 1 below. Phase 1 will
-re-read the card body (now containing the agreed design) and use it as
-input for plan drafting.
+Cards that straddle bug + feature ("the form throws on submit — also add
+a remember-me checkbox") prefer Branch B for the bug portion; the
+diagnosis sub-agent flags the feature work as a sibling-card split in
+its `### Risk / scope notes`. If neither A nor B fits cleanly and the
+card is autonomous, default to skipping Phase 0 — Phase 1 Step 2.5 is
+the safety net.
+
+## Step 2: Proceed to Phase 1
+
+When the chosen branch returns (or is skipped), proceed to Phase 1
+below. Phase 1 will re-read the card body (now containing the agreed
+`## Design` or `## Diagnosis`, if Branch B or C ran) and use it as input
+for plan drafting.
 
 ---
 
