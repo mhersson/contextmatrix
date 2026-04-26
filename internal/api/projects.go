@@ -11,6 +11,7 @@ import (
 // createProjectRequest is the JSON body for POST /api/projects.
 type createProjectRequest struct {
 	Name        string              `json:"name"`
+	DisplayName string              `json:"display_name,omitempty"`
 	Prefix      string              `json:"prefix"`
 	Repo        string              `json:"repo,omitempty"`
 	States      []string            `json:"states"`
@@ -152,14 +153,21 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Name == "" || req.Prefix == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "name and prefix are required", "")
+	if req.Name == "" && req.DisplayName == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "name or display_name is required", "")
+
+		return
+	}
+
+	if req.Prefix == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "prefix is required", "")
 
 		return
 	}
 
 	cfg, err := h.svc.CreateProject(r.Context(), service.CreateProjectInput{
 		Name:        req.Name,
+		DisplayName: req.DisplayName,
 		Prefix:      req.Prefix,
 		Repo:        req.Repo,
 		States:      req.States,

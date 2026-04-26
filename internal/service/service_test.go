@@ -2079,6 +2079,85 @@ func TestCreateProject_MissingStalledState(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestCreateProject_DisplayName(t *testing.T) {
+	tests := []struct {
+		name        string
+		inputName   string
+		displayName string
+		wantSlug    string
+		wantDisplay string
+	}{
+		{
+			name:        "display name with spaces, slug auto-derived",
+			inputName:   "",
+			displayName: "Epic Planner",
+			wantSlug:    "epic-planner",
+			wantDisplay: "Epic Planner",
+		},
+		{
+			name:        "explicit slug with display name",
+			inputName:   "my-project",
+			displayName: "My Project",
+			wantSlug:    "my-project",
+			wantDisplay: "My Project",
+		},
+		{
+			name:        "display name only, no spaces",
+			inputName:   "",
+			displayName: "alpha",
+			wantSlug:    "alpha",
+			wantDisplay: "alpha",
+		},
+		{
+			name:        "display name with special chars collapsed",
+			inputName:   "",
+			displayName: "My -- Cool   Project!",
+			wantSlug:    "my-cool-project",
+			wantDisplay: "My -- Cool   Project!",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := setupEmptyTest(t)
+			ctx := context.Background()
+
+			input := validCreateProjectInput()
+			input.Name = tt.inputName
+			input.DisplayName = tt.displayName
+
+			cfg, err := svc.CreateProject(ctx, input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSlug, cfg.Name)
+			assert.Equal(t, tt.wantDisplay, cfg.DisplayName)
+
+			// Verify project is retrievable by slug
+			got, err := svc.GetProject(ctx, tt.wantSlug)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantDisplay, got.DisplayName)
+		})
+	}
+}
+
+func TestCreateProject_DisplayNameSlugConflict(t *testing.T) {
+	svc, _ := setupEmptyTest(t)
+	ctx := context.Background()
+
+	// Create first project with auto-derived slug "epic-planner"
+	input := validCreateProjectInput()
+	input.Name = ""
+	input.DisplayName = "Epic Planner"
+	_, err := svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+
+	// Second project with same derived slug should return ErrProjectExists
+	input2 := validCreateProjectInput()
+	input2.Name = ""
+	input2.DisplayName = "epic-planner"
+	_, err = svc.CreateProject(ctx, input2)
+	assert.ErrorIs(t, err, storage.ErrProjectExists)
+}
+
 func TestUpdateProject(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

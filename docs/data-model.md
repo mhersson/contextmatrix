@@ -308,6 +308,7 @@ type RemoteExecutionConfig struct {
 
 type ProjectConfig struct {
     Name            string                 `yaml:"name"`
+    DisplayName     string                 `yaml:"display_name,omitempty"`
     Prefix          string                 `yaml:"prefix"`
     NextID          int                    `yaml:"next_id"`
     Repo            string                 `yaml:"repo,omitempty"`
@@ -372,6 +373,7 @@ content.
 ```yaml
 # boards/project-alpha/.board.yaml
 name: project-alpha
+display_name: "Project Alpha"   # optional — human-readable name shown in the UI
 prefix: ALPHA
 next_id: 1
 repo: git@github.com:org/project-alpha.git

@@ -72,6 +72,7 @@ export interface GitHubImportConfig {
 
 export interface ProjectConfig {
   name: string;
+  display_name?: string;
   prefix: string;
   next_id: number;
   repo?: string;
@@ -239,6 +240,7 @@ export interface DashboardData {
 
 export interface CreateProjectInput {
   name: string;
+  display_name?: string;
   prefix: string;
   repo?: string;
   states: string[];
