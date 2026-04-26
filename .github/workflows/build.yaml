@@ -17,6 +17,7 @@ on:
       - "config.yaml.example"
       - "docs/**"
       - "LICENSE"
+  workflow_dispatch:
 
 jobs:
   go-checks:
@@ -77,15 +78,25 @@ jobs:
   build:
     runs-on: self-hosted
     needs: [go-checks, frontend-checks]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set short SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - name: Set image tag
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            BRANCH_SLUG=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's|[^a-z0-9._-]|-|g' | cut -c1-50)
+            echo "IMAGE_TAG=${BRANCH_SLUG}-${SHORT_SHA}" >> "$GITHUB_ENV"
+            echo "PUSH_LATEST=false" >> "$GITHUB_ENV"
+          else
+            echo "IMAGE_TAG=${SHORT_SHA}" >> "$GITHUB_ENV"
+            echo "PUSH_LATEST=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Set version info
         run: |
@@ -95,18 +106,23 @@ jobs:
 
       - name: Build image
         run: |
+          TAGS="-t ${{ vars.REGISTRY }}/contextmatrix:${IMAGE_TAG}"
+          if [ "${PUSH_LATEST}" = "true" ]; then
+            TAGS="${TAGS} -t ${{ vars.REGISTRY }}/contextmatrix:latest"
+          fi
           docker build \
             --build-arg VERSION="${VERSION}" \
             --build-arg GIT_COMMIT="${SHORT_SHA}" \
             --build-arg BUILD_TIME="${BUILD_TIME}" \
-            -t ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }} \
-            -t ${{ vars.REGISTRY }}/contextmatrix:latest \
+            ${TAGS} \
             .
 
       - name: Push image
         run: |
-          docker push ${{ vars.REGISTRY }}/contextmatrix:${{ env.SHORT_SHA }}
-          docker push ${{ vars.REGISTRY }}/contextmatrix:latest
+          docker push ${{ vars.REGISTRY }}/contextmatrix:${IMAGE_TAG}
+          if [ "${PUSH_LATEST}" = "true" ]; then
+            docker push ${{ vars.REGISTRY }}/contextmatrix:latest
+          fi
 
       - name: Clean up
         if: always()
