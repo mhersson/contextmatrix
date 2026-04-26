@@ -3397,6 +3397,191 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		require.NotNil(t, patchedCard.Skills)
 		assert.Empty(t, *patchedCard.Skills)
 	})
+
+	// The subtests below require a TaskSkillsDir. Stand up a second server
+	// wired with a skills directory so that skill validation is active.
+	skillsDir := t.TempDir()
+	writeSkillFile(t, skillsDir, "go-development", "Use when Go.")
+	writeSkillFile(t, skillsDir, "documentation", "Use when docs.")
+	writeSkillFile(t, skillsDir, "code-review", "Use when reviewing.")
+
+	svc2, bus2, cleanup2 := testSetup(t)
+	defer cleanup2()
+
+	router2 := NewRouter(RouterConfig{Service: svc2, Bus: bus2, TaskSkillsDir: skillsDir})
+	server2 := httptest.NewServer(router2)
+	defer server2.Close()
+
+	// putProjectDefaults sets default_skills on the test-project via PUT.
+	putProjectDefaults := func(t *testing.T, defaults *[]string) {
+		t.Helper()
+
+		req := updateProjectRequest{
+			States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+			Types:      []string{"task", "bug", "feature"},
+			Priorities: []string{"low", "medium", "high"},
+			Transitions: map[string][]string{
+				"todo":        {"in_progress"},
+				"in_progress": {"done", "todo"},
+				"done":        {"todo"},
+				"stalled":     {"todo", "in_progress"},
+				"not_planned": {"todo"},
+			},
+			DefaultSkills: defaults,
+		}
+
+		body, _ := json.Marshal(req)
+		httpReq, _ := http.NewRequest(http.MethodPut, server2.URL+"/api/projects/test-project", bytes.NewReader(body))
+		httpReq.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(httpReq)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		closeBody(t, resp.Body)
+	}
+
+	// createCard2 creates a fresh card on server2 and returns its ID.
+	createCard2 := func(t *testing.T) string {
+		t.Helper()
+
+		body, _ := json.Marshal(createCardRequest{Title: "put-skills-test", Type: "task", Priority: "medium"})
+		resp, err := http.Post(server2.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+		closeBody(t, resp.Body)
+
+		return card.ID
+	}
+
+	// putCardSkills performs a full PUT on a card with the given skills.
+	// State is kept as "todo" so the state-machine validation passes.
+	putCardSkills := func(t *testing.T, cardID string, skills *[]string) *http.Response {
+		t.Helper()
+
+		req := updateCardRequest{
+			Title:    "put-skills-test",
+			Type:     "task",
+			State:    "todo",
+			Priority: "medium",
+			Skills:   skills,
+		}
+		body, _ := json.Marshal(req)
+
+		httpReq, _ := http.NewRequest(http.MethodPut, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
+		httpReq.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(httpReq)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	// Group: project has a non-nil default_skills subset.
+	// Set the default once here; all three subtests below share this state.
+	withDefault := []string{"go-development", "documentation"}
+	putProjectDefaults(t, &withDefault)
+
+	t.Run("update (PUT) with subset of project default → 200", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		skills := []string{"go-development"}
+		resp := putCardSkills(t, cardID, &skills)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		require.NotNil(t, updated.Skills)
+		assert.Equal(t, []string{"go-development"}, *updated.Skills)
+	})
+
+	t.Run("update (PUT) with skill outside project default → 400 with offending names", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		// code-review exists in the skills dir but is not in the project default.
+		skills := []string{"go-development", "code-review"}
+		resp := putCardSkills(t, cardID, &skills)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Error, "code-review")
+	})
+
+	t.Run("patch with skill outside project default → 400", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		// code-review is in the skills dir but not in the project default.
+		patchBody := patchCardRequest{Skills: &[]string{"code-review"}}
+		body, _ := json.Marshal(patchBody)
+
+		httpReq, _ := http.NewRequest(http.MethodPatch, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
+		httpReq.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(httpReq)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Error, "code-review")
+	})
+
+	// Group: project has nil default_skills; only global availability is checked.
+	// Change the default once here so git always has a real diff to commit.
+	putProjectDefaults(t, nil)
+
+	t.Run("update (PUT) with unknown skill name → 400 with offending names", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		skills := []string{"totally-made-up-skill"}
+		resp := putCardSkills(t, cardID, &skills)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Error, "totally-made-up-skill")
+	})
+
+	t.Run("update (PUT) with empty skills list → 200, persisted as explicit empty", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		emptySkills := []string{}
+		resp := putCardSkills(t, cardID, &emptySkills)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		require.NotNil(t, updated.Skills)
+		assert.Empty(t, *updated.Skills)
+	})
+
+	t.Run("update (PUT) with skills when project default is nil → 200", func(t *testing.T) {
+		cardID := createCard2(t)
+
+		skills := []string{"go-development", "documentation"}
+		resp := putCardSkills(t, cardID, &skills)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		require.NotNil(t, updated.Skills)
+		assert.Equal(t, []string{"go-development", "documentation"}, *updated.Skills)
+	})
 }
 
 func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
