@@ -173,8 +173,8 @@ scripts/install.sh --force
 - `config.yaml` — copied from `config.yaml.example` (skipped if it already
   exists, unless `--force`)
 - `workflow-skills/` — the lifecycle workflow skill files (create-plan,
-  execute-task, review-task, etc.) from the repo's `skills/` source directory.
-  Always refreshed.
+  execute-task, review-task, etc.) from the repo's `workflow-skills/`
+  source directory. Always refreshed.
 - `task-skills/` — curated specialist task skills (Go, TypeScript/React, etc.)
   seeded on fresh install. Never overwritten on subsequent runs (only
   `--update-task-skills` adds missing entries).
@@ -231,7 +231,7 @@ project `.claude/claude.json`):
 
 ### Slash Commands
 
-Skill files in `skills/` are served as MCP prompts, available as Claude Code
+Skill files in `workflow-skills/` are served as MCP prompts, available as Claude Code
 slash commands:
 
 | Command                         | Argument      | Description                               |
@@ -299,8 +299,7 @@ Skill dependencies on specific states:
 If you remove or rename states (e.g. drop `review`), the default skills will
 break. In that case:
 
-1. Copy the `workflow-skills/` directory (or the repo's `skills/` source) to a
-   custom location.
+1. Copy the `workflow-skills/` directory to a custom location.
 2. Edit the relevant skill files to match your state names.
 3. Set `workflow_skills_dir` in `config.yaml` to point to your custom directory.
 

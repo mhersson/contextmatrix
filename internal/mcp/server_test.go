@@ -44,12 +44,12 @@ func testProjectConfig() *board.ProjectConfig {
 
 // testEnv holds all components needed for MCP server tests.
 type testEnv struct {
-	session   *mcp.ClientSession
-	svc       *service.CardService
-	store     storage.Store
-	boardsDir string
-	skillsDir string
-	cancel    context.CancelFunc
+	session           *mcp.ClientSession
+	svc               *service.CardService
+	store             storage.Store
+	boardsDir         string
+	workflowSkillsDir string
+	cancel            context.CancelFunc
 }
 
 // setupMCP creates a full test environment: boards dir, project, service layer,
@@ -78,9 +78,9 @@ func setupMCP(t *testing.T) *testEnv {
 
 	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
-	// Create skills directory with stub skill files (including Agent Configuration for model parsing)
-	skillsDir := filepath.Join(tmpDir, "skills")
-	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
+	// Create workflow-skills directory with stub skill files (including Agent Configuration for model parsing)
+	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
+	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))
 
 	skillModels := map[string]string{
 		"create-task.md":    "claude-sonnet-4-6",
@@ -93,11 +93,11 @@ func setupMCP(t *testing.T) *testEnv {
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
-		require.NoError(t, os.WriteFile(filepath.Join(skillsDir, name), []byte(content), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(workflowSkillsDir, name), []byte(content), 0o644))
 	}
 
 	// Create MCP server and connect in-memory
-	server := NewServer(svc, skillsDir)
+	server := NewServer(svc, workflowSkillsDir)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -116,12 +116,12 @@ func setupMCP(t *testing.T) *testEnv {
 	})
 
 	return &testEnv{
-		session:   session,
-		svc:       svc,
-		store:     store,
-		boardsDir: boardsDir,
-		skillsDir: skillsDir,
-		cancel:    cancel,
+		session:           session,
+		svc:               svc,
+		store:             store,
+		boardsDir:         boardsDir,
+		workflowSkillsDir: workflowSkillsDir,
+		cancel:            cancel,
 	}
 }
 
@@ -2633,17 +2633,17 @@ func TestClaimCard_WithoutProject(t *testing.T) {
 	assert.Equal(t, "in_progress", got.State)
 }
 
-// TestCreatePlanSkill_AutonomousGates verifies that skills/create-plan.md
+// TestCreatePlanSkill_AutonomousGates verifies that workflow-skills/create-plan.md
 // contains the autonomous-mode conditional branches at all four user-prompt
 // gates: plan-approval, execution, review-approval, and commit/push/PR. This is
 // a regression guard — if the autonomous branches are removed from the skill
 // file, this test will fail.
 func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	// Read the real skill file directly. The working directory for go test is
-	// the package directory (internal/mcp), so ../../skills reaches the repo root.
-	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	// the package directory (internal/mcp), so ../../workflow-skills reaches the repo root.
+	skillPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
-	require.NoError(t, err, "skills/create-plan.md must be readable")
+	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
 
 	content := string(data)
 
@@ -2690,13 +2690,13 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 }
 
 // TestCreatePlanSkill_Phase9RunnerContextBranches verifies that Phase 9 of
-// skills/create-plan.md contains both the runner-context auto-commit branch
+// workflow-skills/create-plan.md contains both the runner-context auto-commit branch
 // for remote HITL and the local-HITL user prompts. This is a regression guard
 // so that accidental removal of either branch is caught.
 func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
-	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	skillPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
-	require.NoError(t, err, "skills/create-plan.md must be readable")
+	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
 
 	content := string(data)
 
@@ -2734,16 +2734,16 @@ func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 		"create-plan.md Phase 9 must describe local HITL as the `local` runner-context outcome")
 }
 
-// TestCreatePlanSkillIsSelfContained verifies that skills/create-plan.md is a
+// TestCreatePlanSkillIsSelfContained verifies that workflow-skills/create-plan.md is a
 // linear Phase 1-10 skill with autonomous rechecks at each HITL gate. This is
 // the primary regression guard ensuring the skill can be executed top-to-bottom
 // by a Remote HITL container agent without an orchestrator wrapper.
 func TestCreatePlanSkillIsSelfContained(t *testing.T) {
 	// Read the real skill file directly. The working directory for go test is
-	// the package directory (internal/mcp), so ../../skills reaches the repo root.
-	skillPath := filepath.Join("..", "..", "skills", "create-plan.md")
+	// the package directory (internal/mcp), so ../../workflow-skills reaches the repo root.
+	skillPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
-	require.NoError(t, err, "skills/create-plan.md must be readable")
+	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
 
 	content := string(data)
 

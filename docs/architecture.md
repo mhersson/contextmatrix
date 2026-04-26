@@ -135,7 +135,7 @@ to `CommitFiles()` are relative to that directory (e.g.,
 
 ```text
 ~/code/contextmatrix/           # source code repo
-  cmd/, internal/, web/, skills/
+  cmd/, internal/, web/, workflow-skills/
   config.yaml                   # boards.dir: ~/boards/contextmatrix
 
 ~/boards/contextmatrix/         # boards repo (separate git repo)
@@ -171,7 +171,7 @@ internal/
   ctxlog/        # request_id context logger
   metrics/       # Prometheus metric vars + Register()
 web/
-skills/
+workflow-skills/
   create-task.md
   create-plan.md
   execute-task.md

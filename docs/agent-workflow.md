@@ -40,7 +40,7 @@ skill prompt and is explicitly stated in each skill file's Rules section.
 
 ## Skill files
 
-Skill files are markdown documents in `skills/`. They serve two purposes:
+Skill files are markdown documents in `workflow-skills/`. They serve two purposes:
 
 1. **Human reference** — read directly from the repo
 2. **MCP prompts** — served via `prompts/list` + `prompts/get` as Claude Code
@@ -96,7 +96,7 @@ model the orchestrator is already running. When `caller_model` is absent,
 flow.
 
 ```
-skills/
+workflow-skills/
   create-task.md      # /contextmatrix:create-task
   create-plan.md      # /contextmatrix:create-plan
   execute-task.md     # /contextmatrix:execute-task

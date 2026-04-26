@@ -44,7 +44,7 @@ internal/config/             → global config loading
 internal/ctxlog/             → request_id context logger (WithRequestID / Logger)
 internal/metrics/            → Prometheus metric vars + Register()
 web/                         → React frontend (Vite + TypeScript + Tailwind)
-skills/                      → Agent skill files (markdown, served via MCP prompts)
+workflow-skills/             → Agent skill files (markdown, served via MCP prompts)
 ```
 
 The boards data directory is a **separate git repository** (see
@@ -111,7 +111,7 @@ persisted in `localStorage` under the key `palette` and takes precedence over
 the server default on subsequent loads. Components use CSS custom properties
 only — no palette-specific code in components.
 
-### Skills (`skills/`)
+### Skills (`workflow-skills/`)
 
 - Skills are agent instructions, not documentation. Keep them tight: clear
   instructions only, no explanatory commentary or rationale.
@@ -230,9 +230,9 @@ scripts/install.sh --force
 
 On a fresh install the script creates `~/.config/contextmatrix/config.yaml` from
 the template. Edit `boards.dir` (and any other fields) before starting the
-server. Workflow skills are always refreshed from the repo's `skills/` directory
-even without `--update-workflow-skills` — that flag simply skips the config.yaml
-step entirely.
+server. Workflow skills are always refreshed from the repo's
+`workflow-skills/` directory even without `--update-workflow-skills` — that
+flag simply skips the config.yaml step entirely.
 
 ## Agent permissions in target projects
 

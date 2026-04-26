@@ -83,11 +83,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # Copy workflow skills (always done, whether default or --update-workflow-skills).
-# Source on disk in this repo is `skills/` (internal name, unchanged); the
-# install destination is `<config-dir>/workflow-skills/` for symmetry with
-# `task-skills/` and to match the renamed `workflow_skills_dir` config field.
 # ---------------------------------------------------------------------------
-WORKFLOW_SKILLS_SRC="${REPO_ROOT}/skills"
+WORKFLOW_SKILLS_SRC="${REPO_ROOT}/workflow-skills"
 WORKFLOW_SKILLS_DST="${CONFIG_DIR}/workflow-skills"
 
 if [[ ! -d "${WORKFLOW_SKILLS_SRC}" ]]; then
