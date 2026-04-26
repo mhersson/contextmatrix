@@ -32,6 +32,7 @@ type GitHubImportConfig struct {
 // Stored in boards/{project}/.board.yaml.
 type ProjectConfig struct {
 	Name            string                 `yaml:"name" json:"name"`
+	DisplayName     string                 `yaml:"display_name,omitempty" json:"display_name,omitempty"`
 	Prefix          string                 `yaml:"prefix" json:"prefix"`
 	NextID          int                    `yaml:"next_id" json:"next_id"`
 	Repo            string                 `yaml:"repo,omitempty" json:"repo,omitempty"`

@@ -83,7 +83,8 @@ export function AllProjectsDashboard() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {projectNames.map((name) => {
+        {projects.map((p) => {
+          const name = p.name;
           const data = summaries.get(name);
           const total = data ? Object.values(data.state_counts).reduce((a, b) => a + b, 0) : 0;
           return (
@@ -93,7 +94,7 @@ export function AllProjectsDashboard() {
               className="rounded-lg p-3 transition-colors hover:brightness-110"
               style={{ backgroundColor: 'var(--bg1)' }}
             >
-              <div className="text-sm font-medium" style={{ color: 'var(--aqua)' }}>{name}</div>
+              <div className="text-sm font-medium" style={{ color: 'var(--aqua)' }}>{p.display_name ?? name}</div>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-lg font-bold" style={{ color: 'var(--fg)' }}>{total}</span>
                 <span className="text-xs" style={{ color: 'var(--grey0)' }}>cards</span>

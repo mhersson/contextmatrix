@@ -318,6 +318,63 @@ Returns 200 with the updated card.
 
 ## Project Endpoints
 
+### POST /api/projects
+
+Create a new project. Either `name` (slug) or `display_name` (human-readable) must be provided; both may be provided together.
+
+**Request body:**
+
+```json
+{
+  "name": "epic-planner",
+  "display_name": "Epic Planner",
+  "prefix": "EPIC",
+  "repo": "git@github.com:org/epic-planner.git",
+  "states": ["todo", "in_progress", "review", "done", "stalled", "not_planned"],
+  "types": ["task", "bug"],
+  "priorities": ["low", "medium", "high"],
+  "transitions": {
+    "todo": ["in_progress", "not_planned"],
+    "in_progress": ["review", "todo"],
+    "review": ["done", "in_progress"],
+    "done": ["todo"],
+    "stalled": ["todo"],
+    "not_planned": ["todo"]
+  }
+}
+```
+
+**Field rules:**
+
+| Field          | Required?    | Description                                                                                                                                    |
+| -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | conditional  | Slug — filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
+| `display_name` | conditional  | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar. |
+| `prefix`       | required     | Card ID prefix (e.g. `EPIC` → `EPIC-001`).                                                                                                    |
+
+At least one of `name` or `display_name` is required (400 if both are absent).
+
+**Slug auto-derivation:** when `name` is omitted, the server derives it from `display_name` by lowercasing and collapsing runs of non-alphanumeric characters to hyphens (e.g. `"Epic Planner"` → `"epic-planner"`). A 409 is returned if the derived or explicit slug already exists as a project directory.
+
+**Response:** 201 Created with the full `ProjectConfig` object, including the stored `name` and `display_name`.
+
+### GET /api/projects / GET /api/projects/{project}
+
+List all projects or get a single project by slug. Both responses include `display_name` when set.
+
+```json
+{
+  "name": "epic-planner",
+  "display_name": "Epic Planner",
+  "prefix": "EPIC",
+  "next_id": 1,
+  "states": ["..."],
+  "..."
+}
+```
+
+Existing projects without `display_name` omit the field; clients should fall back to displaying `name`.
+
 ### GET /api/projects/{project}/branches
 
 Returns a JSON array of branch name strings for the project's GitHub repository.

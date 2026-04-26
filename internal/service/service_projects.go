@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -22,6 +23,7 @@ import (
 // CreateProjectInput contains the fields for creating a new project.
 type CreateProjectInput struct {
 	Name        string
+	DisplayName string
 	Prefix      string
 	Repo        string
 	States      []string
@@ -49,6 +51,20 @@ type UpdateProjectInput struct {
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
+// nonAlphanumRun matches one or more characters that are not letters or digits.
+var nonAlphanumRun = regexp.MustCompile(`[^a-z0-9]+`)
+
+// slugifyDisplayName converts a human-readable display name into a URL/filesystem-safe slug.
+// Lowercase, collapses runs of non-alphanumeric characters to a single hyphen,
+// strips leading and trailing hyphens.
+func slugifyDisplayName(name string) string {
+	s := strings.ToLower(name)
+	s = nonAlphanumRun.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+
+	return s
+}
+
 // ListProjects returns all discovered projects.
 func (s *CardService) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
 	return s.store.ListProjects(ctx)
@@ -64,6 +80,11 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	// Auto-derive slug from DisplayName when Name is not provided.
+	if input.Name == "" && input.DisplayName != "" {
+		input.Name = slugifyDisplayName(input.DisplayName)
+	}
+
 	// Validate name format
 	if !validProjectName.MatchString(input.Name) {
 		return nil, fmt.Errorf("invalid project name %q: must be alphanumeric with hyphens/underscores: %w", input.Name, board.ErrInvalidProjectConfig)
@@ -77,6 +98,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 
 	cfg := &board.ProjectConfig{
 		Name:        input.Name,
+		DisplayName: input.DisplayName,
 		Prefix:      input.Prefix,
 		NextID:      1,
 		Repo:        input.Repo,

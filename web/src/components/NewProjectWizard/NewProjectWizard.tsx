@@ -16,25 +16,36 @@ const DEFAULT_TRANSITIONS: Record<string, string[]> = {
   not_planned: ['todo'],
 };
 
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 interface NewProjectWizardProps {
   onClose: () => void;
   onCreated: (config: ProjectConfig) => void;
 }
 
 export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) {
+  const [displayName, setDisplayName] = useState('');
   const [name, setName] = useState('');
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [prefix, setPrefix] = useState('');
   const [repo, setRepo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [slugError, setSlugError] = useState<string | null>(null);
   const headingId = useId();
+  const displayNameId = useId();
   const nameId = useId();
   const prefixId = useId();
   const repoId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
+  const displayNameInputRef = useRef<HTMLInputElement>(null);
 
-  useFocusTrap(dialogRef, true, nameInputRef);
+  useFocusTrap(dialogRef, true, displayNameInputRef);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -44,22 +55,35 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Auto-derive prefix from name
-  const handleNameChange = useCallback((value: string) => {
-    setName(value);
+  const handleDisplayNameChange = useCallback((value: string) => {
+    setDisplayName(value);
     setError(null);
+    setSlugError(null);
+    // Auto-derive slug from display name unless user has manually edited it
+    if (!nameManuallyEdited) {
+      setName(slugify(value));
+    }
     // Derive prefix: uppercase, strip non-alphanumeric
     const derived = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     setPrefix(derived.slice(0, 8));
+  }, [nameManuallyEdited]);
+
+  const handleNameChange = useCallback((value: string) => {
+    setName(value);
+    setNameManuallyEdited(true);
+    setSlugError(null);
+    setError(null);
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!name.trim() || !prefix.trim() || isSubmitting) return;
+    if (!displayName.trim() || !name.trim() || !prefix.trim() || isSubmitting) return;
     setIsSubmitting(true);
     setError(null);
+    setSlugError(null);
     try {
       const input: CreateProjectInput = {
         name: name.trim(),
+        display_name: displayName.trim(),
         prefix: prefix.trim().toUpperCase(),
         states: DEFAULT_STATES,
         types: DEFAULT_TYPES,
@@ -70,11 +94,22 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
       const config = await api.createProject(input);
       onCreated(config);
     } catch (err) {
-      setError(isAPIError(err) ? err.error : 'Failed to create project');
+      if (isAPIError(err)) {
+        // Slug conflict (409) or slug-related validation errors go to the Identifier field
+        if (err.code === 'PROJECT_EXISTS' || err.code === 'VALIDATION_ERROR') {
+          setSlugError(err.error);
+        } else {
+          setError(err.error);
+        }
+      } else {
+        setError('Failed to create project');
+      }
     } finally {
       setIsSubmitting(false);
     }
-  }, [name, prefix, repo, isSubmitting, onCreated]);
+  }, [displayName, name, prefix, repo, isSubmitting, onCreated]);
+
+  const isValid = displayName.trim().length > 0 && name.trim().length > 0 && prefix.trim().length > 0;
 
   return (
     <>
@@ -102,9 +137,9 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           </div>
           <button
             onClick={handleCreate}
-            disabled={!name.trim() || !prefix.trim() || isSubmitting}
+            disabled={!isValid || isSubmitting}
             className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              name.trim() && prefix.trim()
+              isValid
                 ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
                 : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
             }`}
@@ -121,14 +156,14 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           )}
 
           <div>
-            <label htmlFor={nameId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</label>
+            <label htmlFor={displayNameId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Project name</label>
             <input
-              id={nameId}
-              ref={nameInputRef}
+              id={displayNameId}
+              ref={displayNameInputRef}
               type="text"
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="my-project"
+              value={displayName}
+              onChange={(e) => handleDisplayNameChange(e.target.value)}
+              placeholder="Epic Planner"
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={{
                 backgroundColor: 'var(--bg2)',
@@ -136,9 +171,30 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
                 color: 'var(--fg)',
               }}
             />
-            <p className="text-xs mt-1" style={{ color: 'var(--grey0)' }}>
-              Alphanumeric with hyphens and underscores
-            </p>
+          </div>
+
+          <div>
+            <label htmlFor={nameId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Identifier</label>
+            <input
+              id={nameId}
+              type="text"
+              value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="epic-planner"
+              className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+              style={{
+                backgroundColor: 'var(--bg2)',
+                borderColor: slugError ? 'var(--red)' : 'var(--bg3)',
+                color: 'var(--fg)',
+              }}
+            />
+            {slugError ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--red)' }}>{slugError}</p>
+            ) : (
+              <p className="text-xs mt-1" style={{ color: 'var(--grey0)' }}>
+                Used in URLs and on disk — letters, numbers, hyphens.
+              </p>
+            )}
           </div>
 
           <div>
