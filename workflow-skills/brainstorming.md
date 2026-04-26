@@ -44,16 +44,20 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
 
 ## HARD-GATE
 
-You MUST present a design and get user approval before returning. The
-discipline applies to EVERY card regardless of perceived simplicity.
+If create-plan invoked you, the card has already been gated as
+creative work that warrants design discussion. Complete the process
+— present a design and get user approval before returning. Do not
+bail out mid-flight because the card seems simple once you start
+reading it.
 
-## Anti-Pattern: "This Is Too Simple To Need A Design"
+## Anti-Pattern: "This Card Is Simpler Than I Thought, I'll Skip Ahead"
 
-Every card goes through this process. A small UI tweak, a single
-function, a config change — all of them. "Simple" cards are where
-unexamined assumptions cause the most wasted work. The design can be
-short (a few sentences for truly simple changes), but you MUST present
-it and get the user's confirmation before returning.
+create-plan filters out non-creative cards (bugs, chores, refactors,
+dependency bumps, cards labelled `simple`) before invoking you. If
+you're running, the card needs design. Small creative work — a single
+function, a UI tweak, a config change — still benefits from a
+confirmed design. The design can be short (a few sentences), but you
+MUST present it and get the user's confirmation before returning.
 
 ## Step 0: Design already complete?
 

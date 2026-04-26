@@ -43,7 +43,31 @@ is the ONLY source of truth for mode.
   Phase 1. Brainstorming requires user dialogue, which is not available
   in autonomous runs. Phase 1 Step 2.5 is the fallback for vague
   designs in autonomous mode.
-- **If `autonomous: false` (HITL):** proceed to Step 2.
+- **If `autonomous: false` (HITL):** proceed to Step 1.5.
+
+## Step 1.5: Should brainstorming run?
+
+Brainstorming exists for creative work — new features, new components,
+new functionality, or behavior changes — that warrants up-front design
+discussion.
+
+**Skip immediately if the card's `type` is `bug`.** No further checks
+needed: bug fixes have a defined desired outcome (restore broken
+behavior), not a design to negotiate.
+
+Also skip Phase 0 entirely (proceed to Phase 1) when any of these
+apply:
+
+- Labels include `bug`, `bugfix`, `chore`, `dependencies`, `infra`,
+  `refactor`, or `simple`. (`simple` triggers the fast path defined
+  in `run-autonomous` — no design ceremony needed.)
+- Title describes a repair or maintenance task ("Fix...", "Repair...",
+  "Bump...", "Update <dep>...").
+- Body describes a known broken behavior to restore, not new product
+  behavior to design.
+
+Otherwise (the card describes new product behavior to design),
+proceed to Step 2.
 
 ## Step 2: Load and run brainstorming inline
 
