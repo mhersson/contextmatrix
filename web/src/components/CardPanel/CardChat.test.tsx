@@ -234,6 +234,139 @@ describe('CardChat — cardLogs prop', () => {
   });
 });
 
+describe('CardChat — message type filter bar', () => {
+  it('renders the filter bar with three checkboxes when session is active', () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
+  });
+
+  it('Text checkbox is checked by default', () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeChecked();
+  });
+
+  it('Tool calls checkbox is unchecked by default', () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    expect(screen.getByRole('checkbox', { name: /Tool calls/i })).not.toBeChecked();
+  });
+
+  it('Thinking checkbox is unchecked by default', () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    expect(screen.getByRole('checkbox', { name: /Thinking/i })).not.toBeChecked();
+  });
+
+  it('text messages are shown when Text filter is on (default)', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'text message visible' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.getByText(/text message visible/)).toBeInTheDocument();
+  });
+
+  it('text messages are hidden when Text filter is turned off', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'text message hidden' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Text/i }));
+    expect(screen.queryByText(/text message hidden/)).not.toBeInTheDocument();
+  });
+
+  it('tool_call messages are hidden by default (Tool calls filter off)', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'tool_call', content: 'tool call hidden' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.queryByText(/tool call hidden/)).not.toBeInTheDocument();
+  });
+
+  it('tool_call messages are shown when Tool calls filter is turned on', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'tool_call', content: 'tool call shown' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tool calls/i }));
+    expect(screen.getByText(/tool call shown/)).toBeInTheDocument();
+  });
+
+  it('thinking messages are hidden by default (Thinking filter off)', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'thinking', content: 'thinking hidden' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.queryByText(/thinking hidden/)).not.toBeInTheDocument();
+  });
+
+  it('thinking messages are shown when Thinking filter is turned on', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'thinking', content: 'thinking shown' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Thinking/i }));
+    expect(screen.getByText(/thinking shown/)).toBeInTheDocument();
+  });
+
+  it('user messages are always shown regardless of filters', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'user', content: 'user message always' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.getByText(/user message always/)).toBeInTheDocument();
+  });
+
+  it('stderr messages are always shown regardless of filters', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'stderr', content: 'stderr always shown' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.getByText(/stderr always shown/)).toBeInTheDocument();
+  });
+
+  it('system messages are always shown regardless of filters', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'system', content: 'system always shown' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.getByText(/system always shown/)).toBeInTheDocument();
+  });
+
+  it('gap messages are always shown regardless of filters', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'gap', content: 'gap always shown' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    expect(screen.getByText(/gap always shown/)).toBeInTheDocument();
+  });
+
+  it('toggling Text off then on again restores text message visibility', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'toggle me' },
+    ];
+    render(<CardChat card={runningCard} cardLogs={logs} />);
+    const textCheckbox = screen.getByRole('checkbox', { name: /Text/i });
+
+    // Initially visible
+    expect(screen.getByText(/toggle me/)).toBeInTheDocument();
+
+    // Turn off
+    fireEvent.click(textCheckbox);
+    expect(screen.queryByText(/toggle me/)).not.toBeInTheDocument();
+
+    // Turn back on
+    fireEvent.click(textCheckbox);
+    expect(screen.getByText(/toggle me/)).toBeInTheDocument();
+  });
+
+  it('filter bar is not rendered when session is not running', () => {
+    render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
+    expect(screen.queryByRole('checkbox', { name: /Text/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Tool calls/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Thinking/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('CardChat — error state lifecycle', () => {
   it('shows the error banner after a failed send', async () => {
     mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });

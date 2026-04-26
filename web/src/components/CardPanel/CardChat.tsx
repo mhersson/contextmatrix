@@ -26,6 +26,9 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [promoting, setPromoting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showText, setShowText] = useState(true);
+  const [showToolCalls, setShowToolCalls] = useState(false);
+  const [showThinking, setShowThinking] = useState(false);
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -49,6 +52,13 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   if (card.runner_status !== 'running' || card.autonomous) {
     return null;
   }
+
+  const filteredLogs = cardLogs.filter((entry) => {
+    if (entry.type === 'text') return showText;
+    if (entry.type === 'tool_call') return showToolCalls;
+    if (entry.type === 'thinking') return showThinking;
+    return true;
+  });
 
   const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit;
@@ -90,6 +100,34 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Filter bar */}
+      <div className="flex items-center gap-4 px-4 py-2 border-b border-[var(--bg3)] bg-[var(--bg1)] text-xs font-mono shrink-0">
+        <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--fg)' }}>
+          <input
+            type="checkbox"
+            checked={showText}
+            onChange={(e) => setShowText(e.target.checked)}
+          />
+          Text
+        </label>
+        <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--aqua)' }}>
+          <input
+            type="checkbox"
+            checked={showToolCalls}
+            onChange={(e) => setShowToolCalls(e.target.checked)}
+          />
+          Tool calls
+        </label>
+        <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--grey2)' }}>
+          <input
+            type="checkbox"
+            checked={showThinking}
+            onChange={(e) => setShowThinking(e.target.checked)}
+          />
+          Thinking
+        </label>
+      </div>
+
       {/* Log column */}
       <div
         ref={logContainerRef}
@@ -99,10 +137,10 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
         aria-live="polite"
         aria-label="Session chat log"
       >
-        {cardLogs.length === 0 ? (
+        {filteredLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          cardLogs.map((entry, idx) => <ChatEntry key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />)
+          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />)
         )}
       </div>
 
