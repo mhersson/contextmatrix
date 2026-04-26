@@ -321,3 +321,156 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 			"service.ErrPromoteRequiresHuman must be detectable via errors.Is through the wrap chain")
 	})
 }
+
+// TestStartReview_HappyPath verifies the fused transition + skill-load: claim
+// auto-transitions to in_progress, then start_review moves the card to review
+// AND returns the review-task skill in one call.
+func TestStartReview_HappyPath(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Review fusion happy", "feature", "high")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project":      "test-project",
+		"card_id":      "TEST-001",
+		"agent_id":     "agent-A",
+		"caller_model": "opus",
+	})
+
+	require.False(t, resultIsError(result, err), "start_review should succeed: %s", errorText(result, err))
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "review-task", out.SkillName)
+	assert.Equal(t, "opus", out.Model)
+	assert.NotEmpty(t, out.Content, "skill content must be present")
+	assert.Contains(t, out.Content, "TEST-001", "card context must be injected")
+	assert.True(t, out.Inline, "review-task is inline-eligible when caller_model matches")
+	assert.Contains(t, out.Content, "INLINE EXECUTION", "inline response must include the lifecycle envelope")
+
+	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	assert.Equal(t, "review", card.State, "card must be transitioned to review")
+}
+
+// TestStartReview_ForbiddenTransition verifies that start_review rejects a
+// transition that the project's state machine forbids and does not load the
+// skill or change state. Uses blocked -> review (forbidden in the test fixture).
+func TestStartReview_ForbiddenTransition(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Forbidden review", "feature", "high")
+
+	// Claim the card (auto-transitions todo -> in_progress).
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	// Transition to blocked (allowed: in_progress -> blocked).
+	callTool(t, env, "transition_card", map[string]any{
+		"project":   "test-project",
+		"card_id":   "TEST-001",
+		"agent_id":  "agent-A",
+		"new_state": "blocked",
+	})
+
+	// blocked -> review is forbidden by the test fixture transitions.
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	require.True(t, resultIsError(result, err), "start_review from blocked must fail")
+	assert.Contains(t, errorText(result, err), "transition")
+
+	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	assert.Equal(t, "blocked", card.State, "card state must not change on forbidden transition")
+}
+
+// TestStartReview_MissingAgentID verifies that omitting agent_id is rejected
+// by the schema layer before any state mutation can occur.
+func TestStartReview_MissingAgentID(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Missing agent_id review", "feature", "high")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+	})
+
+	require.True(t, resultIsError(result, err), "start_review without agent_id must fail")
+
+	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	assert.Equal(t, "in_progress", card.State, "card state must not change when agent_id is missing")
+}
+
+// TestStartReview_AgentMismatch verifies that start_review rejects a call from
+// an agent that does not own the claim, and the card state is unchanged.
+func TestStartReview_AgentMismatch(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Mismatched review", "feature", "high")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-B",
+	})
+
+	require.True(t, resultIsError(result, err), "start_review by non-owner must fail")
+	assert.Contains(t, errorText(result, err), "agent")
+
+	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	assert.Equal(t, "in_progress", card.State, "card state must not change on agent mismatch")
+}
+
+// TestStartReview_MissingCard verifies that start_review fails before any
+// transition is attempted when the card does not exist.
+func TestStartReview_MissingCard(t *testing.T) {
+	env := setupMCP(t)
+
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-999",
+		"agent_id": "agent-A",
+	})
+
+	require.True(t, resultIsError(result, err), "start_review for unknown card must fail")
+}

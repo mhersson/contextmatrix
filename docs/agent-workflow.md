@@ -97,15 +97,25 @@ flow.
 
 ```
 workflow-skills/
-  create-task.md      # /contextmatrix:create-task
-  create-plan.md      # /contextmatrix:create-plan
-  execute-task.md     # /contextmatrix:execute-task
-  review-task.md      # /contextmatrix:review-task
-  document-task.md    # /contextmatrix:document-task
-  init-project.md     # /contextmatrix:init-project
-  run-autonomous.md   # /contextmatrix:run-autonomous
-                      # /contextmatrix:start-workflow  (server-side only — no skill file)
+  create-task.md          # /contextmatrix:create-task (slash command + skill)
+  init-project.md         # /contextmatrix:init-project (slash command + skill)
+  create-plan.md          # skill only (loaded via get_skill / start_workflow)
+  execute-task.md         # skill only
+  review-task.md          # skill only (loaded via start_review or get_skill)
+  document-task.md        # skill only
+  run-autonomous.md       # skill only (routed to by start_workflow when autonomous)
+  brainstorming.md        # skill only
+  systematic-debugging.md # skill only
+                          # /contextmatrix:start-workflow (server-side only — no skill file)
 ```
+
+Only three skills are exposed as slash commands: `create-task`,
+`init-project`, and `start-workflow`. Phase-specific skills (`create-plan`,
+`execute-task`, `review-task`, `document-task`, `run-autonomous`,
+`brainstorming`, `systematic-debugging`) are loaded by the orchestrator via
+`get_skill` (or `start_review` for the review-entry transition); they are
+not user-facing entry points. This mirrors how `brainstorming` and
+`systematic-debugging` have always worked.
 
 `start-workflow` has no skill file. It exists as both a **prompt** (slash
 command) and a **tool** (`start_workflow`). Both are server-side only: they fetch
@@ -153,42 +163,36 @@ Skills are engaged by description match. Authors should anchor descriptions in *
 
 CC exposes these slash commands via the MCP `prompts` capability:
 
-| Command                          | Argument      | Type               | Description                                                        |
-| -------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------ |
-| `/contextmatrix:create-task`     | `description` | optional free text | Start task creation interview                                      |
-| `/contextmatrix:create-plan`     | `card_id`     | required           | Create plan + subtasks for a card                                  |
-| `/contextmatrix:execute-task`    | `card_id`     | required           | Claim and execute a task                                           |
-| `/contextmatrix:review-task`     | `card_id`     | required           | Devils-advocate review of a task                                   |
-| `/contextmatrix:document-task`   | `card_id`     | required           | Write external docs for a task                                     |
-| `/contextmatrix:init-project`    | `name`        | optional           | Initialize a new project board                                     |
-| `/contextmatrix:run-autonomous`  | `card_id`     | required           | Run full autonomous lifecycle for a card                           |
-| `/contextmatrix:start-workflow`  | `card_id`     | required           | Start the workflow for a card, routing automatically based on card |
+| Command                         | Argument      | Type               | Description                                                                           |
+| ------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview                                                         |
+| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board                                                        |
+| `/contextmatrix:start-workflow` | `card_id`     | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag       |
 
-`/contextmatrix:start-workflow` is a convenience entry point: it inspects the
+`/contextmatrix:start-workflow` is the canonical entry point: it inspects the
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
-`create-plan` (HITL cards). Use it when you know the card ID but not which
-workflow applies.
+`create-plan` (HITL cards). Phase-specific prompts for `create-plan`,
+`execute-task`, `review-task`, `document-task`, and `run-autonomous` were
+intentionally removed from the slash-command surface — they're internal
+orchestration steps, not user entry points. The orchestrator loads each phase's
+skill via `get_skill` (or `start_review` for the review-entry transition).
 
 Usage examples:
 
 ```
 /contextmatrix:create-task I want to create a web page for my demo app
 /contextmatrix:create-task there is a bug in the login form validation
-/contextmatrix:create-plan ALPHA-001
-/contextmatrix:execute-task ALPHA-003
-/contextmatrix:review-task ALPHA-001
-/contextmatrix:document-task ALPHA-001
 /contextmatrix:start-workflow ALPHA-001   # routes to run-autonomous or create-plan automatically
+/contextmatrix:init-project my-new-project
 ```
 
-For delegation-wrapper skills (`create-plan`, `execute-task`, `review-task`,
-`document-task`), the server builds a delegation prompt instructing the
-receiving agent to call `get_skill(...)` — which returns the full skill
-instructions with injected card context and a `model` field — then spawn a
-sub-agent via the `Agent` tool with the returned `model`, `description` (short
-summary), and `prompt` (set to the returned content). For inline skills
-(`create-task`, `init-project`), the server returns raw skill content directly;
-no sub-agent is involved.
+The two surviving skill-content prompts (`create-task`, `init-project`)
+return raw skill content for inline execution by the main agent — no sub-agent
+involved. `start-workflow` returns the workflow skill (`create-plan` or
+`run-autonomous`) wrapped in the inline-execution envelope; the orchestrator
+runs it directly. Phase-specific skills loaded later via `get_skill` either
+run inline (`brainstorming`, `review-task` when caller_model matches) or are
+spawned as sub-agents via the `Agent` tool with the returned `model`.
 
 ## Workflow
 
@@ -200,10 +204,11 @@ creating the card on the board, and offering next steps — all without spawning
 sub-agent. This is required because the interview needs multi-turn
 back-and-forth with the user, which only works in the main agent's context.
 
-**2. Planning** (`/contextmatrix:create-plan <card_id>`)
+**2. Planning** (loaded internally — orchestrator calls `get_skill('create-plan')`)
 
-The slash command returns a delegation prompt that instructs the orchestrator to
-run planning inline and create subtasks directly.
+When a user invokes `/contextmatrix:start-workflow` on a HITL card (or the
+`start_workflow` MCP tool routes there), the orchestrator runs planning inline
+and creates subtasks directly.
 
 The flow is:
 
@@ -223,7 +228,7 @@ The flow is:
    the plan. No sub-agent is spawned — this is trivial work that doesn't justify
    the overhead of a separate agent.
 
-**3. Execution** (`/contextmatrix:execute-task <card_id>`)
+**3. Execution** (loaded internally — orchestrator calls `get_skill('execute-task')`)
 
 CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 
@@ -252,7 +257,7 @@ This is separate from sub-agents' own `report_usage` calls; both are required.
 After review completes, the orchestrator makes one final `report_usage` call to
 capture remaining tokens before transitioning the parent to `done`.
 
-**4. Documentation** (`/contextmatrix:document-task <card_id>`)
+**4. Documentation** (loaded internally — orchestrator calls `get_skill('document-task')`)
 
 Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
 sub-agent that reads the parent card + all subtasks and writes external
@@ -261,11 +266,13 @@ no human approval gate before writing. The sub-agent returns `DOCS_WRITTEN`
 immediately with a list of files written. CC presents the summary to the user.
 The parent card remains in `in_progress` during this phase.
 
-**5. Review** (`/contextmatrix:review-task <card_id>`)
+**5. Review** (loaded internally via the `start_review` MCP tool)
 
-The orchestrator transitions the parent to `review` before spawning the review
-agent. Uses a two-phase flow to avoid sub-agent death during user-approval
-waits:
+The orchestrator calls `start_review(card_id, agent_id, caller_model)`, which
+atomically transitions the parent to `review` AND returns the `review-task`
+skill in one call — there is no path to load the review skill without
+committing the transition. Uses a two-phase flow to avoid sub-agent death
+during user-approval waits:
 
 - **Phase 1 — Review sub-agent**: CC spawns a short-lived review sub-agent that
   evaluates both the code and any documentation written in step 4, writes a
@@ -294,8 +301,9 @@ The parent card lifecycle with potential rejections:
 ## Autonomous mode
 
 Cards with `autonomous: true` bypass human approval gates. The
-`/contextmatrix:run-autonomous` slash command drives the entire lifecycle for a
-single card using the `run-autonomous.md` skill. The orchestrator model is set
+`/contextmatrix:start-workflow` slash command (or the `start_workflow` MCP tool)
+routes the card to `run-autonomous` automatically and drives the entire
+lifecycle using the `run-autonomous.md` skill. The orchestrator model is set
 by the invoker — Opus for local autonomous (user's session), Sonnet for the
 remote runner (via container config).
 
@@ -492,9 +500,10 @@ section below for the full breakdown.
 The system uses two models: **Opus** (strongest reasoning) and **Sonnet**
 (cost-effective workhorse). Haiku is not used in any workflow. The orchestrator
 decides whether each phase runs inline or as a sub-agent — the `inline` field
-from `get_skill` uses exact model match, but the orchestrator overrides it for
-phases where the decision is driven by context management rather than model
-compatibility.
+returned by `get_skill` (and by `start_review`, which loads the review-task
+skill atomically with the state transition) uses exact model match, but the
+orchestrator overrides it for phases where the decision is driven by context
+management rather than model compatibility.
 
 ### HITL + Local Autonomous (Opus orchestrator)
 
@@ -504,7 +513,7 @@ compatibility.
 | Planning         | Opus   | Inline on orchestrator                               | Orchestrator already is Opus — no spawn needed, retains plan context for subtask creation                       |
 | Subtask creation | Opus   | Inline — calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
 | Execution        | Sonnet | Sub-agent per subtask                                | Context isolation (fresh ~50K vs accumulated 150K+) and parallel execution; Sonnet is 1.67x cheaper at scale    |
-| Review           | Opus   | Inline (get_skill inline=true, Opus==Opus)           | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
+| Review           | Opus   | Inline (start_review inline=true, Opus==Opus)        | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
 | Documentation    | Sonnet | Sub-agent                                            | Context isolation — orchestrator has 150K+ accumulated context by this phase; fresh sub-agent starts at ~25K    |
 
 ### Remote Runner (Sonnet orchestrator)
@@ -515,13 +524,15 @@ compatibility.
 | Planning         | Sonnet | Inline on orchestrator                                         | Sonnet 4.6 plans well; inline avoids spawn overhead and retains plan context       |
 | Subtask creation | Sonnet | Inline — calls `create_card()` directly                        | Same as HITL — trivial work, no sub-agent needed                                   |
 | Execution        | Sonnet | Sub-agent per subtask                                          | Context isolation + parallel execution; same rationale as HITL                     |
-| Review           | Opus   | Sub-agent (get_skill inline=false, Sonnet!=Opus → spawns Opus) | Only phase where Opus premium pays off — catches issues before costly rework loops |
+| Review           | Opus   | Sub-agent (start_review inline=false, Sonnet!=Opus → spawns Opus) | Only phase where Opus premium pays off — catches issues before costly rework loops |
 | Documentation    | Sonnet | Sub-agent                                                      | Context isolation — runner has no human to intervene if context grows too large    |
 
 ### Inline/sub-agent decision model
 
-The `inline` field from `get_skill` uses **exact model match** — it returns
-`true` when the caller's model family matches the skill's model family:
+The `inline` field returned by `get_skill` (and by `start_review`) uses
+**exact model match** — it returns `true` when the caller's model family
+matches the skill's model family AND the skill is on the inline-eligible
+whitelist (`review-task`, `create-plan`, `brainstorming`):
 
 - **Planning, subtask creation:** Always inline — orchestrator instructions
   override the inline field. The orchestrator retains context for downstream
@@ -529,10 +540,12 @@ The `inline` field from `get_skill` uses **exact model match** — it returns
 - **Execution, documentation:** Always sub-agent — orchestrator instructions
   specify this for context isolation and parallel execution. The inline field is
   not consulted.
-- **Review:** Follow the `get_skill` inline field — this is the one phase where
-  model compatibility matters. Opus caller gets `inline: true` (Opus==Opus) and
-  runs review directly. Sonnet caller gets `inline: false` (Sonnet!=Opus) and
-  spawns an Opus sub-agent.
+- **Review:** Follow the inline field returned by `start_review` — this is the
+  one phase where model compatibility matters. Opus caller gets `inline: true`
+  (Opus==Opus) and runs review directly. Sonnet caller gets `inline: false`
+  (Sonnet!=Opus) and spawns an Opus sub-agent. Either way, `start_review`
+  has already transitioned the parent card to `review` before returning, so
+  the state and the action are atomically tied.
 
 ### Why `run-autonomous.md` has no model
 

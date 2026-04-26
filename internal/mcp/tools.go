@@ -37,6 +37,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
 	registerStartWorkflow(server, svc, workflowSkillsDir)
+	registerStartReview(server, svc, workflowSkillsDir)
 	registerGetSkill(server, svc, workflowSkillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
@@ -962,6 +963,71 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 			SkillName: skill,
 			Content:   content,
 			Inline:    true,
+		}, nil
+	})
+}
+
+// --- start_review tool ---
+
+type startReviewInput struct {
+	Project         string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID          string `json:"card_id" jsonschema:"required,parent card ID to enter review (e.g. ALPHA-001)"`
+	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition — must own the card claim"`
+	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
+	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
+}
+
+func registerStartReview(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "start_review",
+		Description: "Atomically transition a parent card to 'review' and return the review-task skill. " +
+			"Replaces the two-call pattern transition_card + get_skill('review-task') — there is no way to " +
+			"load the review skill without committing the transition. Caller must own the card claim " +
+			"(agent_id is required and is verified against the assigned agent). Returns the same shape as " +
+			"get_skill (skill_name, model, content, inline). If the transition fails (forbidden state, " +
+			"agent ownership mismatch, card not found), the skill is not loaded and the call returns an error.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startReviewInput) (*mcp.CallToolResult, getSkillOutput, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, getSkillOutput{}, err
+		}
+
+		newState := board.StateReview
+
+		patchInput := service.PatchCardInput{
+			AgentID: input.AgentID,
+			State:   &newState,
+		}
+
+		if _, err := svc.PatchCard(ctx, project, input.CardID, patchInput); err != nil {
+			return nil, getSkillOutput{}, fmt.Errorf("start review for %s: %w", input.CardID, err)
+		}
+
+		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "review-task", skillArgs{
+			CardID: input.CardID,
+		}, includePreamble)
+		if err != nil {
+			return nil, getSkillOutput{}, fmt.Errorf("start review %s: load skill: %w", input.CardID, err)
+		}
+
+		content := stripAgentConfig(result.Content)
+
+		callerFamily := normalizeModelFamily(input.CallerModel)
+		canInline := callerFamily != "" &&
+			strings.EqualFold(callerFamily, result.Model) &&
+			isInlineEligible("review-task")
+
+		if canInline {
+			content = buildInlineExecutionPrompt(content, input.CardID, "review-task")
+		}
+
+		return nil, getSkillOutput{
+			SkillName: "review-task",
+			Model:     result.Model,
+			Content:   content,
+			Inline:    canInline,
 		}, nil
 	})
 }

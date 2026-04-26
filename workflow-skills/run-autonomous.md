@@ -185,16 +185,14 @@ Based on the card's current state and body content:
 
 ## Phase 5: Review (follow inline field)
 
-15. Transition the parent card to `review`:
-    `transition_card(card_id='<card_id>', new_state='review')`.
-16. Call `get_skill(skill_name='review-task', card_id='<card_id>',
+15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>,
     caller_model='<your_model>')`.
-17. If `inline: true`, execute directly. Otherwise, release the parent card
+16. If `inline: true`, execute directly. Otherwise, release the parent card
     claim (`release_card`), then spawn a review sub-agent with the returned
     `model`.
-18. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
+17. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
     (`claim_card`) — the review always releases the claim when done.
-19. Parse the `recommendation`:
+18. Parse the `recommendation`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**: Increment `review_attempts` by updating the card.
@@ -213,8 +211,8 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-20. Call `report_usage` one final time with your remaining token consumption.
-21. If the card has a `branch_name`:
+19. Call `report_usage` one final time with your remaining token consumption.
+20. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
        referencing the card title and summarizing the work. If the card has a
@@ -222,12 +220,12 @@ Based on the card's current state and body content:
        the PR targets the correct branch.
     c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
-22. Transition the card to `done`:
+21. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-23. Release the card claim:
+22. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
-24. Print structured output:
+23. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
