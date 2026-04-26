@@ -146,10 +146,13 @@ is Critical, nothing is. Marking nitpicks as Critical erodes the signal.
 State one of:
 
 - **Approve** — work meets requirements, no blocking issues
-- **Approve with notes** — work is acceptable, but note specific items for
-  follow-up
+- **Approve with notes** — mergeable as-is; notes are genuinely optional
+  (nits, nice-to-haves, future ideas)
 - **Send back for revision** — specific issues must be addressed before this can
   be considered done
+
+**If it can't be merged as-is, the recommendation is `revise`.** Never use
+`approve_with_notes` to defer required fixes.
 
 ## Step 4: Write findings to card body and return
 
