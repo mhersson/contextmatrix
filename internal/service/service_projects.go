@@ -39,6 +39,11 @@ type UpdateProjectInput struct {
 	Priorities  []string
 	Transitions map[string][]string
 	GitHub      *board.GitHubImportConfig
+	// DefaultSkills uses wholesale-PUT semantics (replaces existing):
+	//   nil pointer       — clear (mount the full task-skills set)
+	//   non-nil empty     — mount no skills
+	//   non-nil populated — constrain to listed skills
+	DefaultSkills *[]string
 }
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
@@ -191,6 +196,11 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
 	}
+
+	// DefaultSkills follows wholesale PUT semantics (matches cards' PUT
+	// handling): nil pointer in the request clears the field, allowing
+	// the UI to switch a project from constrained back to "mount full set".
+	cfg.DefaultSkills = input.DefaultSkills
 
 	// SaveProject validates and persists
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
@@ -618,6 +628,11 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 		for k, v := range cfg.Templates {
 			cp.Templates[k] = v
 		}
+	}
+
+	if cfg.DefaultSkills != nil {
+		clone := slices.Clone(*cfg.DefaultSkills)
+		cp.DefaultSkills = &clone
 	}
 
 	return &cp

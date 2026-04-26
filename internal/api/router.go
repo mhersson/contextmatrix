@@ -83,7 +83,8 @@ type RouterConfig struct {
 	MCPAPIKey           string
 	Port                int
 	GitHubTokenProvider githubauth.TokenGenerator
-	TaskSkillsGit       *gitops.Manager // reserved for next-week's task-skills UI
+	TaskSkillsGit       *gitops.Manager // reserved for git-pull refresh of task-skills (future)
+	TaskSkillsDir       string          // absolute path to the task-skills directory; empty disables the skills selector
 	GitHubAPIBaseURL    string
 	GitHubAllowedHosts  []string
 	SessionManager      *sessionlog.Manager // optional; enables card-scoped SSE log path
@@ -100,8 +101,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux := http.NewServeMux()
 
 	// Create handlers
-	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil}
-	ch := &cardHandlers{svc: cfg.Service}
+	taskSkillsLister := newTaskSkillsLister(cfg.TaskSkillsDir)
+	tsh := &taskSkillHandlers{lister: taskSkillsLister}
+
+	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
+	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
@@ -158,6 +162,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
+
+	// Task-skills (used by project default + per-card skill selectors in the UI)
+	mux.HandleFunc("GET /api/task-skills", tsh.listTaskSkills)
 
 	// Sync routes
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)

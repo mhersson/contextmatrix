@@ -76,7 +76,12 @@ type PatchCardInput struct {
 	CreatePR            *bool
 	Vetted              *bool
 	Skills              *[]string // nil = don't change; non-nil = set (empty allowed)
-	BaseBranch          *string
+	// SkillsClear, when true, explicitly resets Skills to nil. Needed
+	// because pure JSON cannot distinguish "skills field omitted" from
+	// "skills: null" (Go decodes both as nil pointer); without this the
+	// UI cannot move a card back to "use project default" via PATCH.
+	SkillsClear bool
+	BaseBranch  *string
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -705,7 +710,10 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		enforceVettingInvariant(card)
 
-		if input.Skills != nil {
+		switch {
+		case input.SkillsClear:
+			card.Skills = nil
+		case input.Skills != nil:
 			card.Skills = input.Skills
 		}
 

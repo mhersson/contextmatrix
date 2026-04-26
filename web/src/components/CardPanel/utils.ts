@@ -24,6 +24,21 @@ function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean 
   return true;
 }
 
+/**
+ * Three-state equality for `skills`. null and undefined are equivalent
+ * ("use project default"); arrays are compared element-wise.
+ */
+function skillsEqual(
+  a: string[] | null | undefined,
+  b: string[] | null | undefined,
+): boolean {
+  const aNorm = a ?? null;
+  const bNorm = b ?? null;
+  if (aNorm === null && bNorm === null) return true;
+  if (aNorm === null || bNorm === null) return false;
+  return arraysEqual(aNorm, bNorm);
+}
+
 /** True when the edited card differs from the server card in any save-relevant field. */
 export function isCardDirty(edited: Card, original: Card): boolean {
   return (
@@ -37,7 +52,8 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     (edited.feature_branch ?? false) !== (original.feature_branch ?? false) ||
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
-    (edited.base_branch ?? '') !== (original.base_branch ?? '')
+    (edited.base_branch ?? '') !== (original.base_branch ?? '') ||
+    !skillsEqual(edited.skills, original.skills)
   );
 }
 
@@ -68,6 +84,18 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.base_branch ?? '') !== (original.base_branch ?? '')) {
     updates.base_branch = edited.base_branch ?? '';
+  }
+  if (!skillsEqual(edited.skills, original.skills)) {
+    const next = edited.skills;
+    if (next === null || next === undefined) {
+      // Explicit clear via the sentinel — pure JSON cannot distinguish
+      // absent from null, so the backend needs this flag to know the
+      // user actively chose "use project default" rather than just
+      // omitting the field.
+      updates.skills_clear = true;
+    } else {
+      updates.skills = next;
+    }
   }
   return updates;
 }

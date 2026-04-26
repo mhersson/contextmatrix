@@ -21,18 +21,20 @@ type createProjectRequest struct {
 
 // updateProjectRequest is the JSON body for PUT /api/projects/{project}.
 type updateProjectRequest struct {
-	Repo        string                    `json:"repo,omitempty"`
-	States      []string                  `json:"states"`
-	Types       []string                  `json:"types"`
-	Priorities  []string                  `json:"priorities"`
-	Transitions map[string][]string       `json:"transitions"`
-	GitHub      *board.GitHubImportConfig `json:"github,omitempty"`
+	Repo          string                    `json:"repo,omitempty"`
+	States        []string                  `json:"states"`
+	Types         []string                  `json:"types"`
+	Priorities    []string                  `json:"priorities"`
+	Transitions   map[string][]string       `json:"transitions"`
+	GitHub        *board.GitHubImportConfig `json:"github,omitempty"`
+	DefaultSkills *[]string                 `json:"default_skills,omitempty"`
 }
 
 // projectHandlers contains handlers for project-related endpoints.
 type projectHandlers struct {
 	svc           *service.CardService
 	runnerEnabled bool
+	taskSkills    *taskSkillsLister
 }
 
 // effectiveRemoteExecution returns a cloned project config with remote_execution.enabled
@@ -190,13 +192,32 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate default_skills against the configured task-skills directory.
+	// nil pointer = field omitted, preserve current; non-nil = replace
+	// (empty list means "mount nothing").
+	if req.DefaultSkills != nil && len(*req.DefaultSkills) > 0 {
+		available, err := h.taskSkills.Names(r.Context())
+		if err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		if err := validateSkillsAgainstAvailable(*req.DefaultSkills, available); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
+
+			return
+		}
+	}
+
 	cfg, err := h.svc.UpdateProject(r.Context(), projectName, service.UpdateProjectInput{
-		Repo:        req.Repo,
-		States:      req.States,
-		Types:       req.Types,
-		Priorities:  req.Priorities,
-		Transitions: req.Transitions,
-		GitHub:      req.GitHub,
+		Repo:          req.Repo,
+		States:        req.States,
+		Types:         req.Types,
+		Priorities:    req.Priorities,
+		Transitions:   req.Transitions,
+		GitHub:        req.GitHub,
+		DefaultSkills: req.DefaultSkills,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)

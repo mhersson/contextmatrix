@@ -35,7 +35,8 @@ type listCardsResponse struct {
 
 // cardHandlers contains handlers for card-related endpoints.
 type cardHandlers struct {
-	svc *service.CardService
+	svc        *service.CardService
+	taskSkills *taskSkillsLister
 }
 
 // createCardRequest is the JSON body for creating a card.
@@ -78,6 +79,13 @@ type updateCardRequest struct {
 }
 
 // patchCardRequest is the JSON body for partial card updates.
+//
+// SkillsClear is the explicit "clear" sentinel: pure JSON cannot
+// distinguish an omitted `skills` field from an explicit `null`
+// (Go decodes both as a nil pointer), so the UI sends
+// `{"skills_clear": true}` to mean "set Skills back to nil so the
+// project default applies again". This sits alongside the normal
+// `skills` field used for explicit list / explicit empty.
 type patchCardRequest struct {
 	Title               *string   `json:"title,omitempty"`
 	State               *string   `json:"state,omitempty"`
@@ -91,6 +99,36 @@ type patchCardRequest struct {
 	Vetted              *bool     `json:"vetted,omitempty"`
 	BaseBranch          *string   `json:"base_branch,omitempty"`
 	Skills              *[]string `json:"skills,omitempty"`
+	SkillsClear         bool      `json:"skills_clear,omitempty"`
+}
+
+// validateCardSkills validates that each skill name in `skills` exists in
+// the configured task-skills directory, and (when the project has a
+// non-nil default_skills) is a subset of that. Returns nil for nil or
+// empty skills slices — those are always valid (mount full set / mount
+// nothing respectively).
+func (h *cardHandlers) validateCardSkills(r *http.Request, projectName string, skills *[]string) error {
+	if skills == nil || len(*skills) == 0 {
+		return nil
+	}
+
+	ctx := r.Context()
+
+	available, err := h.taskSkills.Names(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := validateSkillsAgainstAvailable(*skills, available); err != nil {
+		return err
+	}
+
+	project, err := h.svc.GetProject(ctx, projectName)
+	if err != nil {
+		return err
+	}
+
+	return validateSkillsAgainstProjectDefault(*skills, project.DefaultSkills)
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
@@ -280,6 +318,12 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
+
+		return
+	}
+
 	input := service.CreateCardInput{
 		Title:               req.Title,
 		Type:                req.Type,
@@ -372,6 +416,12 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
+
+		return
+	}
+
 	input := service.UpdateCardInput{
 		Title:               req.Title,
 		Type:                req.Type,
@@ -443,6 +493,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
+
+		return
+	}
+
 	input := service.PatchCardInput{
 		Title:               req.Title,
 		State:               req.State,
@@ -457,6 +513,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		Vetted:              req.Vetted,
 		BaseBranch:          req.BaseBranch,
 		Skills:              req.Skills,
+		SkillsClear:         req.SkillsClear,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

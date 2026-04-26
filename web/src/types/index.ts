@@ -43,6 +43,16 @@ export interface Card {
   activity_log?: ActivityEntry[];
   token_usage?: TokenUsage;
   body: string;
+  // skills uses three-state semantics (matching the backend):
+  //   undefined / null — use project default (or full set if project default is null)
+  //   []               — mount no skills for this card
+  //   [name, ...]      — constrain to listed skills
+  skills?: string[] | null;
+}
+
+export interface TaskSkillSummary {
+  name: string;
+  description: string;
 }
 
 export interface TokenUsage {
@@ -75,6 +85,11 @@ export interface ProjectConfig {
   };
   github?: GitHubImportConfig;
   templates?: Record<string, string>;
+  // default_skills uses three-state semantics:
+  //   undefined / null — mount the full task-skills set for cards that don't override
+  //   []               — mount no skills (cards override per-card if needed)
+  //   [name, ...]      — constrain cards to listed skills
+  default_skills?: string[] | null;
 }
 
 export interface CardFilter {
@@ -145,6 +160,7 @@ export interface CreateCardInput {
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
+  skills?: string[] | null;
 }
 
 export interface UpdateCardInput {
@@ -159,6 +175,7 @@ export interface UpdateCardInput {
   context?: string[];
   custom?: Record<string, unknown>;
   body?: string;
+  skills?: string[] | null;
 }
 
 export interface PatchCardInput {
@@ -173,6 +190,11 @@ export interface PatchCardInput {
   create_pr?: boolean;
   base_branch?: string;
   vetted?: boolean;
+  // skills: explicit list (or empty) goes here; pure JSON cannot
+  // distinguish absent from null, so use skills_clear to express
+  // "set back to nil so the project default applies".
+  skills?: string[] | null;
+  skills_clear?: boolean;
 }
 
 export interface CardContext {
@@ -232,6 +254,7 @@ export interface UpdateProjectInput {
   priorities: string[];
   transitions: Record<string, string[]>;
   github?: GitHubImportConfig;
+  default_skills?: string[] | null;
 }
 
 export interface StopAllResponse {

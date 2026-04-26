@@ -46,6 +46,7 @@ export function InfoTab({
       onRelease={onRelease}
       editedVetted={editedCard.vetted ?? false}
       onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
+      onSkillsChange={(skills) => setEditedCard((prev) => ({ ...prev, skills }))}
       excludeStateFromPicker={excludeStateFromPicker}
     />
   );
