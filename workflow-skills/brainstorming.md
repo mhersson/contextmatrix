@@ -26,6 +26,15 @@ that somehow reached this skill), return immediately. The orchestrator
 should have skipped Phase 0 entirely in autonomous mode; this is a
 belt-and-suspenders fallback.
 
+## Log engagement (first action)
+
+Once, before opening the dialogue, call:
+
+```
+add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
+        action='skill_engaged', message='engaged brainstorming')
+```
+
 ## Heartbeat
 
 - Before prompting the user at any gate: call `heartbeat` + `report_usage`.
