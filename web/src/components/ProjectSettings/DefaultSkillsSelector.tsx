@@ -23,7 +23,13 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
   const headingId = useId();
   const radioName = useId();
 
-  const mode = modeFor(value);
+  // Track previous value to detect external resets during render (derived-state pattern).
+  const [prevValue, setPrevValue] = useState(value);
+  const [localMode, setLocalMode] = useState<Mode>(modeFor(value));
+  if (prevValue !== value) {
+    setPrevValue(value);
+    setLocalMode(modeFor(value));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -41,9 +47,10 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
   const selected = useMemo(() => new Set(value ?? []), [value]);
 
   const setMode = (next: Mode) => {
+    setLocalMode(next);
     if (next === 'inherit') onChange(null);
     else if (next === 'none') onChange([]);
-    else onChange(value && value.length > 0 ? value : []);
+    // 'specific': do NOT call onChange — checkboxes become visible via localMode
   };
 
   const toggle = (name: string) => {
@@ -60,19 +67,19 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
       <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }} aria-labelledby={headingId}>
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="inherit"
           label="Mount the full task-skills set (default)"
           onChange={setMode}
         />
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="specific"
           label="Constrain to selected skills"
           onChange={setMode}
         />
-        {mode === 'specific' && (
+        {localMode === 'specific' && (
           <div className="pl-6">
             {loading && <div className="text-xs" style={{ color: 'var(--grey1)' }}>Loading…</div>}
             {error && <div className="text-xs" style={{ color: 'var(--red)' }}>{error}</div>}
@@ -103,7 +110,7 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
         )}
         <ModeRadio
           name={radioName}
-          mode={mode}
+          mode={localMode}
           value="none"
           label="Mount no skills"
           onChange={setMode}

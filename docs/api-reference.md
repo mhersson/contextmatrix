@@ -39,6 +39,7 @@ GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-sc
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
+GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (theme/palette)
 
 GET    /api/events?project=                           # SSE stream
@@ -258,6 +259,23 @@ curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAy
 
 ## App Endpoints
 
+### GET /api/task-skills
+
+Returns the list of task skills available in the configured `task_skills.dir`. Each entry has a `name` (the skill directory name) and a `description` (read from the skill's `SKILL.md` frontmatter). The response is a JSON object with a `skills` array.
+
+```json
+{
+  "skills": [
+    { "name": "documentation", "description": "Use when writing or updating documentation files." },
+    { "name": "go-development", "description": "Use when implementing or modifying Go source files." },
+    { "name": "python-development", "description": "Use when writing or modifying Python source files." },
+    { "name": "typescript-react", "description": "Use when writing or updating React or TypeScript component files." }
+  ]
+}
+```
+
+Returns `{"skills": []}` if `task_skills.dir` is not configured or the directory is empty. Used by the Project Settings UI to populate the `DefaultSkillsSelector`.
+
 ### GET /api/app/config
 
 Returns the server-configured application settings. Unauthenticated — safe for
@@ -374,6 +392,24 @@ List all projects or get a single project by slug. Both responses include `displ
 ```
 
 Existing projects without `display_name` omit the field; clients should fall back to displaying `name`.
+
+### PUT /api/projects/{project}
+
+Update the project configuration. Accepts the same fields as `POST /api/projects`, plus `default_skills`.
+
+**`default_skills` field** — three-state semantics for the project-wide task-skill fallback:
+
+| Value | Meaning |
+| ----- | ------- |
+| field omitted / `null` | Clear: runner mounts the full curated task-skills set |
+| `[]` (empty array) | Mount no task skills for cards without an explicit `skills` field |
+| `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list |
+
+Each name in `default_skills` must exist in the configured `task_skills.dir` — unknown names return 400 `VALIDATION_ERROR`. A card's own `skills` field (including explicit empty) always overrides the project default.
+
+The Project Settings UI exposes this as the **Default task skills** selector with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio buttons.
+
+Returns 200 with the updated `ProjectConfig`.
 
 ### GET /api/projects/{project}/branches
 
