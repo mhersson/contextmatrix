@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useId } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
+import { DefaultSkillsSelector } from './DefaultSkillsSelector';
 
 interface ProjectSettingsProps {
   project: string;
@@ -31,6 +32,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [newType, setNewType] = useState('');
   const [newPriority, setNewPriority] = useState('');
   const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
+  const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -66,6 +68,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setPriorities(cfg.priorities);
         setTransitions(normalizedTransitions);
         setGitHub(cfg.github ?? emptyGitHub);
+        setDefaultSkills(cfg.default_skills ?? null);
         setCardCount(count);
         setLoading(false);
       })
@@ -81,15 +84,17 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
   const isDirty = useMemo(() => {
     if (!config) return false;
+    const configDefaultSkills = config.default_skills ?? null;
     return (
       repo !== (config.repo || '') ||
       JSON.stringify(states) !== JSON.stringify(config.states) ||
       JSON.stringify(types) !== JSON.stringify(config.types) ||
       JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
       JSON.stringify(transitions) !== JSON.stringify(config.transitions) ||
-      ghToString(github) !== ghToString(config.github)
+      ghToString(github) !== ghToString(config.github) ||
+      JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills)
     );
-  }, [config, repo, states, types, priorities, transitions, github]);
+  }, [config, repo, states, types, priorities, transitions, github, defaultSkills]);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -102,6 +107,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         priorities,
         transitions,
         github: github.import_issues ? github : { import_issues: false },
+        default_skills: defaultSkills,
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -115,7 +121,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     } finally {
       setIsSaving(false);
     }
-  }, [isDirty, isSaving, repo, states, types, priorities, transitions, github, project, onUpdated, showToast]);
+  }, [isDirty, isSaving, repo, states, types, priorities, transitions, github, defaultSkills, project, onUpdated, showToast]);
 
   const handleDelete = useCallback(async () => {
     if (isDeleting) return;
@@ -308,6 +314,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           ))}
         </div>
       </div>
+
+      {/* Default task skills */}
+      <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
 
       {/* GitHub Issue Import */}
       <GitHubImportSection

@@ -107,9 +107,14 @@ func normalizeModelFamily(model string) string {
 
 // inlineEligibleSkills lists skills that the server may return with inline
 // execution enabled when the caller's model matches the skill's model.
+//
+// brainstorming is inline-eligible because dialogue with the user requires
+// the same chat channel as the calling create-plan orchestrator; spawning
+// a sub-agent for it would have no channel back to the user.
 var inlineEligibleSkills = map[string]bool{
-	"review-task": true,
-	"create-plan": true,
+	"review-task":   true,
+	"create-plan":   true,
+	"brainstorming": true,
 }
 
 // isInlineEligible reports whether a skill supports inline execution.
@@ -614,7 +619,7 @@ type skillArgs struct {
 var validSkillNames = []string{
 	"create-task", "create-plan", "execute-task",
 	"review-task", "document-task", "init-project",
-	"run-autonomous",
+	"run-autonomous", "brainstorming",
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -644,6 +649,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSk
 		content, err = buildInitProject(ctx, svc, workflowSkillsDir, args.Name)
 	case "run-autonomous":
 		content, err = buildRunAutonomous(ctx, svc, workflowSkillsDir, args.CardID)
+	case "brainstorming":
+		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "brainstorming.md", args.CardID, false)
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}

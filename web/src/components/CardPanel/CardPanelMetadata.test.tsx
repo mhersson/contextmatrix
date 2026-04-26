@@ -6,6 +6,7 @@ import type { Card, ProjectConfig } from '../../types';
 vi.mock('../../api/client', () => ({
   api: {
     getCard: vi.fn().mockResolvedValue({ state: 'todo' }),
+    getTaskSkills: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -50,6 +51,7 @@ const defaultProps = {
   onRelease: vi.fn(),
   editedVetted: false,
   onVettedChange: vi.fn(),
+  onSkillsChange: vi.fn(),
   excludeStateFromPicker: null,
 };
 

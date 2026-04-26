@@ -39,6 +39,7 @@ vi.mock('../../api/client', () => ({
   api: {
     fetchBranches: vi.fn().mockResolvedValue([]),
     getCard: vi.fn().mockResolvedValue({ state: 'todo' }),
+    getTaskSkills: vi.fn().mockResolvedValue([]),
   },
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,

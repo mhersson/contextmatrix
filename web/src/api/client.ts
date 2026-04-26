@@ -13,6 +13,7 @@ import type {
   DashboardData,
   SyncStatus,
   StopAllResponse,
+  TaskSkillSummary,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -240,6 +241,12 @@ class APIClient {
   // App config
   async getAppConfig(): Promise<AppConfig> {
     return this.request<AppConfig>('/app/config');
+  }
+
+  // Task skills (project default + per-card selectors)
+  async getTaskSkills(): Promise<TaskSkillSummary[]> {
+    const resp = await this.request<{ skills: TaskSkillSummary[] }>('/task-skills');
+    return resp.skills;
   }
 
   // Sync

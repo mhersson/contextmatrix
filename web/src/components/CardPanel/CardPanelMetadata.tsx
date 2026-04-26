@@ -3,6 +3,7 @@ import { MetadataStatus } from './metadata/MetadataStatus';
 import { MetadataAgent } from './metadata/MetadataAgent';
 import { MetadataRelated } from './metadata/MetadataRelated';
 import { MetadataSource } from './metadata/MetadataSource';
+import { MetadataSkills } from './metadata/MetadataSkills';
 
 interface CardPanelMetadataProps {
   card: Card;
@@ -16,6 +17,7 @@ interface CardPanelMetadataProps {
   onRelease: () => void;
   editedVetted: boolean;
   onVettedChange: (value: boolean) => void;
+  onSkillsChange: (next: string[] | null) => void;
   excludeStateFromPicker?: string | null;
 }
 
@@ -43,6 +45,7 @@ export function CardPanelMetadata({
   onRelease,
   editedVetted,
   onVettedChange,
+  onSkillsChange,
   excludeStateFromPicker,
 }: CardPanelMetadataProps) {
   return (
@@ -62,6 +65,13 @@ export function CardPanelMetadata({
         runnerAttached={runnerAttached}
         onClaim={onClaim}
         onRelease={onRelease}
+      />
+
+      <MetadataSkills
+        card={card}
+        editedCard={editedCard}
+        config={config}
+        onSkillsChange={onSkillsChange}
       />
 
       <MetadataRelated

@@ -308,6 +308,7 @@ func main() {
 		Port:                cfg.Port,
 		GitHubTokenProvider: tokenProvider,
 		TaskSkillsGit:       taskSkillsGit,
+		TaskSkillsDir:       cfg.TaskSkills.Dir,
 		GitHubAPIBaseURL:    cfg.GitHub.ResolvedAPIBaseURL(),
 		GitHubAllowedHosts:  cfg.GitHub.AllowedHosts(),
 		SessionManager:      sessionMgr,
