@@ -199,6 +199,31 @@ immediately.
 region. The input row and action buttons stay pinned at their natural height
 below the log.
 
+### Message type filter bar
+
+A thin filter row is rendered at the top of the chat panel, above the message
+list. It contains three labeled checkboxes that control which message types are
+visible:
+
+| Checkbox | Default | Controls | Label color |
+|---|---|---|---|
+| Text | on | `type === 'text'` | `--fg` |
+| Tool calls | off | `type === 'tool_call'` | `--aqua` |
+| Thinking | off | `type === 'thinking'` | `--grey2` |
+
+Types `user`, `stderr`, `system`, and `gap` are always shown regardless of the
+filter state — they carry user messages and diagnostic information that must
+not be hidden.
+
+Filtering is applied at render time against the full in-memory buffer
+(`cardLogs`). Toggling a filter on retroactively reveals all messages of that
+type received since the session started. Filter state is session-only —
+`useState` with no `localStorage` persistence — and resets to defaults on page
+reload.
+
+State lives in three booleans in `CardChat.tsx`: `showText`, `showToolCalls`,
+`showThinking`. No new props or context is involved.
+
 ### Rail tabs + default tab on HITL
 
 The bifold drawer no longer uses section-level collapsibles for Description,
