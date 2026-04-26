@@ -1,5 +1,10 @@
 # ContextMatrix
 
+> [!WARNING]
+>
+> This project is under heavy development. Breaking changes should be expected
+> at the current stage.
+
 Kanban-style task coordination for AI agents and humans. Cards are markdown
 files with YAML frontmatter, stored in a git repository. Every mutation is
 auto-committed, giving you a full audit trail.
@@ -411,10 +416,10 @@ full architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
 
-When GitHub authentication is configured and a project has `github.import_issues`
-enabled in its `.board.yaml`, ContextMatrix periodically fetches open issues and
-creates cards in the project's `todo` column. Duplicate issues are detected by
-external ID and never imported twice.
+When GitHub authentication is configured and a project has
+`github.import_issues` enabled in its `.board.yaml`, ContextMatrix periodically
+fetches open issues and creates cards in the project's `todo` column. Duplicate
+issues are detected by external ID and never imported twice.
 
 ```yaml
 # config.yaml (global)
@@ -658,37 +663,37 @@ format.
 
 ### config.yaml
 
-| Field                        | Default                 | Description                                                                                   |
-| ---------------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
-| `port`                       | `8080`                  | HTTP server port                                                                              |
-| `heartbeat_timeout`          | `"30m"`                 | Duration before a claimed card becomes stalled                                                |
-| `cors_origin`                | `http://localhost:5173` | Allowed CORS origin for the web UI (update for production)                                    |
-| `workflow_skills_dir`              | `./workflow-skills`           | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts)       |
-| `task_skills.dir`                  | `<config-dir>/task-skills`    | Path to the curated task-skills repo (specialist skills mounted into runner workers)          |
-| `task_skills.git_clone_on_empty`   | `false`                       | Clone on first start when `task_skills.dir` is empty                                         |
-| `task_skills.git_remote_url`       | `""`                          | HTTPS URL used for clone-on-empty                                                             |
-| `token_costs`                      | ---                           | Per-model token cost rates (see example below)                                                |
-| `mcp_api_key`                      | `""`                          | Bearer token for MCP endpoint authentication (empty = no auth)                                |
-| `boards.dir`                       | ---                           | Path to boards git repo (required)                                                            |
-| `boards.git_auto_commit`           | `true`                        | Auto-commit card mutations to git                                                             |
-| `boards.git_deferred_commit`       | `false`                       | Batch commits until a terminal state (done/not_planned) is reached                           |
-| `boards.git_auto_push`             | `false`                       | Auto-push after each commit                                                                   |
-| `boards.git_auto_pull`             | `false`                       | Pull from remote on startup and at `boards.git_pull_interval`                                 |
-| `boards.git_pull_interval`         | `"60s"`                       | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                 |
-| `boards.git_remote_url`            | `""`                          | Remote URL for the boards repo (HTTPS); required for clone-on-empty                          |
-| `boards.git_clone_on_empty`        | `false`                       | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup       |
-| `runner.enabled`                   | `false`                       | Enable remote execution integration                                                           |
-| `runner.url`                       | `""`                          | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                           |
-| `runner.api_key`                   | `""`                          | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                  |
-| `github.auth_mode`                 | (required)                    | `"app"` (recommended) or `"pat"`                                                              |
-| `github.host`                      | `""`                          | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                               |
-| `github.api_base_url`              | `""`                          | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                |
-| `github.app.app_id`                | `0`                           | GitHub App ID (required when `auth_mode` is `"app"`)                                          |
-| `github.app.installation_id`       | `0`                           | App installation ID                                                                           |
-| `github.app.private_key_path`      | `""`                          | Path to PEM private key                                                                       |
-| `github.pat.token`                 | `""`                          | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                       |
-| `github.issue_importing.enabled`   | `false`                       | Periodically fetch open issues from project repos that have `import_issues` set               |
-| `github.issue_importing.sync_interval` | `"5m"`                    | How often to check GitHub for new issues (minimum 5m)                                         |
+| Field                                  | Default                    | Description                                                                             |
+| -------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `port`                                 | `8080`                     | HTTP server port                                                                        |
+| `heartbeat_timeout`                    | `"30m"`                    | Duration before a claimed card becomes stalled                                          |
+| `cors_origin`                          | `http://localhost:5173`    | Allowed CORS origin for the web UI (update for production)                              |
+| `workflow_skills_dir`                  | `./workflow-skills`        | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts) |
+| `task_skills.dir`                      | `<config-dir>/task-skills` | Path to the curated task-skills repo (specialist skills mounted into runner workers)    |
+| `task_skills.git_clone_on_empty`       | `false`                    | Clone on first start when `task_skills.dir` is empty                                    |
+| `task_skills.git_remote_url`           | `""`                       | HTTPS URL used for clone-on-empty                                                       |
+| `token_costs`                          | ---                        | Per-model token cost rates (see example below)                                          |
+| `mcp_api_key`                          | `""`                       | Bearer token for MCP endpoint authentication (empty = no auth)                          |
+| `boards.dir`                           | ---                        | Path to boards git repo (required)                                                      |
+| `boards.git_auto_commit`               | `true`                     | Auto-commit card mutations to git                                                       |
+| `boards.git_deferred_commit`           | `false`                    | Batch commits until a terminal state (done/not_planned) is reached                      |
+| `boards.git_auto_push`                 | `false`                    | Auto-push after each commit                                                             |
+| `boards.git_auto_pull`                 | `false`                    | Pull from remote on startup and at `boards.git_pull_interval`                           |
+| `boards.git_pull_interval`             | `"60s"`                    | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)           |
+| `boards.git_remote_url`                | `""`                       | Remote URL for the boards repo (HTTPS); required for clone-on-empty                     |
+| `boards.git_clone_on_empty`            | `false`                    | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup |
+| `runner.enabled`                       | `false`                    | Enable remote execution integration                                                     |
+| `runner.url`                           | `""`                       | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                     |
+| `runner.api_key`                       | `""`                       | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                            |
+| `github.auth_mode`                     | (required)                 | `"app"` (recommended) or `"pat"`                                                        |
+| `github.host`                          | `""`                       | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                         |
+| `github.api_base_url`                  | `""`                       | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)          |
+| `github.app.app_id`                    | `0`                        | GitHub App ID (required when `auth_mode` is `"app"`)                                    |
+| `github.app.installation_id`           | `0`                        | App installation ID                                                                     |
+| `github.app.private_key_path`          | `""`                       | Path to PEM private key                                                                 |
+| `github.pat.token`                     | `""`                       | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                 |
+| `github.issue_importing.enabled`       | `false`                    | Periodically fetch open issues from project repos that have `import_issues` set         |
+| `github.issue_importing.sync_interval` | `"5m"`                     | How often to check GitHub for new issues (minimum 5m)                                   |
 
 Token cost configuration:
 
