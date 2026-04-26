@@ -317,6 +317,8 @@ type ProjectConfig struct {
     Priorities      []string               `yaml:"priorities"`
     Transitions     map[string][]string    `yaml:"transitions"`
     RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty"`
+    GitHub          *GitHubImportConfig    `yaml:"github,omitempty"`
+    DefaultSkills   *[]string              `yaml:"default_skills,omitempty"` // nil=full set, []=none, [list]=constrain
     Templates       map[string]string      `yaml:"-"` // loaded from templates/ dir at runtime
 }
 ```
@@ -388,6 +390,7 @@ transitions:
   done: [todo]
   stalled: [todo, in_progress]
   not_planned: [todo]
+# default_skills: [go-development, documentation]  # optional — see below
 ```
 
 Both `stalled` and `not_planned` must always be present in `states` and
