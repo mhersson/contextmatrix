@@ -59,6 +59,45 @@ Break the work into subtasks following these rules:
   abstractions, no unnecessary indirection, no premature generalization.
 - Do not include documentation subtasks — external documentation is handled by a
   dedicated documentation agent after execution completes.
+- **No placeholders.** Each subtask body must specify concrete actions,
+  files touched, and acceptance criteria. Avoid "TBD",
+  "details to be decided", or vague hand-waves like "implement
+  appropriately". If you can't specify it now, the design isn't ready —
+  surface that to the user (HITL) or transition the card back to
+  drafting (autonomous).
+- **List files touched.** Each subtask body should include a "Files:"
+  line listing the file paths the subtask is expected to create or
+  modify. This grounds the plan and makes the reviewer's `git diff`
+  check meaningful.
+
+## Step 2.5: Plan self-review
+
+Before writing the plan to the card body, look at it with fresh eyes and
+check each item:
+
+**Placeholder scan.** Any "TBD", "TODO", incomplete sections, or vague
+requirements? Fix them now. If you can't fix something because the
+underlying design is unclear, that's a spec issue — pause and request
+clarification (HITL) or transition the card back to drafting (autonomous).
+
+**Spec coverage.** Re-read the parent card body. Does every requirement
+map to at least one subtask? Are there acceptance criteria that no
+subtask addresses? List gaps explicitly.
+
+**Internal consistency.** Do any subtasks contradict each other? Does the
+data model assumed in subtask N match the data model built in subtask M
+(where N depends on M)?
+
+**Files touched.** Are file paths consistent across dependent subtasks?
+Subtask N modifies `internal/api/cards.go`; does subtask M (which depends
+on N) reference the same path?
+
+**Scope check.** Is the plan focused on the parent card's requirements,
+or has it grown beyond? If it has, trim — extra scope belongs in sibling
+cards, not bloated subtasks.
+
+Fix any issues inline by revising the draft. No need to re-review the
+same items twice — just fix and proceed.
 
 ## Step 3: Write the plan to the card body
 
@@ -120,7 +159,8 @@ in `activity_log`.
 
 **If `autonomous: false` (HITL):** present the plan to the user:
 
-> Here is the proposed plan for **<card title>**:
+> Here is the proposed plan for **<card title>**. I've self-reviewed it
+> for placeholders, spec coverage, internal consistency, and scope.
 >
 > <paste the full `## Plan` section from the card body>
 >

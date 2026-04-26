@@ -34,16 +34,29 @@ Understand the full scope of what was requested and what was delivered.
 
 ## Step 2: Evaluate
 
-Assess the work against these criteria:
+Perform two passes in order. **Pass 1 must be ✅ before you start Pass 2** —
+if Pass 1 finds blocking spec gaps or test/lint failures, recommend `revise`
+and stop; there's no point reviewing code quality on work that doesn't match
+the spec.
 
-### Completeness
+### Pass 1 — Spec Compliance
+
+"Did the work build what was asked?"
+
+#### Completeness
 
 - Were all requirements addressed?
 - Were all planned subtasks completed?
-- Are there edge cases or scenarios not covered?
 - Are there acceptance criteria that weren't met?
+- Are there edge cases or scenarios not covered?
 
-### Mandatory Test Gate
+#### Scope
+
+- Did the work add anything *not* in the plan? (Scope creep is a spec
+  issue, not a quality issue.)
+- Did any subtask make assumptions that conflict with another?
+
+#### Mandatory Test Gate
 
 Before recommending `approve` or `approve_with_notes`, you MUST verify:
 
@@ -51,10 +64,16 @@ Before recommending `approve` or `approve_with_notes`, you MUST verify:
    `npm test`, etc.)
 2. Linting passes (if a linter is configured for the project)
 
-If tests or lint fail, recommend `revise` regardless of code quality assessment.
-Include the failing test output in your review findings.
+If tests or lint fail, this is a Pass 1 failure: recommend `revise` and
+include the failing output. Do not proceed to Pass 2.
 
-### Quality
+### Pass 2 — Code Quality
+
+"Is the code well-built?"
+
+Only run Pass 2 if Pass 1 came back clean (or with only Minor issues).
+
+#### Quality
 
 **Commit status is not a quality concern.** Code may legitimately be uncommitted
 at review time — in HITL mode the orchestrator's commit gate runs in Phase 9,
@@ -68,7 +87,7 @@ your quality review on the code itself, not its persistence state.
 - Are inline code comments adequate where logic isn't self-evident?
 - Is there dead code (unused functions, unreachable branches, commented-out blocks)?
 
-### Documentation
+#### Documentation
 
 - Were user-facing changes documented where needed (new features, endpoints,
   config options, migration steps)?
@@ -77,22 +96,14 @@ your quality review on the code itself, not its persistence state.
 - If no external docs were written, is that correct for this type of change?
   (Bug fixes, refactors, and internal changes typically need no docs.)
 
-### Coherence
-
-- Do the subtasks fit together as a whole?
-- Are there inconsistencies between subtask implementations?
-- Did any subtask make assumptions that conflict with another?
-- Is the overall result greater than the sum of its parts, or are there
-  integration gaps?
-
-### Risks
+#### Risks
 
 - Were any shortcuts taken that could cause problems later?
 - Are there security concerns?
 - Are there performance implications?
 - Is there technical debt introduced that should be noted?
 
-### Actual file changes
+#### Actual file changes
 
 Verify file changes against git diff. Run `git diff` to see what was actually modified. Do NOT guess or infer file changes from card descriptions or progress notes — agents sometimes claim files were changed that were not. Every file you list in your findings must appear in the actual diff.
 
@@ -108,16 +119,27 @@ should be continued.
 
 ### Concerns and issues
 
-List specific, actionable concerns. For each:
+Categorize each concern into one of three severity tiers and present them
+in this order:
 
-- Reference the relevant subtask card ID
-- Describe the issue concretely
-- Explain why it matters
-- Suggest what should be done about it
+**Critical (Must Fix)** — bugs, security issues, data loss risks, broken
+functionality, failing tests/lint.
 
-Prioritize concerns by impact. Lead with blockers (things that must be fixed),
-then improvements (things that should be fixed), then nits (things that could be
-better).
+**Important (Should Fix)** — architecture problems, missing requirements,
+poor error handling, test gaps, scope drift.
+
+**Minor (Nice to Have)** — code style, optimization opportunities,
+documentation improvements.
+
+**For each issue, include:**
+
+- **Where:** `file:line` reference (or subtask card ID if scoped to a subtask).
+- **What:** the issue, concretely.
+- **Why it matters:** the impact if unfixed.
+- **How to fix:** if not obvious from the issue.
+
+Categorize by *actual* severity. Not everything is Critical; if everything
+is Critical, nothing is. Marking nitpicks as Critical erodes the signal.
 
 ### Recommendation
 
@@ -144,13 +166,23 @@ Example body append:
 ## Review Findings
 
 ### Strengths
-- ...
+- [Specific, file/subtask-anchored. Not filler.]
 
 ### Concerns/Issues
-- ...
+
+#### Critical (Must Fix)
+- **[Where]:** [What] — [Why it matters]. Fix: [How].
+
+#### Important (Should Fix)
+- **[Where]:** [What] — [Why it matters]. Fix: [How].
+
+#### Minor (Nice to Have)
+- **[Where]:** [What] — [Why it matters]. (Optional fix.)
+
+(Omit any tier that has no entries.)
 
 ### Recommendation
-approve_with_notes — <one-line rationale>
+approve | approve_with_notes | revise — <one-line rationale>
 ```
 
 After writing findings, call `report_usage` with:
@@ -202,3 +234,7 @@ summary: <one-line summary>
   uncommitted files, missing commits, or unclean working trees under
   Concerns/Issues. Do not recommend `revise` because of commit state. If
   you find yourself writing about commits, stop — that is not your concern.
+- **Categorize by actual severity.** Not everything is Critical. Use
+  Important for things that should be fixed; use Minor for things that
+  *could* be better. Marking nitpicks as Critical erodes the signal and
+  forces unnecessary revision loops.
