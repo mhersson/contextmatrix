@@ -397,22 +397,60 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('switches the active tab back to Automation when the HITL session ends', () => {
-    const runningProps = makeProps({
-      card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
-    });
-    const { rerender } = render(<CardPanel {...runningProps} />);
+  it('switches the active tab back to Automation when the HITL session ends (two consecutive renders)', () => {
+    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const autonomousCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: true };
+    const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
-    // Promote to autonomous mid-run → isHITLRunning flips to false, Chat tab
-    // disappears, active tab resets to Automation.
-    rerender(
-      <CardPanel
-        {...runningProps}
-        card={{ ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: true }}
-      />,
-    );
+    // First render with isHITLRunning=false: chat tab stays (debounce — counter=1).
+    rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
+    // Second render with isHITLRunning still false: now the switch fires (counter=2).
+    rerender(<CardPanel {...makeProps({ card: { ...autonomousCard, updated: '2026-01-02T00:00:00Z' } })} />);
+
     expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('does NOT switch activeTab to Automation on first render after isHITLRunning flips false (counter=1 guard)', () => {
+    // Verifies the debounce: a single flip to false does NOT call setActiveTab(defaultTab).
+    // After the flip back to true, the chat tab is re-mounted and selected (no stale automation state).
+    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+
+    // Render 2: transient HITL=false (SSE lag). Chat tab removed from tab set by buildCardPanelTabs
+    // (isHITLRunning=false), but activeTab must NOT be set to 'automation' by the sync block.
+    const autonomousCard = { ...runningCard, autonomous: true };
+    rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
+
+    // Render 3: HITL flips back to true (SSE corrects). Chat tab re-added, counter reset.
+    // Since activeTab was NOT set to 'automation' during render 2, the flip-back to true
+    // triggers setActiveTab('chat') cleanly (no stale 'automation' state to overcome).
+    rerender(<CardPanel {...makeProps({ card: runningCard })} />);
+
+    // Chat tab is mounted and selected after the bounce-back.
+    expect(screen.getByRole('tab', { name: /Chat/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('user-initiated tab change resets the stability counter so HITL-off does not re-fire stale switch', () => {
+    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+
+    // User manually switches to Automation tab while HITL is running.
+    // This resets the stability counter to 0.
+    fireEvent.click(screen.getByRole('tab', { name: /Automation/ }));
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
+
+    // HITL flips false (counter resets to 0 from manual tab change, so flip sets counter=1).
+    const autonomousCard = { ...runningCard, autonomous: true };
+    rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
+
+    // One render with false is not enough — counter=1 is below the threshold.
+    // The chat tab is no longer in the tab set (autonomous=true), so Automation
+    // remains the effective tab regardless.
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 });

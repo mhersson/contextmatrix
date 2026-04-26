@@ -115,13 +115,25 @@ describe('useRunnerLogs — dropped frame handling', () => {
 });
 
 describe('useRunnerLogs — terminal frame handling', () => {
-  it('(b) terminal frame sets connected=false and no reconnect is scheduled', () => {
+  it('(b) terminal frame after log delivery sets connected=false and no reconnect is scheduled', () => {
     const { result } = renderHook(() =>
       useRunnerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
     expect(result.current.connected).toBe(true);
+
+    // Deliver one log entry first so terminal is treated as a clean session end,
+    // not as the empty-buffer fast-path race.
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: 'hi',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+      });
+    });
 
     const instancesBefore = FakeEventSource.instances.length;
 
@@ -151,12 +163,24 @@ describe('useRunnerLogs — terminal frame handling', () => {
     expect(result.current.logs).toHaveLength(0);
   });
 
-  it('onerror after terminal does NOT schedule reconnect', () => {
+  it('onerror after a clean terminal does NOT schedule reconnect', () => {
     const { result } = renderHook(() =>
       useRunnerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
+
+    // Deliver one log entry first so terminal halts reconnects (clean end).
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: 'hi',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+      });
+    });
+
     act(() => { latestES().simulateMessage({ type: 'terminal' }); });
 
     const countAfterTerminal = FakeEventSource.instances.length;
@@ -272,6 +296,113 @@ describe('useRunnerLogs — seq gap detection', () => {
     expect(gapEntry.type).toBe('gap');
     // Should mention the gap (5 to 8)
     expect(gapEntry.content).toMatch(/5|8|gap/i);
+  });
+});
+
+describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
+  it('terminal frame before any log events schedules a reconnect (not permanent halt)', () => {
+    renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));
+
+    act(() => { latestES().simulateOpen(); });
+
+    const countBefore = FakeEventSource.instances.length;
+
+    // Send terminal with no preceding log events — ring buffer is empty
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+
+    // No immediate reconnect
+    expect(FakeEventSource.instances.length).toBe(countBefore);
+
+    // After the backoff delay, a reconnect SHOULD happen (not a permanent halt)
+    act(() => { vi.advanceTimersByTime(1100); });
+    expect(FakeEventSource.instances.length).toBeGreaterThan(countBefore);
+  });
+
+  it('terminal frame before any log events does NOT set terminalRef (logs stays empty, no halt)', () => {
+    const { result } = renderHook(() =>
+      useRunnerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    // Send terminal with no preceding log events
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+
+    // logs must remain empty (terminal frame itself never adds a log entry)
+    expect(result.current.logs).toHaveLength(0);
+
+    const countAfterTerminal = FakeEventSource.instances.length;
+
+    // Advance time — reconnect should happen since terminalRef was NOT set
+    act(() => { vi.advanceTimersByTime(1100); });
+    expect(FakeEventSource.instances.length).toBeGreaterThan(countAfterTerminal);
+  });
+
+  it('terminal frame after at least one log event still halts reconnects (existing behavior preserved)', () => {
+    renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+
+    // Send one log event first
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'some log', card_id: 'C-1', ts, seq: 1 });
+    });
+
+    const countBefore = FakeEventSource.instances.length;
+
+    // Now send terminal — logs have been delivered so this should halt reconnects
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+
+    // Advance time well past max reconnect delay — no new EventSource should appear
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(FakeEventSource.instances.length).toBe(countBefore);
+  });
+
+  it('after reconnect triggered by empty-buffer terminal, second connection delivers logs normally', () => {
+    const { result } = renderHook(() =>
+      useRunnerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    // First connection: terminal arrives immediately before any logs
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+
+    // Trigger the reconnect
+    act(() => { vi.advanceTimersByTime(1100); });
+
+    // Second connection opens
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+
+    // Second connection delivers a log entry — normal behavior
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'hello from second connect', card_id: 'C-1', ts, seq: 1 });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].content).toBe('hello from second connect');
+
+    const countBeforeTerminal = FakeEventSource.instances.length;
+
+    // Now a terminal arrives after logs — should halt reconnects
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(FakeEventSource.instances.length).toBe(countBeforeTerminal);
   });
 });
 

@@ -50,6 +50,11 @@ export function useRunnerLogs({
   const lastSeqRef = useRef<number | null>(null);
   /** Set to true when a terminal frame is received — suppresses reconnects. */
   const terminalRef = useRef(false);
+  /** Count of log entries delivered during the current connect cycle. A
+   *  terminal frame received while this is 0 is treated as a transient
+   *  failure (server-side session-manager fast-path race) and triggers a
+   *  reconnect instead of halting. */
+  const logsReceivedRef = useRef(0);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current !== null) {
@@ -72,6 +77,7 @@ export function useRunnerLogs({
     // Reset per-connection state on a fresh intentional connect.
     lastSeqRef.current = null;
     terminalRef.current = false;
+    logsReceivedRef.current = 0;
 
     let url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
     if (cardId) {
@@ -96,7 +102,31 @@ export function useRunnerLogs({
         }
 
         if (data.type === 'terminal') {
-          // Server session ended — stop reconnecting.
+          // If no log events have been delivered yet, this is the
+          // session-manager fast-path race (the server sent terminal before
+          // any snapshot frames). Treat it as a transient failure and
+          // schedule a reconnect via the backoff path instead of halting.
+          if (logsReceivedRef.current === 0) {
+            es.close();
+            eventSourceRef.current = null;
+            setConnected(false);
+
+            const delay = reconnectDelayRef.current;
+            setError((prev) => prev ?? `Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
+
+            reconnectTimeoutRef.current = window.setTimeout(() => {
+              if (!isMountedRef.current) return;
+              if (terminalRef.current) return;
+              reconnectDelayRef.current = Math.min(
+                reconnectDelayRef.current * 2,
+                MAX_RECONNECT_DELAY,
+              );
+              connectRef.current();
+            }, delay);
+            return;
+          }
+
+          // Server session ended cleanly — stop reconnecting.
           terminalRef.current = true;
           if (reconnectTimeoutRef.current !== null) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -135,6 +165,7 @@ export function useRunnerLogs({
 
         entriesToAdd.push(entry);
         append(entriesToAdd);
+        logsReceivedRef.current += 1;
       } catch {
         console.error('Failed to parse runner log entry:', event.data);
       }
