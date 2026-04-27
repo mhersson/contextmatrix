@@ -83,8 +83,7 @@ Ask the human what they want to do with the new card:
   Agent tool with `model` from the response, `description` set to
   "execute-task for <card_id>", and `prompt` set to the returned content.
 - If **leave it**: let the human know they can run
-  `/contextmatrix:create-plan <card_id>` or
-  `/contextmatrix:execute-task <card_id>` later.
+  `/contextmatrix:start-workflow <card_id>` later.
 
 ## MANDATORY: Card lifecycle rule
 

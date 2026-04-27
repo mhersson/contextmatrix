@@ -350,8 +350,7 @@ top-level `autonomous` field is the ONLY source of truth for mode. Ignore
 Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 - **User says no:** tell the user they can run
-  `/contextmatrix:execute-task <card_id>` for individual tasks or come back
-  later. Stop here.
+  `/contextmatrix:start-workflow <card_id>` to resume later. Stop here.
 - **User says yes:** proceed to Phase 5.
 
 ---
@@ -495,11 +494,7 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 
 # Phase 7: Review
 
-Transition the parent card to `review`:
-`transition_card(card_id=<parent_id>, new_state='review')`.
-
-Call
-`get_skill(skill_name='review-task', card_id=<parent_id>, caller_model='<your_model>')`.
+Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
 
 - **`inline: true`** — execute the returned `content` directly. Keep your claim.
   Do NOT release and re-claim.

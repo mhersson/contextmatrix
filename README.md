@@ -26,7 +26,7 @@ own repos, and report progress back through the board.
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 24 MCP tools and 7 slash commands give Claude Code
+- **MCP-first interface** — 26 MCP tools and 3 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
@@ -173,8 +173,8 @@ scripts/install.sh --force
 - `config.yaml` — copied from `config.yaml.example` (skipped if it already
   exists, unless `--force`)
 - `workflow-skills/` — the lifecycle workflow skill files (create-plan,
-  execute-task, review-task, etc.) from the repo's `workflow-skills/`
-  source directory. Always refreshed.
+  execute-task, review-task, etc.) from the repo's `workflow-skills/` source
+  directory. Always refreshed.
 - `task-skills/` — curated specialist task skills (Go, TypeScript/React, etc.)
   seeded on fresh install. Never overwritten on subsequent runs (only
   `--update-task-skills` adds missing entries).
@@ -203,46 +203,51 @@ project `.claude/claude.json`):
 
 ### MCP Tools
 
-| Tool                        | Description                                                 |
-| --------------------------- | ----------------------------------------------------------- |
-| `add_log`                   | Append an activity log entry                                |
-| `check_agent_health`        | Check health of subtask agents for a parent card            |
-| `claim_card`                | Claim exclusive ownership of a card                         |
-| `complete_task`             | Atomically log + transition to done + release               |
-| `create_card`               | Create a card (returns generated ID)                        |
-| `create_project`            | Create a new project board                                  |
-| `delete_project`            | Delete a project (must have zero cards)                     |
-| `get_card`                  | Get a single card                                           |
-| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met          |
-| `get_skill`                 | Get a skill prompt with injected card/project context       |
-| `get_subtask_summary`       | Get subtask counts by state for a parent card               |
-| `get_task_context`          | Get card + parent + siblings + project config in one call   |
-| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)              |
-| `increment_review_attempts` | Increment the review attempt counter on a card              |
-| `list_cards`                | List cards with filters (state, type, label, agent, parent) |
-| `list_projects`             | List all projects with configs                              |
-| `recalculate_costs`         | Recalculate token costs for cards with missing cost data    |
-| `release_card`              | Release a claim                                             |
-| `report_push`               | Report a git push for a card                                |
-| `report_usage`              | Report token usage and estimated cost                       |
-| `transition_card`           | Change card state (validated against state machine)         |
-| `update_card`               | Update card fields                                          |
-| `update_project`            | Update project configuration                                |
+| Tool                        | Description                                                             |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `add_log`                   | Append an activity log entry                                            |
+| `check_agent_health`        | Check health of subtask agents for a parent card                        |
+| `claim_card`                | Claim exclusive ownership of a card                                     |
+| `complete_task`             | Atomically log + transition to done + release                           |
+| `create_card`               | Create a card (returns generated ID)                                    |
+| `create_project`            | Create a new project board                                              |
+| `delete_project`            | Delete a project (must have zero cards)                                 |
+| `get_card`                  | Get a single card                                                       |
+| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                      |
+| `get_skill`                 | Get a skill prompt with injected card/project context                   |
+| `get_subtask_summary`       | Get subtask counts by state for a parent card                           |
+| `get_task_context`          | Get card + parent + siblings + project config in one call               |
+| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                          |
+| `increment_review_attempts` | Increment the review attempt counter on a card                          |
+| `list_cards`                | List cards with filters (state, type, label, agent, parent)             |
+| `list_projects`             | List all projects with configs                                          |
+| `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                          |
+| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
+| `release_card`              | Release a claim                                                         |
+| `report_push`               | Report a git push for a card                                            |
+| `report_usage`              | Report token usage and estimated cost                                   |
+| `start_review`              | Atomically transition a card to review and return the review-task skill |
+| `start_workflow`            | Return the workflow skill for a card (routes by autonomous flag)        |
+| `transition_card`           | Change card state (validated against state machine)                     |
+| `update_card`               | Update card fields                                                      |
+| `update_project`            | Update project configuration                                            |
 
 ### Slash Commands
 
-Skill files in `workflow-skills/` are served as MCP prompts, available as Claude Code
-slash commands:
+Skill files in `workflow-skills/` are served as MCP prompts, available as Claude
+Code slash commands:
 
-| Command                         | Argument      | Description                               |
-| ------------------------------- | ------------- | ----------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview |
-| `/contextmatrix:create-plan`    | `card_id`     | Break a task into executable subtasks     |
-| `/contextmatrix:execute-task`   | `card_id`     | Claim and execute a task (for sub-agents) |
-| `/contextmatrix:review-task`    | `card_id`     | Devils-advocate review of completed work  |
-| `/contextmatrix:document-task`  | `card_id`     | Write external documentation for a task   |
-| `/contextmatrix:init-project`   | `name`        | Initialize a new project board            |
-| `/contextmatrix:run-autonomous` | `card_id`     | Run full autonomous lifecycle for a card  |
+| Command                         | Argument      | Description                                                                                 |
+| ------------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview                                                   |
+| `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                              |
+| `/contextmatrix:start-workflow` | `card_id`     | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
+
+Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
+`document-task`, `run-autonomous`, `brainstorming`, `systematic-debugging`) are
+loaded internally by the orchestrator via `get_skill` (or, for the review-entry
+transition, via `start_review`). They are not exposed as slash commands — invoke
+`start-workflow` and the orchestrator drives the phases.
 
 ## Agent Workflow
 
@@ -250,19 +255,23 @@ Claude Code acts as the main orchestrator, spawning sub-agents via the `Agent`
 tool. The typical workflow:
 
 1. **Create** — `/contextmatrix:create-task` interviews the human and creates a
-   card
-2. **Plan** — `/contextmatrix:create-plan` breaks it into subtasks with
-   dependencies
-3. **Execute** — `/contextmatrix:execute-task` runs in parallel sub-agents,
-   each:
-   - Calls `claim_card` for exclusive ownership
-   - Works the task, calling `heartbeat` after each significant step (30min
-     timeout)
-   - Calls `complete_task` when done
-4. **Document** — `/contextmatrix:document-task` writes docs after execution
-   completes (parent stays in `in_progress`)
-5. **Review** — `/contextmatrix:review-task` provides a devils-advocate
-   assessment of both code and documentation
+   card.
+2. **Start** — `/contextmatrix:start-workflow <card_id>` (or call the
+   `start_workflow` MCP tool) drives the card through its full lifecycle. The
+   orchestrator inspects the card's `autonomous` flag and routes to either the
+   HITL flow (`create-plan`, with human approval gates) or the autonomous flow
+   (`run-autonomous`, no gates).
+
+Internally the orchestrator chains:
+
+- **Plan** — break the card into subtasks with dependencies (`create-plan`).
+- **Execute** — spawn parallel sub-agents (`execute-task`); each calls
+  `claim_card`, works the task with periodic `heartbeat`s, then `complete_task`.
+- **Document** — write external docs (`document-task`); parent stays
+  `in_progress`.
+- **Review** — `start_review` atomically transitions the parent to `review` and
+  loads the `review-task` skill in one call. A review sub-agent (or the
+  orchestrator inline) writes findings; for HITL the user approves or rejects.
 
 Cards with `depends_on` relationships are enforced — a card cannot transition to
 `in_progress` until all its dependencies are `done`. The `get_ready_tasks` tool
@@ -309,8 +318,9 @@ your custom directory is never touched by the install script.
 ## Autonomous Mode
 
 Cards with `autonomous: true` run through the full lifecycle without human
-approval gates. The `/contextmatrix:run-autonomous` slash command drives the
-entire workflow for a single card:
+approval gates. The `/contextmatrix:start-workflow` slash command (or the
+`start_workflow` MCP tool) routes autonomous cards to the `run-autonomous` skill
+automatically:
 
 ```
 plan → subtask creation → execute (parallel) → document → review → done
