@@ -169,6 +169,9 @@ func main() {
 
 	slog.Info("event bus initialized")
 
+	runnerBuf := events.NewRunnerEventBuffer(500, 24*time.Hour)
+	slog.Info("runner event buffer initialized", "max_per_card", 500, "max_age", 24*time.Hour)
+
 	// Initialize lock manager
 	lockMgr := lock.NewManager(store, heartbeatTimeout)
 	slog.Info("lock manager initialized", "timeout", heartbeatTimeout)
@@ -300,6 +303,7 @@ func main() {
 	mux := api.NewRouter(api.RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
+		RunnerEventBuffer:   runnerBuf,
 		CORSOrigin:          cfg.CORSOrigin,
 		Syncer:              apiSyncer,
 		Runner:              runnerClient,

@@ -263,6 +263,7 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 // reportPushRequest is the JSON body for reporting a git push.
 type reportPushRequest struct {
 	AgentID string `json:"agent_id"`
+	Repo    string `json:"repo,omitempty"`
 	Branch  string `json:"branch"`
 	PRUrl   string `json:"pr_url,omitempty"`
 }
@@ -300,7 +301,7 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	card, err := h.svc.RecordPush(r.Context(), projectName, cardID, agentID, branch, req.PRUrl)
+	card, err := h.svc.RecordPush(r.Context(), projectName, cardID, agentID, req.Repo, branch, req.PRUrl)
 	if err != nil {
 		handleServiceError(w, r, err)
 

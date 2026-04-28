@@ -76,6 +76,7 @@ type APIError struct {
 type RouterConfig struct {
 	Service             *service.CardService
 	Bus                 *events.Bus
+	RunnerEventBuffer   *events.RunnerEventBuffer
 	CORSOrigin          string
 	Syncer              Syncer
 	Runner              *runner.Client
@@ -108,6 +109,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
+	reh := newRunnerEventHandlers(cfg.RunnerEventBuffer)
+	rleh := newRunnerLogEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
 	bh := &branchHandlers{
@@ -127,6 +130,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// SSE events
 	mux.HandleFunc("GET /api/events", eh.streamEvents)
+	mux.HandleFunc("GET /api/runner/events", reh.handleStream)
 
 	// Project routes
 	mux.HandleFunc("GET /api/projects", ph.listProjects)
@@ -184,6 +188,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
+	// Live console fan-out from runner to web-UI SSE subscribers.
+	// Pure bus fan-out — works without the runner client being configured.
+	mux.HandleFunc("POST /api/runner/log-event", rleh.handleEmit)
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
@@ -243,7 +250,7 @@ func observe(next http.Handler) http.Handler {
 		// SSE streams would pollute the REST latency histogram and the
 		// path label set — skip them entirely for metrics. MCP Streamable
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
-		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" ||
+		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/events" || r.URL.Path == "/api/runner/logs" ||
 			(r.Method == http.MethodGet && r.URL.Path == "/mcp") {
 			return
 		}

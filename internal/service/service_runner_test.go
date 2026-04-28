@@ -89,6 +89,67 @@ func TestRecordSkillEngaged_DedupsAcrossPathAandPathB(t *testing.T) {
 	assert.Len(t, got.ActivityLog, 1, "Path B must dedup against Path A entry parsed from message")
 }
 
+func TestRecordPush_AppendsMultipleRecords(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, testProjectName, CreateCardInput{
+		Title:    "Multi-repo push",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, testProjectName, card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = svc.RecordPush(ctx, testProjectName, card.ID, "agent-1",
+		"auth-svc", "cm/"+card.ID, "https://github.com/acme/auth-svc/pull/1")
+	require.NoError(t, err)
+
+	_, err = svc.RecordPush(ctx, testProjectName, card.ID, "agent-1",
+		"billing-svc", "cm/"+card.ID, "https://github.com/acme/billing-svc/pull/2")
+	require.NoError(t, err)
+
+	fresh, err := svc.GetCard(ctx, testProjectName, card.ID)
+	require.NoError(t, err)
+	require.Len(t, fresh.PushRecords, 2)
+	assert.Equal(t, "auth-svc", fresh.PushRecords[0].Repo)
+	assert.Equal(t, "cm/"+card.ID, fresh.PushRecords[0].Branch)
+	assert.Equal(t, "https://github.com/acme/auth-svc/pull/1", fresh.PushRecords[0].PRURL)
+	assert.False(t, fresh.PushRecords[0].PushedAt.IsZero())
+	assert.Equal(t, "billing-svc", fresh.PushRecords[1].Repo)
+}
+
+func TestRecordPush_BackwardCompatEmptyRepo(t *testing.T) {
+	// Existing callers without repo still get a record (with empty Repo)
+	// and the legacy PRUrl side-effect.
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, testProjectName, CreateCardInput{
+		Title: "Single push", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, testProjectName, card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = svc.RecordPush(ctx, testProjectName, card.ID, "agent-1",
+		"", "feat/login", "https://github.com/acme/legacy/pull/1")
+	require.NoError(t, err)
+
+	fresh, err := svc.GetCard(ctx, testProjectName, card.ID)
+	require.NoError(t, err)
+	require.Len(t, fresh.PushRecords, 1)
+	assert.Empty(t, fresh.PushRecords[0].Repo)
+	assert.Equal(t, "feat/login", fresh.PushRecords[0].Branch)
+	// Legacy single-PR field still set:
+	assert.Equal(t, "https://github.com/acme/legacy/pull/1", fresh.PRUrl)
+}
+
 func TestRecordSkillEngaged_AfterWindowAppendsAgain(t *testing.T) {
 	prev := SkillEngagedDedupWindow
 	SkillEngagedDedupWindow = 10 * time.Millisecond

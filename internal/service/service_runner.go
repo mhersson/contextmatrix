@@ -40,9 +40,12 @@ func isProtectedBranch(branch string) bool {
 }
 
 // RecordPush records a git push event on a card, updating PRUrl if provided and
-// adding an activity log entry. All mutations are atomic under a single lock.
+// adding an activity log entry. Each call appends one PushRecord to
+// card.PushRecords; multiple repos = multiple calls. The optional repo argument
+// disambiguates which repo was pushed (empty string is allowed for
+// single-repo / legacy callers). All mutations are atomic under a single lock.
 // Returns ErrProtectedBranch if the branch is main/master.
-func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, branch, prURL string) (*board.Card, error) {
+func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, repo, branch, prURL string) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
 	// Service-layer branch protection — defense in depth.
@@ -79,10 +82,22 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		return nil, lock.ErrAgentMismatch
 	}
 
-	// Update PR URL if provided.
+	now := time.Now()
+
+	// Update PR URL if provided. This single-field side-effect is preserved
+	// for backward compatibility with single-repo callers / older UIs.
 	if prURL != "" {
 		card.PRUrl = prURL
 	}
+
+	// Append a PushRecord for every call. Multi-repo callers issue one call
+	// per repo, producing multiple records on the same card.
+	card.PushRecords = append(card.PushRecords, board.PushRecord{
+		Repo:     repo,
+		Branch:   branch,
+		PRURL:    prURL,
+		PushedAt: now.UTC(),
+	})
 
 	// Append activity log entry.
 	msg := "Pushed to branch " + branch
@@ -94,7 +109,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		Agent:     agentID,
 		Action:    "pushed",
 		Message:   msg,
-		Timestamp: time.Now(),
+		Timestamp: now,
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
@@ -102,7 +117,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
 	}
 
-	card.Updated = time.Now()
+	card.Updated = now
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()

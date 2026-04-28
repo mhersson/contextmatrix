@@ -1136,6 +1136,7 @@ type reportPushInput struct {
 	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
+	Repo    string `json:"repo,omitempty" jsonschema:"repo slug from project registry; optional for single-repo projects"`
 	Branch  string `json:"branch" jsonschema:"required,git branch that was pushed to"`
 	PRUrl   string `json:"pr_url,omitempty" jsonschema:"pull request URL if created"`
 }
@@ -1188,7 +1189,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 
 		branch := strings.TrimSpace(input.Branch)
 
-		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, branch, input.PRUrl)
+		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, input.Repo, branch, input.PRUrl)
 		if err != nil {
 			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)
 		}

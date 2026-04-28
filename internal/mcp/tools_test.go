@@ -559,3 +559,32 @@ func TestGetProjectKBProjectRequired(t *testing.T) {
 	result, err := callToolRaw(t, env, "get_project_kb", map[string]any{})
 	require.True(t, resultIsError(result, err))
 }
+
+// TestReportPushAcceptsRepo verifies the MCP report_push tool forwards the
+// new repo field through to the service layer and that one PushRecord is
+// appended per call.
+func TestReportPushAcceptsRepo(t *testing.T) {
+	env := setupMCP(t)
+	createTestCard(t, env, "Repo push", "task", "medium")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-1",
+	})
+
+	result := callTool(t, env, "report_push", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-1",
+		"repo":     "auth-svc",
+		"branch":   "cm/TEST-001",
+		"pr_url":   "https://github.com/acme/auth-svc/pull/42",
+	})
+	require.False(t, result.IsError, errorText(result, nil))
+
+	card, err := env.svc.GetCard(context.Background(), "test-project", "TEST-001")
+	require.NoError(t, err)
+	require.Len(t, card.PushRecords, 1)
+	assert.Equal(t, "auth-svc", card.PushRecords[0].Repo)
+}
