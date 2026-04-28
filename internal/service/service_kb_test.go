@@ -45,6 +45,8 @@ func TestCardServiceGetProjectKBProjectNotFound(t *testing.T) {
 
 	_, err := svc.GetProjectKB(context.Background(), "no-such-project")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "no-such-project",
+		"wrapped error should mention the missing project name")
 }
 
 func TestCardServiceGetProjectKBWithRepoFilter(t *testing.T) {

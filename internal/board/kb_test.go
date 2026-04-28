@@ -24,6 +24,16 @@ func TestProjectKBMerging(t *testing.T) {
 	require.Contains(t, md, "Payments program context.")
 	require.Contains(t, md, "## Project")
 	require.Contains(t, md, "Q3 epic notes.")
+
+	// Inter-tier ordering: repos must precede jira project, which must
+	// precede project. A regression that swapped these blocks would slip
+	// past the Contains checks above.
+	repoIdx := strings.Index(md, "## Repository:")
+	jiraIdx := strings.Index(md, "## Jira project")
+	projectIdx := strings.Index(md, "## Project")
+	require.True(t, repoIdx >= 0 && jiraIdx >= 0 && projectIdx >= 0)
+	require.Less(t, repoIdx, jiraIdx, "repos must come before jira project")
+	require.Less(t, jiraIdx, projectIdx, "jira project must come before project")
 }
 
 func TestProjectKBEmpty(t *testing.T) {

@@ -1331,6 +1331,16 @@ func TestFilesystemStoreReadProjectKBEmpty(t *testing.T) {
 	require.True(t, kb.IsEmpty())
 }
 
+func TestFilesystemStoreReadProjectKBNilProject(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	_, err = store.ReadProjectKB(context.Background(), nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "project is nil")
+}
+
 func TestFilesystemStoreReadProjectKBFilterIgnoresUnknownSlug(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "_kb", "repos"), 0o755))

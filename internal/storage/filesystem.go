@@ -458,6 +458,10 @@ func (s *FilesystemStore) ReadProjectKB(ctx context.Context, project *board.Proj
 		return board.ProjectKB{}, err
 	}
 
+	if project == nil {
+		return board.ProjectKB{}, fmt.Errorf("project is nil")
+	}
+
 	var kb board.ProjectKB
 
 	// Determine which slugs to read.

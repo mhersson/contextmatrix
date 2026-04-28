@@ -100,8 +100,13 @@ func TestRunnerLogEventIncludesExtra(t *testing.T) {
 	case ev := <-ch:
 		require.Equal(t, "c1", ev.CardID)
 		require.Equal(t, "tool_result", ev.Data["kind"])
-		// Extra is delivered as raw JSON; assert it was preserved.
+		// Extra is delivered as raw JSON; verify the JSON content survived
+		// rather than just asserting non-nil.
 		require.NotNil(t, ev.Data["extra"])
+
+		extraRaw, ok := ev.Data["extra"].(json.RawMessage)
+		require.True(t, ok, "expected json.RawMessage, got %T", ev.Data["extra"])
+		require.JSONEq(t, `{"file":"foo.go","lines":42}`, string(extraRaw))
 	case <-time.After(time.Second):
 		t.Fatal("event not delivered to bus")
 	}
