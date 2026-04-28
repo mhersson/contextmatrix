@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -473,4 +475,87 @@ func TestStartReview_MissingCard(t *testing.T) {
 	})
 
 	require.True(t, resultIsError(result, err), "start_review for unknown card must fail")
+}
+
+// TestGetProjectKBRoundTrip verifies the full KB flow: per-repo and
+// jira-project layers are returned when their files exist on disk and the
+// project's registry/JiraProjectKey are configured.
+func TestGetProjectKBRoundTrip(t *testing.T) {
+	env := setupMCP(t)
+
+	// Update test-project config with Repos + JiraProjectKey
+	cfg, err := env.store.GetProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	cfg.JiraProjectKey = "PAY"
+	cfg.Repos = []board.RepoSpec{
+		{Slug: "r1", URL: "https://example.com/r1.git"},
+	}
+	require.NoError(t, env.store.SaveProject(context.Background(), cfg))
+
+	// Drop KB files into the boards dir.
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "jira-projects"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r1.md"), []byte("# r1 kb\nworld"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "jira-projects", "PAY.md"), []byte("# PAY"), 0o644))
+
+	result := callTool(t, env, "get_project_kb", map[string]any{
+		"project": "test-project",
+	})
+	require.False(t, result.IsError)
+
+	var out getProjectKBOutput
+	unmarshalResult(t, result, &out)
+	require.Contains(t, out.Repos, "r1")
+	assert.Contains(t, out.Repos["r1"], "world")
+	assert.Contains(t, out.JiraProject, "PAY")
+}
+
+// TestGetProjectKBWithRepoFilter verifies the optional repo_slug input
+// narrows the per-repo layer to a single registered slug.
+func TestGetProjectKBWithRepoFilter(t *testing.T) {
+	env := setupMCP(t)
+
+	cfg, err := env.store.GetProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	cfg.Repos = []board.RepoSpec{
+		{Slug: "r1", URL: "https://example.com/r1.git"},
+		{Slug: "r2", URL: "https://example.com/r2.git"},
+	}
+	require.NoError(t, env.store.SaveProject(context.Background(), cfg))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r1.md"), []byte("r1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r2.md"), []byte("r2"), 0o644))
+
+	result := callTool(t, env, "get_project_kb", map[string]any{
+		"project":   "test-project",
+		"repo_slug": "r1",
+	})
+	require.False(t, result.IsError)
+
+	var out getProjectKBOutput
+	unmarshalResult(t, result, &out)
+	require.Len(t, out.Repos, 1)
+	assert.Contains(t, out.Repos, "r1")
+	assert.NotContains(t, out.Repos, "r2")
+}
+
+// TestGetProjectKBProjectMissing verifies the tool surfaces an error when
+// the named project does not exist.
+func TestGetProjectKBProjectMissing(t *testing.T) {
+	env := setupMCP(t)
+	result, err := callToolRaw(t, env, "get_project_kb", map[string]any{
+		"project": "no-such-project",
+	})
+	require.True(t, resultIsError(result, err))
+}
+
+// TestGetProjectKBProjectRequired verifies that omitting the project field is
+// rejected.
+func TestGetProjectKBProjectRequired(t *testing.T) {
+	env := setupMCP(t)
+	result, err := callToolRaw(t, env, "get_project_kb", map[string]any{})
+	require.True(t, resultIsError(result, err))
 }

@@ -176,6 +176,7 @@ func TestListTools(t *testing.T) {
 
 	expectedTools := []string{
 		"list_projects",
+		"get_project_kb",
 		"list_cards",
 		"get_card",
 		"create_card",

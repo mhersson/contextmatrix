@@ -17,6 +17,7 @@ import (
 // registerTools adds all MCP tools to the server.
 func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	registerListProjects(server, svc)
+	registerGetProjectKB(server, svc)
 	registerListCards(server, svc)
 	registerGetCard(server, svc)
 	registerCreateCard(server, svc)
@@ -199,6 +200,17 @@ type getReadyTasksOutput struct {
 	Cards []*board.Card `json:"cards"`
 }
 
+type getProjectKBInput struct {
+	Project  string `json:"project" jsonschema:"required,project name"`
+	RepoSlug string `json:"repo_slug,omitempty" jsonschema:"optional repo slug to narrow per-repo content"`
+}
+
+type getProjectKBOutput struct {
+	Repos       map[string]string `json:"repos,omitempty"`
+	JiraProject string            `json:"jira_project,omitempty"`
+	Project     string            `json:"project,omitempty"`
+}
+
 // --- Tool registrations ---
 
 func registerListProjects(server *mcp.Server, svc *service.CardService) {
@@ -212,6 +224,33 @@ func registerListProjects(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, listProjectsOutput{Projects: projects}, nil
+	})
+}
+
+func registerGetProjectKB(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_project_kb",
+		Description: "Returns the tiered knowledge-base content for a project: per-repo notes, Jira-project-level context, and project-specific notes. Empty layers are omitted. Optional repo_slug narrows the per-repo content.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getProjectKBInput) (*mcp.CallToolResult, getProjectKBOutput, error) {
+		if in.Project == "" {
+			return nil, getProjectKBOutput{}, fmt.Errorf("project is required")
+		}
+
+		var filter []string
+		if in.RepoSlug != "" {
+			filter = []string{in.RepoSlug}
+		}
+
+		kb, err := svc.GetProjectKB(ctx, in.Project, filter...)
+		if err != nil {
+			return nil, getProjectKBOutput{}, fmt.Errorf("get project kb %s: %w", in.Project, err)
+		}
+
+		return nil, getProjectKBOutput{
+			Repos:       kb.Repos,
+			JiraProject: kb.JiraProject,
+			Project:     kb.Project,
+		}, nil
 	})
 }
 

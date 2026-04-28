@@ -90,4 +90,14 @@ type Store interface {
 	// Returns ErrProjectNotFound if the project does not exist.
 	// Returns ErrCardNotFound if the card does not exist.
 	DeleteCard(ctx context.Context, project, id string) error
+
+	// ReadProjectKB assembles the tiered KB for a project. Layers read (each
+	// optional; missing files yield empty content):
+	//   - _kb/repos/<slug>.md        for each slug in project.Repos (or filtered set)
+	//   - _kb/jira-projects/<KEY>.md when project.JiraProjectKey is set
+	//   - <project>/kb/project.md    if present
+	//
+	// Variadic repoSlugFilter narrows the repo tier to the specified slugs that
+	// also appear in project.Repos. Slugs not in the registry are silently dropped.
+	ReadProjectKB(ctx context.Context, project *board.ProjectConfig, repoSlugFilter ...string) (board.ProjectKB, error)
 }
