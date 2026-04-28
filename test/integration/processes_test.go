@@ -63,6 +63,8 @@ func startCM(t *testing.T, configPath string, port int) *process {
 }
 
 // startRunner launches the runner with the given config, polls /readyz.
+// Runner FSM transition log lines (e.g., "Initializing", "Completing")
+// surface at debug level — config_test.go writes log_level: debug.
 func startRunner(t *testing.T, configPath string, port int) *process {
 	t.Helper()
 	return startProcess(t, "runner", runnerBinary, configPath,

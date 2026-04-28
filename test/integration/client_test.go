@@ -24,6 +24,14 @@ func newCMClient(baseURL string) *cmClient {
 
 func (c *cmClient) post(t *testing.T, path string, body any, into any) int {
 	t.Helper()
+	status, _ := c.postRaw(t, path, body, into)
+	return status
+}
+
+// postRaw is like post but also returns the response body (truncated to 4 KiB)
+// so callers can include it in failure messages.
+func (c *cmClient) postRaw(t *testing.T, path string, body any, into any) (int, string) {
+	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {
@@ -41,12 +49,73 @@ func (c *cmClient) post(t *testing.T, path string, body any, into any) int {
 		t.Fatalf("post do %s: %v", path, err)
 	}
 	defer resp.Body.Close()
-	if into != nil && resp.StatusCode < 400 {
-		if err := json.NewDecoder(resp.Body).Decode(into); err != nil && err != io.EOF {
-			t.Fatalf("post decode %s: %v", path, err)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
+		if err := json.Unmarshal(raw, into); err != nil {
+			t.Fatalf("post decode %s: %v body=%s", path, err, raw)
 		}
 	}
-	return resp.StatusCode
+	return resp.StatusCode, string(raw)
+}
+
+// putRaw issues a PUT and returns (status, body). Mirrors postRaw's
+// shape. Used for full-replacement endpoints like PUT /api/projects/{project}.
+func (c *cmClient) putRaw(t *testing.T, path string, body any, into any) (int, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("put encode %s: %v", path, err)
+		}
+	}
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+path, &buf)
+	if err != nil {
+		t.Fatalf("put req %s: %v", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "human:harness")
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		t.Fatalf("put do %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
+		if err := json.Unmarshal(raw, into); err != nil {
+			t.Fatalf("put decode %s: %v body=%s", path, err, raw)
+		}
+	}
+	return resp.StatusCode, string(raw)
+}
+
+// patchRaw issues a PATCH and returns (status, body). Used for partial
+// updates like PATCH /api/projects/{project}/cards/{id}.
+func (c *cmClient) patchRaw(t *testing.T, path string, body any, into any) (int, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("patch encode %s: %v", path, err)
+		}
+	}
+	req, err := http.NewRequest(http.MethodPatch, c.baseURL+path, &buf)
+	if err != nil {
+		t.Fatalf("patch req %s: %v", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "human:harness")
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		t.Fatalf("patch do %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
+		if err := json.Unmarshal(raw, into); err != nil {
+			t.Fatalf("patch decode %s: %v body=%s", path, err, raw)
+		}
+	}
+	return resp.StatusCode, string(raw)
 }
 
 func (c *cmClient) get(t *testing.T, path string, into any) int {

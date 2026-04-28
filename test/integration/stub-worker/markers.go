@@ -58,7 +58,7 @@ func emitMarker(p phase, cardID string) {
 					"title":       "stub-canary-subtask",
 					"description": "Append a TEST-MARKER comment to README.md and commit. Stub: this subtask is materialised by the FSM but its execute phase is also faked.",
 					"repos":       []string{},
-					"priority":    "normal",
+					"priority":    "medium",
 					"depends_on":  []string{},
 				},
 			},

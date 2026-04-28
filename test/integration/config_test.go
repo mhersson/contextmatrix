@@ -69,6 +69,10 @@ runner:
 heartbeat_timeout: 5m
 cors_origin: http://127.0.0.1:0
 theme: everforest
+github:
+  auth_mode: pat
+  pat:
+    token: harness-not-used
 `, sc.cmPort, sc.mcpAPIKey, sc.boardsDir, sc.runnerPort, sc.apiKey)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write CM config: %v", err)
@@ -91,6 +95,7 @@ func (sc *scenarioConfig) writeRunnerConfig(t *testing.T, claudeCreds *claudeCre
 
 	body := fmt.Sprintf(`port: %d
 log_format: text
+log_level: debug
 contextmatrix_url: http://127.0.0.1:%d
 api_key: %q
 deployment_profile: dev
