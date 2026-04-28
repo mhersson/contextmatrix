@@ -224,6 +224,62 @@ The frontmatter is delimited by `---` lines. The body is freeform markdown. When
 parsing, split on `---` — first element is empty (before opening delimiter),
 second is YAML, third is body.
 
+### Runner-orchestration fields (optional)
+
+Cards driven by the runner-orchestrator agent carry a set of optional fields
+that track multi-repo intent, plan/review approval gates, brainstorm output, and
+push records. All fields are `omitempty`; cards that do not use the runner
+workflow simply omit them.
+
+| Field              | YAML                 | Type                | Purpose                                                                  |
+| ------------------ | -------------------- | ------------------- | ------------------------------------------------------------------------ |
+| Repos              | `repos`              | `[]string`          | Hint at which repos the card touches; not authoritative.                 |
+| ChosenRepos        | `chosen_repos`       | `[]string`          | Set authoritatively after the plan phase.                                |
+| BlockerCards       | `blocker_cards`      | `[]string`          | IDs of subtask cards this card depends on.                               |
+| RevisionAttempts   | `revision_attempts`  | `int`               | Bumped each time a plan is rejected.                                     |
+| RevisionRequested  | `revision_requested` | `bool`              | Set when a human requests plan revision.                                 |
+| PlanApproved       | `plan_approved`      | `bool`              | HITL plan-gate approval.                                                 |
+| ReviewApproved     | `review_approved`    | `bool`              | HITL review-gate approval.                                               |
+| DiscoveryComplete  | `discovery_complete` | `bool`              | Brainstorm phase fired the `discovery_complete` tool.                    |
+| AgentSessions      | `agent_sessions`     | `map[string]string` | Stable per-purpose Claude session IDs (purpose → session_id).            |
+| DocsWritten        | `docs_written`       | `bool`              | Documentation phase has run.                                             |
+| PushRecords        | `push_records`       | `[]PushRecord`      | One entry per repo branch push (multi-repo).                             |
+
+`PushRecord` has the shape `{repo, branch, pr_url, pushed_at}` — one record per
+push to a repo branch (so a multi-repo card may accumulate several entries).
+
+Example card with several runner-orchestration fields populated:
+
+```yaml
+---
+id: PAY-042
+title: Move billing webhook signing to KMS
+project: pay-q3
+type: task
+state: review
+priority: high
+repos: [billing-svc, auth-svc]
+chosen_repos: [billing-svc]
+blocker_cards: [PAY-043, PAY-044]
+revision_attempts: 1
+revision_requested: false
+plan_approved: true
+review_approved: false
+discovery_complete: true
+agent_sessions:
+  plan: sess_01HXY...
+  execute: sess_01HZA...
+docs_written: true
+push_records:
+  - repo: billing-svc
+    branch: feat/PAY-042-kms-signing
+    pr_url: https://github.com/org/billing-svc/pull/118
+    pushed_at: 2026-04-21T09:14:00Z
+created: 2026-04-20T08:00:00Z
+updated: 2026-04-21T09:14:00Z
+---
+```
+
 ### `skills` (optional, `*[]string`)
 
 List of task-skill names mounted into the worker container's `~/.claude/skills/` directory. Three states:
@@ -407,3 +463,107 @@ explicitly list `not_planned` in their transitions can reach it (e.g.,
 ### `default_skills` (optional, `*[]string`)
 
 Project-wide fallback when a card has no `skills` field of its own. Same three-state semantics. A card's explicit `skills` (including explicit empty) overrides this.
+
+### `jira_project_key` (optional, `string`)
+
+Links the CM project to a Jira project so that the KB tier 2 file at
+`_kb/jira-projects/<KEY>.md` (e.g. `_kb/jira-projects/PAY.md`) is loaded into
+`ProjectKB.JiraProject`. Has no effect when unset.
+
+### `repos` (optional, `[]RepoSpec`)
+
+Registry of repos this project's cards may touch. Each `RepoSpec` is:
+
+| Field         | YAML          | Type     | Purpose                                                                |
+| ------------- | ------------- | -------- | ---------------------------------------------------------------------- |
+| Slug          | `slug`        | `string` | Stable key used in `_kb/repos/<slug>.md` and card `chosen_repos` / `repos`. |
+| URL           | `url`         | `string` | Clone URL (HTTPS or SSH).                                              |
+| Description   | `description` | `string` | Optional human-readable note.                                          |
+
+**Backward compatibility.** A project that uses the legacy single-string `repo:
+<url>` field is automatically expanded at load time into a one-entry `repos`
+registry whose `slug` is derived from the URL's last path segment with `.git`
+stripped (e.g. `git@github.com:org/auth-svc.git` → slug `auth-svc`). The legacy
+`repo` field stays populated so existing consumers keep working.
+
+Example using the new registry:
+
+```yaml
+name: pay-q3
+prefix: PAY
+next_id: 1
+jira_project_key: PAY
+repos:
+  - slug: billing-svc
+    url: git@github.com:org/billing-svc.git
+    description: "Stripe webhook receiver and ledger writer"
+  - slug: auth-svc
+    url: git@github.com:org/auth-svc.git
+states: [todo, in_progress, blocked, review, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high, critical]
+transitions:
+  todo: [in_progress, not_planned]
+  in_progress: [blocked, review, todo]
+  blocked: [in_progress, todo]
+  review: [done, in_progress]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+```
+
+Equivalent legacy shape (auto-expanded to the same one-entry `repos` registry):
+
+```yaml
+name: pay-q3
+prefix: PAY
+next_id: 1
+repo: git@github.com:org/billing-svc.git
+# states/types/priorities/transitions as above
+```
+
+## Knowledge base (`_kb/`) layout
+
+The boards repo carries a tiered, file-based knowledge base that the runner
+agent loads as system-prompt context. Three tiers:
+
+- **`_kb/repos/<slug>.md`** — long-lived per-repo notes. The `<slug>` is matched
+  against `ProjectConfig.Repos[].Slug`; only repos listed in the project's
+  registry are loaded.
+- **`_kb/jira-projects/<KEY>.md`** — long-lived per-Jira-project notes. The
+  `<KEY>` is matched against `ProjectConfig.JiraProjectKey`; the file is loaded
+  only when the project sets that field.
+- **`<project>/kb/project.md`** — ephemeral per-CM-project notes living inside
+  the project directory. Disappears when the CM project (epic) is deleted.
+
+The `get_project_kb` MCP tool merges the layers into a `ProjectKB` value:
+
+```go
+type ProjectKB struct {
+    Repos       map[string]string // slug → file body
+    JiraProject string
+    Project     string
+}
+```
+
+`ProjectKB.RenderMarkdown()` emits sections in a stable order: each repo under
+`## Repository: <slug>` (lexicographic by slug), then `## Jira project`, then
+`## Project`. Missing tiers are silently omitted. An empty KB renders to the
+empty string.
+
+Example tree:
+
+```
+boards/
+├─ _kb/
+│  ├─ repos/
+│  │  ├─ auth-svc.md
+│  │  └─ billing-svc.md
+│  └─ jira-projects/
+│     └─ PAY.md
+└─ pay-q3/
+   ├─ .board.yaml
+   ├─ tasks/
+   └─ kb/
+      └─ project.md
+```
