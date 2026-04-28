@@ -18,6 +18,13 @@ type RemoteExecutionConfig struct {
 	RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
 }
 
+// RepoSpec is one entry in a project's repo registry.
+type RepoSpec struct {
+	Slug        string `yaml:"slug"                   json:"slug"`
+	URL         string `yaml:"url"                    json:"url"`
+	Description string `yaml:"description,omitempty"  json:"description,omitempty"`
+}
+
 // GitHubImportConfig controls per-project GitHub issue import settings.
 type GitHubImportConfig struct {
 	ImportIssues    bool     `yaml:"import_issues"              json:"import_issues"`
@@ -36,6 +43,8 @@ type ProjectConfig struct {
 	Prefix          string                 `yaml:"prefix" json:"prefix"`
 	NextID          int                    `yaml:"next_id" json:"next_id"`
 	Repo            string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
+	JiraProjectKey  string                 `yaml:"jira_project_key,omitempty" json:"jira_project_key,omitempty"`
+	Repos           []RepoSpec             `yaml:"repos,omitempty" json:"repos,omitempty"`
 	States          []string               `yaml:"states" json:"states"`
 	Types           []string               `yaml:"types" json:"types"`
 	Priorities      []string               `yaml:"priorities" json:"priorities"`
@@ -97,6 +106,16 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 	var cfg ProjectConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformedProjectConfig, err)
+	}
+
+	// Backward compat: if Repos is empty but Repo (legacy single-string field) is
+	// set, expand to a single-entry Repos with derived slug. The legacy Repo
+	// field stays populated so existing consumers keep working.
+	if len(cfg.Repos) == 0 && cfg.Repo != "" {
+		cfg.Repos = []RepoSpec{{
+			Slug: deriveSlugFromURL(cfg.Repo),
+			URL:  cfg.Repo,
+		}}
 	}
 
 	if err := validateProjectConfig(&cfg); err != nil {
@@ -280,4 +299,22 @@ func DiscoverProjects(boardsDir string) ([]ProjectConfig, error) {
 	}
 
 	return projects, nil
+}
+
+// deriveSlugFromURL pulls the repo name out of a URL like
+// https://github.com/owner/repo.git -> "repo". Handles HTTPS and
+// SSH (git@host:owner/repo.git) URLs and trailing .git.
+func deriveSlugFromURL(rawURL string) string {
+	s := strings.TrimRight(rawURL, "/")
+
+	s = strings.TrimSuffix(s, ".git")
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		s = s[i+1:]
+	}
+
+	return s
 }

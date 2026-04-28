@@ -905,6 +905,62 @@ body
 	})
 }
 
+func TestRoundTripWithRunnerOrchestrationFields(t *testing.T) {
+	created := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	pushedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+
+	original := &Card{
+		ID:                "ABC-1",
+		Title:             "test",
+		Project:           "test-project",
+		Type:              "task",
+		State:             "todo",
+		Priority:          "medium",
+		Created:           created,
+		Updated:           created,
+		Repos:             []string{"auth-svc", "billing-svc"},
+		ChosenRepos:       []string{"auth-svc"},
+		BlockerCards:      []string{"ABC-9"},
+		RevisionAttempts:  2,
+		RevisionRequested: true,
+		PlanApproved:      true,
+		ReviewApproved:    false,
+		DiscoveryComplete: true,
+		AgentSessions:     map[string]string{"brainstorm": "sess_abc"},
+		DocsWritten:       true,
+		PushRecords: []PushRecord{
+			{
+				Repo:     "auth-svc",
+				Branch:   "cm/ABC-1",
+				PRURL:    "https://github.com/acme/auth-svc/pull/42",
+				PushedAt: pushedAt,
+			},
+		},
+	}
+
+	bytes, err := SerializeCard(original)
+	require.NoError(t, err)
+
+	parsed, err := ParseCard(bytes)
+	require.NoError(t, err)
+
+	require.Equal(t, original.Repos, parsed.Repos)
+	require.Equal(t, original.ChosenRepos, parsed.ChosenRepos)
+	require.Equal(t, original.BlockerCards, parsed.BlockerCards)
+	require.Equal(t, original.RevisionAttempts, parsed.RevisionAttempts)
+	require.True(t, parsed.RevisionRequested)
+	require.True(t, parsed.PlanApproved)
+	require.False(t, parsed.ReviewApproved)
+	require.True(t, parsed.DiscoveryComplete)
+	require.Equal(t, "sess_abc", parsed.AgentSessions["brainstorm"])
+	require.True(t, parsed.DocsWritten)
+	require.Len(t, parsed.PushRecords, 1)
+	require.Equal(t, "auth-svc", parsed.PushRecords[0].Repo)
+	require.Equal(t, "cm/ABC-1", parsed.PushRecords[0].Branch)
+	require.Equal(t, "https://github.com/acme/auth-svc/pull/42", parsed.PushRecords[0].PRURL)
+	require.True(t, parsed.PushRecords[0].PushedAt.Equal(original.PushRecords[0].PushedAt))
+}
+
 func TestActivityEntry_SkillField(t *testing.T) {
 	t.Run("skill field omitted when empty", func(t *testing.T) {
 		input := `---
