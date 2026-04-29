@@ -116,3 +116,91 @@ func formatMarker(name string, payload any) string {
 func formatMarkerNoPayload(name, summary string) string {
 	return fmt.Sprintf("%s\n\n%s", name, summary)
 }
+
+// --- HITL chat-loop helpers ---
+
+// emitSystemInit writes the {"type":"system","subtype":"init",...} frame
+// the runner uses to capture the session_id at the start of a session.
+func emitSystemInit(sessionID string) {
+	out, _ := json.Marshal(map[string]any{
+		"type":       "system",
+		"subtype":    "init",
+		"session_id": sessionID,
+		"model":      "stub-haiku",
+	})
+	fmt.Println(string(out))
+}
+
+// emitSystemEnd writes the end-of-turn frame with token usage so the
+// runner's chat-loop unblocks and looks for either a marker tool_use or
+// the next user input.
+func emitSystemEnd() {
+	out, _ := json.Marshal(map[string]any{
+		"type":    "system",
+		"subtype": "end",
+		"usage": map[string]any{
+			"input_tokens":  10,
+			"output_tokens": 5,
+		},
+	})
+	fmt.Println(string(out))
+}
+
+// emitAssistantText is a thin alias for emitText kept around so the HITL
+// loop reads symmetrically with emitToolUse.
+func emitAssistantText(text string) {
+	emitText(text)
+}
+
+// emitToolUse writes a stream-json tool_use frame the runner intercepts
+// as a HITL terminal marker (plan_complete / review_approve /
+// review_revise / discovery_complete).
+func emitToolUse(name string, input any) {
+	out, _ := json.Marshal(map[string]any{
+		"type":  "tool_use",
+		"name":  name,
+		"input": input,
+	})
+	fmt.Println(string(out))
+}
+
+// planCompletePayload builds the structured fields the runner parses
+// out of the plan_complete tool_use into ExtendedState.Plan.
+func planCompletePayload(cardID string) map[string]any {
+	return map[string]any{
+		"card_id":      cardID,
+		"plan_summary": "stub HITL: chat-driven plan approved",
+		"chosen_repos": []string{},
+		"subtasks":     []map[string]any{},
+	}
+}
+
+// reviewApprovePayload builds the review_approve tool_use input.
+func reviewApprovePayload(cardID string) map[string]any {
+	return map[string]any{
+		"card_id": cardID,
+		"summary": "stub HITL: reviewer approved",
+	}
+}
+
+// reviewRevisePayload builds the review_revise tool_use input. The
+// detailed feedback string carries forward into the next replan round
+// so the test can assert on the revision attempts counter.
+func reviewRevisePayload(cardID, userText string) map[string]any {
+	feedback := userText
+	if feedback == "" {
+		feedback = "stub HITL: reviewer requested changes"
+	}
+
+	return map[string]any{
+		"card_id":  cardID,
+		"summary":  "stub HITL: reviewer requested revisions",
+		"feedback": feedback,
+	}
+}
+
+// jsonUnmarshal is a thin wrapper that lets main.go avoid a direct
+// "encoding/json" import (keeps imports symmetric across both files).
+func jsonUnmarshal(data string, v any) error {
+	return json.Unmarshal([]byte(data), v)
+}

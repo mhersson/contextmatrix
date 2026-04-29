@@ -20,6 +20,8 @@ const (
 
 func TestIntegrationHarness(t *testing.T) {
 	t.Run("Autonomous", testAutonomousStub)
+	t.Run("HITL", testHITLStub)
+	t.Run("HITL_ReviewLoop", testHITLReviewLoopStub)
 
 	if realClaudeOn {
 		t.Run("Autonomous_RealClaude", testAutonomousRealClaude)
@@ -72,6 +74,142 @@ func testAutonomousStub(t *testing.T) {
 	if !s.runner.hasLine("Completing") {
 		t.Errorf("runner stderr missing FSM Completing entry\nstderr tail:\n%s",
 			tail(s.runner.stderr.String(), 30))
+	}
+}
+
+// testHITLStub drives the HITL chat-loop happy-path with the stub fake
+// claude. Triggers a non-autonomous card, sends "approve" via /message
+// to terminate the plan chat-loop, sends any chat to clear the
+// execution-start gate, then sends "approve" again to terminate the
+// review chat-loop. Asserts the FSM walks plan → subtasks → execute →
+// document → review → commit → done.
+func testHITLStub(t *testing.T) {
+	start := time.Now()
+
+	defer func() {
+		recordSummary(summaryRow{
+			mode:      "Stub",
+			scenario:  "HITL",
+			pass:      !t.Failed() && !t.Skipped(),
+			skipped:   t.Skipped(),
+			durationS: time.Since(start).Truncate(100 * time.Millisecond).String(),
+		})
+	}()
+
+	s := bootScenario(t, "hitl", "inthitl", false)
+
+	cardID := s.createCard(t, "Stub: HITL canary", false /*autonomous*/)
+	s.triggerRun(t, cardID, true /*interactive*/)
+
+	// Wait for the runner to enter the planning chat-loop. The orchestrator
+	// emits a "phase=plan" activity log entry just before opening the
+	// session; once that lands, sending a chat input is safe.
+	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
+
+	// Drive plan chat-loop: the stub replies once to the primer, then waits
+	// for our "approve" to fire plan_complete.
+	s.messageCard(t, cardID, "looks good, approve the plan")
+
+	// Drive execution-start gate: any chat lets the FSM proceed past
+	// WaitingForExecutionStart into Executing.
+	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
+	s.messageCard(t, cardID, "go")
+
+	// Drive review chat-loop after document phase completes.
+	s.waitForPhase(t, cardID, "review", stubScenarioTimeout)
+	s.messageCard(t, cardID, "approve")
+
+	card := s.waitForState(t, cardID, "done", stubScenarioTimeout)
+
+	if card.AssignedAgent != "" {
+		t.Errorf("assigned_agent: got %q, want empty (released)", card.AssignedAgent)
+	}
+
+	expected := []string{"plan", "subtasks", "wait_execution_start", "execute", "document", "review", "commit"}
+
+	got := phaseMarkers(card)
+	if !equalStrings(got, expected) {
+		t.Errorf("phase markers:\n got: %v\nwant: %v", got, expected)
+	}
+}
+
+// testHITLReviewLoopStub drives a two-round review loop in HITL mode.
+// Round 1 plans, executes, then sends "please revise" to trigger
+// review_revise; round 2 replans, executes, and approves. Asserts the
+// FSM walked through replan and review fired twice.
+//
+// We don't assert the card's RevisionAttempts/ReviewAttempts counter:
+// the runner's IncrementRevisionAttemptsAction pushes the new value
+// via update_card with a "revision_attempts" key, but CM's update_card
+// tool only forwards a fixed set of mutable fields (Title, Priority,
+// Labels, Skills, Body) and silently drops unknown fields. The
+// in-memory counter on the runner side is still correct (the
+// autonomous max-revision-attempts guard uses it), so this is a
+// data-observability gap rather than a correctness bug — to be wired
+// up in a follow-up. Activity-log entries are the load-bearing
+// signal for now.
+func testHITLReviewLoopStub(t *testing.T) {
+	start := time.Now()
+
+	defer func() {
+		recordSummary(summaryRow{
+			mode:      "Stub",
+			scenario:  "HITL_ReviewLoop",
+			pass:      !t.Failed() && !t.Skipped(),
+			skipped:   t.Skipped(),
+			durationS: time.Since(start).Truncate(100 * time.Millisecond).String(),
+		})
+	}()
+
+	s := bootScenario(t, "hitl-rev", "inthitlrev", false)
+
+	cardID := s.createCard(t, "Stub: HITL review loop", false /*autonomous*/)
+	s.triggerRun(t, cardID, true /*interactive*/)
+
+	// Round 1: plan → execute → review (revise).
+	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
+	s.messageCard(t, cardID, "approve the plan")
+	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
+	s.messageCard(t, cardID, "go")
+	s.waitForPhase(t, cardID, "review", stubScenarioTimeout)
+	s.messageCard(t, cardID, "please revise: tighten the test coverage")
+
+	// Round 2: replan → execute → review (approve). wait_execution_start
+	// and review are re-entered, so wait for the second occurrence.
+	s.waitForPhase(t, cardID, "replan", stubScenarioTimeout)
+	s.messageCard(t, cardID, "approve the revised plan")
+	s.waitForPhaseN(t, cardID, "wait_execution_start", 2, stubScenarioTimeout)
+	s.messageCard(t, cardID, "go")
+	s.waitForPhaseN(t, cardID, "review", 2, stubScenarioTimeout)
+	s.messageCard(t, cardID, "approve")
+
+	card := s.waitForState(t, cardID, "done", stubScenarioTimeout)
+
+	// Activity-log proof of the revise path: two phase=review entries
+	// (round 1 + round 2) and one phase=replan entry (after round 1's
+	// revise verdict).
+	reviewCount := 0
+	replanCount := 0
+
+	for _, e := range card.ActivityLog {
+		if e.Action != "phase" {
+			continue
+		}
+
+		switch e.Message {
+		case "review":
+			reviewCount++
+		case "replan":
+			replanCount++
+		}
+	}
+
+	if reviewCount != 2 {
+		t.Errorf("phase=review entries: got %d, want 2", reviewCount)
+	}
+
+	if replanCount != 1 {
+		t.Errorf("phase=replan entries: got %d, want 1", replanCount)
 	}
 }
 

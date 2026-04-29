@@ -1466,6 +1466,7 @@ func TestMessageCard_FansOutChatInputEvent(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
@@ -1725,6 +1726,7 @@ func TestPromoteCard_FansOutPromotionEvent(t *testing.T) {
 	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
+
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 

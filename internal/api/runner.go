@@ -40,8 +40,8 @@ type runnerHandlers struct {
 	runnerCfg         config.RunnerConfig
 	mcpAPIKey         string
 	port              int
-	sessionManager    *sessionlog.Manager // nil when session manager is not configured
-	keepaliveInterval time.Duration       // zero → use default (30s)
+	sessionManager    *sessionlog.Manager       // nil when session manager is not configured
+	keepaliveInterval time.Duration             // zero → use default (30s)
 	runnerEventBuf    *events.RunnerEventBuffer // SSE bus for HITL chat / promotion fan-out
 }
 

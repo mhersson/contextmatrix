@@ -39,14 +39,18 @@ func TestRunnerEventsSSEStreamsAppends(t *testing.T) {
 
 	sc := bufio.NewScanner(resp.Body)
 
-	var sawData bool
+	var (
+		sawEventType bool
+		sawData      bool
+	)
 
 	deadline := time.Now().Add(2 * time.Second)
 	for sc.Scan() && time.Now().Before(deadline) {
 		line := sc.Text()
 		if strings.HasPrefix(line, "event: chat_input") {
-			// Confirms the event line carries the type.
+			sawEventType = true
 		}
+
 		if strings.HasPrefix(line, "data: ") {
 			sawData = true
 
@@ -56,6 +60,7 @@ func TestRunnerEventsSSEStreamsAppends(t *testing.T) {
 		}
 	}
 
+	require.True(t, sawEventType, "expected event: line to carry the chat_input type")
 	require.True(t, sawData, "expected at least one data: frame")
 }
 

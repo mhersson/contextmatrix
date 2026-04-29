@@ -199,6 +199,29 @@ func (s *scenarioCtx) triggerRun(t *testing.T, cardID string, interactive bool) 
 	}
 }
 
+// messageCard POSTs a chat message to /api/projects/{project}/cards/{id}/message.
+// Used by HITL scenarios to drive the chat-loop conversation.
+func (s *scenarioCtx) messageCard(t *testing.T, cardID, content string) {
+	t.Helper()
+	body := map[string]any{"content": content}
+	status, raw := s.client.postRaw(t, fmt.Sprintf("/api/projects/%s/cards/%s/message", s.project, cardID), body, nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("messageCard: HTTP %d body=%s\nCM stderr tail:\n%s",
+			status, raw, tail(s.cm.stderr.String(), 30))
+	}
+}
+
+// promoteCard POSTs to /api/projects/{project}/cards/{id}/promote, flipping
+// the card's autonomous flag and fanning out a promotion event over SSE.
+func (s *scenarioCtx) promoteCard(t *testing.T, cardID string) {
+	t.Helper()
+	status, raw := s.client.postRaw(t, fmt.Sprintf("/api/projects/%s/cards/%s/promote", s.project, cardID), nil, nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("promoteCard: HTTP %d body=%s\nCM stderr tail:\n%s",
+			status, raw, tail(s.cm.stderr.String(), 30))
+	}
+}
+
 func (s *scenarioCtx) createCard(t *testing.T, title string, autonomous bool) string {
 	t.Helper()
 	body := map[string]any{
@@ -219,6 +242,41 @@ func (s *scenarioCtx) createCard(t *testing.T, title string, autonomous bool) st
 		t.Fatalf("createCard: empty ID in response")
 	}
 	return resp.ID
+}
+
+// waitForPhase polls the card's activity log until a phase=<name> entry
+// shows up. Used by HITL scenarios to time messageCard sends so the chat
+// input lands after the runner has opened the corresponding session /
+// gate. Fails the test on timeout.
+func (s *scenarioCtx) waitForPhase(t *testing.T, cardID, phaseName string, timeout time.Duration) {
+	t.Helper()
+	s.waitForPhaseN(t, cardID, phaseName, 1, timeout)
+}
+
+// waitForPhaseN waits until at least minCount phase=<name> entries are
+// present in the card's activity log. Used by review-loop scenarios where
+// the same phase (review, wait_execution_start) is re-entered and the
+// first-occurrence semantics of waitForPhase would match a stale entry
+// from an earlier round.
+func (s *scenarioCtx) waitForPhaseN(t *testing.T, cardID, phaseName string, minCount int, timeout time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	pollUntil(ctx, t, fmt.Sprintf("card %s reach phase=%s (count>=%d)", cardID, phaseName, minCount), func() bool {
+		snap := s.client.getCard(t, s.project, cardID)
+
+		n := 0
+		for _, e := range snap.ActivityLog {
+			if e.Action == "phase" && e.Message == phaseName {
+				n++
+				if n >= minCount {
+					return true
+				}
+			}
+		}
+
+		return false
+	})
 }
 
 func (s *scenarioCtx) waitForState(t *testing.T, cardID, target string, timeout time.Duration) cardSnapshot {
