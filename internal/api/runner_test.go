@@ -1739,10 +1739,11 @@ func TestPromoteCard_FansOutPromotionEvent(t *testing.T) {
 }
 
 func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
-	// The new design: PromoteToAutonomous sets the flag first (server-authoritative).
-	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
-	// autonomous flag — the flag flip already committed to git and is the source of truth.
-	// The runner-side handlePromote is responsible for failing closed (no stdin write).
+	// PromoteToAutonomous sets the flag first (server-authoritative). The
+	// legacy /promote webhook to the runner is best-effort: the
+	// orchestrated runner consumes promotion via the RunnerEventBuffer
+	// SSE stream, not via a stdin write, so a webhook failure is purely
+	// informational. CM returns 202 and keeps the autonomous flag set.
 	origBackoff := runner.BackoffBase
 	runner.BackoffBase = time.Millisecond
 
@@ -1782,15 +1783,10 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
-
-	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
-	// delivery problem, not a flag problem). The runner-side handlePromote will see
-	// the flag is now set on the card and can retry or the human can re-promote.
+	// Autonomous flag stays set (server is authoritative; runner webhook
+	// delivery is best-effort relative to the SSE fan-out).
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)

@@ -361,9 +361,12 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fan out to the SSE bus so the runner sees the promotion before any
-	// legacy webhook relay path (best-effort relative to the autonomous flip
-	// that already committed above).
+	// Fan out to the SSE bus — this is the orchestrated runner's promotion
+	// delivery mechanism. The legacy /promote HTTP webhook below is a
+	// best-effort interactive-stdin relay for any worker still listening
+	// on it; failure is logged but does not fail the request, mirroring
+	// the /message endpoint. The autonomous flag is server-authoritative
+	// and has already committed above.
 	if h.runnerEventBuf != nil {
 		h.runnerEventBuf.Append(id, events.RunnerEvent{
 			Type: "promotion",
@@ -371,15 +374,12 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Send promote webhook to runner.
 	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
 		CardID:  id,
 		Project: project,
 	}); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")
-
-		return
+		ctxlog.Logger(r.Context()).Debug("runner /promote webhook failed (best-effort; SSE fan-out is authoritative)",
+			"card_id", id, "project", project, "error", err)
 	}
 
 	writeJSON(w, http.StatusAccepted, updatedCard)

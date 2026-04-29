@@ -214,6 +214,20 @@ func runHITLChatLoop(p phase, cardID string) {
 func detectHITLDecision(p phase, userText string) string {
 	lower := strings.ToLower(userText)
 
+	// Promotion canned message: the runner's driver pushes this into
+	// ChatInputCh when /promote fires mid-run. The agent (real or stub)
+	// terminates the active chat session by emitting the appropriate
+	// terminal-marker tool. Match before the per-phase logic so the
+	// canonical-text check wins over any stray "approve" substring.
+	if strings.Contains(lower, "promoted this card to autonomous") {
+		switch p {
+		case phasePlan:
+			return "plan_complete"
+		case phaseReview:
+			return "review_approve"
+		}
+	}
+
 	switch p {
 	case phasePlan:
 		if strings.Contains(lower, "approve") {
