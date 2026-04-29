@@ -67,6 +67,7 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 	}
 
 	initBoardsRepo(t, cfg.boardsDir, project, fixtureURL)
+	cfg.writeCanarySkill(t)
 
 	cmConfigPath := cfg.writeCMConfig(t)
 	runnerConfigPath := cfg.writeRunnerConfig(t, creds)
@@ -207,6 +208,8 @@ priorities:
   - high
 remote_execution:
   enabled: true
+default_skills:
+  - harness-canary-skill
 `, project, repoURL)
 
 	if err := os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardYAML), 0o644); err != nil {
@@ -301,7 +304,7 @@ func (s *scenarioCtx) waitForPhase(t *testing.T, cardID, phaseName string, timeo
 
 // waitForPhaseN waits until at least minCount phase=<name> entries are
 // present in the card's activity log. Used by review-loop scenarios where
-// the same phase (review, wait_execution_start) is re-entered and the
+// the same phase (e.g. review, plan) is re-entered and the
 // first-occurrence semantics of waitForPhase would match a stale entry
 // from an earlier round.
 func (s *scenarioCtx) waitForPhaseN(t *testing.T, cardID, phaseName string, minCount int, timeout time.Duration) {

@@ -163,41 +163,34 @@ Mauve.
 
 ## CardPanel active-session layout
 
-The split layout and session chat are **HITL-only**. Both are gated on a
-derived boolean:
+The card detail drawer is always a **bifold body** — left column (labels +
+description) plus a right rail of tabs (`body-bifold` testid; left column
+is `body-left`, rail is `body-rail`). The chat surface lives entirely
+inside the rail as the `chat` tab; there is no separate split-body mode.
+
+HITL liveness is derived as:
 
 ```ts
 const isHITLRunning = card.runner_status === 'running' && !card.autonomous;
 ```
 
-When `isHITLRunning` is true, `CardPanel` switches from its normal
-single-scroll body to a **split layout** that gives the Session Chat maximum
-vertical space. When false (autonomous run, idle, or any other state),
-the single-body layout is used and `CardChat` renders nothing.
+`isHITLRunning` controls **input affordances**, not chat tab visibility.
+While true, the compose row (textarea + Send button) and the
+"Switch to Autonomous" button are rendered. When false (runner stopped or
+card promoted to autonomous), they are replaced inline by a single-line
+read-only footer (`role="status"`, `--bg4` background, `--grey2` text)
+reading either:
 
-### Split-body structure (HITL runs only)
+- `Promoted to autonomous — read-only` when `card.autonomous === true`
+- `Session ended — read-only` otherwise
 
-```
-<div data-testid="body-split">          flex flex-col flex-1 min-h-0
-  <div data-testid="body-top-section">  overflow-y-auto max-h-[50%] — Agent, Description, Metadata, Activity
-  <div data-testid="body-chat-region">  flex-1 min-h-0 — CardChat fills remaining height
-```
-
-Autonomous runs (`card.autonomous === true`) always use the single-scroll
-wrapper (`data-testid="body-single"`) even while `runner_status === 'running'`,
-because their chat region would otherwise be empty.
-
-`CardChat` returns null (renders nothing) when
-`card.runner_status !== 'running' || card.autonomous`. This hides the log
-panel, the textarea, the Send button, and the "Switch to Autonomous" button
-together. When a HITL→Auto promotion occurs mid-run, `card.autonomous` flips
-to `true`, the component re-renders, and the entire chat UI disappears
-immediately.
-
-`CardChat` root is `flex flex-col h-full`; its log container is
-`flex-1 min-h-[60px]` (not `max-h-[200px]`), so it expands to fill the chat
-region. The input row and action buttons stay pinned at their natural height
-below the log.
+The conversation transcript, filter bar, and log column always render as
+long as `CardChat` is mounted. The transcript is preserved across
+finalize and HITL→Auto promotion — it is never destroyed by a state
+flip. `CardChat` root is `flex flex-col h-full`; its log container is
+`flex-1 min-h-[60px]` so it expands to fill the rail's chat panel
+regardless of whether the compose row or the read-only footer occupies
+the bottom slot.
 
 ### Message type filter bar
 
@@ -226,12 +219,21 @@ State lives in three booleans in `CardChat.tsx`: `showText`, `showToolCalls`,
 
 ### Rail tabs + default tab on HITL
 
-The bifold drawer no longer uses section-level collapsibles for Description,
-Labels, and Automation. Instead, the right-side rail exposes **tabs**
-(`Automation`, `Info`, `Danger`, plus `Chat` when an HITL session is running)
-and only the active tab's content is mounted. This replaces the previous
-per-section chevron pattern; there is no `descriptionCollapsed` /
-`labelsCollapsed` / `automationCollapsed` state anymore.
+The right-side rail exposes **tabs** (`Automation`, `Info`, `Danger`,
+plus `Chat` when a transcript exists or HITL is live), and only the
+active tab's content is mounted.
+
+**Chat tab visibility** is gated on either condition holding:
+
+```ts
+opts.isHITLRunning || opts.cardLogs.length > 0
+```
+
+Once a card has accumulated any chat history, the tab persists across
+HITL finalize and promote-to-autonomous. The conversation is never
+destroyed by a state flip. The animated aqua pulse indicator beside the
+`Chat` label is rendered only while `isHITLRunning` is true; finalized
+cards show the tab without an indicator.
 
 **Default tab** is derived from `isHITLRunning`:
 
@@ -239,9 +241,15 @@ per-section chevron pattern; there is no `descriptionCollapsed` /
 const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
 ```
 
-**Rail auto-expand** mirrors the default-tab logic: `railExpanded` initial state
-is `useState(isHITLRunning)`, so opening a card with an active HITL run starts
-the rail expanded. The user can still manually collapse it after auto-expand.
+A finalized card with logs but no live HITL still defaults to
+`automation` on cold open — the user can click `Chat` to inspect the
+transcript. Mid-session HITL→finalize flips do not move the user away
+from the chat tab (see sync rules below).
+
+**Rail auto-expand** mirrors the default-tab logic: `railExpanded`
+initial state is `useState(isHITLRunning)`, so opening a card with an
+active HITL run starts the rail expanded. The user can still manually
+collapse it after auto-expand.
 
 On transitions of the sync inputs, UI state is reset as follows:
 
@@ -249,34 +257,30 @@ On transitions of the sync inputs, UI state is reset as follows:
   `editedCard`, `railExpanded → isHITLRunning`, forced-flag badges, and
   `activeTab → defaultTab`. Switching to a HITL card expands the rail;
   switching to a non-HITL card collapses it.
-- **Same card, new object reference from SSE** (`sync.card !== card`, same
-  id): `editedCard` refreshes so unedited fields reflect server-side
-  updates. `railExpanded`, forced flags, and `activeTab` are preserved so
-  agent-driven state transitions and log updates do not disrupt a user
-  mid-HITL-session.
-- **`isHITLRunning` flip to `true`** (e.g. clicking "Run HITL" while the
-  panel is open): resets `activeTab → defaultTab` and sets
-  `railExpanded → true`.
-- **`isHITLRunning` flip to `false`** (e.g. HITL→Auto promotion mid-run,
-  or a run ending): collapses the chat tab back to `defaultTab`, but only
-  after **two consecutive sync events** have observed `isHITLRunning ===
-  false`. The counter (`sync.hitlOffCount`) increments on each sync that
-  still sees the run as off and triggers the tab reset on reaching 2. A
-  single transient SSE glitch (e.g. `runner_status` momentarily stale)
-  therefore does not switch the tab away from `chat`. The counter resets
-  on a HITL-on flip, on card-id change, and on any user-initiated tab
-  change. `railExpanded` is preserved throughout.
+- **Same card, new object reference from SSE** (`sync.card !== card`,
+  same id): `editedCard` refreshes so unedited fields reflect
+  server-side updates. `railExpanded`, forced flags, and `activeTab`
+  are preserved so agent-driven state transitions and log updates do
+  not disrupt the user.
+- **`isHITLRunning` flip to `true`** (e.g. clicking "Run HITL" while
+  the panel is open): sets `activeTab → 'chat'` and `railExpanded →
+  true` so the user lands on the live conversation.
+- **`isHITLRunning` flip to `false`** (HITL→Auto promotion mid-run, or
+  a run ending): the active tab and rail expansion are left alone.
+  Because the chat tab persists in the registry while logs exist, the
+  user stays on the conversation in read-only mode. If logs are empty
+  the chat tab disappears from the registry and `effectiveTab` falls
+  back to the resolved default (Automation on desktop, Card on mobile).
 
-The transitions are handled in a single in-render `useState` marker block
-(`sync`, keyed by `cardId`, carrying `card`, `isHITLRunning`, and
-`hitlOffCount`) in `CardPanel.tsx` — not a `useEffect` — so the reset is
-synchronous with the prop change and avoids the double-render that a
-reactive effect would cause. The debounce counter lives in this same
-state object (not a `useRef`) to comply with the `react-hooks/refs` lint
-rule, which forbids reading or writing refs during render.
+The transitions are handled in a single in-render `useState` marker
+block (`sync`, keyed by `cardId`, carrying `card` and `isHITLRunning`)
+in `CardPanel.tsx` — not a `useEffect` — so the reset is synchronous
+with the prop change and avoids the double-render that a reactive
+effect would cause.
 
-Mounting into an already-HITL card lands on the `chat` tab and starts with the
-rail expanded via the initial `useState(isHITLRunning)` — no transition needed.
+Mounting into an already-HITL card lands on the `chat` tab and starts
+with the rail expanded via the initial `useState(isHITLRunning)` — no
+transition needed.
 
 ## Runner Console
 

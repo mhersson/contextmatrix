@@ -143,6 +143,7 @@ type activityEntry struct {
 	Action    string `json:"action"`
 	Message   string `json:"message"`
 	Agent     string `json:"agent"`
+	Skill     string `json:"skill,omitempty"`
 }
 
 type cardSnapshot struct {

@@ -115,10 +115,8 @@ func testHITLStub(t *testing.T) {
 	s.waitForPhase(t, cardID, "plan_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "looks good, approve the plan")
 
-	// Drive execution-start gate: any chat lets the FSM proceed past
-	// WaitingForExecutionStart into Executing.
-	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
-	s.messageCard(t, cardID, "go")
+	// Plan approval flows directly into Executing — no second gate
+	// between subtask creation and execute.
 
 	// Drive review chat-loop after document phase completes; same
 	// agent-first protocol — wait for review_awaiting before approving.
@@ -132,7 +130,7 @@ func testHITLStub(t *testing.T) {
 		t.Errorf("assigned_agent: got %q, want empty (released)", card.AssignedAgent)
 	}
 
-	expected := []string{"plan", "plan_awaiting", "subtasks", "wait_execution_start", "execute", "document", "review", "review_awaiting", "commit"}
+	expected := []string{"plan", "plan_awaiting", "subtasks", "execute", "document", "review", "review_awaiting", "commit"}
 
 	got := phaseMarkers(card)
 	if !equalStrings(got, expected) {
@@ -179,8 +177,6 @@ func testHITLReviewLoopStub(t *testing.T) {
 	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
 	s.waitForPhase(t, cardID, "plan_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve the plan")
-	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
-	s.messageCard(t, cardID, "go")
 	s.waitForPhase(t, cardID, "review", stubScenarioTimeout)
 	s.waitForPhase(t, cardID, "review_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "please revise: tighten the test coverage")
@@ -191,8 +187,6 @@ func testHITLReviewLoopStub(t *testing.T) {
 	s.waitForPhase(t, cardID, "replan", stubScenarioTimeout)
 	s.waitForPhaseN(t, cardID, "plan_awaiting", 2, stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve the revised plan")
-	s.waitForPhaseN(t, cardID, "wait_execution_start", 2, stubScenarioTimeout)
-	s.messageCard(t, cardID, "go")
 	s.waitForPhaseN(t, cardID, "review", 2, stubScenarioTimeout)
 	s.waitForPhaseN(t, cardID, "review_awaiting", 2, stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve")
@@ -232,8 +226,9 @@ func testHITLReviewLoopStub(t *testing.T) {
 // FSM finishes autonomously. The driver pushes the canned promotion
 // chat into ChatInputCh; the stub recognises the canned text and
 // terminates the plan chat-loop with plan_complete. Post-promotion the
-// FSM should bypass WaitForExecutionStart (IsHITL guard is now false)
-// and complete via ephemeral subprocesses.
+// FSM completes via ephemeral subprocesses (the post-plan execution
+// gate has been removed entirely; both modes go straight to Executing
+// after CreatingSubtasks).
 func testHITLPromoteStub(t *testing.T) {
 	start := time.Now()
 
@@ -267,13 +262,13 @@ func testHITLPromoteStub(t *testing.T) {
 		t.Errorf("card.Autonomous: got %v, want true (after promotion)", card.Autonomous)
 	}
 
-	// Post-promotion IsHITL() returns false, so the FSM's
-	// CreatingSubtasks → WaitingForExecutionStart guard should fail and
-	// the FSM should drop straight into Executing. No phase=wait_execution_start
-	// entries should appear in the activity log.
+	// Regression guard: the post-plan gate has been removed entirely,
+	// so no `wait_execution_start` activity entry should ever appear,
+	// regardless of mode. If this fails, someone has re-introduced
+	// the gate.
 	for _, e := range card.ActivityLog {
 		if e.Action == "phase" && e.Message == "wait_execution_start" {
-			t.Errorf("activity log has phase=wait_execution_start; FSM should bypass after promotion")
+			t.Errorf("activity log has phase=wait_execution_start; gate has been removed and should never fire")
 
 			break
 		}
@@ -330,6 +325,7 @@ func testAutonomousRealClaude(t *testing.T) {
 	card := s.waitForState(t, cardID, "done", realClaudeScenarioTimeout)
 
 	assertCanaryServer(t, s, canaryUUID, canaryPort)
+	assertSkillEngaged(t, s, cardID, canarySkillName)
 
 	// review_attempts counts REVISION rounds (incremented by
 	// IncrementRevisionAttempts on a revise verdict), not the number
@@ -420,8 +416,7 @@ func testHITLRealClaude(t *testing.T) {
 	s.waitForPhase(t, cardID, "plan_awaiting", realClaudeScenarioTimeout)
 	s.messageCard(t, cardID, "lgtm, ship it")
 
-	s.waitForPhase(t, cardID, "wait_execution_start", realClaudeScenarioTimeout)
-	s.messageCard(t, cardID, "go")
+	// Plan approval flows directly into Executing — no second gate.
 
 	s.waitForPhase(t, cardID, "review", realClaudeScenarioTimeout)
 	s.waitForPhase(t, cardID, "review_awaiting", realClaudeScenarioTimeout)
@@ -430,6 +425,7 @@ func testHITLRealClaude(t *testing.T) {
 	_ = s.waitForState(t, cardID, "done", realClaudeScenarioTimeout)
 
 	assertCanaryServer(t, s, canaryUUID, canaryPort)
+	assertSkillEngaged(t, s, cardID, canarySkillName)
 
 	events := transcriptBuf.snapshot()
 	transcriptPath := saveTranscript(t, events, "HITL_RealClaude")
@@ -472,7 +468,14 @@ func canaryCardBody(canaryUUID string, canaryPort int) string {
 
 Add a leading comment line "// SYSINFO-CANARY-%s" at the very top of
 main.go (before the package declaration is fine; the static check just
-greps for the exact string). Commit and push.`, canaryPort, canaryUUID)
+greps for the exact string). Commit and push.
+
+## Required: engage harness-canary-skill before writing code
+
+This card is a SYSINFO-CANARY task. Before you touch any code, invoke the
+Skill tool with skill="harness-canary-skill" once. The skill is mounted
+into ~/.claude/skills/harness-canary-skill/ by the harness and contains
+required guidance for this task.`, canaryPort, canaryUUID)
 }
 
 // assertCanaryServer drives the post-run canary verification: locate
@@ -623,6 +626,45 @@ func assertCanaryServer(t *testing.T, s *scenarioCtx, canaryUUID string, canaryP
 			t.Errorf("canary response missing field %q\nbody=%s", field, body)
 		}
 	}
+}
+
+// assertSkillEngaged verifies the card's activity log contains a
+// skill_engaged entry for the given skill name. The runner's dispatcher
+// emits this whenever the agent invokes the Skill tool with that name —
+// either directly via Claude Code's filesystem-skill mechanism, or via
+// the agent calling mcp__contextmatrix__add_log with action=skill_engaged.
+// Either route flows through CardService.RecordSkillEngaged on CM, which
+// dedupes within a 60s window, so a single entry is the expected shape.
+func assertSkillEngaged(t *testing.T, s *scenarioCtx, cardID, skillName string) {
+	t.Helper()
+
+	var got struct {
+		ActivityLog []struct {
+			Agent   string `json:"agent"`
+			Action  string `json:"action"`
+			Message string `json:"message"`
+			Skill   string `json:"skill"`
+		} `json:"activity_log"`
+	}
+
+	path := fmt.Sprintf("/api/projects/%s/cards/%s", s.project, cardID)
+	if status := s.client.get(t, path, &got); status != http.StatusOK {
+		t.Fatalf("get card for skill assertion: HTTP %d", status)
+	}
+
+	for _, entry := range got.ActivityLog {
+		if entry.Action == "skill_engaged" && entry.Skill == skillName {
+			return
+		}
+	}
+
+	var actions []string
+	for _, e := range got.ActivityLog {
+		actions = append(actions, fmt.Sprintf("%s/%s", e.Action, e.Skill))
+	}
+
+	t.Errorf("activity log missing skill_engaged for %q\nentries: %v",
+		skillName, actions)
 }
 
 // mustOutput runs cmd in dir and returns stdout, fatals on error.

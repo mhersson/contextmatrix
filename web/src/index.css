@@ -1051,6 +1051,49 @@ input, select, textarea {
   font-family: var(--font-mono) !important;
 }
 
+/*
+ * Chat-bubble markdown: tighter spacing so structured status messages
+ * and short summaries don't look like blog posts. The first/last child
+ * margins collapse to keep the bubble snug, headings shrink, and pre
+ * blocks pick up a bit of contrast against the bubble background.
+ * Scoped via the `.bf-chat-markdown` class applied in CardChat.
+ */
+.bf-chat-markdown .wmde-markdown {
+  font-size: 0.875rem !important;
+}
+
+.bf-chat-markdown .wmde-markdown > *:first-child {
+  margin-top: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown p,
+.bf-chat-markdown .wmde-markdown ul,
+.bf-chat-markdown .wmde-markdown ol {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.bf-chat-markdown .wmde-markdown h1,
+.bf-chat-markdown .wmde-markdown h2,
+.bf-chat-markdown .wmde-markdown h3,
+.bf-chat-markdown .wmde-markdown h4 {
+  font-size: 0.95rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
+  padding-bottom: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown pre {
+  margin: 0.25rem 0 !important;
+  padding: 0.5rem !important;
+  border: 1px solid var(--bg3) !important;
+}
+
 /* Card flash animation for newly created cards */
 @keyframes card-flash {
   0%, 100% { background-color: var(--bg1); }
