@@ -48,7 +48,6 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     edited.body !== original.body ||
     !arraysEqual(edited.labels, original.labels) ||
     (edited.autonomous ?? false) !== (original.autonomous ?? false) ||
-    (edited.use_opus_orchestrator ?? false) !== (original.use_opus_orchestrator ?? false) ||
     (edited.feature_branch ?? false) !== (original.feature_branch ?? false) ||
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
@@ -69,9 +68,6 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.autonomous ?? false) !== (original.autonomous ?? false)) {
     updates.autonomous = edited.autonomous ?? false;
-  }
-  if ((edited.use_opus_orchestrator ?? false) !== (original.use_opus_orchestrator ?? false)) {
-    updates.use_opus_orchestrator = edited.use_opus_orchestrator ?? false;
   }
   if ((edited.feature_branch ?? false) !== (original.feature_branch ?? false)) {
     updates.feature_branch = edited.feature_branch ?? false;

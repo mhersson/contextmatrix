@@ -54,7 +54,6 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [body, setBody] = useState(() => config.templates?.[config.types[0]] ?? '');
   const [bodyDirty, setBodyDirty] = useState(false);
   const [autonomous, setAutonomous] = useState(false);
-  const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
   const [featureBranch, setFeatureBranch] = useState(true);
   const [createPR, setCreatePR] = useState(false);
   const [baseBranch, setBaseBranch] = useState('');
@@ -121,13 +120,12 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     parent: parent || undefined,
     body: body || undefined,
     autonomous: autonomous || undefined,
-    use_opus_orchestrator: useOpusOrchestrator || undefined,
     // Server force-enables both on Run; mirror that here so the persisted
     // record matches what the user sees in the form.
     feature_branch: forRun ? true : featureBranch || undefined,
     create_pr: forRun ? true : createPR || undefined,
     base_branch: baseBranch || undefined,
-  }), [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch]);
+  }), [title, type, priority, labels, parent, body, autonomous, featureBranch, createPR, baseBranch]);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -195,11 +193,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           <AutomationCheckboxes
             mode="create"
             autonomous={autonomous}
-            useOpusOrchestrator={useOpusOrchestrator}
             featureBranch={featureBranch}
             createPR={createPR}
             onAutonomousChange={setAutonomous}
-            onUseOpusOrchestratorChange={setUseOpusOrchestrator}
             onFeatureBranchChange={(v) => {
               setFeatureBranch(v);
               if (!v) setCreatePR(false);

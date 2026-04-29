@@ -4,11 +4,9 @@ const MAX_REVIEW_ATTEMPTS = 2;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
-  useOpusOrchestrator: boolean;
   featureBranch: boolean;
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
-  onUseOpusOrchestratorChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
   branchName?: string;
@@ -40,25 +38,22 @@ interface AutomationCheckboxesProps {
 }
 
 /**
- * Automation rail — mirrors the design mock's `.spread` rows
- * (`/tmp/card-panel-explorer.html:2003-2048`). Each row puts the control
- * label on the left and a hint/value on the right:
+ * Automation rail — mirrors the design mock's `.spread` rows. Each row puts
+ * the control label on the left and a hint/value on the right:
  *
  *   [☐ Autonomous mode]            HITL — human replies in chat
- *   [☐ Opus as orchestrator]      → Sonnet (default)
  *   [☐ Feature branch]            ctxmax-456/foo
  *   [☐ Create pull request]       PR #482 ↗
  *   Base branch                   [main ▾]
  *   1 review attempt · max 2
  *   🔒 Automation locked during remote run        (when disabled)
  *
- * Run-status info lives inline with each row — no separate "Run status"
- * card. The Opus hint is yellow when ticked, grey otherwise. The autonomous
- * hint is uncolored (just `.bf-hint` defaults).
+ * Run-status info lives inline with each row — no separate "Run status" card.
+ * The autonomous hint is uncolored (just `.bf-hint` defaults).
  */
 export function AutomationCheckboxes({
-  autonomous, useOpusOrchestrator, featureBranch, createPR,
-  onAutonomousChange, onUseOpusOrchestratorChange, onFeatureBranchChange, onCreatePRChange,
+  autonomous, featureBranch, createPR,
+  onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -86,23 +81,6 @@ export function AutomationCheckboxes({
         </label>
         <span className="bf-hint">
           {autonomous ? 'no human-in-the-loop' : 'human-in-the-loop'}
-        </span>
-      </div>
-
-      {/* Opus orchestrator */}
-      <div className="bf-spread">
-        <label className="bf-switch">
-          <input
-            type="checkbox"
-            aria-label="Opus as orchestrator"
-            checked={useOpusOrchestrator}
-            disabled={disabled}
-            onChange={(e) => onUseOpusOrchestratorChange(e.target.checked)}
-          />
-          <span>Opus as orchestrator</span>
-        </label>
-        <span className="bf-hint" style={{ color: useOpusOrchestrator ? 'var(--yellow)' : 'var(--grey1)' }}>
-          {useOpusOrchestrator ? '→ Opus — deeper planning, higher cost' : '→ Sonnet (default)'}
         </span>
       </div>
 

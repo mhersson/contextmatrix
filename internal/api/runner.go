@@ -134,12 +134,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build trigger payload.
-	model := h.runnerCfg.OrchestratorSonnetModel
-	if card.UseOpusOrchestrator {
-		model = h.runnerCfg.OrchestratorOpusModel
-	}
-
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
 	var taskSkills *[]string
 
@@ -157,7 +151,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
-		Model:       model,
 		TaskSkills:  taskSkills,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {

@@ -161,7 +161,6 @@ vetted: true
 custom:
   some_key: some_value
 autonomous: true
-use_opus_orchestrator: false
 feature_branch: true
 create_pr: true
 branch_name: feat/ALPHA-001-implement-user-auth
@@ -318,7 +317,6 @@ type Card struct {
     Vetted         bool            `yaml:"vetted,omitempty"         json:"vetted,omitempty"`
     Custom         map[string]any  `yaml:"custom,omitempty"         json:"custom,omitempty"`
     Autonomous          bool            `yaml:"autonomous,omitempty"              json:"autonomous,omitempty"`
-    UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty"   json:"use_opus_orchestrator,omitempty"`
     FeatureBranch       bool            `yaml:"feature_branch,omitempty"          json:"feature_branch,omitempty"`
     CreatePR       bool            `yaml:"create_pr,omitempty"      json:"create_pr,omitempty"`
     BranchName     string          `yaml:"branch_name,omitempty"    json:"branch_name,omitempty"`

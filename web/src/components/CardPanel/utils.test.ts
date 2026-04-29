@@ -159,7 +159,6 @@ describe('isCardDirty', () => {
     ['body', { body: 'new content' }],
     ['labels', { labels: ['bug'] }],
     ['autonomous', { autonomous: true }],
-    ['use_opus_orchestrator', { use_opus_orchestrator: true }],
     ['feature_branch', { feature_branch: true }],
     ['create_pr', { create_pr: true }],
     ['vetted', { vetted: true }],

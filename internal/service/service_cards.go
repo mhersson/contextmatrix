@@ -22,60 +22,57 @@ import (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title               string
-	Type                string
-	Priority            string
-	Labels              []string
-	Parent              string
-	Body                string
-	Source              *board.Source // Optional, immutable after creation
-	Autonomous          bool
-	UseOpusOrchestrator bool
-	FeatureBranch       bool
-	CreatePR            bool
-	Vetted              bool
-	Skills              *[]string
+	Title         string
+	Type          string
+	Priority      string
+	Labels        []string
+	Parent        string
+	Body          string
+	Source        *board.Source // Optional, immutable after creation
+	Autonomous    bool
+	FeatureBranch bool
+	CreatePR      bool
+	Vetted        bool
+	Skills        *[]string
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
 // Immutable fields (id, project, created, source) are not included.
 // Value types match PUT's full-replacement semantics (omitted = zero value).
 type UpdateCardInput struct {
-	Title               string
-	Type                string
-	State               string
-	Priority            string
-	Labels              []string
-	Parent              string
-	Subtasks            []string
-	DependsOn           []string
-	Context             []string
-	Custom              map[string]any
-	Body                string
-	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous          bool
-	UseOpusOrchestrator bool
-	FeatureBranch       bool
-	CreatePR            bool
-	Vetted              bool
-	Skills              *[]string
+	Title           string
+	Type            string
+	State           string
+	Priority        string
+	Labels          []string
+	Parent          string
+	Subtasks        []string
+	DependsOn       []string
+	Context         []string
+	Custom          map[string]any
+	Body            string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      bool
+	FeatureBranch   bool
+	CreatePR        bool
+	Vetted          bool
+	Skills          *[]string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
-	Title               *string
-	State               *string
-	Priority            *string
-	Labels              []string // nil = don't change, empty slice = clear
-	Body                *string
-	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous          *bool
-	UseOpusOrchestrator *bool
-	FeatureBranch       *bool
-	CreatePR            *bool
-	Vetted              *bool
-	Skills              *[]string // nil = don't change; non-nil = set (empty allowed)
+	Title           *string
+	State           *string
+	Priority        *string
+	Labels          []string // nil = don't change, empty slice = clear
+	Body            *string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      *bool
+	FeatureBranch   *bool
+	CreatePR        *bool
+	Vetted          *bool
+	Skills          *[]string // nil = don't change; non-nil = set (empty allowed)
 	// SkillsClear, when true, explicitly resets Skills to nil. Needed
 	// because pure JSON cannot distinguish "skills field omitted" from
 	// "skills: null" (Go decodes both as nil pointer); without this the
@@ -309,24 +306,23 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Build card
 	now := time.Now()
 	card := &board.Card{
-		ID:                  cardID,
-		Title:               input.Title,
-		Project:             project,
-		Type:                cardType,
-		State:               cfg.States[0], // Default to first state
-		Priority:            input.Priority,
-		Labels:              input.Labels,
-		Parent:              parentID,
-		Source:              input.Source,
-		Autonomous:          input.Autonomous,
-		UseOpusOrchestrator: input.UseOpusOrchestrator,
-		FeatureBranch:       input.FeatureBranch,
-		CreatePR:            input.CreatePR,
-		Vetted:              input.Vetted,
-		Skills:              input.Skills,
-		Created:             now,
-		Updated:             now,
-		Body:                input.Body,
+		ID:            cardID,
+		Title:         input.Title,
+		Project:       project,
+		Type:          cardType,
+		State:         cfg.States[0], // Default to first state
+		Priority:      input.Priority,
+		Labels:        input.Labels,
+		Parent:        parentID,
+		Source:        input.Source,
+		Autonomous:    input.Autonomous,
+		FeatureBranch: input.FeatureBranch,
+		CreatePR:      input.CreatePR,
+		Vetted:        input.Vetted,
+		Skills:        input.Skills,
+		Created:       now,
+		Updated:       now,
+		Body:          input.Body,
 	}
 
 	enforceVettingInvariant(card)
@@ -562,7 +558,6 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.Custom = input.Custom
 		card.Body = input.Body
 		card.Autonomous = input.Autonomous
-		card.UseOpusOrchestrator = input.UseOpusOrchestrator
 		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
@@ -681,10 +676,6 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.Autonomous != nil {
 			card.Autonomous = *input.Autonomous
-		}
-
-		if input.UseOpusOrchestrator != nil {
-			card.UseOpusOrchestrator = *input.UseOpusOrchestrator
 		}
 
 		if input.FeatureBranch != nil {

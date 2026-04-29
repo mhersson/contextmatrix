@@ -24,12 +24,10 @@ const MinRunnerAPIKeyLength = 32
 
 // RunnerConfig holds configuration for the remote execution runner.
 type RunnerConfig struct {
-	Enabled                 bool   `yaml:"enabled"`
-	URL                     string `yaml:"url"`                       // base URL, e.g. http://localhost:9090
-	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
-	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
-	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
-	ReconcileInterval       string `yaml:"reconcile_interval"`        // how often the backstop sweep scans for leaked containers; "0s" disables
+	Enabled           bool   `yaml:"enabled"`
+	URL               string `yaml:"url"`                // base URL, e.g. http://localhost:9090
+	APIKey            string `yaml:"api_key"`            // shared secret for HMAC signing
+	ReconcileInterval string `yaml:"reconcile_interval"` // how often the backstop sweep scans for leaked containers; "0s" disables
 }
 
 // ReconcileIntervalDuration parses ReconcileInterval as a time.Duration. A
@@ -161,9 +159,7 @@ func defaults() *Config {
 		TaskSkills:        TaskSkillsConfig{},
 		Theme:             "everforest",
 		Runner: RunnerConfig{
-			OrchestratorSonnetModel: "claude-sonnet-4-6",
-			OrchestratorOpusModel:   "claude-opus-4-7",
-			ReconcileInterval:       "60s",
+			ReconcileInterval: "60s",
 		},
 		LogFormat:     "text",
 		LogLevel:      "info",
@@ -535,14 +531,6 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
 		cfg.Runner.APIKey = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {
-		cfg.Runner.OrchestratorSonnetModel = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
-		cfg.Runner.OrchestratorOpusModel = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
