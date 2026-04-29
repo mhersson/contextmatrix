@@ -257,6 +257,17 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Publish to the session log so /api/runner/logs SSE consumers
+	// (web UI transcript, integration test transcript) see the human
+	// side of the conversation alongside agent events.
+	if h.sessionManager != nil {
+		h.sessionManager.PublishLocal(id, sessionlog.Event{
+			Timestamp: time.Now(),
+			Type:      "user_chat",
+			Payload:   []byte(body.Content),
+		})
+	}
+
 	if err := h.runner.Message(r.Context(), runner.MessagePayload{
 		CardID:    id,
 		Project:   project,
@@ -371,6 +382,17 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		h.runnerEventBuf.Append(id, events.RunnerEvent{
 			Type: "promotion",
 			Data: "{}",
+		})
+	}
+
+	// Mirror the messageCard hook: surface the promotion in the
+	// session log so transcript consumers can see when the human flips
+	// the card to autonomous mid-run.
+	if h.sessionManager != nil {
+		h.sessionManager.PublishLocal(id, sessionlog.Event{
+			Timestamp: time.Now(),
+			Type:      "user_promote",
+			Payload:   []byte("promoted to autonomous"),
 		})
 	}
 

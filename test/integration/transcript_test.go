@@ -64,7 +64,12 @@ func (b *transcriptBuffer) snapshot() []transcriptEvent {
 // and pumps events into buf until ctx is cancelled or the stream ends.
 // Returns immediately; goroutine runs in background. The harness cancels
 // ctx in t.Cleanup so the goroutine exits.
-func startTranscriptCapture(t *testing.T, cmBaseURL, project, cardID string, buf *transcriptBuffer) {
+//
+// When rl is non-nil, each parsed event is also forwarded to the
+// scenario's combined log with source "transcript:<type>" so a reader
+// of combined.log sees the chat-loop events interleaved with subprocess
+// stderr in chronological order.
+func startTranscriptCapture(t *testing.T, cmBaseURL, project, cardID string, buf *transcriptBuffer, rl *runLog) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,6 +123,15 @@ func startTranscriptCapture(t *testing.T, cmBaseURL, project, cardID string, buf
 					}
 					ev.RawJSON = raw
 					buf.append(ev)
+
+					if rl != nil {
+						source := "transcript"
+						if ev.Type != "" {
+							source = "transcript:" + ev.Type
+						}
+						rl.writeLine(source, ev.Content)
+					}
+
 					if ev.Type == "terminal" {
 						return
 					}

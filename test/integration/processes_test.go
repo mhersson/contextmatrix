@@ -5,6 +5,7 @@ package integration_test
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -55,29 +56,50 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// startCM launches CM with the given config, polls /healthz.
-func startCM(t *testing.T, configPath string, port int) *process {
+// startCM launches CM with the given config, polls /healthz, and tees
+// stdout+stderr into rl.cmSink (saved as cm.log on disk). CM output is
+// NOT forwarded to combined.log / run.md — it is high-volume request
+// noise that drowns out the chat-loop and FSM events the operator
+// actually wants to read.
+func startCM(t *testing.T, configPath string, port int, rl *runLog) *process {
 	t.Helper()
 	return startProcess(t, "cm", cmBinary, configPath,
-		fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+		fmt.Sprintf("http://127.0.0.1:%d/healthz", port), rl, rl.cmSink, false)
 }
 
-// startRunner launches the runner with the given config, polls /readyz.
+// startRunner launches the runner with the given config, polls /readyz,
+// and tees stdout+stderr into rl.runnerSink (saved as runner.log) AND
+// forwards each line to combined.log so the FSM state transitions and
+// chat-loop debug logs interleave with transcript / user_chat events.
 // Runner FSM transition log lines (e.g., "Initializing", "Completing")
 // surface at debug level — config_test.go writes log_level: debug.
-func startRunner(t *testing.T, configPath string, port int) *process {
+func startRunner(t *testing.T, configPath string, port int, rl *runLog) *process {
 	t.Helper()
 	return startProcess(t, "runner", runnerBinary, configPath,
-		fmt.Sprintf("http://127.0.0.1:%d/readyz", port))
+		fmt.Sprintf("http://127.0.0.1:%d/readyz", port), rl, rl.runnerSink, true)
 }
 
-func startProcess(t *testing.T, name, binary, configPath, healthURL string) *process {
+func startProcess(t *testing.T, name, binary, configPath, healthURL string, rl *runLog, sink *bytes.Buffer, forwardToCombined bool) *process {
 	t.Helper()
 
 	stderr := &threadSafeBuffer{}
+
+	// Tee subprocess output to: (1) the existing thread-safe buffer for
+	// in-test grep, (2) the per-scenario raw sink saved on disk as
+	// <name>.log, and (3) optionally the chronological combined log
+	// (runner only — see startCM rationale).
+	multiWriter := io.MultiWriter(stderr, sink)
+
+	onLine := func(string) {}
+	if forwardToCombined {
+		onLine = func(line string) { rl.writeLine(name, line) }
+	}
+
+	tee := newLineTee(multiWriter, onLine)
+
 	cmd := exec.Command(binary, "--config", configPath)
-	cmd.Stderr = stderr
-	cmd.Stdout = stderr // pool both for grep simplicity
+	cmd.Stderr = tee
+	cmd.Stdout = tee
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s: %v", name, err)
@@ -98,6 +120,10 @@ func startProcess(t *testing.T, name, binary, configPath, healthURL string) *pro
 			_ = cmd.Process.Kill()
 			<-done
 		}
+
+		// Emit any partial trailing line that was buffered by the tee
+		// when the process exited mid-write so it appears in combined.log.
+		tee.Flush()
 	})
 
 	if err := waitForReady(healthURL, 30*time.Second); err != nil {

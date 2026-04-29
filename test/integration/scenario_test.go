@@ -23,6 +23,8 @@ type scenarioCtx struct {
 	project    string
 	creds      *claudeCredentials // nil in stub mode
 	fixtureURL string             // empty in stub mode; HTTPS clone URL in real-Claude
+	rl         *runLog            // observability (combined log + per-source files + run.md)
+	tb         *transcriptBuffer  // optional; set by startTranscriptCapture for real-Claude scenarios
 }
 
 func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *scenarioCtx {
@@ -38,6 +40,18 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 	}
 
 	cfg := newScenarioConfig(t, scenarioID, realClaude)
+
+	rl, err := newRunLog(scenarioID)
+	if err != nil {
+		t.Fatalf("runlog: %v", err)
+	}
+
+	scenarioStart := time.Now()
+
+	// sc is captured by the finalize cleanup below by pointer so the
+	// closure can pull the transcript out of sc.tb (set later by
+	// startTranscriptCapture for real-Claude scenarios) at finalize time.
+	var sc *scenarioCtx
 
 	// Real-Claude mode: provision the fixture bare repo + HTTPS server
 	// FIRST, then bake the resulting URL into .board.yaml when CM boots.
@@ -57,8 +71,8 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 	cmConfigPath := cfg.writeCMConfig(t)
 	runnerConfigPath := cfg.writeRunnerConfig(t, creds)
 
-	cm := startCM(t, cmConfigPath, cfg.cmPort)
-	runner := startRunner(t, runnerConfigPath, cfg.runnerPort)
+	cm := startCM(t, cmConfigPath, cfg.cmPort, rl)
+	runner := startRunner(t, runnerConfigPath, cfg.runnerPort, rl)
 
 	client := newCMClient(fmt.Sprintf("http://127.0.0.1:%d", cfg.cmPort))
 
@@ -72,47 +86,49 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 		}
 	})
 
-	// On test failure, archive stderr buffers + final card snapshots
-	// to /tmp/cm-int-failures/<scenarioID>/ so post-mortems survive
-	// t.TempDir() cleanup. Runs BEFORE the docker-cleanup hook above
-	// because t.Cleanup is LIFO; we need the stderr buffers and the
-	// docker container intact at archive time.
+	// Always-on observability: write per-scenario logs + markdown report
+	// regardless of pass/fail. Runs BEFORE the docker-cleanup hook above
+	// because t.Cleanup is LIFO; we need the live process buffers and
+	// the worker containers intact at capture time.
 	t.Cleanup(func() {
-		if !t.Failed() {
-			return
-		}
-		archiveDir := filepath.Join(os.TempDir(), "cm-int-failures", scenarioID)
-		if err := os.MkdirAll(archiveDir, 0o755); err != nil {
-			t.Logf("archive dir %s: %v", archiveDir, err)
-			return
-		}
-		_ = os.WriteFile(filepath.Join(archiveDir, "cm.stderr.log"), []byte(cm.stderr.String()), 0o644)
-		_ = os.WriteFile(filepath.Join(archiveDir, "runner.stderr.log"), []byte(runner.stderr.String()), 0o644)
-
-		// Snapshot every card in the project so we can see plan body,
-		// activity log, runner_status, etc. post-mortem.
-		var listResp struct {
-			Cards []map[string]any `json:"cards"`
-		}
-		if status := client.get(t, fmt.Sprintf("/api/projects/%s/cards", project), &listResp); status == http.StatusOK {
-			cardsBlob, _ := json.MarshalIndent(listResp, "", "  ")
-			_ = os.WriteFile(filepath.Join(archiveDir, "cards.json"), cardsBlob, 0o644)
+		status := "PASS"
+		if t.Skipped() {
+			status = "SKIP"
+		} else if t.Failed() {
+			status = "FAIL"
 		}
 
-		// Capture per-container docker logs for any worker that ran in
-		// this scenario. The label was set by the runner at spawn time.
-		out, _ := exec.Command("docker", "ps", "-aq",
-			"--filter", fmt.Sprintf("label=contextmatrix.test=%s", scenarioID)).Output()
-		for i, id := range nonEmptyLines(string(out)) {
-			if logs, err := exec.Command("docker", "logs", id).CombinedOutput(); err == nil {
-				_ = os.WriteFile(filepath.Join(archiveDir, fmt.Sprintf("worker-%d.log", i)), logs, 0o644)
+		// Failure-only: snapshot project cards and per-container worker
+		// logs alongside the always-on artefacts so the run.md sits next
+		// to them. Successful runs don't need these.
+		if t.Failed() {
+			var listResp struct {
+				Cards []map[string]any `json:"cards"`
+			}
+			if st := client.get(t, fmt.Sprintf("/api/projects/%s/cards", project), &listResp); st == http.StatusOK {
+				cardsBlob, _ := json.MarshalIndent(listResp, "", "  ")
+				_ = os.WriteFile(filepath.Join(rl.dir, "cards.json"), cardsBlob, 0o644)
+			}
+
+			out, _ := exec.Command("docker", "ps", "-aq",
+				"--filter", fmt.Sprintf("label=contextmatrix.test=%s", scenarioID)).Output()
+			for i, id := range nonEmptyLines(string(out)) {
+				if logs, err := exec.Command("docker", "logs", id).CombinedOutput(); err == nil {
+					_ = os.WriteFile(filepath.Join(rl.dir, fmt.Sprintf("worker-%d.log", i)), logs, 0o644)
+				}
 			}
 		}
 
-		t.Logf("test failed; diagnostics archived to %s", archiveDir)
+		var transcriptJSONL []byte
+		if sc != nil && sc.tb != nil {
+			transcriptJSONL = transcriptToJSONL(sc.tb.snapshot())
+		}
+		rl.finalize(scenarioID, status, time.Since(scenarioStart), transcriptJSONL)
+
+		t.Logf("scenario diagnostics: %s", rl.dir)
 	})
 
-	return &scenarioCtx{
+	sc = &scenarioCtx{
 		cfg:        cfg,
 		cm:         cm,
 		runner:     runner,
@@ -120,7 +136,29 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 		project:    project,
 		creds:      creds,
 		fixtureURL: fixtureURL,
+		rl:         rl,
 	}
+
+	return sc
+}
+
+// transcriptToJSONL renders captured SSE events as one JSON object per
+// line (JSONL) — the same shape saveTranscript writes. Used by the
+// runlog finalize hook so transcript.jsonl ends up in the per-scenario
+// directory alongside cm.log / runner.log / combined.log.
+func transcriptToJSONL(events []transcriptEvent) []byte {
+	if len(events) == 0 {
+		return nil
+	}
+	var b []byte
+	for _, ev := range events {
+		if ev.RawJSON == "" {
+			continue
+		}
+		b = append(b, []byte(ev.RawJSON)...)
+		b = append(b, '\n')
+	}
+	return b
 }
 
 func initBoardsRepo(t *testing.T, boardsDir, project, repoURL string) {
@@ -200,9 +238,14 @@ func (s *scenarioCtx) triggerRun(t *testing.T, cardID string, interactive bool) 
 }
 
 // messageCard POSTs a chat message to /api/projects/{project}/cards/{id}/message.
-// Used by HITL scenarios to drive the chat-loop conversation.
+// Used by HITL scenarios to drive the chat-loop conversation. The text
+// is also recorded in the scenario's combined log under [user_chat] so
+// post-mortems show what the simulated human typed.
 func (s *scenarioCtx) messageCard(t *testing.T, cardID, content string) {
 	t.Helper()
+	if s.rl != nil {
+		s.rl.writeLine("user_chat", fmt.Sprintf("%s: %s", cardID, content))
+	}
 	body := map[string]any{"content": content}
 	status, raw := s.client.postRaw(t, fmt.Sprintf("/api/projects/%s/cards/%s/message", s.project, cardID), body, nil)
 	if status != http.StatusAccepted {
@@ -215,6 +258,9 @@ func (s *scenarioCtx) messageCard(t *testing.T, cardID, content string) {
 // the card's autonomous flag and fanning out a promotion event over SSE.
 func (s *scenarioCtx) promoteCard(t *testing.T, cardID string) {
 	t.Helper()
+	if s.rl != nil {
+		s.rl.writeLine("user_promote", cardID)
+	}
 	status, raw := s.client.postRaw(t, fmt.Sprintf("/api/projects/%s/cards/%s/promote", s.project, cardID), nil, nil)
 	if status != http.StatusAccepted {
 		t.Fatalf("promoteCard: HTTP %d body=%s\nCM stderr tail:\n%s",

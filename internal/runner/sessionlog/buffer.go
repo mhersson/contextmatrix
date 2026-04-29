@@ -304,6 +304,42 @@ func (m *Manager) Append(cardID string, evt Event) {
 	b.append(evt)
 }
 
+// PublishLocal injects an event originated server-side (not from the
+// runner upstream pump) into both the session buffer and the live
+// subscriber fan-out for cardID. Use this for events that need to
+// appear in `/api/runner/logs` SSE alongside the runner's stream-json
+// events — for example, a `user_chat` record posted by the messageCard
+// HTTP handler so transcript consumers see the human side of HITL
+// dialogues.
+//
+// If no session is active for cardID, the event is buffered for late
+// subscribers but not fanned out (no live subscribers exist yet).
+// Synthetic events use Seq=0; they slot in by Timestamp ordering when
+// merged with upstream events.
+func (m *Manager) PublishLocal(cardID string, evt Event) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.getOrCreate(cardID).append(evt)
+
+	sess, ok := m.activeSessions[cardID]
+	if !ok {
+		return
+	}
+
+	for _, s := range sess.subs {
+		if !s.primed {
+			s.pending = append(s.pending, evt)
+		} else {
+			select {
+			case s.ch <- evt:
+			default:
+				_ = m.notifyDrop(s)
+			}
+		}
+	}
+}
+
 // Snapshot returns an ordered, defensive copy of all buffered events for
 // cardID. Returns nil if no events have been appended for cardID.
 func (m *Manager) Snapshot(cardID string) []Event {

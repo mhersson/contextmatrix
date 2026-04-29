@@ -311,8 +311,9 @@ func testAutonomousRealClaude(t *testing.T) {
 	}
 
 	transcriptBuf := newTranscriptBuffer(5 * 1024 * 1024)
+	s.tb = transcriptBuf
 	cmBaseURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.cmPort)
-	startTranscriptCapture(t, cmBaseURL, s.project, cardID, transcriptBuf)
+	startTranscriptCapture(t, cmBaseURL, s.project, cardID, transcriptBuf, s.rl)
 
 	s.triggerRun(t, cardID, false /*interactive*/)
 
@@ -392,25 +393,27 @@ func testHITLRealClaude(t *testing.T) {
 	}
 
 	transcriptBuf := newTranscriptBuffer(5 * 1024 * 1024)
+	s.tb = transcriptBuf
 	cmBaseURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.cmPort)
-	startTranscriptCapture(t, cmBaseURL, s.project, cardID, transcriptBuf)
+	startTranscriptCapture(t, cmBaseURL, s.project, cardID, transcriptBuf, s.rl)
 
 	s.triggerRun(t, cardID, true /*interactive*/)
 
-	// Drive each chat-loop with a single terse, directive message. Real
-	// Claude is fast to comply when the wording is unambiguous; longer
-	// phrasing risks follow-up questions and a timeout.
+	// Each chat is a single naturalistic free-text message — no tool
+	// names, no structured fields, just the kind of phrasing a human
+	// reviewer types. The agent's HITL prompt teaches it to interpret
+	// "lgtm" / "ship it" / "go" as approval. If it doesn't, that's a
+	// product bug to surface, not test-side hand-holding to paper over.
 	s.waitForPhase(t, cardID, "plan", realClaudeScenarioTimeout)
 	s.messageCard(t, cardID,
-		"Plan one subtask: 'Implement main.go and main_test.go per "+
-			"the card body, commit, push'. Approve and call plan_complete now.")
+		"plan one subtask 'implement main.go and main_test.go per the "+
+			"card body, commit, push'. lgtm, ship it.")
 
 	s.waitForPhase(t, cardID, "wait_execution_start", realClaudeScenarioTimeout)
 	s.messageCard(t, cardID, "go")
 
 	s.waitForPhase(t, cardID, "review", realClaudeScenarioTimeout)
-	s.messageCard(t, cardID,
-		"The diff implements the spec correctly. Approve and call review_approve now.")
+	s.messageCard(t, cardID, "diff implements the spec, lgtm")
 
 	_ = s.waitForState(t, cardID, "done", realClaudeScenarioTimeout)
 
