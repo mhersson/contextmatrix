@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,15 +29,66 @@ type frictionReport struct {
 	Summary  string            `json:"summary"`
 }
 
+// saveTranscript writes the captured events to a deterministic path on
+// disk so the run-then-review workflow (let Claude Code analyse the
+// transcript inline) doesn't depend on an Anthropic API key. Path
+// includes the unix timestamp so successive runs don't clobber each
+// other. Returns the absolute path written.
+func saveTranscript(t *testing.T, events []transcriptEvent, scenario string) string {
+	t.Helper()
+
+	dir := filepath.Join(os.TempDir(), "cm-int-transcripts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Logf("saveTranscript mkdir %s: %v", dir, err)
+
+		return ""
+	}
+
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d.jsonl", scenario, time.Now().Unix()))
+
+	f, err := os.Create(path)
+	if err != nil {
+		t.Logf("saveTranscript create %s: %v", path, err)
+
+		return ""
+	}
+	defer f.Close()
+
+	// One event per line (JSONL). Each event's RawJSON is already a JSON
+	// object as produced by CM's session log SSE; we keep them verbatim
+	// so the inline analyser sees the same payload the runner saw.
+	for _, ev := range events {
+		if ev.RawJSON == "" {
+			continue
+		}
+
+		if _, err := fmt.Fprintln(f, ev.RawJSON); err != nil {
+			t.Logf("saveTranscript write: %v", err)
+
+			return path
+		}
+	}
+
+	return path
+}
+
 // analyzeTranscript posts the captured transcript to Haiku for friction
 // scoring. Returns a structured report or an error. Skipped (no error,
-// nil report) if no API key is configured.
+// nil report) when CM_FRICTION_ANALYZER is unset (default) — the
+// transcript is on disk via saveTranscript and the controlling Claude
+// Code session can read+analyse it directly without paying for an
+// extra API call. Set CM_FRICTION_ANALYZER=1 for unattended runs that
+// need a self-contained scoring pass.
 func analyzeTranscript(ctx context.Context, t *testing.T, events []transcriptEvent) (*frictionReport, error) {
 	t.Helper()
 
+	if os.Getenv("CM_FRICTION_ANALYZER") != "1" {
+		return nil, nil
+	}
+
 	apiKey := analyzerAPIKey()
 	if apiKey == "" {
-		t.Logf("friction analyzer skipped: no ANTHROPIC_API_KEY (or analyzer-specific) set")
+		t.Logf("CM_FRICTION_ANALYZER=1 but no ANTHROPIC_API_KEY (or analyzer-specific) set; skipping")
 
 		return nil, nil
 	}
@@ -129,10 +181,16 @@ func renderTranscript(events []transcriptEvent) string {
 	return b.String()
 }
 
-// printFrictionReport renders the report into the harness summary.
-func printFrictionReport(scenarioName string, report *frictionReport) {
+// printFrictionReport renders the analyzer's findings into the harness
+// summary. Always prints the saved transcript path so the controller
+// (Claude Code session OR the human operator) can read it manually.
+func printFrictionReport(scenarioName, transcriptPath string, report *frictionReport) {
+	if transcriptPath != "" {
+		fmt.Fprintf(os.Stderr, "Transcript saved (%s): %s\n", scenarioName, transcriptPath)
+	}
+
 	if report == nil {
-		fmt.Fprintf(os.Stderr, "Friction report (%s): skipped (no analyzer API key)\n", scenarioName)
+		fmt.Fprintf(os.Stderr, "Inline analysis: skipped (set CM_FRICTION_ANALYZER=1 + ANTHROPIC_API_KEY for self-contained scoring; otherwise read the transcript above)\n")
 
 		return
 	}

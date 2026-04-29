@@ -93,10 +93,22 @@ func (sc *scenarioConfig) writeRunnerConfig(t *testing.T, claudeCreds *claudeCre
 		credsBlock = claudeCreds.runnerYAMLFragment()
 	}
 
+	// In real-Claude mode the harness fronts the fixture bare repo with a
+	// self-signed HTTPS server (githttps_test.go); the worker container's
+	// git client must skip cert verification to clone+push against it.
+	// Stub mode never hits the fixture so the env var is harmless either
+	// way; we only emit it when claudeCreds != nil to keep stub configs
+	// minimal.
+	extraEnvBlock := ""
+	if claudeCreds != nil {
+		extraEnvBlock = "worker_extra_env:\n  GIT_SSL_NO_VERIFY: \"1\"\n"
+	}
+
 	body := fmt.Sprintf(`port: %d
 log_format: text
 log_level: debug
 contextmatrix_url: http://127.0.0.1:%d
+container_contextmatrix_url: http://host.docker.internal:%d
 api_key: %q
 deployment_profile: dev
 base_image: %s
@@ -116,7 +128,7 @@ github:
   auth_mode: pat
   pat:
     token: not-used-by-stub
-%s`, sc.runnerPort, sc.cmPort, sc.apiKey, sc.workerImage, sc.workerImage, sc.workerImage, credsBlock)
+%s%s`, sc.runnerPort, sc.cmPort, sc.cmPort, sc.apiKey, sc.workerImage, sc.workerImage, sc.workerImage, credsBlock, extraEnvBlock)
 
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write runner config: %v", err)

@@ -49,19 +49,19 @@ func emitMarker(p phase, cardID string) {
 
 	switch p {
 	case phasePlan:
-		// PLAN_DRAFTED with a single canary subtask.
+		// Pure-spec PLAN_DRAFTED with no subtasks. The stub mode runs
+		// against a placeholder repo URL (https://example.invalid/...)
+		// that exists only to satisfy the runner's webhook validator;
+		// any orchestrator code path that actually tries to clone it
+		// will fail. Emitting zero subtasks keeps Execute a no-op so
+		// the FSM walks plan → subtasks → execute → document → review
+		// → commit → done without ever invoking CloneRepo. Real-Claude
+		// mode (test/integration/scenarios_test.go) uses a real local
+		// HTTPS git server and does exercise the Execute clone path.
 		payload := map[string]any{
-			"plan_summary": "stub canary plan: one subtask that emits TEST-MARKER",
+			"plan_summary": "stub pure-spec canary: no execute work; verifies FSM phase progression",
 			"chosen_repos": []string{},
-			"subtasks": []map[string]any{
-				{
-					"title":       "stub-canary-subtask",
-					"description": "Append a TEST-MARKER comment to README.md and commit. Stub: this subtask is materialised by the FSM but its execute phase is also faked.",
-					"repos":       []string{},
-					"priority":    "medium",
-					"depends_on":  []string{},
-				},
-			},
+			"subtasks":     []map[string]any{},
 		}
 		emitText(formatMarker("PLAN_DRAFTED", payload))
 

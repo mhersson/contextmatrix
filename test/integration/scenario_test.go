@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,12 +16,13 @@ import (
 )
 
 type scenarioCtx struct {
-	cfg     *scenarioConfig
-	cm      *process
-	runner  *process
-	client  *cmClient
-	project string
-	creds   *claudeCredentials // nil in stub mode
+	cfg        *scenarioConfig
+	cm         *process
+	runner     *process
+	client     *cmClient
+	project    string
+	creds      *claudeCredentials // nil in stub mode
+	fixtureURL string             // empty in stub mode; HTTPS clone URL in real-Claude
 }
 
 func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *scenarioCtx {
@@ -36,7 +38,21 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 	}
 
 	cfg := newScenarioConfig(t, scenarioID, realClaude)
-	initBoardsRepo(t, cfg.boardsDir, project)
+
+	// Real-Claude mode: provision the fixture bare repo + HTTPS server
+	// FIRST, then bake the resulting URL into .board.yaml when CM boots.
+	// We can't update the URL after boot via PUT — CM's UpdateProject
+	// only writes cfg.Repo (singular) and never reconciles cfg.Repos
+	// (plural, the registry the runner reads via MCP get_task_context),
+	// so a post-boot retarget leaves the runner cloning the stale URL.
+	// Stub mode keeps the placeholder URL — it never spawns a real
+	// worker against it.
+	fixtureURL := ""
+	if realClaude {
+		fixtureURL = initFixtureRepo(t, cfg.tmpDir)
+	}
+
+	initBoardsRepo(t, cfg.boardsDir, project, fixtureURL)
 
 	cmConfigPath := cfg.writeCMConfig(t)
 	runnerConfigPath := cfg.writeRunnerConfig(t, creds)
@@ -56,17 +72,58 @@ func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *sc
 		}
 	})
 
+	// On test failure, archive stderr buffers + final card snapshots
+	// to /tmp/cm-int-failures/<scenarioID>/ so post-mortems survive
+	// t.TempDir() cleanup. Runs BEFORE the docker-cleanup hook above
+	// because t.Cleanup is LIFO; we need the stderr buffers and the
+	// docker container intact at archive time.
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		archiveDir := filepath.Join(os.TempDir(), "cm-int-failures", scenarioID)
+		if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+			t.Logf("archive dir %s: %v", archiveDir, err)
+			return
+		}
+		_ = os.WriteFile(filepath.Join(archiveDir, "cm.stderr.log"), []byte(cm.stderr.String()), 0o644)
+		_ = os.WriteFile(filepath.Join(archiveDir, "runner.stderr.log"), []byte(runner.stderr.String()), 0o644)
+
+		// Snapshot every card in the project so we can see plan body,
+		// activity log, runner_status, etc. post-mortem.
+		var listResp struct {
+			Cards []map[string]any `json:"cards"`
+		}
+		if status := client.get(t, fmt.Sprintf("/api/projects/%s/cards", project), &listResp); status == http.StatusOK {
+			cardsBlob, _ := json.MarshalIndent(listResp, "", "  ")
+			_ = os.WriteFile(filepath.Join(archiveDir, "cards.json"), cardsBlob, 0o644)
+		}
+
+		// Capture per-container docker logs for any worker that ran in
+		// this scenario. The label was set by the runner at spawn time.
+		out, _ := exec.Command("docker", "ps", "-aq",
+			"--filter", fmt.Sprintf("label=contextmatrix.test=%s", scenarioID)).Output()
+		for i, id := range nonEmptyLines(string(out)) {
+			if logs, err := exec.Command("docker", "logs", id).CombinedOutput(); err == nil {
+				_ = os.WriteFile(filepath.Join(archiveDir, fmt.Sprintf("worker-%d.log", i)), logs, 0o644)
+			}
+		}
+
+		t.Logf("test failed; diagnostics archived to %s", archiveDir)
+	})
+
 	return &scenarioCtx{
-		cfg:     cfg,
-		cm:      cm,
-		runner:  runner,
-		client:  client,
-		project: project,
-		creds:   creds,
+		cfg:        cfg,
+		cm:         cm,
+		runner:     runner,
+		client:     client,
+		project:    project,
+		creds:      creds,
+		fixtureURL: fixtureURL,
 	}
 }
 
-func initBoardsRepo(t *testing.T, boardsDir, project string) {
+func initBoardsRepo(t *testing.T, boardsDir, project, repoURL string) {
 	t.Helper()
 	mustRun(t, boardsDir, "git", "init")
 	mustRun(t, boardsDir, "git", "config", "user.email", "harness@cm.test")
@@ -80,10 +137,16 @@ func initBoardsRepo(t *testing.T, boardsDir, project string) {
 		t.Fatalf("mkdir templates: %v", err)
 	}
 
+	// Stub mode passes empty repoURL → use a placeholder. Real-Claude
+	// passes the local HTTPS git server URL provisioned by initFixtureRepo.
+	if repoURL == "" {
+		repoURL = fmt.Sprintf("https://example.invalid/harness/%s.git", project)
+	}
+
 	boardYAML := fmt.Sprintf(`name: %s
 prefix: INT
 next_id: 1
-repo: https://example.invalid/harness/%s.git
+repo: %s
 states:
   - todo
   - in_progress
@@ -106,7 +169,7 @@ priorities:
   - high
 remote_execution:
   enabled: true
-`, project, project)
+`, project, repoURL)
 
 	if err := os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardYAML), 0o644); err != nil {
 		t.Fatalf("write .board.yaml: %v", err)
@@ -190,16 +253,26 @@ func tail(s string, n int) string {
 	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
-// initFixtureRepo creates a bare git repo with one seed commit (a tiny
-// README.md) and returns its file:// URL. Used in real-Claude mode so
-// the agent has something to clone and push back to.
+// initFixtureRepo creates a bare git repo with one seed commit, fronts
+// it with a local HTTPS git-http-backend on a free port, and returns
+// the URL the worker container should clone from. The runner's
+// validator only accepts https/ssh schemes (file:// and git:// are
+// rejected), and the worker can't reach host loopback paths anyway —
+// hence the HTTPS proxy in front of the bare repo.
+//
+// The returned URL uses host.docker.internal which the orchestrated
+// dispatcher already wires into ExtraHosts. Worker containers also
+// need GIT_SSL_NO_VERIFY=1 for the self-signed cert; that's set via
+// worker_extra_env in the runner config (see writeRunnerConfig).
 func initFixtureRepo(t *testing.T, parentTmpDir string) string {
 	t.Helper()
 
 	bare := filepath.Join(parentTmpDir, "fixture.git")
 	mustRun(t, parentTmpDir, "git", "init", "--bare", bare)
+	enableHTTPReceivePack(t, bare)
 
-	// Set up a seed commit by cloning the bare, committing, pushing.
+	// Seed the bare via a local clone+push. Uses the on-disk path; the
+	// worker uses the HTTPS URL we return below.
 	work := filepath.Join(parentTmpDir, "fixture-seed")
 	mustRun(t, parentTmpDir, "git", "clone", bare, work)
 	mustRun(t, work, "git", "config", "user.email", "harness@cm.test")
@@ -214,7 +287,8 @@ func initFixtureRepo(t *testing.T, parentTmpDir string) string {
 	mustRun(t, work, "git", "branch", "-M", "main")
 	mustRun(t, work, "git", "push", "-u", "origin", "main")
 
-	return "file://" + bare
+	baseURL := startGitHTTPS(t, parentTmpDir)
+	return baseURL + "/fixture.git"
 }
 
 // projectSnapshot is the subset of board.ProjectConfig the harness needs
@@ -260,6 +334,18 @@ func (s *scenarioCtx) createCardWithRepo(t *testing.T, title string, autonomous 
 	status, raw := s.client.putRaw(t, fmt.Sprintf("/api/projects/%s", s.project), body, nil)
 	if status != http.StatusOK && status != http.StatusAccepted {
 		t.Fatalf("set project repo: HTTP %d body=%s", status, raw)
+	}
+
+	// Verify the PUT actually persisted: read back and assert the repo
+	// field matches. CM's trigger sources TriggerPayload.RepoURL from
+	// projectCfg.Repo, so a silent PUT failure here would let the worker
+	// clone the placeholder URL and fail with "could not resolve host".
+	var verify projectSnapshot
+	if status := s.client.get(t, fmt.Sprintf("/api/projects/%s", s.project), &verify); status != http.StatusOK {
+		t.Fatalf("verify project after PUT: HTTP %d", status)
+	}
+	if verify.Repo != repoURL {
+		t.Fatalf("project.repo did not persist after PUT:\n got: %q\nwant: %q", verify.Repo, repoURL)
 	}
 
 	return cardID

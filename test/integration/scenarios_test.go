@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,14 +93,16 @@ func testAutonomousRealClaude(t *testing.T) {
 	}()
 
 	s := bootScenario(t, "auto-real", "intautoreal", true /*realClaude*/)
-
-	repoURL := initFixtureRepo(t, s.cfg.tmpDir)
+	// bootScenario provisions the fixture and bakes its URL into
+	// .board.yaml at boot time (CM's PUT path doesn't reconcile
+	// cfg.Repos with cfg.Repo, so retargeting after boot leaves the
+	// runner's MCP-fetched registry stale).
 
 	canaryUUID := randomHex(t, 4)
 	cardTitle := fmt.Sprintf("Real-Claude canary: TEST-MARKER-%s", canaryUUID)
 	cardBody := fmt.Sprintf("Append a single line `<!-- TEST-MARKER-%s -->` to the end of README.md, then commit and push. Do not perform any other work.", canaryUUID)
 
-	cardID := s.createCardWithRepo(t, cardTitle, true /*autonomous*/, repoURL)
+	cardID := s.createCard(t, cardTitle, true /*autonomous*/)
 	// Set the body via PATCH so the agent reads the canary instructions.
 	{
 		body := map[string]any{"body": cardBody}
@@ -119,22 +122,42 @@ func testAutonomousRealClaude(t *testing.T) {
 
 	card := s.waitForState(t, cardID, "done", realClaudeScenarioTimeout)
 
-	// Assert the bare repo received the canary commit.
-	branchOut := mustOutput(t, s.cfg.tmpDir, "git", "-C", repoFromURL(repoURL),
-		"log", "--all", "--oneline")
-	if !strings.Contains(branchOut, "TEST-MARKER-"+canaryUUID) {
-		t.Errorf("fixture bare repo did not receive a TEST-MARKER commit\ngit log --all:\n%s", branchOut)
+	// Assert the bare repo received the canary commit. We check the
+	// actual diff content (the README.md line addition), not the commit
+	// message — agents vary the commit subject and the marker uuid is
+	// not guaranteed to appear there. `git log -p --all` shows the
+	// patches across all branches; grep for the marker line in the diff.
+	bareRepo := filepath.Join(s.cfg.tmpDir, "fixture.git")
+	patches := mustOutput(t, s.cfg.tmpDir, "git", "-C", bareRepo,
+		"log", "-p", "--all", "--no-color")
+	markerLine := "TEST-MARKER-" + canaryUUID
+	if !strings.Contains(patches, markerLine) {
+		// Print the commit graph + recent log for diagnostics.
+		oneliners := mustOutput(t, s.cfg.tmpDir, "git", "-C", bareRepo,
+			"log", "--all", "--oneline")
+		t.Errorf("fixture bare repo never received the %s diff line\ngit log --all:\n%s", markerLine, oneliners)
 	}
 
-	if card.ReviewAttempts != 1 {
-		t.Errorf("review_attempts: got %d, want 1", card.ReviewAttempts)
+	// review_attempts counts REVISION rounds (incremented by
+	// IncrementRevisionAttempts on a revise verdict), not the number
+	// of reviews performed. A first-pass approve leaves it at 0.
+	// HITL review-loop scenarios in Plan 2 will exercise the > 0 case.
+	if card.ReviewAttempts != 0 {
+		t.Errorf("review_attempts: got %d, want 0 (canary should approve on first pass)", card.ReviewAttempts)
 	}
 
-	// Friction analysis (informational; doesn't fail the test).
+	// Always save the transcript to disk — the controlling Claude Code
+	// session reads it inline to produce the friction report by default.
+	// CM_FRICTION_ANALYZER=1 additionally runs an in-test Haiku-powered
+	// analyser for unattended use; both paths are informational and
+	// don't fail the test.
+	events := transcriptBuf.snapshot()
+	transcriptPath := saveTranscript(t, events, "Autonomous_RealClaude")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	report, err := analyzeTranscript(ctx, t, transcriptBuf.snapshot())
+	report, err := analyzeTranscript(ctx, t, events)
 	if err != nil {
 		t.Logf("friction analyzer failed: %v", err)
 	}
@@ -143,7 +166,7 @@ func testAutonomousRealClaude(t *testing.T) {
 		frictionN = len(report.Findings)
 	}
 
-	printFrictionReport("Autonomous_RealClaude", report)
+	printFrictionReport("Autonomous_RealClaude", transcriptPath, report)
 }
 
 // mustOutput runs cmd in dir and returns stdout, fatals on error.
