@@ -324,6 +324,57 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 	})
 }
 
+func TestHITLMarkerTools_ReturnAcknowledged(t *testing.T) {
+	t.Run("discovery_complete", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "discovery marker", "task", "medium")
+		result := callTool(t, env, "discovery_complete", map[string]any{
+			"project":        "test-project",
+			"card_id":        card.ID,
+			"design_summary": "REST API with two endpoints",
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("plan_complete", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "plan marker", "task", "medium")
+		result := callTool(t, env, "plan_complete", map[string]any{
+			"project":      "test-project",
+			"card_id":      card.ID,
+			"plan_summary": "decompose into 2 subtasks",
+			"subtasks": []any{
+				map[string]any{"title": "Implement A", "description": "do A"},
+				map[string]any{"title": "Implement B", "description": "do B"},
+			},
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("review_approve", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review approve marker", "task", "medium")
+		result := callTool(t, env, "review_approve", map[string]any{
+			"project": "test-project",
+			"card_id": card.ID,
+			"summary": "looks good",
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("review_revise", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review revise marker", "task", "medium")
+		result := callTool(t, env, "review_revise", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"summary":  "needs work",
+			"feedback": "use REST not GraphQL",
+		})
+		require.False(t, result.IsError)
+	})
+}
+
 // TestStartReview_HappyPath verifies the fused transition + skill-load: claim
 // auto-transitions to in_progress, then start_review moves the card to review
 // AND returns the review-task skill in one call.

@@ -152,14 +152,13 @@ func (h *runnerEventHandlers) handleStream(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// writeRunnerSSEEvent formats one RunnerEvent in SSE wire format.
+// writeRunnerSSEEvent formats one RunnerEvent in SSE wire format. The
+// `event:` line carries the type and `id:` carries the monotonic
+// event_id; the `data:` payload is just the inner Data string so
+// consumers (the runner driver, the chat-loop sessions) can use it
+// directly without parsing a JSON wrapper.
 func writeRunnerSSEEvent(w io.Writer, ev events.RunnerEvent) error {
-	b, err := json.Marshal(ev)
-	if err != nil {
-		return err
-	}
-
-	_, err = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.EventID, ev.Type, b)
+	_, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.EventID, ev.Type, ev.Data)
 
 	return err
 }

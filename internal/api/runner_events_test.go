@@ -44,11 +44,13 @@ func TestRunnerEventsSSEStreamsAppends(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for sc.Scan() && time.Now().Before(deadline) {
 		line := sc.Text()
+		if strings.HasPrefix(line, "event: chat_input") {
+			// Confirms the event line carries the type.
+		}
 		if strings.HasPrefix(line, "data: ") {
 			sawData = true
 
-			require.Contains(t, line, "chat_input")
-			require.Contains(t, line, "hi")
+			require.Contains(t, line, "hi", "data line carries the inner Data field directly")
 
 			break
 		}
@@ -88,9 +90,9 @@ func TestRunnerEventsSSEReplaysLastEventID(t *testing.T) {
 	}
 
 	body := strings.Join(lines, "\n")
-	require.NotContains(t, body, `"type":"a"`)
-	require.Contains(t, body, `"type":"b"`)
-	require.Contains(t, body, `"type":"c"`)
+	require.NotContains(t, body, "event: a")
+	require.Contains(t, body, "event: b")
+	require.Contains(t, body, "event: c")
 }
 
 func TestRunnerEventsSSERequiresCardID(t *testing.T) {

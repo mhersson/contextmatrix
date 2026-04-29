@@ -1440,44 +1440,41 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	assert.Equal(t, "please clarify the task", receivedPayload.Content)
 }
 
-func TestMessageCard_WebhookFailure(t *testing.T) {
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
-
+func TestMessageCard_FansOutChatInputEvent(t *testing.T) {
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"ok":false,"error":"runner error"}`))
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerCfg:         config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerEventBuffer: buf,
 	})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := strings.NewReader(`{"content":"hello"}`)
+	body := strings.NewReader(`{"content":"hello from human"}`)
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
-
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+	evs := buf.Since(card.ID, 0)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "chat_input", evs[0].Type)
+	assert.Equal(t, "hello from human", evs[0].Data)
 }
 
 // --- POST /api/projects/{project}/cards/{id}/promote ---
@@ -1699,6 +1696,44 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	}
 
 	assert.True(t, found, "promote activity log entry must be present")
+}
+
+func TestPromoteCard_FansOutPromotionEvent(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg:         config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerEventBuffer: buf,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	evs := buf.Since(card.ID, 0)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "promotion", evs[0].Type)
+	assert.Equal(t, "{}", evs[0].Data)
 }
 
 func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {

@@ -232,8 +232,8 @@ func TestRunnerFoundationsEndToEnd(t *testing.T) {
 
 	select {
 	case line := <-sawData:
-		require.Contains(t, line, "from e2e")
-		require.Contains(t, line, "chat_input")
+		require.Contains(t, line, "from e2e",
+			"data line carries the inner Data field; the type lives on the event: line")
 	case err := <-sseErr:
 		t.Fatalf("SSE scan error: %v", err)
 	case <-time.After(2 * time.Second):

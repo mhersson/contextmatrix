@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -41,6 +42,7 @@ type runnerHandlers struct {
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
+	runnerEventBuf    *events.RunnerEventBuffer // SSE bus for HITL chat / promotion fan-out
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
@@ -243,16 +245,26 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messageID := uuid.New().String()
+
+	// Fan out to the SSE bus — this is the orchestrated runner's chat
+	// delivery mechanism. The legacy /message HTTP webhook below is a
+	// best-effort interactive-stdin relay for any worker still listening
+	// on it; failure is logged but does not fail the request.
+	if h.runnerEventBuf != nil {
+		h.runnerEventBuf.Append(id, events.RunnerEvent{
+			Type: "chat_input",
+			Data: body.Content,
+		})
+	}
+
 	if err := h.runner.Message(r.Context(), runner.MessagePayload{
 		CardID:    id,
 		Project:   project,
 		MessageID: messageID,
 		Content:   body.Content,
 	}); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to send message to runner", "")
-
-		return
+		ctxlog.Logger(r.Context()).Debug("runner /message webhook failed (best-effort; SSE fan-out is authoritative)",
+			"card_id", id, "project", project, "error", err)
 	}
 
 	writeJSON(w, http.StatusAccepted, messageResponse{OK: true, MessageID: messageID})
@@ -347,6 +359,16 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
+	}
+
+	// Fan out to the SSE bus so the runner sees the promotion before any
+	// legacy webhook relay path (best-effort relative to the autonomous flip
+	// that already committed above).
+	if h.runnerEventBuf != nil {
+		h.runnerEventBuf.Append(id, events.RunnerEvent{
+			Type: "promotion",
+			Data: "{}",
+		})
 	}
 
 	// Send promote webhook to runner.

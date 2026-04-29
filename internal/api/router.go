@@ -182,6 +182,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mcpAPIKey:      cfg.MCPAPIKey,
 		port:           cfg.Port,
 		sessionManager: cfg.SessionManager,
+		runnerEventBuf: cfg.RunnerEventBuffer,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)

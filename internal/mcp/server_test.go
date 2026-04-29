@@ -202,6 +202,10 @@ func TestListTools(t *testing.T) {
 		"report_push",
 		"increment_review_attempts",
 		"promote_to_autonomous",
+		"discovery_complete",
+		"plan_complete",
+		"review_approve",
+		"review_revise",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))

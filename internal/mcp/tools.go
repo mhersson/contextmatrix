@@ -43,6 +43,10 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
+	registerDiscoveryComplete(server, svc)
+	registerPlanComplete(server, svc)
+	registerReviewApprove(server, svc)
+	registerReviewRevise(server, svc)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
@@ -1226,5 +1230,100 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, card, nil
+	})
+}
+
+// --- HITL chat-loop terminal-marker tools ---
+//
+// The runner's claudeclient.RecognizeFromToolUse intercepts the tool_use
+// event from Claude's stream as a gate signal — these MCP handlers exist
+// only so the corresponding server-side response is non-error (otherwise
+// Claude surfaces a tool-failure message that confuses the agent).
+// CM persists no state for them; the runner is the consumer.
+
+type discoveryCompleteInput struct {
+	Project       string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID        string `json:"card_id"          jsonschema:"required,card identifier"`
+	DesignSummary string `json:"design_summary"   jsonschema:"required,one-paragraph summary of the agreed design"`
+}
+
+type planCompleteSubtask struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Repos       []string `json:"repos,omitempty"`
+	Priority    string   `json:"priority,omitempty"`
+	DependsOn   []string `json:"depends_on,omitempty"`
+}
+
+type planCompleteInput struct {
+	Project     string                `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID      string                `json:"card_id"           jsonschema:"required,card identifier"`
+	PlanSummary string                `json:"plan_summary"      jsonschema:"required,one-paragraph summary of the finalized plan"`
+	ChosenRepos []string              `json:"chosen_repos,omitempty" jsonschema:"repo slugs the plan touches; required if the project has multiple repos"`
+	Subtasks    []planCompleteSubtask `json:"subtasks"          jsonschema:"required,structured subtask records — orchestrator turns each into a CreateCard call"`
+}
+
+type reviewApproveInput struct {
+	Project string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID  string `json:"card_id"          jsonschema:"required,card identifier"`
+	Summary string `json:"summary"          jsonschema:"required,one-line approval summary"`
+}
+
+type reviewReviseInput struct {
+	Project  string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID   string `json:"card_id"          jsonschema:"required,card identifier"`
+	Summary  string `json:"summary"          jsonschema:"required,one-line revision-required summary"`
+	Feedback string `json:"feedback"         jsonschema:"required,detailed feedback driving the next replan"`
+}
+
+func registerDiscoveryComplete(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "discovery_complete",
+		Description: "Signal that the brainstorming chat has converged on an agreed design. Call this only after the user has explicitly approved. The orchestrator persists the design and proceeds to planning.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input discoveryCompleteInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerPlanComplete(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "plan_complete",
+		Description: "Signal that the planning chat has converged on a finalized plan. Call this only after the user has explicitly approved. The orchestrator parses the ## Plan from the card body and creates subtasks.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input planCompleteInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerReviewApprove(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "review_approve",
+		Description: "Signal that the review chat has converged on approval. Call this only after the user has explicitly approved. The orchestrator proceeds to finalize (push branches, open PR).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reviewApproveInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerReviewRevise(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "review_revise",
+		Description: "Signal that the review chat requires a revision pass. Call this only after the user has explicitly asked for changes. Feedback is the detailed change request the replan agent will read.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reviewReviseInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
 	})
 }
