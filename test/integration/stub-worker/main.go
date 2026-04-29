@@ -1,23 +1,32 @@
 // Package main is the contextmatrix integration-harness fake-claude CLI.
 //
-// Operates in two modes:
+// Each invocation handles ONE turn:
 //
-//   - Autonomous / one-shot: detect phase from system prompt, emit canned
-//     stream-json with the matching structured marker, exit. The runner
-//     spawns a fresh process per phase.
+//   - Plan / review phases — read one stream-json user-message frame from
+//     stdin and decide what to emit based on the message shape:
+//       * autonomous primer ("Begin planning work for" /
+//         "Review phase for parent card") -> emit canned text marker
+//         (PLAN_DRAFTED / REVIEW_FINDINGS) + EOF, runner parses it via
+//         runEphemeralPhase
+//       * HITL kickoff primer ("Please plan card" / "Please review parent
+//         card") -> emit a synthetic proposal text + system_end without a
+//         marker tool_use; runChatLoop registers no terminal marker, emits
+//         add_log("phase", "<phase>_awaiting"), waits on ChatInputCh
+//       * subsequent HITL turn (trigger word) -> emit the matching marker
+//         tool_use; runChatLoop terminates the chat
 //
-//   - HITL chat-loop: detect via the "## HITL mode (chat-loop)" section
-//     present in plan/replan/review prompts. Read stream-json user messages
-//     from stdin one per line; for each user turn, emit assistant text and
-//     (when the user approves / revises) emit a tool_use marker that drives
-//     the runner's terminal-marker path. The process stays alive across
-//     turns until stdin closes or the marker tool fires.
+//   - Other phases (docs / subtask-execute / diagnose / brainstorm) — emit
+//     the canned text marker for autonomous one-shot runs and exit.
+//
+// The runner spawns a fresh stub per turn (with --resume on HITL
+// subsequent turns). The stub never stays alive across turns.
 package main
 
 import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -80,11 +89,12 @@ func main() {
 	flag.StringVar(&outputFormat, "output-format", "", "")
 	flag.Parse()
 
-	// Discard flags we accept for compatibility but don't act on yet.
+	// Discard flags we accept for compatibility but don't act on.
 	_ = allowedTools
 	_ = resume
 	_ = print
 	_ = verbose
+	_ = inputFormat
 	_ = outputFormat
 
 	if systemPrompt == "" {
@@ -98,18 +108,133 @@ func main() {
 
 	cardID := os.Getenv("CM_CARD_ID")
 
-	// HITL mode: prompt contains the chat-loop guidance section. Read
-	// stream-json user messages from stdin until the user approves /
-	// revises (which drives the marker tool_use) or stdin closes.
-	if isHITLMode(systemPrompt, inputFormat) {
-		log.Printf("stub-claude: detected phase=%s mode=hitl model=%s", p, model)
-		runHITLChatLoop(p, cardID)
+	switch p {
+	case phasePlan, phaseReview:
+		// Plan and review can run in autonomous (one-shot text marker) or
+		// HITL (multi-turn chat). Branch on the user-message shape.
+		runPlanReviewTurn(p, cardID, model)
+	default:
+		log.Printf("stub-claude: detected phase=%s mode=autonomous model=%s", p, model)
+		emitMarker(p, cardID)
+	}
+}
 
-		return
+// runPlanReviewTurn reads exactly one user-message frame from stdin
+// (the runner sends one frame per invocation and CloseStdins
+// afterwards) and dispatches based on the message shape.
+func runPlanReviewTurn(p phase, cardID, model string) {
+	userText := readUserFrame(os.Stdin)
+
+	log.Printf("stub-claude: phase=%s model=%s user=%q", p, model, truncateForLog(userText, 80))
+
+	switch {
+	case looksLikeAutonomousPrimer(p, userText):
+		// Autonomous one-shot — emit canned text marker. The runner's
+		// runEphemeralPhase parses the marker out of the text stream
+		// and is happy with EOF as terminator.
+		log.Printf("stub-claude: phase=%s mode=autonomous", p)
+		emitMarker(p, cardID)
+	case looksLikeHITLKickoff(p, userText):
+		// HITL first turn — agent-first protocol: emit a synthetic
+		// proposal text and end the turn without a marker tool_use.
+		// The runner's runChatLoop sees no terminal marker, emits
+		// add_log("phase", "<phase>_awaiting"), and waits for human input.
+		log.Printf("stub-claude: phase=%s mode=hitl turn=first", p)
+		emitSystemInit("stub-hitl-" + cardID)
+		emitFirstTurnProposal(p)
+		emitSystemEnd()
+	default:
+		// HITL subsequent turn — interpret the user's text.
+		log.Printf("stub-claude: phase=%s mode=hitl turn=subsequent", p)
+		emitSystemInit("stub-hitl-" + cardID)
+		emitHITLSubsequent(p, cardID, userText)
+	}
+}
+
+// emitHITLSubsequent emits the appropriate response for a HITL chat
+// turn that arrives after the agent's first-turn proposal: a marker
+// tool_use on a trigger word, or an "Acknowledged" continuation.
+func emitHITLSubsequent(p phase, cardID, userText string) {
+	decision := detectHITLDecision(p, userText)
+
+	switch decision {
+	case "plan_complete":
+		emitAssistantText("Plan approved. Calling plan_complete.")
+		emitToolUse("plan_complete", planCompletePayload(cardID))
+	case "review_approve":
+		emitAssistantText("Review approved. Calling review_approve.")
+		emitToolUse("review_approve", reviewApprovePayload(cardID))
+	case "review_revise":
+		emitAssistantText("Review wants changes. Calling review_revise.")
+		emitToolUse("review_revise", reviewRevisePayload(cardID, userText))
+	default:
+		emitAssistantText("Acknowledged: " + truncateForLog(userText, 120))
 	}
 
-	log.Printf("stub-claude: detected phase=%s mode=autonomous model=%s", p, model)
-	emitMarker(p, cardID)
+	emitSystemEnd()
+}
+
+// readUserFrame consumes one stream-json user-message frame from r and
+// returns the text content. Empty if r closes before any frame arrives.
+func readUserFrame(r io.Reader) string {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		return parseUserMessageText(line)
+	}
+
+	return ""
+}
+
+// looksLikeAutonomousPrimer recognises the kickoff verbs emitted by
+// runEphemeralPhase (autonomous one-shot path). On match, the stub
+// emits the canned text marker for the phase.
+func looksLikeAutonomousPrimer(p phase, s string) bool {
+	switch p {
+	case phasePlan:
+		// "Begin planning work for card `X`..." (with-card path) and
+		// "Begin planning the work for this card." (c == nil fallback).
+		return strings.Contains(s, "Begin planning work for") ||
+			strings.Contains(s, "Begin planning the work for")
+	case phaseReview:
+		return strings.Contains(s, "Review phase for parent card")
+	}
+
+	return false
+}
+
+// looksLikeHITLKickoff recognises the kickoff verbs emitted by
+// runChatLoop (HITL first turn). On match, the stub emits a synthetic
+// proposal text without a marker tool_use.
+func looksLikeHITLKickoff(p phase, s string) bool {
+	switch p {
+	case phasePlan:
+		return strings.Contains(s, "Please plan card")
+	case phaseReview:
+		return strings.Contains(s, "Please review parent card")
+	}
+
+	return false
+}
+
+// emitFirstTurnProposal emits a canned proposal text appropriate for
+// the phase. The runner's runChatLoop does NOT match this as a
+// terminal marker; it loops back and waits for the next chat input.
+func emitFirstTurnProposal(p phase) {
+	switch p {
+	case phasePlan:
+		emitAssistantText("Stub proposal: one subtask titled 'Implement main.go and main_test.go per the card body, commit, push'. Approve when ready.")
+	case phaseReview:
+		emitAssistantText("Stub review: diff implements the spec; recommend approve. Send back if you disagree.")
+	default:
+		emitAssistantText(fmt.Sprintf("Stub: acknowledged kickoff for phase %s", p))
+	}
 }
 
 // detectPhase scans the prompt for marker names. Each phase's prompt
@@ -133,78 +258,6 @@ func detectPhase(prompt string) phase {
 		return phaseBrainstorm
 	default:
 		return phaseUnknown
-	}
-}
-
-// isHITLMode is true when the prompt was built by the runner's session
-// path (Acquire's tier-3 spawn appends "Resuming from saved state:" + the
-// primer to the system prompt). Autonomous one-shot phases construct the
-// system prompt without that suffix; the chat-loop guidance section
-// alone is not enough to discriminate because the prompt files contain
-// it unconditionally for both modes.
-func isHITLMode(prompt, inputFormat string) bool {
-	_ = inputFormat // kept for future signal layering
-
-	if !strings.Contains(prompt, "HITL mode (chat-loop)") {
-		return false
-	}
-
-	return strings.Contains(prompt, "Resuming from saved state:")
-}
-
-// runHITLChatLoop reads stream-json user messages from stdin and emits
-// assistant turns. The first user message is the primer (sent by the
-// runner via Session.SendMessage); subsequent messages are the
-// integration test's chat input. The loop terminates when the user
-// message contains an "approve" / "revise" trigger word.
-func runHITLChatLoop(p phase, cardID string) {
-	emitSystemInit("stub-hitl-" + cardID)
-
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-
-	turn := 0
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		userText := parseUserMessageText(line)
-		turn++
-
-		log.Printf("stub-claude: hitl turn=%d phase=%s user=%q", turn, p, truncateForLog(userText, 80))
-
-		// Detect the test's terminal trigger. Each phase has its own
-		// vocabulary; the HITL-stub scenarios drive the conversation
-		// using these magic words.
-		decision := detectHITLDecision(p, userText)
-
-		switch decision {
-		case "":
-			// Generic chat continuation: reply, end turn, await next.
-			emitAssistantText(fmt.Sprintf("Acknowledged: %s", truncateForLog(userText, 120)))
-			emitSystemEnd()
-		case "plan_complete":
-			emitAssistantText("Plan approved. Calling plan_complete.")
-			emitToolUse("plan_complete", planCompletePayload(cardID))
-			emitSystemEnd()
-
-			return
-		case "review_approve":
-			emitAssistantText("Review approved. Calling review_approve.")
-			emitToolUse("review_approve", reviewApprovePayload(cardID))
-			emitSystemEnd()
-
-			return
-		case "review_revise":
-			emitAssistantText("Review wants changes. Calling review_revise.")
-			emitToolUse("review_revise", reviewRevisePayload(cardID, userText))
-			emitSystemEnd()
-
-			return
-		}
 	}
 }
 

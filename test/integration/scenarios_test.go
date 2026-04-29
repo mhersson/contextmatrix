@@ -107,13 +107,12 @@ func testHITLStub(t *testing.T) {
 	cardID := s.createCard(t, "Stub: HITL canary", false /*autonomous*/)
 	s.triggerRun(t, cardID, true /*interactive*/)
 
-	// Wait for the runner to enter the planning chat-loop. The orchestrator
-	// emits a "phase=plan" activity log entry just before opening the
-	// session; once that lands, sending a chat input is safe.
+	// Wait for the runner to enter the planning chat-loop, then for the
+	// agent's first-turn proposal to land. The runner emits "phase=plan"
+	// when it spawns the chat session and "phase=plan_awaiting" after the
+	// first non-terminal turn — that's the cue for the human to reply.
 	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
-
-	// Drive plan chat-loop: the stub replies once to the primer, then waits
-	// for our "approve" to fire plan_complete.
+	s.waitForPhase(t, cardID, "plan_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "looks good, approve the plan")
 
 	// Drive execution-start gate: any chat lets the FSM proceed past
@@ -121,8 +120,10 @@ func testHITLStub(t *testing.T) {
 	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
 	s.messageCard(t, cardID, "go")
 
-	// Drive review chat-loop after document phase completes.
+	// Drive review chat-loop after document phase completes; same
+	// agent-first protocol — wait for review_awaiting before approving.
 	s.waitForPhase(t, cardID, "review", stubScenarioTimeout)
+	s.waitForPhase(t, cardID, "review_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve")
 
 	card := s.waitForState(t, cardID, "done", stubScenarioTimeout)
@@ -131,7 +132,7 @@ func testHITLStub(t *testing.T) {
 		t.Errorf("assigned_agent: got %q, want empty (released)", card.AssignedAgent)
 	}
 
-	expected := []string{"plan", "subtasks", "wait_execution_start", "execute", "document", "review", "commit"}
+	expected := []string{"plan", "plan_awaiting", "subtasks", "wait_execution_start", "execute", "document", "review", "review_awaiting", "commit"}
 
 	got := phaseMarkers(card)
 	if !equalStrings(got, expected) {
@@ -172,21 +173,28 @@ func testHITLReviewLoopStub(t *testing.T) {
 	cardID := s.createCard(t, "Stub: HITL review loop", false /*autonomous*/)
 	s.triggerRun(t, cardID, true /*interactive*/)
 
-	// Round 1: plan → execute → review (revise).
+	// Round 1: plan → execute → review (revise). Wait for the agent's
+	// first-turn proposal in each chat loop before sending the human
+	// reply (plan_awaiting / review_awaiting markers).
 	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
+	s.waitForPhase(t, cardID, "plan_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve the plan")
 	s.waitForPhase(t, cardID, "wait_execution_start", stubScenarioTimeout)
 	s.messageCard(t, cardID, "go")
 	s.waitForPhase(t, cardID, "review", stubScenarioTimeout)
+	s.waitForPhase(t, cardID, "review_awaiting", stubScenarioTimeout)
 	s.messageCard(t, cardID, "please revise: tighten the test coverage")
 
-	// Round 2: replan → execute → review (approve). wait_execution_start
-	// and review are re-entered, so wait for the second occurrence.
+	// Round 2: replan → execute → review (approve). The replan path
+	// reuses runChatLoop with phase="plan", so the awaiting marker is
+	// "plan_awaiting" (re-entered, hence waitForPhaseN).
 	s.waitForPhase(t, cardID, "replan", stubScenarioTimeout)
+	s.waitForPhaseN(t, cardID, "plan_awaiting", 2, stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve the revised plan")
 	s.waitForPhaseN(t, cardID, "wait_execution_start", 2, stubScenarioTimeout)
 	s.messageCard(t, cardID, "go")
 	s.waitForPhaseN(t, cardID, "review", 2, stubScenarioTimeout)
+	s.waitForPhaseN(t, cardID, "review_awaiting", 2, stubScenarioTimeout)
 	s.messageCard(t, cardID, "approve")
 
 	card := s.waitForState(t, cardID, "done", stubScenarioTimeout)
@@ -244,11 +252,13 @@ func testHITLPromoteStub(t *testing.T) {
 	cardID := s.createCard(t, "Stub: HITL promote mid-run", false /*autonomous*/)
 	s.triggerRun(t, cardID, true /*interactive*/)
 
-	// Wait for the plan chat session to open, then promote. The driver
-	// sees the SSE promotion event, flips Mode to autonomous, and pushes
-	// the canned promotionChatMessage into ChatInputCh. The stub reads
-	// that as the next stream-json user turn and emits plan_complete.
+	// Wait for the plan chat session to open and the agent's first-turn
+	// proposal to land (plan_awaiting), then promote. The driver sees
+	// the SSE promotion event, flips Mode to autonomous, and pushes the
+	// canned promotionChatMessage into ChatInputCh. The stub reads that
+	// as the next stream-json user turn and emits plan_complete.
 	s.waitForPhase(t, cardID, "plan", stubScenarioTimeout)
+	s.waitForPhase(t, cardID, "plan_awaiting", stubScenarioTimeout)
 	s.promoteCard(t, cardID)
 
 	card := s.waitForState(t, cardID, "done", stubScenarioTimeout)
@@ -399,21 +409,23 @@ func testHITLRealClaude(t *testing.T) {
 
 	s.triggerRun(t, cardID, true /*interactive*/)
 
-	// Each chat is a single naturalistic free-text message — no tool
-	// names, no structured fields, just the kind of phrasing a human
-	// reviewer types. The agent's HITL prompt teaches it to interpret
-	// "lgtm" / "ship it" / "go" as approval. If it doesn't, that's a
-	// product bug to surface, not test-side hand-holding to paper over.
+	// Agent-first HITL flow: claude reads the card body on the first
+	// turn, drafts the plan, writes ## Plan to the card via update_card,
+	// and proposes in chat. The runner emits "phase=plan_awaiting"; the
+	// human only types after seeing the proposal. Same shape on review.
+	// Each chat message is a naturalistic free-text approval — no tool
+	// names, no plan content. If claude calls plan_complete on the first
+	// turn or never proposes, that's a product bug to surface.
 	s.waitForPhase(t, cardID, "plan", realClaudeScenarioTimeout)
-	s.messageCard(t, cardID,
-		"plan one subtask 'implement main.go and main_test.go per the "+
-			"card body, commit, push'. lgtm, ship it.")
+	s.waitForPhase(t, cardID, "plan_awaiting", realClaudeScenarioTimeout)
+	s.messageCard(t, cardID, "lgtm, ship it")
 
 	s.waitForPhase(t, cardID, "wait_execution_start", realClaudeScenarioTimeout)
 	s.messageCard(t, cardID, "go")
 
 	s.waitForPhase(t, cardID, "review", realClaudeScenarioTimeout)
-	s.messageCard(t, cardID, "diff implements the spec, lgtm")
+	s.waitForPhase(t, cardID, "review_awaiting", realClaudeScenarioTimeout)
+	s.messageCard(t, cardID, "looks good, ship it")
 
 	_ = s.waitForState(t, cardID, "done", realClaudeScenarioTimeout)
 
