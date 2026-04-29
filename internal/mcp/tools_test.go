@@ -337,16 +337,16 @@ func TestHITLMarkerTools_ReturnAcknowledged(t *testing.T) {
 	})
 
 	t.Run("plan_complete", func(t *testing.T) {
+		// plan_complete is a thin terminal signal; structured plan
+		// data lives in the card body's `## Plan` fenced JSON block
+		// (written via update_card). Tool input is just card_id and
+		// an optional summary for the activity log.
 		env := setupMCP(t)
 		card := createTestCard(t, env, "plan marker", "task", "medium")
 		result := callTool(t, env, "plan_complete", map[string]any{
 			"project":      "test-project",
 			"card_id":      card.ID,
 			"plan_summary": "decompose into 2 subtasks",
-			"subtasks": []any{
-				map[string]any{"title": "Implement A", "description": "do A"},
-				map[string]any{"title": "Implement B", "description": "do B"},
-			},
 		})
 		require.False(t, result.IsError)
 	})

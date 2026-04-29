@@ -164,15 +164,34 @@ func emitToolUse(name string, input any) {
 	fmt.Println(string(out))
 }
 
-// planCompletePayload builds the structured fields the runner parses
-// out of the plan_complete tool_use into ExtendedState.Plan.
+// planCompletePayload builds the thin terminal signal the runner
+// intercepts to end the plan chat-loop. Structured plan data lives
+// in the card body — see stubCanonicalPlanBody.
 func planCompletePayload(cardID string) map[string]any {
 	return map[string]any{
 		"card_id":      cardID,
 		"plan_summary": "stub HITL: chat-driven plan approved",
+	}
+}
+
+// stubCanonicalPlanBody mirrors the runtime contract: the agent writes
+// `## Plan` markdown plus a fenced JSON block via update_card, and the
+// runner reads from there. The stub's HITL plan-approval turn must
+// emit an update_card call before the thin plan_complete signal.
+//
+// Pure-spec body (empty subtasks) keeps Execute as a no-op so the FSM
+// walks plan → subtasks → execute → document → review → commit → done
+// without ever invoking CloneRepo.
+func stubCanonicalPlanBody() string {
+	const prose = "## Plan\n\nstub HITL: chat-driven plan approved.\n\n### Subtasks\n\n_(none — pure-spec canary)_\n\n"
+
+	payload, _ := json.MarshalIndent(map[string]any{
+		"plan_summary": "stub HITL: chat-driven plan approved",
 		"chosen_repos": []string{},
 		"subtasks":     []map[string]any{},
-	}
+	}, "", "  ")
+
+	return prose + "```json\n" + string(payload) + "\n```\n"
 }
 
 // reviewApprovePayload builds the review_approve tool_use input.

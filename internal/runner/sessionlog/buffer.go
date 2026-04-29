@@ -308,7 +308,7 @@ func (m *Manager) Append(cardID string, evt Event) {
 // runner upstream pump) into both the session buffer and the live
 // subscriber fan-out for cardID. Use this for events that need to
 // appear in `/api/runner/logs` SSE alongside the runner's stream-json
-// events — for example, a `user_chat` record posted by the messageCard
+// events — for example, a `user` record posted by the messageCard
 // HTTP handler so transcript consumers see the human side of HITL
 // dialogues.
 //

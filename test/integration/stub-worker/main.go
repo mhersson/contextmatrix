@@ -4,16 +4,19 @@
 //
 //   - Plan / review phases — read one stream-json user-message frame from
 //     stdin and decide what to emit based on the message shape:
-//       * autonomous primer ("Begin planning work for" /
-//         "Review phase for parent card") -> emit canned text marker
-//         (PLAN_DRAFTED / REVIEW_FINDINGS) + EOF, runner parses it via
-//         runEphemeralPhase
-//       * HITL kickoff primer ("Please plan card" / "Please review parent
-//         card") -> emit a synthetic proposal text + system_end without a
-//         marker tool_use; runChatLoop registers no terminal marker, emits
-//         add_log("phase", "<phase>_awaiting"), waits on ChatInputCh
-//       * subsequent HITL turn (trigger word) -> emit the matching marker
-//         tool_use; runChatLoop terminates the chat
+//
+//   - autonomous primer ("Begin planning work for" /
+//     "Review phase for parent card") -> emit canned text marker
+//     (PLAN_DRAFTED / REVIEW_FINDINGS) + EOF, runner parses it via
+//     runEphemeralPhase
+//
+//   - HITL kickoff primer ("Please plan card" / "Please review parent
+//     card") -> emit a synthetic proposal text + system_end without a
+//     marker tool_use; runChatLoop registers no terminal marker, emits
+//     add_log("phase", "<phase>_awaiting"), waits on ChatInputCh
+//
+//   - subsequent HITL turn (trigger word) -> emit the matching marker
+//     tool_use; runChatLoop terminates the chat
 //
 //   - Other phases (docs / subtask-execute / diagnose / brainstorm) — emit
 //     the canned text marker for autonomous one-shot runs and exit.
@@ -159,7 +162,11 @@ func emitHITLSubsequent(p phase, cardID, userText string) {
 
 	switch decision {
 	case "plan_complete":
-		emitAssistantText("Plan approved. Calling plan_complete.")
+		emitAssistantText("Plan approved. Updating card body and calling plan_complete.")
+		emitToolUse("update_card", map[string]any{
+			"card_id": cardID,
+			"body":    stubCanonicalPlanBody(),
+		})
 		emitToolUse("plan_complete", planCompletePayload(cardID))
 	case "review_approve":
 		emitAssistantText("Review approved. Calling review_approve.")

@@ -259,11 +259,15 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 
 	// Publish to the session log so /api/runner/logs SSE consumers
 	// (web UI transcript, integration test transcript) see the human
-	// side of the conversation alongside agent events.
+	// side of the conversation alongside agent events. The frontend's
+	// LogEntry type uses "user" for human-typed messages — the chat
+	// component renders these as right-aligned bubbles. Publishing as
+	// any other type (e.g. "user_chat") would render them with the
+	// generic agent-output styling instead.
 	if h.sessionManager != nil {
 		h.sessionManager.PublishLocal(id, sessionlog.Event{
 			Timestamp: time.Now(),
-			Type:      "user_chat",
+			Type:      "user",
 			Payload:   []byte(body.Content),
 		})
 	}
@@ -387,11 +391,14 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 
 	// Mirror the messageCard hook: surface the promotion in the
 	// session log so transcript consumers can see when the human flips
-	// the card to autonomous mid-run.
+	// the card to autonomous mid-run. Use "system" — the frontend
+	// renders system-typed entries with a green accent bar; this is
+	// not a user-typed chat message so "user" would mis-style it as a
+	// right-aligned bubble.
 	if h.sessionManager != nil {
 		h.sessionManager.PublishLocal(id, sessionlog.Event{
 			Timestamp: time.Now(),
-			Type:      "user_promote",
+			Type:      "system",
 			Payload:   []byte("promoted to autonomous"),
 		})
 	}

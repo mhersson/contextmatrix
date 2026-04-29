@@ -1247,20 +1247,10 @@ type discoveryCompleteInput struct {
 	DesignSummary string `json:"design_summary"   jsonschema:"required,one-paragraph summary of the agreed design"`
 }
 
-type planCompleteSubtask struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Repos       []string `json:"repos,omitempty"`
-	Priority    string   `json:"priority,omitempty"`
-	DependsOn   []string `json:"depends_on,omitempty"`
-}
-
 type planCompleteInput struct {
-	Project     string                `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
-	CardID      string                `json:"card_id"           jsonschema:"required,card identifier"`
-	PlanSummary string                `json:"plan_summary"      jsonschema:"required,one-paragraph summary of the finalized plan"`
-	ChosenRepos []string              `json:"chosen_repos,omitempty" jsonschema:"repo slugs the plan touches; required if the project has multiple repos"`
-	Subtasks    []planCompleteSubtask `json:"subtasks"          jsonschema:"required,structured subtask records — orchestrator turns each into a CreateCard call"`
+	Project     string `json:"project,omitempty"      jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID      string `json:"card_id"                jsonschema:"required,card identifier"`
+	PlanSummary string `json:"plan_summary,omitempty" jsonschema:"one-paragraph summary of the finalized plan; the structured plan lives in the card body's ## Plan section as a fenced JSON block"`
 }
 
 type reviewApproveInput struct {
@@ -1292,7 +1282,7 @@ func registerDiscoveryComplete(server *mcp.Server, svc *service.CardService) {
 func registerPlanComplete(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "plan_complete",
-		Description: "Signal that the planning chat has converged on a finalized plan. Call this only after the user has explicitly approved. The orchestrator parses the ## Plan from the card body and creates subtasks.",
+		Description: "Signal that the planning chat has converged on a finalized plan. Call this only after the user has explicitly approved. The structured plan must already be in the card body's ## Plan section as a fenced ```json block (written via update_card). The runner reads the body; this tool call is just the terminal signal — pass {card_id} only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input planCompleteInput) (*mcp.CallToolResult, any, error) {
 		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
 			return nil, nil, err
