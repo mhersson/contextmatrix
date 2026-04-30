@@ -30,7 +30,6 @@ export const priorityColors: Record<string, string> = {
 export const stateColors: Record<string, string> = {
   todo: 'var(--grey2)',
   in_progress: 'var(--yellow)',
-  hitl: 'var(--aqua)',
   review: 'var(--blue)',
   done: 'var(--green)',
   blocked: 'var(--orange)',

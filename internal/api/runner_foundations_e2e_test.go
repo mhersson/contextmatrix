@@ -209,23 +209,7 @@ func TestRunnerFoundationsEndToEnd(t *testing.T) {
 	// instantly.
 	time.Sleep(100 * time.Millisecond)
 
-	// 7. POST a runner log event. /api/runner/log-event publishes to the
-	// global event Bus (web-UI fan-out); it does NOT go through the per-card
-	// RunnerEventBuffer. Verifying it returns 204 confirms the endpoint is
-	// wired and accepting runner-side posts.
-	logBody, err := json.Marshal(map[string]any{
-		"card_id": cardID,
-		"kind":    "tool_call",
-		"text":    "Read /workspace/README.md",
-	})
-	require.NoError(t, err)
-
-	logResp, err := http.Post(apiSrv.URL+"/api/runner/log-event", "application/json", bytes.NewReader(logBody))
-	require.NoError(t, err)
-	closeBody(t, logResp.Body)
-	require.Equal(t, http.StatusNoContent, logResp.StatusCode)
-
-	// 8. Append directly to the runner buffer to drive the SSE endpoint that
+	// 7. Append directly to the runner buffer to drive the SSE endpoint that
 	// the runner control channel reads from. The buffer is the live wire for
 	// /api/runner/events; writes here fan out to the SSE subscriber above.
 	runnerBuf.Append(cardID, events.RunnerEvent{Type: "chat_input", Data: "from e2e"})

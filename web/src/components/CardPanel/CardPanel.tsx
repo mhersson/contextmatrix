@@ -4,7 +4,13 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelBody, type RailTabKey } from './CardPanelBody';
 import { CardPanelLeft } from './CardPanelLeft';
 import { buildCardPanelTabs } from './buildCardPanelTabs';
-import { buildCardPatch, isCardDirty, isRunnerAttached, primaryAction } from './utils';
+import {
+  buildCardPatch,
+  isCardDirty,
+  isRunnerAttached,
+  mergeServerCardWithLocalEdits,
+  primaryAction,
+} from './utils';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
@@ -88,7 +94,13 @@ export function CardPanel(props: CardPanelProps) {
   } else if (sync.card !== card || sync.isHITLRunning !== isHITLRunning) {
     const hitlFlippedOn = sync.isHITLRunning !== isHITLRunning && isHITLRunning;
     const cardRefChanged = sync.card !== card;
-    if (cardRefChanged) setEditedCard(card);
+    if (cardRefChanged) {
+      // Per-field merge: any field the user has not modified picks up
+      // the new server value; modified fields keep the in-flight edit.
+      // The previous unconditional `setEditedCard(card)` here wiped
+      // user typing on every SSE refresh (heartbeat, log append, …).
+      setEditedCard((prev) => mergeServerCardWithLocalEdits(card, sync.card, prev));
+    }
     setSync({ cardId: card.id, card, isHITLRunning });
     if (hitlFlippedOn) {
       setActiveTab('chat');

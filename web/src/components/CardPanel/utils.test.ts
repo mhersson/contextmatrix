@@ -5,6 +5,7 @@ import {
   isCardDirty,
   isRunnerAttached,
   isSafeHttpUrl,
+  mergeServerCardWithLocalEdits,
   primaryAction,
 } from './utils';
 
@@ -185,6 +186,54 @@ describe('isCardDirty', () => {
     const a = makeCard({ labels: ['bug', 'p1'] });
     const b = makeCard({ labels: ['bug', 'p1'] });
     expect(isCardDirty(a, b)).toBe(false);
+  });
+});
+
+describe('mergeServerCardWithLocalEdits', () => {
+  it('takes server values when the user has not edited anything', () => {
+    const prev = makeCard({ title: 'old', priority: 'medium' });
+    const edited = makeCard({ title: 'old', priority: 'medium' });
+    const next = makeCard({ title: 'old', priority: 'medium', activity_log: [{
+      ts: 't', action: 'log_added', agent: 'a', message: 'm',
+    }] });
+    const merged = mergeServerCardWithLocalEdits(next, prev, edited);
+    // The new activity_log flows through; the editable fields stay at server.
+    expect(merged.title).toBe('old');
+    expect(merged.priority).toBe('medium');
+    expect(merged.activity_log?.length).toBe(1);
+  });
+
+  it('preserves a typed-in title when the server pushes a new card ref', () => {
+    const prev = makeCard({ title: 'original' });
+    // User typed something into the title input.
+    const edited = makeCard({ title: 'user typing' });
+    // Server SSE refresh — same card id, new object ref, agent appended a log.
+    const next = makeCard({
+      title: 'original',
+      runner_status: 'running',
+      activity_log: [{ ts: 't', action: 'log_added', agent: 'a', message: 'm' }],
+    });
+    const merged = mergeServerCardWithLocalEdits(next, prev, edited);
+    expect(merged.title).toBe('user typing'); // local edit wins
+    expect(merged.runner_status).toBe('running'); // server flow-through
+    expect(merged.activity_log?.length).toBe(1);
+  });
+
+  it('lets the server overwrite a field the agent changed if user did not touch it', () => {
+    const prev = makeCard({ state: 'todo' });
+    const edited = makeCard({ state: 'todo' }); // user has not changed state
+    const next = makeCard({ state: 'in_progress' }); // agent transitioned it
+    const merged = mergeServerCardWithLocalEdits(next, prev, edited);
+    expect(merged.state).toBe('in_progress');
+  });
+
+  it('keeps the user-edited body even if the server body changed concurrently', () => {
+    const prev = makeCard({ body: 'before' });
+    const edited = makeCard({ body: 'user wrote a draft here' });
+    const next = makeCard({ body: 'agent wrote something different' });
+    const merged = mergeServerCardWithLocalEdits(next, prev, edited);
+    // User wins — server change is dropped from the merged view.
+    expect(merged.body).toBe('user wrote a draft here');
   });
 });
 

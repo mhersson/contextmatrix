@@ -83,10 +83,19 @@ export function SSEProvider({ children }: SSEProviderProps) {
     es.onopen = () => {
       setConnected(true);
       setError(null);
-      reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      // Backoff is reset on the FIRST received message rather than
+      // here. An accept-then-close server (a Cloudflare hiccup, or a
+      // server that panics right after the response head is written)
+      // would otherwise tight-loop reconnect at 1 s and defeat the
+      // backoff ladder entirely.
     };
 
     es.onmessage = (event) => {
+      // The first frame a connect produces marks the connection as
+      // genuinely working — only then is it safe to reset backoff.
+      if (reconnectDelayRef.current !== INITIAL_RECONNECT_DELAY) {
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      }
       try {
         const data = JSON.parse(event.data) as BoardEvent;
         const buckets = subscribersRef.current;

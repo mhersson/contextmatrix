@@ -89,10 +89,18 @@ export function useRunnerLogs({
     es.onopen = () => {
       setConnected(true);
       setError(null);
-      reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      // Backoff is reset on the FIRST received message rather than
+      // here. An accept-then-close server would otherwise tight-loop
+      // reconnect at 1 s and defeat the backoff ladder.
     };
 
     es.onmessage = (event) => {
+      // First frame on this connection — only now is it safe to reset
+      // the reconnect delay; an accept-then-close upstream cannot
+      // produce one.
+      if (reconnectDelayRef.current !== INITIAL_RECONNECT_DELAY) {
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      }
       try {
         const data = JSON.parse(event.data) as Record<string, unknown>;
 

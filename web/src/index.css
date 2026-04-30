@@ -638,7 +638,6 @@ input, select, textarea {
    `.chip-pill` for shape/typography. */
 .chip-state-todo        { background-color: var(--bg2);        color: var(--grey2); }
 .chip-state-in_progress { background-color: var(--bg-blue);    color: var(--blue); }
-.chip-state-hitl        { background-color: var(--bg-aqua);    color: var(--aqua); }
 .chip-state-review      { background-color: var(--bg-yellow);  color: var(--yellow); }
 .chip-state-done        { background-color: var(--bg-green);   color: var(--green); }
 .chip-state-blocked     { background-color: var(--bg-red);     color: var(--red); }

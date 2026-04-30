@@ -446,7 +446,7 @@ describe('reconnect backoff', () => {
     expect(instances).toHaveLength(7);
   });
 
-  it('resets delay to 1 s after a successful reconnect', () => {
+  it('resets delay to 1 s after a successful reconnect (open + first message)', () => {
     act(() => {
       renderWithProvider(() => {});
     });
@@ -460,9 +460,12 @@ describe('reconnect backoff', () => {
     });
     expect(instances).toHaveLength(2);
 
-    // Open succeeds → delay resets to 1 s
+    // Open succeeds AND first message arrives → delay resets to 1 s.
+    // A bare onopen is no longer enough — accept-then-close upstreams
+    // would tight-loop reconnect if it were.
     act(() => {
       instances[1]._triggerOpen();
+      instances[1]._triggerMessage(sampleEvent);
     });
 
     // Next error should reconnect after 1 s again
@@ -477,6 +480,43 @@ describe('reconnect backoff', () => {
     // Should reconnect after the remaining 500 ms (total 1 s)
     act(() => {
       vi.advanceTimersByTime(500);
+    });
+    expect(instances).toHaveLength(3);
+  });
+
+  it('keeps escalating backoff when server accepts then closes without sending', () => {
+    act(() => {
+      renderWithProvider(() => {});
+    });
+    expect(instances).toHaveLength(1);
+
+    // Cycle 1: server opens then closes immediately. delay starts at
+    // 1 s — onopen alone must NOT reset it, otherwise an
+    // accept-then-close upstream tight-loops reconnect.
+    act(() => {
+      instances[0]._triggerOpen();
+      instances[0]._triggerError();
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2); // first reconnect after 1 s
+    // Backoff is now 2 s.
+
+    // Cycle 2: same accept-then-close pattern. Without the onopen
+    // reset bug the backoff would have rolled back to 1 s and the
+    // next reconnect would fire after 1 s.
+    act(() => {
+      instances[1]._triggerOpen();
+      instances[1]._triggerError();
+    });
+    // 1 s is NOT enough; the next reconnect waits the full 2 s.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2);
+    act(() => {
+      vi.advanceTimersByTime(1000);
     });
     expect(instances).toHaveLength(3);
   });

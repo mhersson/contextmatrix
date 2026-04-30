@@ -36,7 +36,6 @@ const (
 	RunnerStarted   EventType = "runner.started"
 	RunnerFailed    EventType = "runner.failed"
 	RunnerKilled    EventType = "runner.killed"
-	RunnerLogEvent  EventType = "runner.log_event"
 )
 
 // Event represents a board event that can be published to subscribers.
