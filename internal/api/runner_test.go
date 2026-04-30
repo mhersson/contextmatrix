@@ -1495,6 +1495,46 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 	return card
 }
 
+// TestPromoteCard_MissingAgentID confirms a request without X-Agent-ID
+// is rejected with 400. Previously the handler synthesised "human:api"
+// when the header was absent, which let any caller with tunnel access
+// flip a card autonomous and bypass the human-only gate.
+func TestPromoteCard_MissingAgentID(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	// no X-Agent-ID header
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+}
+
 func TestPromoteCard_HumanOnly(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
@@ -1559,6 +1599,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -1608,6 +1649,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -1777,6 +1819,7 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -2035,7 +2078,11 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 					// Use a short per-call timeout so the test fails fast if the guard is absent.
 					callbackClient := &http.Client{Timeout: 500 * time.Millisecond}
 					cbReq, _ := http.NewRequest("POST", callbackURL, nil)
-					// No X-Agent-ID → treated as human (no agent prefix guard needed here).
+					// /promote requires a human-prefixed X-Agent-ID; the
+					// callback simulates a human-driven retry hitting CM
+					// while the original request is still in flight.
+					cbReq.Header.Set("X-Agent-ID", "human:alice")
+
 					cbResp, cbErr := callbackClient.Do(cbReq)
 					if cbErr == nil && cbResp != nil {
 						_ = cbResp.Body.Close()
@@ -2070,6 +2117,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	topLevelClient := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest("POST",
 		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := topLevelClient.Do(req)
 

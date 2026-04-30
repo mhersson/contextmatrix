@@ -287,7 +287,20 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 
 // promoteCard handles POST /api/projects/{project}/cards/{id}/promote — promote to autonomous.
 func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
-	if isNonHumanAgent(r) {
+	// Require an explicit human-prefixed X-Agent-ID. Synthesising a
+	// "human:api" fallback would let any caller with tunnel access flip
+	// any non-terminal card autonomous, defeating the documented
+	// human-only gate (CLAUDE.md rule 13). The web UI sets this header
+	// from the user's stored agent ID — see useAgentId.
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"X-Agent-ID header is required and must be human-prefixed", "")
+
+		return
+	}
+
+	if !strings.HasPrefix(agentID, "human:") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can promote cards", "")
 
 		return
@@ -345,13 +358,8 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract agent identity from header. Fall back to "human:api" so the
-	// service-layer human-only gate passes when the header is absent (e.g. web UI).
-	agentID := r.Header.Get("X-Agent-ID")
-	if agentID == "" {
-		agentID = "human:api"
-	}
-
+	// agentID was validated at the top of the handler; a missing or
+	// non-human-prefixed value short-circuits before this point.
 	// Flip the autonomous flag (idempotent; errors on terminal state).
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
 	if err != nil {
@@ -394,12 +402,13 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	// the card to autonomous mid-run. Use "system" — the frontend
 	// renders system-typed entries with a green accent bar; this is
 	// not a user-typed chat message so "user" would mis-style it as a
-	// right-aligned bubble.
+	// right-aligned bubble. Phrasing matches the activity-log entry
+	// produced by CardService.PromoteToAutonomous.
 	if h.sessionManager != nil {
 		h.sessionManager.PublishLocal(id, sessionlog.Event{
 			Timestamp: time.Now(),
 			Type:      "system",
-			Payload:   []byte("promoted to autonomous"),
+			Payload:   []byte("Promoted to autonomous mode"),
 		})
 	}
 
