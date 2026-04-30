@@ -48,28 +48,6 @@ type KillPayload struct {
 	Project string `json:"project"`
 }
 
-// MessagePayload is sent to the runner to deliver a human message to a running task.
-type MessagePayload struct {
-	CardID    string `json:"card_id"`
-	Project   string `json:"project"`
-	Content   string `json:"content"`
-	MessageID string `json:"message_id"`
-}
-
-// PromotePayload is sent to the runner to promote a task from interactive pause to completion.
-type PromotePayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// EndSessionPayload is sent to the runner to close the stdin of an interactive
-// container so claude exits on EOF. Used when a released card reaches a
-// terminal state.
-type EndSessionPayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
 // StopAllPayload is sent to the runner to stop all tasks.
 type StopAllPayload struct {
 	Project string `json:"project,omitempty"`
@@ -149,22 +127,6 @@ func (c *Client) Kill(ctx context.Context, p KillPayload) error {
 // StopAll sends a stop-all webhook to stop all tasks.
 func (c *Client) StopAll(ctx context.Context, p StopAllPayload) error {
 	return c.send(ctx, c.baseURL+"/stop-all", p)
-}
-
-// Message sends a human message to a running interactive task.
-func (c *Client) Message(ctx context.Context, p MessagePayload) error {
-	return c.send(ctx, c.baseURL+"/message", p)
-}
-
-// Promote sends a promote webhook to signal that an interactive task may proceed.
-func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
-	return c.send(ctx, c.baseURL+"/promote", p)
-}
-
-// EndSession sends an end-session webhook so the runner closes the container's
-// stdin; claude receives EOF and exits, ending the interactive session.
-func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
-	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
 // ListContainers queries the runner's /containers endpoint for every Docker

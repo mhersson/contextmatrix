@@ -247,9 +247,8 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	messageID := uuid.New().String()
 
 	// Fan out to the SSE bus — this is the orchestrated runner's chat
-	// delivery mechanism. The legacy /message HTTP webhook below is a
-	// best-effort interactive-stdin relay for any worker still listening
-	// on it; failure is logged but does not fail the request.
+	// delivery mechanism. The legacy /message stdin webhook is gone;
+	// orchestrated workers consume chat input from the SSE stream.
 	if h.runnerEventBuf != nil {
 		h.runnerEventBuf.Append(id, events.RunnerEvent{
 			Type: "chat_input",
@@ -270,16 +269,6 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 			Type:      "user",
 			Payload:   []byte(body.Content),
 		})
-	}
-
-	if err := h.runner.Message(r.Context(), runner.MessagePayload{
-		CardID:    id,
-		Project:   project,
-		MessageID: messageID,
-		Content:   body.Content,
-	}); err != nil {
-		ctxlog.Logger(r.Context()).Debug("runner /message webhook failed (best-effort; SSE fan-out is authoritative)",
-			"card_id", id, "project", project, "error", err)
 	}
 
 	writeJSON(w, http.StatusAccepted, messageResponse{OK: true, MessageID: messageID})
@@ -412,13 +401,9 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
-		CardID:  id,
-		Project: project,
-	}); err != nil {
-		ctxlog.Logger(r.Context()).Debug("runner /promote webhook failed (best-effort; SSE fan-out is authoritative)",
-			"card_id", id, "project", project, "error", err)
-	}
+	// The legacy /promote stdin webhook is gone; the orchestrated
+	// runner observes promotion via the RunnerEventBuffer SSE fan-out
+	// above and the autonomous flag is server-authoritative.
 
 	writeJSON(w, http.StatusAccepted, updatedCard)
 }
