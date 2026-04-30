@@ -18,6 +18,7 @@ type scenarioConfig struct {
 	tmpDir        string
 	boardsDir     string
 	taskSkillsDir string // host path to the skills fixture; same path passed to CM and runner
+	secretsDir    string // host path the runner stages per-container secrets files in
 	cmPort        int
 	runnerPort    int
 	apiKey        string // HMAC shared secret
@@ -39,6 +40,14 @@ func newScenarioConfig(t *testing.T, scenarioID string, realClaude bool) *scenar
 		t.Fatalf("mkdir task-skills: %v", err)
 	}
 
+	// The default runner SecretsDir lives at /var/run/cm-runner/secrets,
+	// which only root can create. Override to a per-test tmp path so the
+	// dispatcher can stage worker secrets files without root.
+	secretsDir := filepath.Join(tmpDir, "cm-secrets")
+	if err := os.MkdirAll(secretsDir, 0o700); err != nil {
+		t.Fatalf("mkdir cm-secrets: %v", err)
+	}
+
 	image := "cm-stub-orchestrated:test"
 	if realClaude {
 		image = "cm-orchestrated:test"
@@ -49,6 +58,7 @@ func newScenarioConfig(t *testing.T, scenarioID string, realClaude bool) *scenar
 		tmpDir:        tmpDir,
 		boardsDir:     boardsDir,
 		taskSkillsDir: skillsDir,
+		secretsDir:    secretsDir,
 		cmPort:        freePort(t),
 		runnerPort:    freePort(t),
 		apiKey:        randomHex(t, 32),
@@ -130,15 +140,14 @@ idle_output_timeout: 90s
 maintenance_interval: 60s
 webhook_replay_cache_size: 64
 webhook_replay_skew_seconds: 30
-message_dedup_cache_size: 64
-message_dedup_ttl_seconds: 60
 worker_type: cc-orchestrated
 task_skills_dir: %s
+secrets_dir: %s
 github:
   auth_mode: pat
   pat:
     token: not-used-by-stub
-%s%s`, sc.runnerPort, sc.cmPort, sc.cmPort, sc.apiKey, sc.workerImage, sc.workerImage, sc.workerImage, sc.taskSkillsDir, credsBlock, extraEnvBlock)
+%s%s`, sc.runnerPort, sc.cmPort, sc.cmPort, sc.apiKey, sc.workerImage, sc.workerImage, sc.workerImage, sc.taskSkillsDir, sc.secretsDir, credsBlock, extraEnvBlock)
 
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write runner config: %v", err)

@@ -44,6 +44,7 @@ func (c *cmClient) postRaw(t *testing.T, path string, body any, into any) (int, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Agent-ID", "human:harness")
+	req.Header.Set("X-Requested-With", "contextmatrix")
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		t.Fatalf("post do %s: %v", path, err)
@@ -74,6 +75,7 @@ func (c *cmClient) putRaw(t *testing.T, path string, body any, into any) (int, s
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Agent-ID", "human:harness")
+	req.Header.Set("X-Requested-With", "contextmatrix")
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		t.Fatalf("put do %s: %v", path, err)
@@ -104,6 +106,7 @@ func (c *cmClient) patchRaw(t *testing.T, path string, body any, into any) (int,
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Agent-ID", "human:harness")
+	req.Header.Set("X-Requested-With", "contextmatrix")
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		t.Fatalf("patch do %s: %v", path, err)

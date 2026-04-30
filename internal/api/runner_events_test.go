@@ -15,9 +15,61 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
+// TestRunnerEventsSSE_RequiresBearer enforces the auth contract: without
+// a matching Authorization: Bearer header the SSE handler must 401 rather
+// than fan out card chat events. The runner already sends this header;
+// the previous handler ignored it and let any caller with tunnel access
+// subscribe to a card's chat.
+func TestRunnerEventsSSE_RequiresBearer(t *testing.T) {
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
+
+	const apiKey = "test-secret-key"
+
+	h := newRunnerEventHandlers(buf, apiKey)
+
+	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
+	defer srv.Close()
+
+	cases := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong scheme", "Basic dXNlcjpwYXNz", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-key", http.StatusUnauthorized},
+		{"correct", "Bearer test-secret-key", http.StatusOK},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest("GET", srv.URL+"?card_id=c1", nil)
+			require.NoError(t, err)
+
+			if tc.authHeader != "" {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			require.Equal(t, tc.wantStatus, resp.StatusCode)
+
+			if tc.wantStatus == http.StatusUnauthorized {
+				require.Equal(t,
+					`Bearer realm="contextmatrix"`,
+					resp.Header.Get("WWW-Authenticate"),
+				)
+			}
+		})
+	}
+}
+
 func TestRunnerEventsSSEStreamsAppends(t *testing.T) {
 	buf := events.NewRunnerEventBuffer(100, time.Hour)
-	h := newRunnerEventHandlers(buf)
+	h := newRunnerEventHandlers(buf, "")
 
 	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
 	defer srv.Close()
@@ -70,7 +122,7 @@ func TestRunnerEventsSSEReplaysLastEventID(t *testing.T) {
 	buf.Append("c1", events.RunnerEvent{Type: "b"})
 	buf.Append("c1", events.RunnerEvent{Type: "c"})
 
-	h := newRunnerEventHandlers(buf)
+	h := newRunnerEventHandlers(buf, "")
 
 	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
 	defer srv.Close()
@@ -102,7 +154,7 @@ func TestRunnerEventsSSEReplaysLastEventID(t *testing.T) {
 
 func TestRunnerEventsSSERequiresCardID(t *testing.T) {
 	buf := events.NewRunnerEventBuffer(100, time.Hour)
-	h := newRunnerEventHandlers(buf)
+	h := newRunnerEventHandlers(buf, "")
 
 	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
 	defer srv.Close()
@@ -120,7 +172,7 @@ func TestRunnerEventsPollFallback(t *testing.T) {
 	buf.Append("c1", events.RunnerEvent{Type: "a"})
 	buf.Append("c1", events.RunnerEvent{Type: "b"})
 
-	h := newRunnerEventHandlers(buf)
+	h := newRunnerEventHandlers(buf, "")
 
 	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
 	defer srv.Close()
@@ -141,7 +193,7 @@ func TestRunnerEventsPollFallback(t *testing.T) {
 
 func TestRunnerEventsPollInvalidSince(t *testing.T) {
 	buf := events.NewRunnerEventBuffer(100, time.Hour)
-	h := newRunnerEventHandlers(buf)
+	h := newRunnerEventHandlers(buf, "")
 
 	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
 	defer srv.Close()

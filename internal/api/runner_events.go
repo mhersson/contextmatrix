@@ -1,11 +1,13 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -14,11 +16,46 @@ import (
 )
 
 type runnerEventHandlers struct {
-	buf *events.RunnerEventBuffer
+	buf    *events.RunnerEventBuffer
+	apiKey string
 }
 
-func newRunnerEventHandlers(buf *events.RunnerEventBuffer) *runnerEventHandlers {
-	return &runnerEventHandlers{buf: buf}
+func newRunnerEventHandlers(buf *events.RunnerEventBuffer, apiKey string) *runnerEventHandlers {
+	return &runnerEventHandlers{buf: buf, apiKey: apiKey}
+}
+
+// authorize verifies the Authorization: Bearer header against the configured
+// MCP API key (constant-time compare). Returns true if the request is allowed
+// to proceed; on failure it has already written a 401 response and the caller
+// must return without further writes. Empty apiKey disables auth — kept for
+// tests that construct a runnerEventHandlers literal.
+func (h *runnerEventHandlers) authorize(w http.ResponseWriter, r *http.Request) bool {
+	if h.apiKey == "" {
+		return true
+	}
+
+	const prefix = "Bearer "
+
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, prefix) {
+		writeRunnerEventsAuthFailure(w)
+
+		return false
+	}
+
+	token := strings.TrimPrefix(auth, prefix)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(h.apiKey)) != 1 {
+		writeRunnerEventsAuthFailure(w)
+
+		return false
+	}
+
+	return true
+}
+
+func writeRunnerEventsAuthFailure(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="contextmatrix"`)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
 // handleStream serves runner events for a single card. With ?since=N
@@ -27,6 +64,10 @@ func newRunnerEventHandlers(buf *events.RunnerEventBuffer) *runnerEventHandlers 
 // Last-Event-ID, then live-fans-out subsequent events. Sends a keepalive
 // comment every 30s to survive proxies.
 func (h *runnerEventHandlers) handleStream(w http.ResponseWriter, r *http.Request) {
+	if !h.authorize(w, r) {
+		return
+	}
+
 	cardID := r.URL.Query().Get("card_id")
 	if cardID == "" {
 		http.Error(w, "card_id required", http.StatusBadRequest)

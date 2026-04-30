@@ -16,11 +16,17 @@ func TestMCPAuthMiddleware(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// Every auth failure collapses to the same 401 + WWW-Authenticate +
+	// constant body so the response shape leaks no detail about which
+	// check failed (missing header vs wrong token vs malformed scheme).
+	const constAuthBody = `{"error":"unauthorized"}`
+
 	tests := []struct {
 		name       string
 		authHeader string
 		wantStatus int
 		wantBody   string
+		wantWWW    string // expected WWW-Authenticate header
 	}{
 		{
 			name:       "valid Bearer token",
@@ -32,25 +38,29 @@ func TestMCPAuthMiddleware(t *testing.T) {
 			name:       "missing Authorization header",
 			authHeader: "",
 			wantStatus: http.StatusUnauthorized,
-			wantBody:   `{"error":"missing Authorization header"}`,
+			wantBody:   constAuthBody,
+			wantWWW:    `Bearer realm="contextmatrix"`,
 		},
 		{
 			name:       "wrong token",
 			authHeader: "Bearer wrong-key",
-			wantStatus: http.StatusForbidden,
-			wantBody:   `{"error":"invalid API key"}`,
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   constAuthBody,
+			wantWWW:    `Bearer realm="contextmatrix"`,
 		},
 		{
 			name:       "non-Bearer scheme",
 			authHeader: "Basic dXNlcjpwYXNz",
 			wantStatus: http.StatusUnauthorized,
-			wantBody:   `{"error":"invalid Authorization format, expected Bearer <key>"}`,
+			wantBody:   constAuthBody,
+			wantWWW:    `Bearer realm="contextmatrix"`,
 		},
 		{
 			name:       "Bearer prefix only",
 			authHeader: "Bearer ",
-			wantStatus: http.StatusForbidden,
-			wantBody:   `{"error":"invalid API key"}`,
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   constAuthBody,
+			wantWWW:    `Bearer realm="contextmatrix"`,
 		},
 	}
 
@@ -69,6 +79,10 @@ func TestMCPAuthMiddleware(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			assert.Contains(t, w.Body.String(), tt.wantBody)
+
+			if tt.wantWWW != "" {
+				assert.Equal(t, tt.wantWWW, w.Header().Get("WWW-Authenticate"))
+			}
 		})
 	}
 }

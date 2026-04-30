@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -109,7 +110,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
-	reh := newRunnerEventHandlers(cfg.RunnerEventBuffer)
+	reh := newRunnerEventHandlers(cfg.RunnerEventBuffer, cfg.MCPAPIKey)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
 	bh := &branchHandlers{
@@ -206,16 +207,77 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	// Apply middleware chain. First entry is outermost:
-	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> mux
+	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> csrfGuard -> mux
 	// requestID runs before observe so the request_id is in-context when the
 	// request log line fires. observe sits inside recovery so any panic's
-	// stack trace is logged with the request's context.
-	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit}
+	// stack trace is logged with the request's context. csrfGuard sits just
+	// outside the mux so route handlers run only when the header check
+	// passes (or the path is exempt).
+	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit, csrfGuard}
 	if cfg.CORSOrigin != "" {
-		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit}
+		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit, csrfGuard}
 	}
 
 	return chain(mux, middlewares...)
+}
+
+// csrfGuard rejects browser-initiated cross-origin POST/PUT/PATCH/DELETE
+// requests by requiring an X-Requested-With: contextmatrix header on every
+// non-safe method. Browsers refuse to set arbitrary custom headers in a
+// "simple request"; a CORS preflight is required, and we serve no permissive
+// CORS for state-changing routes — so a missing header is a strong signal of
+// a cross-origin attempt that bypassed the SOP.
+//
+// Exempt paths:
+//   - GET / HEAD / OPTIONS (read-only)
+//   - /api/runner/*  — HMAC-signed runner callbacks; no browser path here
+//   - /api/v1/*      — HMAC-signed runner verify-autonomous
+//   - /mcp           — Bearer-authed MCP endpoint
+//   - /healthz, /readyz — probe endpoints, no body
+//
+// The web UI sets the header on every fetch via web/src/api/client.ts.
+func csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if csrfExempt(r) {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		if r.Header.Get("X-Requested-With") != "contextmatrix" {
+			writeError(w, http.StatusForbidden, ErrCodeBadRequest,
+				"missing X-Requested-With header", "")
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// csrfExempt reports whether the request is excluded from the CSRF
+// guard. The branches are intentionally narrow — any new state-changing
+// route must opt in to the guard, not out.
+func csrfExempt(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+
+	path := r.URL.Path
+
+	switch {
+	case path == "/healthz" || path == "/readyz":
+		return true
+	case strings.HasPrefix(path, "/api/runner/"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/"):
+		return true
+	case path == "/mcp":
+		return true
+	}
+
+	return false
 }
 
 // observe records RED metrics and emits a per-request log line. Health probes

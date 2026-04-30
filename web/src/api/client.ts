@@ -43,6 +43,11 @@ class APIClient {
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      // X-Requested-With trips the server's CSRF guard: a malicious tab
+      // cannot set this header in a "simple request" without a CORS
+      // preflight, so its presence is proof the call originated from
+      // a same-origin script that was loaded with our CSP.
+      'X-Requested-With': 'contextmatrix',
       ...options.headers,
     };
 
