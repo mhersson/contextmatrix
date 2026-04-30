@@ -116,6 +116,18 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
+	// Runner-only FSM state fields. The orchestrated runner persists its
+	// resume state so a restart mid-flight returns to the right phase
+	// instead of replaying from scratch. Human users should leave these
+	// alone; the fields are still accepted because the MCP transport
+	// has no per-field auth and a runner-supplied agent_id already
+	// controls who can write.
+	RevisionAttempts  *int  `json:"revision_attempts,omitempty"  jsonschema:"runner-only: monotonic counter of revise→replan→execute cycles; rejects values lower than the current count"`
+	DiscoveryComplete *bool `json:"discovery_complete,omitempty" jsonschema:"runner-only: brainstorm/diagnose phase completed"`
+	PlanApproved      *bool `json:"plan_approved,omitempty"      jsonschema:"runner-only: planning phase converged on an accepted plan"`
+	ReviewApproved    *bool `json:"review_approved,omitempty"    jsonschema:"runner-only: review phase recommended approve"`
+	RevisionRequested *bool `json:"revision_requested,omitempty" jsonschema:"runner-only: review phase recommended revise; replan is pending"`
+	DocsWritten       *bool `json:"docs_written,omitempty"       jsonschema:"runner-only: documentation phase emitted DOCS_WRITTEN"`
 }
 
 type transitionCardInput struct {
@@ -364,12 +376,18 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		}
 
 		patchInput := service.PatchCardInput{
-			AgentID:  input.AgentID,
-			Title:    input.Title,
-			Priority: input.Priority,
-			Labels:   input.Labels,
-			Skills:   input.Skills,
-			Body:     input.Body,
+			AgentID:           input.AgentID,
+			Title:             input.Title,
+			Priority:          input.Priority,
+			Labels:            input.Labels,
+			Skills:            input.Skills,
+			Body:              input.Body,
+			RevisionAttempts:  input.RevisionAttempts,
+			DiscoveryComplete: input.DiscoveryComplete,
+			PlanApproved:      input.PlanApproved,
+			ReviewApproved:    input.ReviewApproved,
+			RevisionRequested: input.RevisionRequested,
+			DocsWritten:       input.DocsWritten,
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)

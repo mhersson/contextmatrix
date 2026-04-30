@@ -79,6 +79,15 @@ type PatchCardInput struct {
 	// UI cannot move a card back to "use project default" via PATCH.
 	SkillsClear bool
 	BaseBranch  *string
+	// FSM state fields written by the orchestrated runner so a restart
+	// mid-flight resumes at the right phase instead of replaying from
+	// scratch. RevisionAttempts is rejected if it tries to move backwards.
+	RevisionAttempts  *int
+	DiscoveryComplete *bool
+	PlanApproved      *bool
+	ReviewApproved    *bool
+	RevisionRequested *bool
+	DocsWritten       *bool
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -710,6 +719,39 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BaseBranch != nil {
 			card.BaseBranch = *input.BaseBranch
+		}
+
+		// FSM state plumbing: only the orchestrated runner writes these.
+		// RevisionAttempts is monotonic — rejecting a backwards write
+		// stops a stale resume from clobbering progress made by a more
+		// recent run.
+		if input.RevisionAttempts != nil {
+			if *input.RevisionAttempts < card.RevisionAttempts {
+				return fmt.Errorf("revision_attempts must be monotonically non-decreasing: have %d, got %d",
+					card.RevisionAttempts, *input.RevisionAttempts)
+			}
+
+			card.RevisionAttempts = *input.RevisionAttempts
+		}
+
+		if input.DiscoveryComplete != nil {
+			card.DiscoveryComplete = *input.DiscoveryComplete
+		}
+
+		if input.PlanApproved != nil {
+			card.PlanApproved = *input.PlanApproved
+		}
+
+		if input.ReviewApproved != nil {
+			card.ReviewApproved = *input.ReviewApproved
+		}
+
+		if input.RevisionRequested != nil {
+			card.RevisionRequested = *input.RevisionRequested
+		}
+
+		if input.DocsWritten != nil {
+			card.DocsWritten = *input.DocsWritten
 		}
 
 		return nil

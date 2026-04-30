@@ -142,6 +142,68 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 	})
 }
 
+// TestUpdateCard_FSMStateFields confirms the orchestrated runner can
+// persist its FSM resume state through update_card so a runner restart
+// resumes at the correct phase. Before the schema was extended these
+// fields were silently dropped and the runner replayed phases from
+// scratch on every restart.
+func TestUpdateCard_FSMStateFields(t *testing.T) {
+	t.Run("all FSM state fields persist", func(t *testing.T) {
+		env := setupMCP(t)
+		createTestCard(t, env, "FSM state plumbing", "task", "medium")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":            "test-project",
+			"card_id":            "TEST-001",
+			"revision_attempts":  2,
+			"discovery_complete": true,
+			"plan_approved":      true,
+			"review_approved":    true,
+			"revision_requested": true,
+			"docs_written":       true,
+		})
+		require.False(t, resultIsError(result, err), "update_card with FSM fields should succeed")
+
+		var updated board.Card
+		unmarshalResult(t, result, &updated)
+		assert.Equal(t, 2, updated.RevisionAttempts)
+		assert.True(t, updated.DiscoveryComplete)
+		assert.True(t, updated.PlanApproved)
+		assert.True(t, updated.ReviewApproved)
+		assert.True(t, updated.RevisionRequested)
+		assert.True(t, updated.DocsWritten)
+	})
+
+	t.Run("revision_attempts cannot move backwards", func(t *testing.T) {
+		env := setupMCP(t)
+		createTestCard(t, env, "Monotonic revision attempts", "task", "medium")
+
+		// First push the counter forward.
+		fwdResult, fwdErr := callToolRaw(t, env, "update_card", map[string]any{
+			"card_id":           "TEST-001",
+			"revision_attempts": 3,
+		})
+		require.False(t, resultIsError(fwdResult, fwdErr))
+
+		// Backwards write must be rejected.
+		bwdResult, bwdErr := callToolRaw(t, env, "update_card", map[string]any{
+			"card_id":           "TEST-001",
+			"revision_attempts": 1,
+		})
+		require.True(t, resultIsError(bwdResult, bwdErr),
+			"backwards revision_attempts must be rejected")
+		assert.Contains(t, errorText(bwdResult, bwdErr), "monotonically")
+
+		// And the value must still be 3.
+		getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+
+		var card board.Card
+
+		unmarshalResult(t, getResult, &card)
+		assert.Equal(t, 3, card.RevisionAttempts)
+	})
+}
+
 // TestTransitionCard_AgentOwnership verifies that transition_card rejects state
 // changes from an agent that does not own the card and allows transitions from
 // the owning agent. The service-layer check replaces the former handler-level
