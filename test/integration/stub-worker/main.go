@@ -112,9 +112,10 @@ func main() {
 	cardID := os.Getenv("CM_CARD_ID")
 
 	switch p {
-	case phasePlan, phaseReview:
-		// Plan and review can run in autonomous (one-shot text marker) or
-		// HITL (multi-turn chat). Branch on the user-message shape.
+	case phasePlan, phaseReview, phaseBrainstorm:
+		// Plan, review, and brainstorm can run in autonomous (one-shot
+		// text marker / immediate marker) or HITL (multi-turn chat).
+		// Branch on the user-message shape.
 		runPlanReviewTurn(p, cardID, model)
 	default:
 		log.Printf("stub-claude: detected phase=%s mode=autonomous model=%s", p, model)
@@ -174,6 +175,18 @@ func emitHITLSubsequent(p phase, cardID, userText string) {
 	case "review_revise":
 		emitAssistantText("Review wants changes. Calling review_revise.")
 		emitToolUse("review_revise", reviewRevisePayload(cardID, userText))
+	case "discovery_complete":
+		// Brainstorm phase: the prompt's "Promotion mid-dialogue"
+		// handler instructs the agent to write the synthesized Design
+		// to the card body via update_card BEFORE emitting
+		// discovery_complete. Replicate that contract here so the
+		// integration test can assert the body update happened.
+		emitAssistantText("Promotion received. Capturing design and calling discovery_complete.")
+		emitToolUse("update_card", map[string]any{
+			"card_id": cardID,
+			"body":    stubCanonicalDesignBody(),
+		})
+		emitToolUse("discovery_complete", discoveryCompletePayload(cardID))
 	default:
 		emitAssistantText("Acknowledged: " + truncateForLog(userText, 120))
 	}
@@ -225,6 +238,10 @@ func looksLikeHITLKickoff(p phase, s string) bool {
 		return strings.Contains(s, "Please plan card")
 	case phaseReview:
 		return strings.Contains(s, "Please review parent card")
+	case phaseBrainstorm:
+		// buildBrainstormPriming in the runner produces "Please
+		// brainstorm card `X` with me." as the first user frame.
+		return strings.Contains(s, "Please brainstorm card")
 	}
 
 	return false
@@ -239,6 +256,8 @@ func emitFirstTurnProposal(p phase) {
 		emitAssistantText("Stub proposal: one subtask titled 'Implement main.go and main_test.go per the card body, commit, push'. Approve when ready.")
 	case phaseReview:
 		emitAssistantText("Stub review: diff implements the spec; recommend approve. Send back if you disagree.")
+	case phaseBrainstorm:
+		emitAssistantText("Stub brainstorm: which transport — REST or gRPC? Reply 'approve' to accept REST, or describe the design you want.")
 	default:
 		emitAssistantText(fmt.Sprintf("Stub: acknowledged kickoff for phase %s", p))
 	}
@@ -285,6 +304,8 @@ func detectHITLDecision(p phase, userText string) string {
 			return "plan_complete"
 		case phaseReview:
 			return "review_approve"
+		case phaseBrainstorm:
+			return "discovery_complete"
 		}
 	}
 
@@ -300,6 +321,10 @@ func detectHITLDecision(p phase, userText string) string {
 
 		if strings.Contains(lower, "approve") {
 			return "review_approve"
+		}
+	case phaseBrainstorm:
+		if strings.Contains(lower, "approve") {
+			return "discovery_complete"
 		}
 	}
 

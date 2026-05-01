@@ -13,7 +13,6 @@ interface BuildCardPanelTabsOptions {
   config: ProjectConfig;
   cardLogs: readonly LogEntry[];
   currentAgentId: string | null;
-  onPromptAgentId: () => string | null;
   runnerAttached: boolean;
   isHITLRunning: boolean;
   onClaim: () => Promise<void>;
@@ -67,12 +66,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         />
       ) : undefined,
       content: (
-        <ChatTab
-          card={opts.card}
-          cardLogs={opts.cardLogs}
-          currentAgentId={opts.currentAgentId}
-          onPromptAgentId={opts.onPromptAgentId}
-        />
+        <ChatTab card={opts.card} cardLogs={opts.cardLogs} />
       ),
     });
   }

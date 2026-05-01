@@ -427,13 +427,69 @@ func TestHITLMarkerTools_ReturnAcknowledged(t *testing.T) {
 	t.Run("review_revise", func(t *testing.T) {
 		env := setupMCP(t)
 		card := createTestCard(t, env, "review revise marker", "task", "medium")
+
+		callTool(t, env, "claim_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-A",
+		})
+		callTool(t, env, "transition_card", map[string]any{
+			"project":   "test-project",
+			"card_id":   card.ID,
+			"agent_id":  "agent-A",
+			"new_state": "review",
+		})
+
 		result := callTool(t, env, "review_revise", map[string]any{
 			"project":  "test-project",
 			"card_id":  card.ID,
+			"agent_id": "agent-A",
 			"summary":  "needs work",
 			"feedback": "use REST not GraphQL",
 		})
 		require.False(t, result.IsError)
+
+		got := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
+		require.False(t, got.IsError)
+
+		var refreshed board.Card
+		unmarshalResult(t, got, &refreshed)
+		assert.Equal(t, "in_progress", refreshed.State,
+			"review_revise must transition the card back to in_progress so the orchestrator can re-run with new subtasks")
+	})
+
+	t.Run("review_revise rejects non-owner agent", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review revise mismatch", "task", "medium")
+
+		callTool(t, env, "claim_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "owner",
+		})
+		callTool(t, env, "transition_card", map[string]any{
+			"project":   "test-project",
+			"card_id":   card.ID,
+			"agent_id":  "owner",
+			"new_state": "review",
+		})
+
+		result := callTool(t, env, "review_revise", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "intruder",
+			"summary":  "should fail",
+			"feedback": "nope",
+		})
+		require.True(t, result.IsError, "non-owner agent must be rejected")
+
+		got := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
+		require.False(t, got.IsError)
+
+		var refreshed board.Card
+		unmarshalResult(t, got, &refreshed)
+		assert.Equal(t, "review", refreshed.State,
+			"failed review_revise must leave the card in review")
 	})
 }
 

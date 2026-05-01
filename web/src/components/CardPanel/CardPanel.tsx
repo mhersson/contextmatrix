@@ -28,7 +28,6 @@ interface CardPanelProps {
   onRelease: () => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
-  onPromptAgentId: () => string | null;
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
@@ -56,7 +55,7 @@ interface CardPanelProps {
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
-    onSubtaskClick, currentAgentId, onPromptAgentId, onRunCard, onStopCard } = props;
+    onSubtaskClick, currentAgentId, onRunCard, onStopCard } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
@@ -124,14 +123,11 @@ export function CardPanel(props: CardPanelProps) {
   }, [isDirty, isSaving, editedCard, card, onSave]);
 
   const handleClaim = useCallback(async () => {
-    // Prompt for the user's identity if it isn't set yet — the prompt
-    // syncs api.agentId synchronously (see useAgentId), so the request
-    // that follows will carry the X-Agent-ID header. Cancelling the
-    // prompt aborts the claim.
-    const agentId = currentAgentId || onPromptAgentId();
-    if (!agentId) return;
+    // currentAgentId is always set (useAgentId defaults to "human:user" on
+    // first load), so the X-Agent-ID header is guaranteed to ride along.
+    if (!currentAgentId) return;
     await onClaim();
-  }, [currentAgentId, onPromptAgentId, onClaim]);
+  }, [currentAgentId, onClaim]);
 
   const handleRelease = useCallback(async () => {
     if (!currentAgentId || !card.assigned_agent) return;
@@ -286,7 +282,6 @@ export function CardPanel(props: CardPanelProps) {
     config,
     cardLogs,
     currentAgentId,
-    onPromptAgentId,
     runnerAttached,
     isHITLRunning,
     onClaim: handleClaim,

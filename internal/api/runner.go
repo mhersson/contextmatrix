@@ -670,10 +670,13 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 }
 
 // skillEngagedRequest is the JSON body sent by the runner when the agent
-// invokes the Skill tool.
+// invokes the Skill tool. AgentID identifies the agent that engaged the
+// skill (e.g. "runner:CARD-001"); empty values are accepted for older
+// runners and fall back to "runner" in the activity entry.
 type skillEngagedRequest struct {
 	CardID    string `json:"card_id"`
 	Project   string `json:"project"`
+	AgentID   string `json:"agent_id"`
 	SkillName string `json:"skill_name"`
 }
 
@@ -698,7 +701,7 @@ func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.SkillName); err != nil {
+	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.AgentID, req.SkillName); err != nil {
 		handleServiceError(w, r, err)
 
 		return

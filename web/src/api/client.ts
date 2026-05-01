@@ -6,10 +6,8 @@ import type {
   APIError,
   CreateCardInput,
   CreateProjectInput,
-  UpdateCardInput,
   UpdateProjectInput,
   PatchCardInput,
-  CardContext,
   DashboardData,
   SyncStatus,
   StopAllResponse,
@@ -164,17 +162,6 @@ class APIClient {
     });
   }
 
-  async updateCard(
-    project: string,
-    id: string,
-    input: UpdateCardInput
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    });
-  }
-
   async patchCard(
     project: string,
     id: string,
@@ -205,10 +192,6 @@ class APIClient {
     return this.request<Card>(`/projects/${project}/cards/${id}/release`, {
       method: 'POST',
     });
-  }
-
-  async getCardContext(project: string, id: string): Promise<CardContext> {
-    return this.request<CardContext>(`/projects/${project}/cards/${id}/context`);
   }
 
   async getDashboard(project: string): Promise<DashboardData> {

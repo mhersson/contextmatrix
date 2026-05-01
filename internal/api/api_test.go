@@ -29,6 +29,23 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+// testAgentReq mirrors the historical shape of the agent claim/release/heartbeat
+// JSON body. Production handlers no longer read agent_id from the body — the
+// X-Agent-ID header is canonical — but the test transport in
+// csrf_test_setup_test.go still injects the header from the body's agent_id
+// field so existing tests don't have to set it explicitly. See agents.go for
+// the production contract.
+type testAgentReq struct {
+	AgentID string `json:"agent_id"`
+}
+
+// testAddLogReq mirrors the historical addLogRequest shape for the same reason.
+type testAddLogReq struct {
+	AgentID string `json:"agent_id"`
+	Action  string `json:"action"`
+	Message string `json:"message"`
+}
+
 // closeBody is a helper to close response body and check error in tests.
 func closeBody(t *testing.T, body io.Closer) {
 	t.Helper()
@@ -437,6 +454,26 @@ func TestPatchCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode) // in_progress -> done is valid
 	})
+
+	t.Run("type field patches", func(t *testing.T) {
+		newType := "feature"
+		body := patchCardRequest{Type: &newType}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+		assert.Equal(t, "feature", card.Type)
+	})
 }
 
 func TestUpdateCard(t *testing.T) {
@@ -809,7 +846,7 @@ func TestClaimCard(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful claim with body agent_id", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(jsonBody))
@@ -829,7 +866,7 @@ func TestClaimCard(t *testing.T) {
 	})
 
 	t.Run("claim already claimed card - 409", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-2"}
+		body := testAgentReq{AgentID: "claude-2"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(jsonBody))
@@ -849,7 +886,7 @@ func TestClaimCard(t *testing.T) {
 
 	t.Run("claim with header agent ID", func(t *testing.T) {
 		// Release first
-		releaseBody := agentRequest{AgentID: "claude-1"}
+		releaseBody := testAgentReq{AgentID: "claude-1"}
 		releaseJSON, _ := json.Marshal(releaseBody)
 		releaseReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", bytes.NewReader(releaseJSON))
 		releaseReq.Header.Set("Content-Type", "application/json")
@@ -857,7 +894,7 @@ func TestClaimCard(t *testing.T) {
 		closeBody(t, releaseResp.Body)
 
 		// Claim using header
-		body := agentRequest{AgentID: ""} // Empty body
+		body := testAgentReq{AgentID: ""} // Empty body
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(jsonBody))
@@ -877,7 +914,7 @@ func TestClaimCard(t *testing.T) {
 	})
 
 	t.Run("missing agent_id - 400", func(t *testing.T) {
-		body := agentRequest{AgentID: ""}
+		body := testAgentReq{AgentID: ""}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(jsonBody))
@@ -892,7 +929,7 @@ func TestClaimCard(t *testing.T) {
 	})
 
 	t.Run("non-existent card - 404", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-999/claim", bytes.NewReader(jsonBody))
@@ -928,7 +965,7 @@ func TestReleaseCard(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful release", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", bytes.NewReader(jsonBody))
@@ -948,7 +985,7 @@ func TestReleaseCard(t *testing.T) {
 	})
 
 	t.Run("release unclaimed card - 409", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", bytes.NewReader(jsonBody))
@@ -971,7 +1008,7 @@ func TestReleaseCard(t *testing.T) {
 		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
 		require.NoError(t, err)
 
-		body := agentRequest{AgentID: "claude-2"}
+		body := testAgentReq{AgentID: "claude-2"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", bytes.NewReader(jsonBody))
@@ -1013,7 +1050,7 @@ func TestHeartbeatCard(t *testing.T) {
 	originalHeartbeat := card.LastHeartbeat
 
 	t.Run("successful heartbeat - 204", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
@@ -1035,7 +1072,7 @@ func TestHeartbeatCard(t *testing.T) {
 	})
 
 	t.Run("heartbeat wrong agent - 403", func(t *testing.T) {
-		body := agentRequest{AgentID: "claude-2"}
+		body := testAgentReq{AgentID: "claude-2"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
@@ -1054,7 +1091,7 @@ func TestHeartbeatCard(t *testing.T) {
 		_, err := svc.ReleaseCard(context.Background(), "test-project", "TEST-001", "claude-1")
 		require.NoError(t, err)
 
-		body := agentRequest{AgentID: "claude-1"}
+		body := testAgentReq{AgentID: "claude-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
@@ -1087,7 +1124,7 @@ func TestAddLogEntry(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful log entry", func(t *testing.T) {
-		body := addLogRequest{
+		body := testAddLogReq{
 			AgentID: "claude-1",
 			Action:  "progress",
 			Message: "Working on implementation",
@@ -1114,7 +1151,7 @@ func TestAddLogEntry(t *testing.T) {
 	})
 
 	t.Run("missing action - 400", func(t *testing.T) {
-		body := addLogRequest{
+		body := testAddLogReq{
 			AgentID: "claude-1",
 			Action:  "",
 			Message: "Some message",
@@ -1133,7 +1170,7 @@ func TestAddLogEntry(t *testing.T) {
 	})
 
 	t.Run("missing message - 400", func(t *testing.T) {
-		body := addLogRequest{
+		body := testAddLogReq{
 			AgentID: "claude-1",
 			Action:  "progress",
 			Message: "",
@@ -1152,7 +1189,7 @@ func TestAddLogEntry(t *testing.T) {
 	})
 
 	t.Run("missing agent_id - 400", func(t *testing.T) {
-		body := addLogRequest{
+		body := testAddLogReq{
 			AgentID: "",
 			Action:  "progress",
 			Message: "Some message",
@@ -1466,7 +1503,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	cardURL := baseURL + "/" + cardID
 
 	// Step 2: Claim card
-	claimBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	claimBody, _ := json.Marshal(testAgentReq{AgentID: agentID})
 	req, _ := http.NewRequest(http.MethodPost, cardURL+"/claim", bytes.NewReader(claimBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp2, err := http.DefaultClient.Do(req)
@@ -1482,7 +1519,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.NotNil(t, claimed.LastHeartbeat)
 
 	// Step 3: Add log entry
-	logBody, _ := json.Marshal(addLogRequest{
+	logBody, _ := json.Marshal(testAddLogReq{
 		AgentID: agentID,
 		Action:  "status_update",
 		Message: "Starting implementation",
@@ -1519,7 +1556,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, "in_progress", inProgress.State)
 
 	// Step 5: Heartbeat
-	hbBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	hbBody, _ := json.Marshal(testAgentReq{AgentID: agentID})
 	req, _ = http.NewRequest(http.MethodPost, cardURL+"/heartbeat", bytes.NewReader(hbBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp5, err := http.DefaultClient.Do(req)
@@ -1543,7 +1580,7 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp6.StatusCode)
 
 	// Step 7: Release card
-	releaseBody, _ := json.Marshal(agentRequest{AgentID: agentID})
+	releaseBody, _ := json.Marshal(testAgentReq{AgentID: agentID})
 	req, _ = http.NewRequest(http.MethodPost, cardURL+"/release", bytes.NewReader(releaseBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp7, err := http.DefaultClient.Do(req)
@@ -1657,7 +1694,7 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 
 	// Claim the card (triggers CardClaimed event)
-	claimBody, _ := json.Marshal(agentRequest{AgentID: "sse-agent"})
+	claimBody, _ := json.Marshal(testAgentReq{AgentID: "sse-agent"})
 	claimReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", bytes.NewReader(claimBody))
 	claimReq.Header.Set("Content-Type", "application/json")
 	claimResp, err := http.DefaultClient.Do(claimReq)
@@ -1750,7 +1787,7 @@ func TestConcurrentAgentClaims(t *testing.T) {
 			defer wg.Done()
 
 			agentID := fmt.Sprintf("agent-%d", idx)
-			body, _ := json.Marshal(agentRequest{AgentID: agentID})
+			body, _ := json.Marshal(testAgentReq{AgentID: agentID})
 			req, _ := http.NewRequest(http.MethodPost,
 				server.URL+"/api/projects/test-project/cards/"+cardIDs[idx]+"/claim",
 				bytes.NewReader(body))
@@ -1814,7 +1851,7 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 			defer wg.Done()
 
 			agentID := fmt.Sprintf("racer-%d", idx)
-			body, _ := json.Marshal(agentRequest{AgentID: agentID})
+			body, _ := json.Marshal(testAgentReq{AgentID: agentID})
 			req, _ := http.NewRequest(http.MethodPost,
 				server.URL+"/api/projects/test-project/cards/"+card.ID+"/claim",
 				bytes.NewReader(body))
@@ -2931,7 +2968,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	assert.False(t, unvetted.Vetted)
 
 	t.Run("agent claim unvetted card returns 403 CARD_NOT_VETTED", func(t *testing.T) {
-		body := agentRequest{AgentID: "agent-1"}
+		body := testAgentReq{AgentID: "agent-1"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost,
@@ -2952,7 +2989,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	})
 
 	t.Run("human claim unvetted card returns 200", func(t *testing.T) {
-		body := agentRequest{AgentID: "human:alice"}
+		body := testAgentReq{AgentID: "human:alice"}
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest(http.MethodPost,

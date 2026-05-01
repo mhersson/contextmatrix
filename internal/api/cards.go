@@ -86,6 +86,7 @@ type updateCardRequest struct {
 // `skills` field used for explicit list / explicit empty.
 type patchCardRequest struct {
 	Title         *string   `json:"title,omitempty"`
+	Type          *string   `json:"type,omitempty"`
 	State         *string   `json:"state,omitempty"`
 	Priority      *string   `json:"priority,omitempty"`
 	Labels        []string  `json:"labels,omitempty"`
@@ -495,6 +496,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	input := service.PatchCardInput{
 		Title:           req.Title,
+		Type:            req.Type,
 		State:           req.State,
 		Priority:        req.Priority,
 		Labels:          req.Labels,

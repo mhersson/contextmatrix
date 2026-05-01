@@ -155,6 +155,7 @@ describe('isCardDirty', () => {
 
   it.each([
     ['title', { title: 'different' }],
+    ['type', { type: 'feature' }],
     ['state', { state: 'in_progress' }],
     ['priority', { priority: 'high' }],
     ['body', { body: 'new content' }],
@@ -248,6 +249,12 @@ describe('buildCardPatch', () => {
     const edited = { ...original, title: 'new title', priority: 'high' };
     const patch = buildCardPatch(edited, original);
     expect(patch).toEqual({ title: 'new title', priority: 'high' });
+  });
+
+  it('includes type when it changed', () => {
+    const original = makeCard({ type: 'task' });
+    const edited = { ...original, type: 'feature' };
+    expect(buildCardPatch(edited, original)).toEqual({ type: 'feature' });
   });
 
   it('returns labels when they differ using deep equality (not JSON.stringify drift)', () => {

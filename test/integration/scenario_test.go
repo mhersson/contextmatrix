@@ -202,6 +202,7 @@ transitions:
   stalled: [todo, in_progress, review]
 types:
   - task
+  - feature
 priorities:
   - low
   - medium
@@ -273,9 +274,18 @@ func (s *scenarioCtx) promoteCard(t *testing.T, cardID string) {
 
 func (s *scenarioCtx) createCard(t *testing.T, title string, autonomous bool) string {
 	t.Helper()
+	return s.createCardOfType(t, title, "task", autonomous)
+}
+
+// createCardOfType is a variant of createCard that lets the test pick
+// the card's `type`. Brainstorm scenarios need `type=feature` so the
+// runner's NeedsBrainstormGuard fires; standard task/plan scenarios
+// keep using createCard with the default `task` type.
+func (s *scenarioCtx) createCardOfType(t *testing.T, title, cardType string, autonomous bool) string {
+	t.Helper()
 	body := map[string]any{
 		"title":      title,
-		"type":       "task",
+		"type":       cardType,
 		"priority":   "medium",
 		"autonomous": autonomous,
 	}

@@ -150,14 +150,16 @@ type activityEntry struct {
 }
 
 type cardSnapshot struct {
-	ID             string          `json:"id"`
-	Title          string          `json:"title"`
-	State          string          `json:"state"`
-	AssignedAgent  string          `json:"assigned_agent"`
-	RunnerStatus   string          `json:"runner_status"`
-	Autonomous     bool            `json:"autonomous"`
-	ReviewAttempts int             `json:"review_attempts"`
-	ActivityLog    []activityEntry `json:"activity_log"`
+	ID                string          `json:"id"`
+	Title             string          `json:"title"`
+	State             string          `json:"state"`
+	AssignedAgent     string          `json:"assigned_agent"`
+	RunnerStatus      string          `json:"runner_status"`
+	Autonomous        bool            `json:"autonomous"`
+	DiscoveryComplete bool            `json:"discovery_complete"`
+	Body              string          `json:"body"`
+	ReviewAttempts    int             `json:"review_attempts"`
+	ActivityLog       []activityEntry `json:"activity_log"`
 }
 
 func (c *cmClient) getCard(t *testing.T, project, cardID string) cardSnapshot {

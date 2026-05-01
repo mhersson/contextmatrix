@@ -96,7 +96,6 @@ type listContainersResponseWire struct {
 type WebhookResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
 }
 
 // Client sends signed webhooks to the contextmatrix-runner.
@@ -334,7 +333,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 		// Runner explicitly rejected — do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
-			body:       parsed.Error,
+			body:       parsed.Message,
 			clientErr:  true,
 		}
 	}

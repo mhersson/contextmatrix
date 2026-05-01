@@ -1279,9 +1279,10 @@ type reviewApproveInput struct {
 
 type reviewReviseInput struct {
 	Project  string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
-	CardID   string `json:"card_id"          jsonschema:"required,card identifier"`
-	Summary  string `json:"summary"          jsonschema:"required,one-line revision-required summary"`
-	Feedback string `json:"feedback"         jsonschema:"required,detailed feedback driving the next replan"`
+	CardID   string `json:"card_id"           jsonschema:"required,card identifier"`
+	AgentID  string `json:"agent_id"          jsonschema:"required,agent identifier (must own the card claim)"`
+	Summary  string `json:"summary"           jsonschema:"required,one-line revision-required summary"`
+	Feedback string `json:"feedback"          jsonschema:"required,detailed feedback driving the next replan"`
 }
 
 func registerDiscoveryComplete(server *mcp.Server, svc *service.CardService) {
@@ -1325,11 +1326,25 @@ func registerReviewApprove(server *mcp.Server, svc *service.CardService) {
 
 func registerReviewRevise(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "review_revise",
-		Description: "Signal that the review chat requires a revision pass. Call this only after the user has explicitly asked for changes. Feedback is the detailed change request the replan agent will read.",
+		Name: "review_revise",
+		Description: "Signal that the review chat requires a revision pass. Call this only after the user has " +
+			"explicitly asked for changes. Atomically transitions the card from 'review' back to 'in_progress' so " +
+			"the orchestrator can re-run replan/execute with the new feedback. Caller must own the card claim " +
+			"(agent_id is required and is verified against the assigned agent). Feedback is the detailed change " +
+			"request the replan agent will read.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reviewReviseInput) (*mcp.CallToolResult, any, error) {
-		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
 			return nil, nil, err
+		}
+
+		newState := board.StateInProgress
+
+		if _, err := svc.PatchCard(ctx, project, input.CardID, service.PatchCardInput{
+			AgentID: input.AgentID,
+			State:   &newState,
+		}); err != nil {
+			return nil, nil, fmt.Errorf("review_revise transition for %s: %w", input.CardID, err)
 		}
 
 		return nil, map[string]string{"status": "acknowledged"}, nil

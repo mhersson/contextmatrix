@@ -22,8 +22,6 @@ const NEAR_BOTTOM_THRESHOLD = 50;
 interface CardChatProps {
   card: Card;
   cardLogs: readonly LogEntry[];
-  currentAgentId: string | null;
-  onPromptAgentId: () => string | null;
 }
 
 /**
@@ -38,7 +36,7 @@ interface CardChatProps {
  * replaced by a thin read-only footer so the transcript is preserved while
  * input is closed.
  */
-export function CardChat({ card, cardLogs, currentAgentId, onPromptAgentId }: CardChatProps) {
+export function CardChat({ card, cardLogs }: CardChatProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -110,15 +108,6 @@ export function CardChat({ card, cardLogs, currentAgentId, onPromptAgentId }: Ca
 
   const handlePromoteConfirm = async () => {
     setConfirmOpen(false);
-    // Defensive: if a user reaches the chat without ever setting an
-    // agent id (e.g. localStorage cleared mid-session), prompt before
-    // firing the request — the backend rejects header-less promotes
-    // with a 400, and prompting here surfaces a friendlier flow than
-    // the raw error toast.
-    if (!currentAgentId && !onPromptAgentId()) {
-      setError('Promotion requires a human agent ID.');
-      return;
-    }
     setPromoting(true);
     setError(null);
     try {

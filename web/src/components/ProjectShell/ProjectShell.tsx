@@ -41,7 +41,7 @@ export function ProjectShell() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { showToast } = useToast();
-  const { agentId, promptForAgentId } = useAgentId();
+  const { agentId } = useAgentId();
   const [, setLastProject] = useLastProject();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
@@ -285,7 +285,6 @@ export function ProjectShell() {
             onDelete={handleCardDelete}
             onClaim={handleClaim} onRelease={handleRelease}
             onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
-            onPromptAgentId={promptForAgentId}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
           />
         </ErrorBoundary>

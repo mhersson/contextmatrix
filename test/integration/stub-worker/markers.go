@@ -202,6 +202,26 @@ func reviewApprovePayload(cardID string) map[string]any {
 	}
 }
 
+// discoveryCompletePayload builds the discovery_complete tool_use input.
+// The brainstorm prompt instructs the agent to emit this AFTER calling
+// update_card to write the synthesized `## Design` section, so the
+// payload here is just the one-paragraph summary.
+func discoveryCompletePayload(cardID string) map[string]any {
+	return map[string]any{
+		"card_id":        cardID,
+		"design_summary": "stub HITL: brainstorm-promote captured design",
+	}
+}
+
+// stubCanonicalDesignBody is what the stub agent writes to the card
+// body via update_card on a brainstorm-promote turn. The
+// `## Design` section plus an `### Open questions` heading mirrors the
+// brainstorm.md prompt's "Promotion mid-dialogue" handler shape so the
+// integration test can assert the body update preserved the design.
+func stubCanonicalDesignBody() string {
+	return "## Design\n\nstub HITL: REST API agreed; emit JSON sysinfo on GET /.\n\n### Open questions\n\n- Auth scheme not yet decided.\n"
+}
+
 // reviewRevisePayload builds the review_revise tool_use input. The
 // detailed feedback string carries forward into the next replan round
 // so the test can assert on the revision attempts counter.

@@ -485,8 +485,16 @@ var SkillEngagedDedupWindow = 60 * time.Second
 // given card+skill, suppressing duplicates within SkillEngagedDedupWindow.
 // Source-agnostic: handles entries from the runner callback path AND from
 // agent-side add_log calls (Path A) via a single dedup point.
-func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, skillName string) error {
+//
+// agentID is the identifier of the agent that engaged the skill (e.g.
+// "runner:CARD-001"). Empty agentID falls back to "runner" so older runners
+// that omit the field still produce a usable activity entry. A "runner:*"
+// agent is rewritten to "runner:CARDID" so subtasks under an orchestrator
+// claim show the per-card runner instead of the parent's runner.
+func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, agentID, skillName string) error {
 	cardID = strings.ToUpper(cardID)
+
+	actor := normalizeSkillEngagedActor(agentID, cardID)
 
 	s.writeMu.Lock()
 
@@ -523,10 +531,10 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	}
 
 	entry := board.ActivityEntry{
-		Agent:     "runner",
+		Agent:     actor,
 		Timestamp: time.Now(),
 		Action:    "skill_engaged",
-		Message:   "engaged " + skillName,
+		Message:   skillName,
 		Skill:     skillName,
 	}
 
@@ -543,7 +551,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 		return fmt.Errorf("save card: %w", err)
 	}
 
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "runner", "log: skill_engaged")
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, actor, "log: skill_engaged")
 
 	s.writeMu.Unlock()
 
@@ -558,6 +566,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	slog.InfoContext(ctx, "skill engaged recorded",
 		"project", project,
 		"card_id", cardID,
+		"agent", actor,
 		"skill", skillName,
 	)
 
@@ -565,28 +574,49 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 		Type:    events.CardLogAdded,
 		Project: project,
 		CardID:  cardID,
-		Agent:   "runner",
+		Agent:   actor,
 		Data: map[string]any{
 			"action":  "skill_engaged",
-			"message": "engaged " + skillName,
+			"message": skillName,
 		},
 	})
 
 	return nil
 }
 
+// normalizeSkillEngagedActor rewrites a "runner:*" actor to "runner:CARDID"
+// so skill_engaged entries on subtasks under a single-claim orchestrator
+// surface the per-card runner identity. Empty actors fall back to "runner".
+// Non-runner actors (e.g. "human:morten") are returned unchanged so HITL
+// skill engagements keep their human attribution.
+func normalizeSkillEngagedActor(actor, cardID string) string {
+	if actor == "" {
+		return "runner"
+	}
+
+	if strings.HasPrefix(actor, "runner:") {
+		return "runner:" + cardID
+	}
+
+	return actor
+}
+
+// normalizeSkillEngagedMessage strips the legacy "engaged " prefix so the
+// activity log doesn't show "skill_engaged — engaged <name>"; the action
+// field already says "engaged".
+func normalizeSkillEngagedMessage(message string) string {
+	return strings.TrimPrefix(message, "engaged ")
+}
+
 // skillNameOf extracts the skill name from an activity entry. Prefers the
 // structured Skill field (set by the runner callback path); falls back to
-// parsing "engaged X" from the message (set by agent-side add_log calls).
+// the entry's message, stripping a legacy "engaged " prefix if present.
+// Post-normalization the message is the bare skill name; entries written
+// before normalization still carry "engaged X" and need the strip.
 func skillNameOf(e board.ActivityEntry) string {
 	if e.Skill != "" {
 		return e.Skill
 	}
 
-	const prefix = "engaged "
-	if strings.HasPrefix(e.Message, prefix) {
-		return strings.TrimPrefix(e.Message, prefix)
-	}
-
-	return ""
+	return strings.TrimPrefix(e.Message, "engaged ")
 }

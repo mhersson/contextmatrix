@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ type UpdateCardInput struct {
 // Nil values mean "do not change".
 type PatchCardInput struct {
 	Title           *string
+	Type            *string
 	State           *string
 	Priority        *string
 	Labels          []string // nil = don't change, empty slice = clear
@@ -173,7 +175,7 @@ func decodePageCursor(cursor string) (string, error) {
 
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidCursor, err)
 	}
 
 	return string(raw), nil
@@ -650,6 +652,40 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.Title = *input.Title
 		}
 
+		if input.Type != nil && *input.Type != card.Type {
+			newType := *input.Type
+			// Subtask type is reserved: it is auto-set when a card is created
+			// with a parent and is immutable thereafter.
+			if newType == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "type 'subtask' cannot be set directly; create the card with a parent instead",
+				}
+			}
+
+			if card.Type == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "subtask cards cannot change type",
+				}
+			}
+
+			if !slices.Contains(cfg.Types, newType) {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: fmt.Sprintf("type %q not in project's allowed types %v", newType, cfg.Types),
+				}
+			}
+
+			card.Type = newType
+		}
+
 		if input.State != nil {
 			newState := *input.State
 			if newState != oldState {
@@ -893,6 +929,26 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
 	id = strings.ToUpper(id)
 
+	// Normalize skill_engaged entries: rewrite a parent-orchestrator
+	// runner agent to the per-card runner, and strip the legacy
+	// "engaged " prefix from the message so the action+message read as
+	// "skill_engaged — <skill>". Also populate the Skill field from
+	// the normalized message when the caller didn't set it explicitly
+	// — agent-driven add_log calls (Path A) carry the skill name in
+	// the message string only, but downstream consumers (rollup
+	// dedupe, UI badges, the assertSkillEngaged integration check)
+	// read the structured Skill field. Without this, the two recording
+	// paths (add_log vs RecordSkillEngaged) produce inconsistent
+	// shapes for the same logical event.
+	if entry.Action == "skill_engaged" {
+		entry.Agent = normalizeSkillEngagedActor(entry.Agent, id)
+		entry.Message = normalizeSkillEngagedMessage(entry.Message)
+
+		if entry.Skill == "" {
+			entry.Skill = entry.Message
+		}
+	}
+
 	if len(entry.Message) > maxLogMessage {
 		return fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
 	}
@@ -919,8 +975,10 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return fmt.Errorf("get card snapshot: %w", err)
 	}
 
-	// Verify agent ownership.
-	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+	// Verify agent ownership. The skill_engaged normalization above may
+	// have rewritten entry.Agent — bypass the ownership check for that
+	// action so the rewrite doesn't trip the assigned-agent guard.
+	if entry.Action != "skill_engaged" && card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
 		s.writeMu.Unlock()
 
 		return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -966,6 +1024,82 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		Type:      events.CardLogAdded,
 		Project:   project,
 		CardID:    id,
+		Agent:     entry.Agent,
+		Timestamp: entry.Timestamp,
+		Data: map[string]any{
+			"action":  entry.Action,
+			"message": entry.Message,
+		},
+	})
+
+	// Roll up skill_engaged entries onto the parent so an operator
+	// looking at the parent card sees what work the subtask did, with
+	// the subtask's own actor preserved. Best-effort: a rollup failure
+	// must not fail the original add_log call — the subtask entry is
+	// the canonical record.
+	if entry.Action == "skill_engaged" && card.Parent != "" {
+		if err := s.rollupSkillEngagedToParent(ctx, project, card.Parent, entry); err != nil {
+			ctxlog.Logger(ctx).Warn("skill_engaged rollup to parent failed",
+				"project", project, "card_id", id, "parent_id", card.Parent, "error", err)
+		}
+	}
+
+	return nil
+}
+
+// rollupSkillEngagedToParent appends a skill_engaged entry to the parent
+// card so the parent's activity log reflects work done by its subtasks.
+// The entry is stored verbatim — the subtask's own actor is preserved so
+// the parent shows e.g. `runner:SUBTASK-ID — skill_engaged — go-development`
+// instead of misleadingly attributing the engagement to itself.
+func (s *CardService) rollupSkillEngagedToParent(ctx context.Context, project, parentID string, entry board.ActivityEntry) error {
+	parentID = strings.ToUpper(parentID)
+
+	s.writeMu.Lock()
+
+	parent, err := s.store.GetCard(ctx, project, parentID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get parent card: %w", err)
+	}
+
+	parentSnapshot, err := s.store.GetCard(ctx, project, parentID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get parent snapshot: %w", err)
+	}
+
+	parent.ActivityLog = append(parent.ActivityLog, entry)
+	if len(parent.ActivityLog) > maxActivityLogEntries {
+		parent.ActivityLog = parent.ActivityLog[len(parent.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	parent.Updated = time.Now()
+
+	if err := s.store.UpdateCard(ctx, project, parent); err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("update parent card: %w", err)
+	}
+
+	commitDone, notify := s.enqueueCardCommit(ctx, project, parentID, entry.Agent, "log: "+entry.Action+" (rollup)")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, parentSnapshot, err)
+		s.writeMu.Unlock()
+
+		return rollbackErr
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardLogAdded,
+		Project:   project,
+		CardID:    parentID,
 		Agent:     entry.Agent,
 		Timestamp: entry.Timestamp,
 		Data: map[string]any{

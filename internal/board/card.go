@@ -132,7 +132,7 @@ func ParseCard(data []byte) (*Card, error) {
 
 	var card Card
 	if err := yaml.Unmarshal(yamlContent, &card); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedFrontmatter, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformedFrontmatter, err)
 	}
 
 	// Third part is markdown body (strip leading newline from after ---)

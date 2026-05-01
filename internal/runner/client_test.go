@@ -246,7 +246,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 
 func TestClient_RunnerReturnsNotOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: false, Error: "container limit reached"})
+		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: false, Message: "container limit reached"})
 	}))
 	defer srv.Close()
 

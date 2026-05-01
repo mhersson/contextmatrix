@@ -105,7 +105,7 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 
 	var cfg ProjectConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedProjectConfig, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformedProjectConfig, err)
 	}
 
 	// Backward compat: if Repos is empty but Repo (legacy single-string field) is

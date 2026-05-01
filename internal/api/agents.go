@@ -15,13 +15,11 @@ type agentHandlers struct {
 }
 
 // agentRequest is the JSON body for claim, release, and heartbeat operations.
-type agentRequest struct {
-	AgentID string `json:"agent_id"`
-}
+// The body is currently empty — agent identity comes from X-Agent-ID.
+type agentRequest struct{}
 
 // addLogRequest is the JSON body for adding a log entry.
 type addLogRequest struct {
-	AgentID string `json:"agent_id"`
 	Action  string `json:"action"`
 	Message string `json:"message"`
 }
@@ -214,7 +212,6 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 
 // reportUsageRequest is the JSON body for reporting token usage.
 type reportUsageRequest struct {
-	AgentID          string `json:"agent_id"`
 	Model            string `json:"model"`
 	PromptTokens     int64  `json:"prompt_tokens"`
 	CompletionTokens int64  `json:"completion_tokens"`
@@ -262,10 +259,9 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 
 // reportPushRequest is the JSON body for reporting a git push.
 type reportPushRequest struct {
-	AgentID string `json:"agent_id"`
-	Repo    string `json:"repo,omitempty"`
-	Branch  string `json:"branch"`
-	PRUrl   string `json:"pr_url,omitempty"`
+	Repo   string `json:"repo,omitempty"`
+	Branch string `json:"branch"`
+	PRUrl  string `json:"pr_url,omitempty"`
 }
 
 // reportPush handles POST /api/projects/{project}/cards/{id}/report-push

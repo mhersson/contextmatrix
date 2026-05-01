@@ -91,7 +91,6 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
     onRelease: vi.fn().mockResolvedValue(undefined),
     onSubtaskClick: vi.fn(),
     currentAgentId: null,
-    onPromptAgentId: vi.fn().mockReturnValue(null),
     onRunCard: vi.fn().mockResolvedValue(undefined),
     onStopCard: vi.fn().mockResolvedValue(undefined),
     onDelete: vi.fn().mockResolvedValue(undefined),

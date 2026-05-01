@@ -212,6 +212,23 @@ Heartbeat before prompting. Heartbeat on resume.
 If the user requests changes, make them via another `update_card` and
 re-confirm. Only return once the user approves.
 
+**Promotion mid-dialogue:**
+
+If the user asks to promote the card to autonomous before the design has
+been confirmed:
+
+1. First, synthesize the design from the conversation so far. Capture
+   agreed decisions concretely; list anything still open under a
+   `### Open questions` heading. If the dialogue barely started, write a
+   single paragraph stating that explicitly. Call
+   `update_card(card_id, body=...)` to write or replace the `## Design`
+   section. Do NOT skip this step — Phase 1 plan drafting reads the body
+   as authoritative input.
+2. Then call `promote_to_autonomous(card_id, agent_id=<human:...>)`. The
+   call requires the user's `human:`-prefixed agent_id; if your session
+   agent_id is not human-prefixed, ask the user to confirm theirs.
+3. Return immediately to create-plan. Do not continue dialoguing.
+
 **Return:**
 
 When the user confirms, simply stop talking and let create-plan take
@@ -241,3 +258,5 @@ the card state — that's create-plan's responsibility.
 - **Transitioning the card** — that's create-plan's responsibility.
 - **Invoking another skill** — return and let create-plan continue.
 - **Writing the design to a separate file** — the card body IS the spec.
+- **Returning on promotion without writing `## Design`** — the next phase
+  reads the body, not your conversation. Capture before you return.
