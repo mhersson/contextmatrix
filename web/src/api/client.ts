@@ -192,46 +192,18 @@ class APIClient {
     });
   }
 
-  // Agent operations
-  async claimCard(project: string, id: string, agentId: string): Promise<Card> {
+  // Agent operations. Identity comes from the X-Agent-ID header (set by
+  // useAgentId), so these endpoints have no body fields and the methods
+  // take no agentId parameter.
+  async claimCard(project: string, id: string): Promise<Card> {
     return this.request<Card>(`/projects/${project}/cards/${id}/claim`, {
       method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
     });
   }
 
-  async releaseCard(
-    project: string,
-    id: string,
-    agentId: string
-  ): Promise<Card> {
+  async releaseCard(project: string, id: string): Promise<Card> {
     return this.request<Card>(`/projects/${project}/cards/${id}/release`, {
       method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async heartbeatCard(
-    project: string,
-    id: string,
-    agentId: string
-  ): Promise<void> {
-    return this.request<void>(`/projects/${project}/cards/${id}/heartbeat`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async addLogEntry(
-    project: string,
-    id: string,
-    agentId: string,
-    action: string,
-    message: string
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/log`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, action, message }),
     });
   }
 

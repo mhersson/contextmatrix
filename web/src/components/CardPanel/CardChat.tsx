@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
@@ -21,6 +22,8 @@ const NEAR_BOTTOM_THRESHOLD = 50;
 interface CardChatProps {
   card: Card;
   cardLogs: readonly LogEntry[];
+  currentAgentId: string | null;
+  onPromptAgentId: () => string | null;
 }
 
 /**
@@ -35,7 +38,7 @@ interface CardChatProps {
  * replaced by a thin read-only footer so the transcript is preserved while
  * input is closed.
  */
-export function CardChat({ card, cardLogs }: CardChatProps) {
+export function CardChat({ card, cardLogs, currentAgentId, onPromptAgentId }: CardChatProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -46,6 +49,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [showThinking, setShowThinking] = useState(false);
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const userScrolledUpRef = useRef(false);
 
   const handleLogScroll = useCallback(() => {
@@ -94,12 +98,27 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     } catch (err) {
       setError(isAPIError(err) ? err.error : 'Failed to send message');
     } finally {
-      setSending(false);
+      // Browsers drop focus() calls against a disabled input. setSending(false)
+      // only queues the disabled→enabled flip — without flushSync, the textarea
+      // is still disabled when .focus() runs and the call is silently ignored.
+      // flushSync commits the state update before the imperative focus call so
+      // the user can type the next message without re-clicking the textarea.
+      flushSync(() => setSending(false));
+      textareaRef.current?.focus();
     }
   };
 
   const handlePromoteConfirm = async () => {
     setConfirmOpen(false);
+    // Defensive: if a user reaches the chat without ever setting an
+    // agent id (e.g. localStorage cleared mid-session), prompt before
+    // firing the request — the backend rejects header-less promotes
+    // with a 400, and prompting here surfaces a friendlier flow than
+    // the raw error toast.
+    if (!currentAgentId && !onPromptAgentId()) {
+      setError('Promotion requires a human agent ID.');
+      return;
+    }
     setPromoting(true);
     setError(null);
     try {
@@ -176,6 +195,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
           <div className="bf-tk-compose">
             <label htmlFor={messageId} className="sr-only">Message</label>
             <textarea
+              ref={textareaRef}
               id={messageId}
               className="bf-input"
               placeholder="Type a message… (Enter to send, Shift+Enter for newline)"

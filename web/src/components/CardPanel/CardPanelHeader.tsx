@@ -21,6 +21,7 @@ interface CardPanelHeaderProps {
   onSave: () => void;
   onTitleChange: (title: string) => void;
   onPriorityChange: (priority: string) => void;
+  onTypeChange: (type: string) => void;
   onPrimaryAction: () => void;
   onStopCard: () => Promise<void>;
   onOpenDependency?: (depId: string) => void;
@@ -40,6 +41,7 @@ export function CardPanelHeader({
   onSave,
   onTitleChange,
   onPriorityChange,
+  onTypeChange,
   onPrimaryAction,
   onStopCard,
   onOpenDependency,
@@ -47,6 +49,7 @@ export function CardPanelHeader({
 }: CardPanelHeaderProps) {
   const titleId = useId();
   const priorityId = useId();
+  const typeId = useId();
   const [confirmStopOpen, setConfirmStopOpen] = useState(false);
 
   const runnerAttached = isRunnerAttached(card, currentAgentId);
@@ -104,6 +107,8 @@ export function CardPanelHeader({
           onClose={onClose}
           onPriorityChange={onPriorityChange}
           priorityId={priorityId}
+          onTypeChange={onTypeChange}
+          typeId={typeId}
         />
 
         {card.source && !card.vetted && (

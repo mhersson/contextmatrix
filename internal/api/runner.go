@@ -283,8 +283,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	// from the user's stored agent ID — see useAgentId.
 	agentID := r.Header.Get("X-Agent-ID")
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
-			"X-Agent-ID header is required and must be human-prefixed", "")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "X-Agent-ID header is required", "")
 
 		return
 	}

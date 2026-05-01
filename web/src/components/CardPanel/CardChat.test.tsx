@@ -54,7 +54,7 @@ describe('CardChat — read-only footer when HITL is not active', () => {
   ];
 
   it('hides the compose row and shows the "Session ended" footer when runner_status is not "running"', () => {
-    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} />);
+    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
@@ -62,12 +62,12 @@ describe('CardChat — read-only footer when HITL is not active', () => {
   });
 
   it('renders the conversation transcript even when the session is not running', () => {
-    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} />);
+    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/agent reply preserved/)).toBeInTheDocument();
   });
 
   it('shows the "Promoted to autonomous" footer when autonomous is true', () => {
-    render(<CardChat card={autonomousCard} cardLogs={transcriptLog} />);
+    render(<CardChat card={autonomousCard} cardLogs={transcriptLog} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
@@ -75,7 +75,7 @@ describe('CardChat — read-only footer when HITL is not active', () => {
   });
 
   it('renders the compose row and hides the footer while HITL is active', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
@@ -83,9 +83,9 @@ describe('CardChat — read-only footer when HITL is not active', () => {
   });
 
   it('swaps the compose row for the autonomous footer when autonomous flips false → true', () => {
-    const { rerender } = render(<CardChat card={runningCard} cardLogs={transcriptLog} />);
+    const { rerender } = render(<CardChat card={runningCard} cardLogs={transcriptLog} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-    rerender(<CardChat card={autonomousCard} cardLogs={transcriptLog} />);
+    rerender(<CardChat card={autonomousCard} cardLogs={transcriptLog} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(/Promoted to autonomous/);
     // Transcript stays visible.
@@ -95,7 +95,7 @@ describe('CardChat — read-only footer when HITL is not active', () => {
 
 describe('CardChat — layout classes', () => {
   it('log container uses flex-1 (not max-h-[200px]) when session is active', () => {
-    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     // Find the log container by its bg-dim class (unique to the log div)
     const logContainer = container.querySelector('.bg-\\[var\\(--bg-dim\\)\\]');
     expect(logContainer).not.toBeNull();
@@ -104,13 +104,13 @@ describe('CardChat — layout classes', () => {
   });
 
   it('root container uses h-full so it fills flex parent', () => {
-    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const root = container.firstChild as HTMLElement;
     expect(root.className).toContain('h-full');
   });
 
   it('chat input textarea and Send button are rendered and accessible', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
   });
@@ -118,7 +118,7 @@ describe('CardChat — layout classes', () => {
 
 describe('CardChat — Enter-to-send', () => {
   it('Enter sends message and clears textarea', async () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: 'Hello agent' } });
@@ -134,7 +134,7 @@ describe('CardChat — Enter-to-send', () => {
   });
 
   it('Shift+Enter does NOT submit; inserts newline behavior (not prevented)', async () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: 'line1' } });
@@ -145,11 +145,40 @@ describe('CardChat — Enter-to-send', () => {
     // Textarea still has the content (default not prevented = browser would insert \n, but we just confirm no submit)
     expect(textarea.value).toBe('line1');
   });
+
+  it('refocuses the textarea after Enter-send so the next message can be typed without re-clicking', async () => {
+    // Asserting only that focus() was called is a false positive: browsers
+    // silently drop focus() against a disabled element, but JSDOM does
+    // not. The real bug was that setSending(false) only queued the
+    // disabled→enabled flip, so focus() ran while the textarea was still
+    // disabled in the DOM. Capture `disabled` at the moment focus() is
+    // invoked to prove the flip committed first.
+    let disabledAtFocus: boolean | null = null;
+    const focusSpy = vi.spyOn(HTMLTextAreaElement.prototype, 'focus').mockImplementation(function (this: HTMLTextAreaElement) {
+      disabledAtFocus = this.disabled;
+    });
+
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: 'Hello agent' } });
+
+    focusSpy.mockClear();
+    disabledAtFocus = null;
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    expect(mockSendCardMessage).toHaveBeenCalledOnce();
+    expect(focusSpy).toHaveBeenCalled();
+    expect(disabledAtFocus).toBe(false);
+    focusSpy.mockRestore();
+  });
 });
 
 describe('CardChat — over-limit guard', () => {
   it('Send button is disabled when content exceeds 8000 chars', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
     const overLimit = 'a'.repeat(8001);
 
@@ -160,7 +189,7 @@ describe('CardChat — over-limit guard', () => {
   });
 
   it('Send button is enabled when content is within limit', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
 
     fireEvent.change(textarea, { target: { value: 'valid message' } });
@@ -172,17 +201,17 @@ describe('CardChat — over-limit guard', () => {
 
 describe('CardChat — Switch to Autonomous button', () => {
   it('is visible when card.autonomous === false and runner_status === "running"', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
   });
 
   it('is hidden when card.autonomous === true', () => {
-    render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
+    render(<CardChat card={autonomousCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
   });
 
   it('opens ConfirmModal when Switch to Autonomous is clicked', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const btn = screen.getByRole('button', { name: /Switch to Autonomous/ });
     fireEvent.click(btn);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -190,7 +219,7 @@ describe('CardChat — Switch to Autonomous button', () => {
   });
 
   it('calls api.promoteCardToAutonomous after confirming in modal', async () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
 
     await act(async () => {
@@ -202,7 +231,7 @@ describe('CardChat — Switch to Autonomous button', () => {
   });
 
   it('does NOT call api.promoteCardToAutonomous when user cancels in modal', async () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
 
     await act(async () => {
@@ -214,7 +243,7 @@ describe('CardChat — Switch to Autonomous button', () => {
   });
 
   it('does NOT call api.promoteCardToAutonomous when user presses Escape', async () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
@@ -225,6 +254,33 @@ describe('CardChat — Switch to Autonomous button', () => {
     expect(mockPromoteCardToAutonomous).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  it('prompts for an agent id and proceeds when currentAgentId is null but the prompt provides one', async () => {
+    const promptSpy = vi.fn().mockReturnValue('human:alice');
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId={null} onPromptAgentId={promptSpy} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Promote' }));
+    });
+
+    expect(promptSpy).toHaveBeenCalledOnce();
+    expect(mockPromoteCardToAutonomous).toHaveBeenCalledOnce();
+  });
+
+  it('skips the API call and surfaces an error when currentAgentId is null and the prompt is cancelled', async () => {
+    const promptSpy = vi.fn().mockReturnValue(null);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId={null} onPromptAgentId={promptSpy} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Promote' }));
+    });
+
+    expect(promptSpy).toHaveBeenCalledOnce();
+    expect(mockPromoteCardToAutonomous).not.toHaveBeenCalled();
+    expect(screen.getByText(/Promotion requires a human agent ID/)).toBeInTheDocument();
+  });
 });
 
 describe('CardChat — cardLogs prop', () => {
@@ -232,36 +288,36 @@ describe('CardChat — cardLogs prop', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'hello from runner' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/hello from runner/)).toBeInTheDocument();
   });
 
   it('shows "No messages yet" when cardLogs is empty', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/No messages yet/)).toBeInTheDocument();
   });
 });
 
 describe('CardChat — message type filter bar', () => {
   it('renders the filter bar with three checkboxes when session is active', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
   });
 
   it('Text checkbox is checked by default', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('checkbox', { name: /Text/i })).toBeChecked();
   });
 
   it('Tool calls checkbox is unchecked by default', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('checkbox', { name: /Tool calls/i })).not.toBeChecked();
   });
 
   it('Thinking checkbox is unchecked by default', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('checkbox', { name: /Thinking/i })).not.toBeChecked();
   });
 
@@ -269,7 +325,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'text message visible' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/text message visible/)).toBeInTheDocument();
   });
 
@@ -277,7 +333,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'text message hidden' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('checkbox', { name: /Text/i }));
     expect(screen.queryByText(/text message hidden/)).not.toBeInTheDocument();
   });
@@ -286,7 +342,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'tool_call', content: 'tool call hidden' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByText(/tool call hidden/)).not.toBeInTheDocument();
   });
 
@@ -294,7 +350,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'tool_call', content: 'tool call shown' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('checkbox', { name: /Tool calls/i }));
     expect(screen.getByText(/tool call shown/)).toBeInTheDocument();
   });
@@ -303,7 +359,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'thinking', content: 'thinking hidden' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.queryByText(/thinking hidden/)).not.toBeInTheDocument();
   });
 
@@ -311,7 +367,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'thinking', content: 'thinking shown' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     fireEvent.click(screen.getByRole('checkbox', { name: /Thinking/i }));
     expect(screen.getByText(/thinking shown/)).toBeInTheDocument();
   });
@@ -320,7 +376,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'user', content: 'user message always' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/user message always/)).toBeInTheDocument();
   });
 
@@ -328,7 +384,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'stderr', content: 'stderr always shown' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/stderr always shown/)).toBeInTheDocument();
   });
 
@@ -336,7 +392,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'system', content: 'system always shown' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/system always shown/)).toBeInTheDocument();
   });
 
@@ -344,7 +400,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'gap', content: 'gap always shown' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByText(/gap always shown/)).toBeInTheDocument();
   });
 
@@ -352,7 +408,7 @@ describe('CardChat — message type filter bar', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'toggle me' },
     ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
+    render(<CardChat card={runningCard} cardLogs={logs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textCheckbox = screen.getByRole('checkbox', { name: /Text/i });
 
     // Initially visible
@@ -368,7 +424,7 @@ describe('CardChat — message type filter bar', () => {
   });
 
   it('filter bar stays rendered when session is not running so the transcript can be inspected', () => {
-    render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
+    render(<CardChat card={stoppedCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
@@ -378,7 +434,7 @@ describe('CardChat — message type filter bar', () => {
 describe('CardChat — error state lifecycle', () => {
   it('shows the error banner after a failed send', async () => {
     mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: 'first attempt' } });
@@ -391,7 +447,7 @@ describe('CardChat — error state lifecycle', () => {
 
   it('clears the error banner after a subsequent successful send', async () => {
     mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    render(<CardChat card={runningCard} cardLogs={noLogs} currentAgentId="human:test" onPromptAgentId={() => 'human:test'} />);
     const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
 
     // First send fails, error visible.

@@ -127,6 +127,24 @@ describe('CardPanel — bifold layout', () => {
     expect(chatTab).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('hides the Chat tab on subtask cards even when HITL is running', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: {
+            ...baseCard,
+            type: 'subtask',
+            parent: 'TEST-000',
+            state: 'in_progress',
+            runner_status: 'running',
+            autonomous: false,
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
+  });
+
   it('default tab is Automation when the runner is not running HITL', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
@@ -637,5 +655,26 @@ describe('CardPanel — rail auto-expand behavior', () => {
 
     expect(grid.style.gridTemplateColumns).toContain('340px');
     expect(screen.getByRole('button', { name: 'Expand rail' })).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+describe('CardPanel — automation lock on subtasks', () => {
+  it('disables automation checkboxes and shows the parent-card reason on a subtask in todo', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: {
+            ...baseCard,
+            type: 'subtask',
+            parent: 'TEST-000',
+          },
+        })}
+      />,
+    );
+    // Automation is the default tab on a non-HITL card, so no click needed.
+    expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeDisabled();
+    expect(
+      screen.getByText(/Automation is managed on the parent card/i),
+    ).toBeInTheDocument();
   });
 });

@@ -13,6 +13,7 @@ interface BuildCardPanelTabsOptions {
   config: ProjectConfig;
   cardLogs: readonly LogEntry[];
   currentAgentId: string | null;
+  onPromptAgentId: () => string | null;
   runnerAttached: boolean;
   isHITLRunning: boolean;
   onClaim: () => Promise<void>;
@@ -25,7 +26,7 @@ interface BuildCardPanelTabsOptions {
   branches: string[];
   branchesLoading: boolean;
   branchesError: boolean;
-  editingLocked: boolean;
+  automationLocked: boolean;
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
   forcedFeatureBranch: boolean;
@@ -52,8 +53,9 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
   defaultTab: RailTabKey;
 } {
   const tabs: RailTab[] = [];
+  const isSubtask = opts.card.type === 'subtask';
 
-  if (opts.isHITLRunning || opts.cardLogs.length > 0) {
+  if (!isSubtask && (opts.isHITLRunning || opts.cardLogs.length > 0)) {
     tabs.push({
       key: 'chat',
       label: 'Chat',
@@ -64,7 +66,14 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
           aria-hidden="true"
         />
       ) : undefined,
-      content: <ChatTab card={opts.card} cardLogs={opts.cardLogs} />,
+      content: (
+        <ChatTab
+          card={opts.card}
+          cardLogs={opts.cardLogs}
+          currentAgentId={opts.currentAgentId}
+          onPromptAgentId={opts.onPromptAgentId}
+        />
+      ),
     });
   }
 
@@ -79,7 +88,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         branches={opts.branches}
         branchesLoading={opts.branchesLoading}
         branchesError={opts.branchesError}
-        editingLocked={opts.editingLocked}
+        editingLocked={opts.automationLocked}
         automationLockedReason={opts.automationLockedReason}
         forcedFeatureBranch={opts.forcedFeatureBranch}
         forcedCreatePR={opts.forcedCreatePR}

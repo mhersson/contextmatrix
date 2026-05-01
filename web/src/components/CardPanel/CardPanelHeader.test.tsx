@@ -46,6 +46,7 @@ const defaultProps = {
   onSave: vi.fn(),
   onTitleChange: vi.fn(),
   onPriorityChange: vi.fn(),
+  onTypeChange: vi.fn(),
   onPrimaryAction: vi.fn(),
   onStopCard: vi.fn().mockResolvedValue(undefined),
   onOpenDependency: vi.fn(),
@@ -175,6 +176,46 @@ describe('CardPanelHeader — Save button', () => {
     render(<CardPanelHeader {...defaultProps} isDirty onSave={onSave} />);
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     expect(onSave).toHaveBeenCalledOnce();
+  });
+});
+
+describe('CardPanelHeader — type dropdown', () => {
+  it('renders an enabled type select for a non-subtask card in todo with no runner', () => {
+    render(<CardPanelHeader {...defaultProps} />);
+    const select = screen.getByLabelText('Type') as HTMLSelectElement;
+    expect(select).not.toBeDisabled();
+    expect(select.value).toBe('task');
+  });
+
+  it('disables the type select when the card is outside todo', () => {
+    const card = { ...baseCard, state: 'in_progress' };
+    render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
+    expect(screen.getByLabelText('Type')).toBeDisabled();
+  });
+
+  it('disables the type select on subtask cards', () => {
+    const card: Card = { ...baseCard, type: 'subtask', parent: 'TEST-000' };
+    render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
+    expect(screen.getByLabelText('Type')).toBeDisabled();
+  });
+
+  it('omits the subtask option from the dropdown for non-subtask cards', () => {
+    const config: ProjectConfig = { ...baseConfig, types: ['task', 'bug', 'feature'] };
+    render(<CardPanelHeader {...defaultProps} config={config} />);
+    const select = screen.getByLabelText('Type') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toEqual(['task', 'bug', 'feature']);
+    expect(optionValues).not.toContain('subtask');
+  });
+
+  it('calls onTypeChange when the user picks a new type', () => {
+    const onTypeChange = vi.fn();
+    const config: ProjectConfig = { ...baseConfig, types: ['task', 'bug'] };
+    render(
+      <CardPanelHeader {...defaultProps} config={config} onTypeChange={onTypeChange} />,
+    );
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'bug' } });
+    expect(onTypeChange).toHaveBeenCalledWith('bug');
   });
 });
 
