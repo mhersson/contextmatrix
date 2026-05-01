@@ -25,9 +25,6 @@ var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
 
-// ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
-var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
-
 // ErrPromoteRequiresHuman is returned when a non-human agent attempts to promote a card to autonomous mode.
 var ErrPromoteRequiresHuman = fmt.Errorf("promote requires human agent (agent_id must start with \"human:\")")
 

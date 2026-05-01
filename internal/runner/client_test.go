@@ -131,6 +131,39 @@ func TestClient_Kill_Success(t *testing.T) {
 	assert.Equal(t, "TEST-001", received.CardID)
 }
 
+func TestIsDuplicateRequest(t *testing.T) {
+	t.Run("409 with code:duplicate is recognized", func(t *testing.T) {
+		err := &webhookError{
+			statusCode: http.StatusConflict,
+			body:       `{"ok":false,"code":"duplicate","message":"duplicate request"}`,
+			clientErr:  true,
+		}
+		assert.True(t, IsDuplicateRequest(err))
+	})
+
+	t.Run("409 with a different code is not recognized", func(t *testing.T) {
+		err := &webhookError{
+			statusCode: http.StatusConflict,
+			body:       `{"ok":false,"code":"conflict","message":"already running"}`,
+			clientErr:  true,
+		}
+		assert.False(t, IsDuplicateRequest(err))
+	})
+
+	t.Run("non-409 status with duplicate substring is not recognized", func(t *testing.T) {
+		err := &webhookError{
+			statusCode: http.StatusBadRequest,
+			body:       `{"ok":false,"code":"duplicate","message":"x"}`,
+			clientErr:  true,
+		}
+		assert.False(t, IsDuplicateRequest(err))
+	})
+
+	t.Run("non-webhookError is not recognized", func(t *testing.T) {
+		assert.False(t, IsDuplicateRequest(context.Canceled))
+	})
+}
+
 func TestClient_StopAll_Success(t *testing.T) {
 	var received StopAllPayload
 

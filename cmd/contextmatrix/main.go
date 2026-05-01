@@ -142,13 +142,16 @@ func main() {
 		taskSkillsCloneURL = cfg.TaskSkills.GitRemoteURL
 	}
 
-	taskSkillsGit, err := gitops.NewManager(
+	// gitops.NewManager performs a clone-on-empty side effect when the
+	// directory is empty and a remote URL is configured. The returned manager
+	// is otherwise unused — task-skills are read directly from the filesystem
+	// by the API layer.
+	if _, err := gitops.NewManager(
 		cfg.TaskSkills.Dir,
 		taskSkillsCloneURL,
 		"task-skills",
 		tokenProvider,
-	)
-	if err != nil {
+	); err != nil {
 		slog.Error("failed to create task-skills git manager", "error", err)
 		os.Exit(1)
 	}
@@ -311,7 +314,6 @@ func main() {
 		MCPAPIKey:           cfg.MCPAPIKey,
 		Port:                cfg.Port,
 		GitHubTokenProvider: tokenProvider,
-		TaskSkillsGit:       taskSkillsGit,
 		TaskSkillsDir:       cfg.TaskSkills.Dir,
 		GitHubAPIBaseURL:    cfg.GitHub.ResolvedAPIBaseURL(),
 		GitHubAllowedHosts:  cfg.GitHub.AllowedHosts(),

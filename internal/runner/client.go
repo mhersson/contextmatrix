@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -368,4 +369,23 @@ func isClientError(err error) bool {
 	}
 
 	return false
+}
+
+// IsDuplicateRequest returns true when the runner rejected a webhook with
+// CodeDuplicate (HTTP 409 + code:"duplicate"), meaning the same signed
+// request had already been accepted within the replay-cache window. For
+// idempotent calls like /kill this is functionally success — the prior call
+// did the work — so the caller can downgrade the log line and avoid
+// alerting operators on a benign double-fire.
+func IsDuplicateRequest(err error) bool {
+	var we *webhookError
+	if !errors.As(err, &we) {
+		return false
+	}
+
+	if we.statusCode != http.StatusConflict {
+		return false
+	}
+
+	return strings.Contains(we.body, `"code":"duplicate"`)
 }

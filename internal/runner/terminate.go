@@ -117,8 +117,22 @@ func handleTerminalEvent(ctx context.Context, svc CardGetter, client TerminalKil
 // be traced back to the path that handled it.
 func killTerminalContainer(ctx context.Context, client TerminalKillClient, logger *slog.Logger, project, cardID, state, runnerStatus, source string) {
 	// /kill is idempotent — it returns 200 no-op when the container is
-	// already gone (e.g. reportCompleted already cleaned up).
+	// already gone (e.g. reportCompleted already cleaned up). It can also
+	// return 409 CodeDuplicate when the runner's replay cache filtered an
+	// identical signed request within the skew window — which happens
+	// naturally because both card.released and card.state_changed events
+	// fire on a terminal release, and the subscriber handles each. The
+	// first /kill did the work; the second is functionally a no-op, so
+	// don't alert operators on a benign double-fire.
 	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
+		if IsDuplicateRequest(err) {
+			logger.Debug("terminal-kill duplicate (prior kill already accepted)",
+				"source", source,
+				"project", project, "card_id", cardID)
+
+			return
+		}
+
 		logger.Warn("kill webhook failed for terminal card",
 			"source", source,
 			"project", project, "card_id", cardID, "error", err)

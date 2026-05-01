@@ -105,9 +105,6 @@ type CardContext struct {
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
 var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 
-// ErrSourceImmutable is returned when an update attempts to change a card's source after creation.
-var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
-
 // branchNameSlugPattern matches anything that's not lowercase alphanumeric.
 var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 

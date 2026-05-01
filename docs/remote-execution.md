@@ -9,20 +9,20 @@ Code.
 ## Architecture Overview
 
 ```text
-                                   HMAC-signed webhooks
-                      ┌──────────────────────────────────────────────────┐
-                      │                                                  ▼
-  ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────────┐
-  │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-runner   │
-  │  (Run btn)   │─────────│  (REST API)       │───►│  /trigger              │
-  │  (Console)   │◄────────│  (SSE proxy)      │◄───│  /kill  /stop-all      │
-  │  (Chat input)│─────────│  POST /message    │───►│  /message              │
-  │  (Promote)   │─────────│  POST /promote    │───►│  /promote              │
-  │              │         │  (release_card    │───►│  /end-session          │
-  │              │         │   → terminal)     │    │                        │
-  └──────────────┘         │  POST /mcp        │◄───│  Docker containers     │
-                           │  (MCP tools)      │◄───│  (Claude Code)         │
-                           └───────────────────┘    └────────────────────────┘
+                                  HMAC-signed webhooks
+                      ┌─────────────────────────────────────────────┐
+                      │                                             ▼
+  ┌──────────────┐    │    ┌──────────────────┐    ┌────────────────────────┐
+  │  Web UI      │────┘    │  contextmatrix   │    │ contextmatrix-runner   │
+  │  (Run btn)   │─────────│  (REST API)      │───►│  /trigger              │
+  │  (Console)   │◄────────│  (SSE proxy)     │◄───│  /kill  /stop-all      │
+  │  (Chat input)│         │                  │    │  /logs  /containers    │
+  │  (Promote)   │         │  GET /events ◄───┼────│  (orchestrated         │
+  │              │         │  (Bearer-auth)   │    │   dispatcher)          │
+  └──────────────┘         │                  │    │                        │
+                           │  POST /mcp       │◄───│  Docker containers     │
+                           │  (MCP tools)     │◄───│  (Claude Code)         │
+                           └──────────────────┘    └────────────────────────┘
                                   ▲                            │
                                   │      MCP (Bearer auth)     │
                                   └────────────────────────────┘
@@ -35,16 +35,18 @@ Code.
 - **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies
   as `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
   Console panel is open.
-- **Chat input** (interactive mode only) — Web UI sends
-  `POST /api/runner/message` to CM, which forwards to the runner's `/message`
-  endpoint. The runner writes the message to the container's stdin and echoes it
-  as a `user` log entry.
-- **Promote to autonomous** — Web UI sends `POST /api/runner/promote` to CM,
-  which flips the card's `autonomous` flag server-side (git commit + SSE event),
-  then forwards to the runner's `/promote` endpoint. The runner calls the
-  contextmatrix promote API first (fail closed — returns 502 without stdin write
-  on failure), then emits a `system` log entry and injects a canned message into
-  stdin telling the agent to check the card at its next gate.
+- **Chat input** (HITL only) — Web UI POSTs to
+  `POST /api/projects/{project}/cards/{id}/message` on CM. CM appends the
+  message to its `RunnerEventBuffer` and the per-card session log. The runner's
+  orchestrated dispatcher subscribes to `GET /api/runner/events` (SSE,
+  Bearer-auth) and routes each event to the live driver, which feeds it into
+  the running Claude exec session.
+- **Promote to autonomous** — Web UI POSTs to
+  `POST /api/projects/{project}/cards/{id}/promote` on CM. CM flips the card's
+  `autonomous` flag server-side (git commit + SSE event), then publishes a
+  `promotion` event on the same SSE bus. The runner consumes the event and the
+  driver continues on the autonomous branch at its next gate. There is no
+  separate runner-side webhook for promotion.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -66,9 +68,10 @@ All webhooks are signed using a shared secret configured in both ContextMatrix
 over the wire. The scheme binds the signature to the HTTP method, request
 path, timestamp, and body — so a valid signature for one endpoint cannot be
 replayed against a different endpoint with an identical body (e.g. `/kill`
-and `/end-session`, which both carry `{card_id, project}`). Applies uniformly
-to every signed request: POST webhooks, GET `/logs` / `/containers` /
-`/autonomous` / `/metrics`, and the runner's status callbacks to CM.
+and `/stop-all`, which share an overlapping `{card_id, project}` payload
+shape). Applies uniformly to every signed request: POST webhooks, GET
+`/logs` / `/containers` / `/autonomous` / `/metrics`, and the runner's
+status callbacks to CM.
 
 **Signed content:**
 
@@ -187,7 +190,7 @@ The container's `--allowed-tools` allowlist must include `Skill` for Claude Code
 
 #### POST {runner_url}/kill
 
-Sent when a user clicks "Stop" on a running card, or by the end-session
+Sent when a user clicks "Stop" on a running card, or by the terminal-kill
 subscriber / reconcile sweep when a card reaches a terminal state.
 
 ```json
@@ -267,148 +270,26 @@ Sent when a user clicks "Stop All" in the header.
 }
 ```
 
-#### POST {runner_url}/message
+### HITL chat and promote: SSE event routing
 
-Sent when a user submits a chat message while a container is running in
-interactive mode. HMAC-signed identically to trigger/kill.
+There is no longer a runner-side webhook for HITL chat messages, autonomous
+promotion, or session termination. The flow is server-side:
 
-```json
-{
-  "card_id": "PROJ-042",
-  "project": "my-project",
-  "message_id": "msg-uuid-1234",
-  "content": "Please focus on the authentication module first."
-}
-```
+1. The Web UI posts to `POST /api/projects/{project}/cards/{id}/message` /
+   `/promote` / `/stop` on CM.
+2. CM appends a typed event (`chat_input`, `promotion`, `stop`) to its
+   `RunnerEventBuffer`, mirrors the entry to the per-card session log, and
+   commits whatever card-level state changed (e.g. flipping `autonomous` for
+   `/promote`).
+3. The runner's orchestrated dispatcher holds a Bearer-authenticated SSE
+   subscription to `GET /api/runner/events` and routes each event to the
+   live driver for the affected card.
+4. The driver feeds chat input into the running Claude exec session, observes
+   `autonomous` transitions on the next gate, or initiates a clean shutdown
+   on `stop`.
 
-The runner:
-
-1. Looks up the running container for `card_id` / `project`.
-2. Writes the following newline-terminated JSON to the container's stdin:
-   ```json
-   {
-     "type": "user",
-     "message": {
-       "role": "user",
-       "content": [{ "type": "text", "text": "<content>" }]
-     }
-   }
-   ```
-3. Emits a broadcaster `LogEntry` of type `user` (see
-   [LogEntry types](#logentry-types)) so the browser sees the message echoed in
-   the console.
-
-**Error responses:**
-
-| Status | Condition                                |
-| ------ | ---------------------------------------- |
-| 404    | Container not tracked (card not running) |
-| 409    | Container is not in interactive mode     |
-| 413    | `content` exceeds 8 KiB                  |
-
-#### POST {runner_url}/promote
-
-Sent when a user clicks "Switch to Autonomous" while a container is running in
-interactive mode. HMAC-signed identically to trigger/kill.
-
-```json
-{
-  "card_id": "PROJ-042",
-  "project": "my-project"
-}
-```
-
-The runner performs a two-step operation in strict order:
-
-1. **Verify the autonomous flag (fail closed):** Calls
-   `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
-   that the response body `{"autonomous": bool}` is `true`. CM already flipped
-   the flag before sending this webhook, so the GET is a read-only
-   confirmation. The request is HMAC-SHA256-signed under the standard method/path/timestamp
-   scheme (empty body) using `runner.api_key`. If the call fails (network error,
-   non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
-   **not** write to stdin — the card remains in interactive mode.
-2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
-   `"promoted to autonomous mode"`, then writes a stream-json user message to
-   the container's stdin:
-
-   > "Autonomous mode has been enabled (card flag flipped). Check the card with
-   > `get_card` at your next gate and continue on the autonomous branch. Do not
-   > wait for further user input."
-
-   The agent at its next HITL gate calls `get_card`, sees `autonomous: true`,
-   and skips the gate automatically. No stdin message is written on API failure.
-
-3. **Close stdin:** Immediately after the canned message is written, the runner
-   closes the container's stdin. This signals EOF to `claude
-   --input-format stream-json`, which causes the process to finish any in-flight
-   work and exit cleanly through the normal `waitAndCleanup` path — without
-   waiting for `container_timeout`. An already-closed stdin (e.g. a racing
-   `/end-session`) is treated as non-fatal: a warning is logged and the endpoint
-   still returns 200.
-
-**Error responses:**
-
-| Status | Condition                                            |
-| ------ | ---------------------------------------------------- |
-| 404    | No container tracked for this card                   |
-| 409    | Container is not in interactive mode                 |
-| 502    | ContextMatrix card verification failed (fail closed) |
-
-#### POST {runner_url}/end-session
-
-Sent by ContextMatrix when a card tied to an interactive container reaches a
-terminal state (`done` or `not_planned`) and is released. Closes the
-container's stdin so `claude`, running with `--input-format stream-json`,
-receives EOF and exits; the container then terminates through the normal
-`waitAndCleanup` path. HMAC-signed identically to `/kill`.
-
-```json
-{
-  "card_id": "PROJ-042",
-  "project": "my-project"
-}
-```
-
-Sent by an event-bus subscriber in CM that listens for `card.released` and
-`card.state_changed`. The subscriber fires only when both hold:
-
-1. `card.assigned_agent` is empty (the card has actually been released).
-2. `card.state` is `done` or `not_planned`.
-
-`card.runner_status` is intentionally NOT part of this predicate. An earlier
-version gated on `runner_status ∈ {queued, running}`, which silently skipped
-any container whose `runner_status` had drifted away from Docker reality
-(the runner's `reportCompleted` / `reportFailure` callbacks flip the field
-before the Docker cleanup defers actually succeed). Gating on it turned every
-such drift into a permanent leak. The runner's `/kill` is idempotent, so the
-subscriber firing "spuriously" against an already-dead container costs one
-200 no-op and eliminates that class of bug at the source.
-
-This prevents the container from exiting on intermediate `release_card` calls
-an orchestrator makes between subtasks: a release without a terminal-state
-transition does not satisfy the predicate.
-
-**End-session is always followed by `/kill`.** Claude in `--input-format
-stream-json` mode has been observed keeping the container process alive well
-past stdin EOF (processing in-flight work and then idling instead of exiting).
-The subscriber therefore calls `/end-session` first (polite close, lets claude
-exit gracefully if it respects EOF) and then calls `/kill` unconditionally as
-a safety net so a terminal-state card never leaves a live container behind.
-`/kill` is idempotent — if the container is already gone the runner returns
-200 no-op. Expected `/end-session` responses (409 no stdin attached for
-autonomous containers, 410 stdin already closed by an earlier `/promote`) are
-classified as normal and suppressed from the warning log; `/kill` still fires.
-
-The runner emits a `system` `LogEntry` with content
-`"session ended (stdin closed)"` before returning.
-
-**Error responses:**
-
-| Status | Condition                                                      |
-| ------ | -------------------------------------------------------------- |
-| 404    | No container tracked for this card                             |
-| 409    | Container is not in interactive mode, or stdin already closed  |
+`POST /api/runner/skill-engaged` is used by the runner to notify CM when an
+agent engages a workflow skill; the response is purely advisory.
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -536,8 +417,7 @@ Or on error:
 | `not_found`        | Referenced card or container does not exist                 |
 | `conflict`         | Operation not valid in the current state                    |
 | `duplicate`        | A duplicate resource was detected                           |
-| `stdin_closed`     | Container stdin is closed; no further messages accepted     |
-| `too_large`        | Request payload exceeds the size limit (e.g., 8 KiB)       |
+| `too_large`        | Request payload exceeds the size limit                      |
 | `limit_reached`    | A configured capacity limit has been reached                |
 | `internal`         | Unexpected runner-side error                                |
 | `upstream_failure` | Runner could not reach an upstream dependency (e.g., CM)   |
@@ -549,11 +429,6 @@ Or on error:
   stopped and others failed. The body contains per-card results.
 - **`/kill`** — idempotent: returns `200` (not 404) when the card is not
   tracked. Use this to safely call stop on cards that may already be finished.
-- **`/message`** — may return `410` with code `stdin_closed` after the
-  container session has ended and stdin is no longer writable.
-- **`/promote`** — closes stdin immediately after writing the canned message.
-  A subsequent `/end-session` on the same card is idempotent (returns `409`
-  because stdin is already closed).
 - **All mutating endpoints** — return `503` with code `draining` while the
   runner is performing a graceful shutdown. Clients should not retry during
   a draining window.
@@ -604,23 +479,24 @@ ContextMatrix retries failed webhooks with exponential backoff:
 **On kill:** Container is destroyed immediately. All uncommitted work is
 discarded. No partial saves.
 
-### Terminal-state cleanup (HITL containers)
+### Terminal-state cleanup
 
-A HITL container's `claude` process does not exit when its stdin is closed —
-in stream-json mode it treats EOF as "no more user input for now" and keeps
-running. A card that reaches a terminal state (`done` or `not_planned`) and
-is released must therefore be killed by ContextMatrix explicitly, otherwise
-the container would leak until the runner's `container_timeout` (default 2h).
+A card that reaches a terminal state (`done` or `not_planned`) and is
+released must be killed by ContextMatrix explicitly, otherwise the container
+would leak until the runner's `container_timeout` (default 2h).
 
-Two independent mechanisms guarantee this cleanup, and they now use
-different truths so a bug in either cannot silently hide a live container:
+Two independent mechanisms guarantee this cleanup, and they use different
+truths so a bug in either cannot silently hide a live container:
 
-1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches
+1. **Event subscriber (fast path).** `internal/runner/terminate.go` watches
    the event bus for `card.released` and `card.state_changed`. When it sees a
    card with `state ∈ {done, not_planned}` + `assigned_agent == ""`, it fires
-   `/end-session` followed by `/kill` against the runner. Typical latency:
-   tens of milliseconds. `runner_status` is intentionally not consulted —
-   see the end-session section above for why.
+   `/kill` against the runner. Typical latency: tens of milliseconds.
+   `runner_status` is intentionally not consulted — earlier versions gated on
+   `runner_status ∈ {queued, running}`, which silently skipped any container
+   whose status had drifted away from Docker reality. The runner's `/kill` is
+   idempotent, so the subscriber firing "spuriously" against an already-dead
+   container costs one 200 no-op and eliminates that class of bug.
 2. **Reconcile sweep (Docker-authoritative backstop).**
    `internal/runner/reconcile.go` runs every `runner.reconcile_interval`
    (default **60s**). Every tick it calls `GET /containers` on the runner
@@ -638,8 +514,8 @@ different truths so a bug in either cannot silently hide a live container:
    / `failed` while Docker still had the container, then every subsequent
    sweep silently skipped it. That class of bug is now unreachable.
 
-The event path's logline is `"end-session + kill sent" source=subscriber`;
-the sweep's is `"reconcile sweep killing container" ... reason=<terminal_state
+The event path's logline is `"terminal-kill sent" source=subscriber`; the
+sweep's is `"reconcile sweep killing container" ... reason=<terminal_state
 |no_such_card|age_cap>` followed by the same `source=sweep` kill log. Every
 sweep tick also emits a `"reconcile sweep tick"` line with `scanned` and
 `killed` counts, so "is the sweep actually running?" is answerable from a
@@ -754,44 +630,31 @@ starts the container in Human-in-the-Loop (HITL) mode.
 ### Container Environment
 
 The runner sets `CM_INTERACTIVE=1` in the container's environment. The
-`entrypoint.sh` script branches on this variable:
-
-- **`CM_INTERACTIVE` unset or `0`** — normal autonomous mode: Claude Code is
-  invoked with `--output-format stream-json` and the workflow proceeds
-  automatically.
-- **`CM_INTERACTIVE=1`** — interactive mode: Claude Code is invoked with
-  `--input-format stream-json --output-format stream-json` and a minimal
-  system-context hint as the `-p` prompt. After attaching stdin and registering
-  the writer with the tracker, the runner writes a priming stream-json user
-  message (built via `streammsg.BuildUserMessage`) directly into the container's
-  stdin. The priming message instructs Claude to call
-  `get_skill(skill_name='create-plan', ...)` immediately, so plan drafting
-  starts without waiting for user input. The user provides approval at the
-  skill's built-in gates (plan approval, subtask execution decision, review) via
-  the chat input.
+orchestrated dispatcher reads this flag and selects the HITL driver, which
+keeps the Claude exec session alive and consumes chat / promotion / stop
+events from CM's SSE bus rather than running to completion.
 
 ### Message Flow
 
 ```
-Web UI (chat input) → CM POST /api/runner/message
-                     → Runner POST /message
-                     → container stdin (stream-json user message)
+Web UI (chat input) → CM POST /api/projects/{p}/cards/{id}/message
+                     → CM RunnerEventBuffer (chat_input event) + session log
+                     → Runner GET /api/runner/events (SSE, Bearer-auth)
+                     → Driver feeds message into Claude exec session
                      → Runner LogEntry{type: "user"}  (echoed to browser)
 
-Web UI (promote btn) → CM POST /api/runner/promote
+Web UI (promote btn) → CM POST /api/projects/{p}/cards/{id}/promote
                       → CM flips card autonomous=true (git commit + SSE event)
-                      → Runner POST /promote
-                      → Runner GET /api/v1/cards/{project}/{id}/autonomous (HMAC-signed;
-                                    502+stop if autonomous != true or request fails)
-                      → container stdin (canned autonomous-mode message)
-                      → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
-                      → Runner closes container stdin (EOF → container exits after work done)
+                      → CM RunnerEventBuffer (promotion event)
+                      → Runner GET /api/runner/events
+                      → Driver observes autonomous=true at next gate and
+                        continues on the autonomous branch
 ```
 
 ### Feature Branch Flags
 
 `feature_branch` and `create_pr` are auto-enabled on the card whenever a run
-is triggered — for both autonomous and HITL runs. The `/promote` endpoint
+is triggered — for both autonomous and HITL runs. Promote-to-autonomous
 additionally sets `autonomous: true` when the user switches a running
 interactive session to autonomous mode.
 
@@ -814,10 +677,10 @@ Sources that call `Publish`:
 - **`container.Manager`** — emits `system` entries for container lifecycle
   events (started, completed, failed, canceled, timed-out) and `stderr` entries
   for each container stderr line.
-- **`logparser.ProcessStream`** — emits `text`, `thinking`, and `tool_call`
-  entries parsed from Claude Code's `--output-format stream-json` stdout. The
-  caller (container manager) pre-fills `card_id` and `project` on each entry
-  before publishing.
+- **Orchestrated dispatcher** — emits `text`, `thinking`, and `tool_call`
+  entries parsed from Claude Code's `--output-format stream-json` stdout, plus
+  `user` entries for HITL chat messages routed in via the SSE bus. The
+  dispatcher pre-fills `card_id` and `project` on each entry before publishing.
 
 ### Runner: `GET /logs` SSE Endpoint
 

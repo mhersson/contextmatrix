@@ -25,18 +25,19 @@ func TestSignPayloadWithTimestamp_Deterministic(t *testing.T) {
 	assert.NotEmpty(t, sig1)
 }
 
-// TestSignPayloadWithTimestamp_DifferentPath is the regression guard for the
-// /end-session ↔ /kill replay-cache collision: identical body + ts + method
-// signed under two different paths MUST produce distinct signatures, or the
-// runner's replay cache will reject the second call.
+// TestSignPayloadWithTimestamp_DifferentPath is the regression guard for
+// path-binding in the HMAC scheme: identical body + ts + method signed under
+// two different paths MUST produce distinct signatures, or the runner's
+// replay cache could reject legitimate back-to-back calls to siblings such
+// as /kill and /stop-all that share a {card_id, project} payload shape.
 func TestSignPayloadWithTimestamp_DifferentPath(t *testing.T) {
 	key := "test-secret"
 	body := []byte(`{"card_id":"TEST-001","project":"p"}`)
 	ts := "1700000000"
 
-	sigEndSession := signPayloadWithTimestamp(key, testMethodPOST, "/end-session", body, ts)
+	sigStopAll := signPayloadWithTimestamp(key, testMethodPOST, "/stop-all", body, ts)
 	sigKill := signPayloadWithTimestamp(key, testMethodPOST, "/kill", body, ts)
-	assert.NotEqual(t, sigEndSession, sigKill)
+	assert.NotEqual(t, sigStopAll, sigKill)
 }
 
 func TestSignPayloadWithTimestamp_DifferentMethod(t *testing.T) {
@@ -105,7 +106,7 @@ func TestVerifySignatureWithTimestamp_TamperedPath(t *testing.T) {
 	key := "test-secret"
 	body := []byte(`{"card_id":"TEST-001"}`)
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := signPayloadWithTimestamp(key, testMethodPOST, "/end-session", body, ts)
+	sig := signPayloadWithTimestamp(key, testMethodPOST, "/stop-all", body, ts)
 
 	assert.False(t, VerifySignatureWithTimestamp(key, testMethodPOST, "/kill", sig, ts, body, DefaultMaxClockSkew))
 }

@@ -81,13 +81,16 @@ runner:
   enabled: true
   url: http://127.0.0.1:%d
   api_key: %q
-  orchestrator_sonnet_model: claude-haiku-4-5
-  orchestrator_opus_model: claude-haiku-4-5
 heartbeat_timeout: 5m
 task_skills:
   dir: %s
 cors_origin: http://127.0.0.1:0
 theme: everforest
+token_costs:
+  claude-haiku-4-5:  { prompt: 0.000001, completion: 0.000005 }
+  claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 }
+  claude-opus-4-6:   { prompt: 0.000005, completion: 0.000025 }
+  claude-opus-4-7:   { prompt: 0.000005, completion: 0.000025 }
 github:
   auth_mode: pat
   pat:

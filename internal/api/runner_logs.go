@@ -16,6 +16,16 @@ const defaultRunnerKeepaliveInterval = 30 * time.Second
 
 // streamRunnerLogs handles GET /api/runner/logs
 //
+// Auth posture: this is a browser-bound SSE endpoint consumed by
+// web/src/hooks/useRunnerLogs.ts. EventSource cannot attach an Authorization
+// header, so Bearer auth would break the only legitimate consumer; instead,
+// the deployment relies on the upstream zero-trust front door (Cloudflare
+// Tunnel / Access) for identity. Container transcripts may include secrets,
+// so the front door is load-bearing — operators MUST NOT expose the main
+// HTTP port directly to the public internet without an equivalent gate. The
+// sibling /api/runner/events endpoint, which is server-to-runner only and
+// not browser-reachable, IS Bearer-gated (commit 63dfea6).
+//
 // Two code paths, selected by query parameters:
 //
 //   - card_id present → card-scoped path: subscribe to the session manager,

@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +18,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
@@ -85,8 +83,7 @@ type RouterConfig struct {
 	MCPAPIKey           string
 	Port                int
 	GitHubTokenProvider githubauth.TokenGenerator
-	TaskSkillsGit       *gitops.Manager // reserved for git-pull refresh of task-skills (future)
-	TaskSkillsDir       string          // absolute path to the task-skills directory; empty disables the skills selector
+	TaskSkillsDir       string // absolute path to the task-skills directory; empty disables the skills selector
 	GitHubAPIBaseURL    string
 	GitHubAllowedHosts  []string
 	SessionManager      *sessionlog.Manager // optional; enables card-scoped SSE log path
@@ -255,9 +252,25 @@ func csrfGuard(next http.Handler) http.Handler {
 	})
 }
 
+// csrfMutatingExemptions enumerates the exact mutating-method paths that
+// bypass the CSRF X-Requested-With check. Each entry is a state-changing
+// endpoint that authenticates via HMAC (server↔runner callbacks) or its own
+// Bearer scheme (MCP). Adding a new entry here is a deliberate opt-out: the
+// handler MUST verify a server-to-server credential that browsers cannot
+// forge. A prefix-based allowlist (the previous design) silently inherited
+// CSRF bypass into any future state-changing route under the prefix, so the
+// rule is now exact-path.
+var csrfMutatingExemptions = map[string]struct{}{
+	"/api/runner/status":        {}, // POST, HMAC-signed runner→server callback
+	"/api/runner/skill-engaged": {}, // POST, HMAC-signed runner→server telemetry
+	"/mcp":                      {}, // POST/DELETE, Bearer-authed MCP transport
+}
+
 // csrfExempt reports whether the request is excluded from the CSRF
-// guard. The branches are intentionally narrow — any new state-changing
-// route must opt in to the guard, not out.
+// guard. Read-only methods (GET, HEAD, OPTIONS) and the unauthenticated
+// probes (/healthz, /readyz) bypass unconditionally. State-changing methods
+// only bypass for paths in csrfMutatingExemptions, which must each carry
+// their own server-to-server auth.
 func csrfExempt(r *http.Request) bool {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
@@ -266,18 +279,13 @@ func csrfExempt(r *http.Request) bool {
 
 	path := r.URL.Path
 
-	switch {
-	case path == "/healthz" || path == "/readyz":
-		return true
-	case strings.HasPrefix(path, "/api/runner/"):
-		return true
-	case strings.HasPrefix(path, "/api/v1/"):
-		return true
-	case path == "/mcp":
+	if path == "/healthz" || path == "/readyz" {
 		return true
 	}
 
-	return false
+	_, ok := csrfMutatingExemptions[path]
+
+	return ok
 }
 
 // observe records RED metrics and emits a per-request log line. Health probes
@@ -553,6 +561,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrCardNotVetted):
 		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
 			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
+	case errors.Is(err, service.ErrPromoteRequiresHuman):
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"promote requires human agent", sanitizeErrorDetails(err))
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
@@ -566,7 +577,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, board.ErrMissingNotPlannedTransitions):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority),
-		errors.Is(err, board.ErrInvalidAutonomousConfig):
+		errors.Is(err, board.ErrInvalidAutonomousConfig),
+		errors.Is(err, board.ErrInvalidExternalURL),
+		errors.Is(err, board.ErrInvalidRunnerStatus):
 		var ve *board.ValidationError
 
 		details := ""

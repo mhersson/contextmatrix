@@ -91,3 +91,39 @@ func TestCSRFGuard_AllowsGETWithoutHeader(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+// TestCSRFGuard_ExemptionsAreExactPath is the regression guard for the
+// exact-path allowlist (replacing the old strings.HasPrefix branches). A
+// state-changing POST to a path that simply STARTS with /api/runner/ but
+// is not in csrfMutatingExemptions must be blocked by the CSRF guard. The
+// previous prefix-based design auto-exempted any future route under
+// /api/runner/* even if it had no HMAC verification of its own.
+func TestCSRFGuard_ExemptionsAreExactPath(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "unregistered subpath under /api/runner/", path: "/api/runner/status-fake"},
+		{name: "unregistered subpath under /api/v1/", path: "/api/v1/cards/fake/X-1/something"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewReader([]byte("{}")))
+			assert.False(t, csrfExempt(req),
+				"path %q must not bypass the CSRF guard via prefix match", tc.path)
+		})
+	}
+}
+
+// TestCSRFGuard_ExemptionsAcceptListedPaths confirms that the registered
+// HMAC-authenticated callbacks are still exempt under the new exact-match
+// design.
+func TestCSRFGuard_ExemptionsAcceptListedPaths(t *testing.T) {
+	for path := range csrfMutatingExemptions {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte("{}")))
+			assert.True(t, csrfExempt(req), "%q must remain exempt", path)
+		})
+	}
+}

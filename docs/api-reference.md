@@ -692,3 +692,57 @@ signature. Accepts `runner_status` updates (`"running"`, `"failed"`).
   "message": "container started"
 }
 ```
+
+### POST /api/runner/skill-engaged
+
+Runner callback emitted when an agent engages a workflow skill. HMAC-signed
+identically to `/api/runner/status`. Used for telemetry and skill-aware UI
+hints; the response is purely advisory.
+
+```json
+{
+  "card_id": "PROJ-042",
+  "project": "my-project",
+  "skill_name": "create-plan"
+}
+```
+
+Response: `200 {"ok": true}` on success.
+
+### GET /api/runner/events
+
+Bearer-authenticated SSE stream consumed by the runner's orchestrated
+dispatcher. Carries `chat_input`, `promotion`, and `stop` events that the
+runner routes to the live driver for the affected card. Not browser-reachable
+(`EventSource` cannot send `Authorization` headers).
+
+Required header: `Authorization: Bearer <mcp_api_key>`.
+Optional query: `?since=<seq>` to resume from a known event id (the response
+sets `id:` lines on each frame so a standard `EventSource` reconnect picks up
+where it left off).
+
+Each event frame:
+
+```
+id: 42
+event: chat_input
+data: {"card_id":"PROJ-042","project":"my-project","content":"..."}
+```
+
+This endpoint is the runner-only delivery channel for HITL chat, promote, and
+stop signals. Browser-issued chat / promote / stop calls land on the
+`/api/projects/{project}/cards/{id}/...` family above; CM appends them to its
+in-memory `RunnerEventBuffer` and fans them out here.
+
+### GET /api/v1/cards/{project}/{id}/autonomous
+
+Read-only endpoint for the runner to confirm a card's `autonomous` flag.
+HMAC-signed under the standard method/path/timestamp scheme (empty body) with
+`runner.api_key`. Only registered when `runner.enabled: true`.
+
+```json
+{ "autonomous": true }
+```
+
+Returns `403` on missing/invalid HMAC, `404` on unknown card. The path lives
+under `/api/v1/` for historical reasons; no other v1 routes exist today.

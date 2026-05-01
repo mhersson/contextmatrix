@@ -24,13 +24,16 @@ func newRunnerEventHandlers(buf *events.RunnerEventBuffer, apiKey string) *runne
 	return &runnerEventHandlers{buf: buf, apiKey: apiKey}
 }
 
-// authorize verifies the Authorization: Bearer header against the configured
-// MCP API key (constant-time compare). Returns true if the request is allowed
-// to proceed; on failure it has already written a 401 response and the caller
-// must return without further writes. Empty apiKey disables auth — kept for
-// tests that construct a runnerEventHandlers literal.
-func (h *runnerEventHandlers) authorize(w http.ResponseWriter, r *http.Request) bool {
-	if h.apiKey == "" {
+// authorizeBearer verifies the Authorization: Bearer header against the
+// configured key (constant-time compare). Returns true if the request is
+// allowed to proceed; on failure it has already written a 401 response and
+// the caller must return without further writes. Empty apiKey disables auth.
+//
+// Used by both /api/runner/events (runnerEventHandlers) and /api/runner/logs
+// (runnerHandlers) — both stream sensitive container output and must share
+// the same Bearer gate.
+func authorizeBearer(w http.ResponseWriter, r *http.Request, apiKey string) bool {
+	if apiKey == "" {
 		return true
 	}
 
@@ -44,13 +47,17 @@ func (h *runnerEventHandlers) authorize(w http.ResponseWriter, r *http.Request) 
 	}
 
 	token := strings.TrimPrefix(auth, prefix)
-	if subtle.ConstantTimeCompare([]byte(token), []byte(h.apiKey)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
 		writeRunnerEventsAuthFailure(w)
 
 		return false
 	}
 
 	return true
+}
+
+func (h *runnerEventHandlers) authorize(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeBearer(w, r, h.apiKey)
 }
 
 func writeRunnerEventsAuthFailure(w http.ResponseWriter) {

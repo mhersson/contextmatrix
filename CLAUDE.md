@@ -59,7 +59,6 @@ details.
   params)
 - **go-git** — git operations (`github.com/go-git/go-git/v5`)
 - **go-yaml v3** — YAML frontmatter (`gopkg.in/yaml.v3`)
-- **goldmark** — markdown rendering for preview (`github.com/yuin/goldmark`)
 - **Go MCP SDK** — MCP server via Streamable HTTP
   (`github.com/modelcontextprotocol/go-sdk`)
 - **`github.com/mhersson/contextmatrix-githubauth`** — shared GitHub
