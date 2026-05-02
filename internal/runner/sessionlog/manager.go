@@ -35,7 +35,7 @@ const (
 	// retryBackoffBase is the initial retry delay for upstream reconnects.
 	retryBackoffBase = 250 * time.Millisecond
 	// retryBackoffCap is the maximum retry delay.
-	retryBackoffCap = 4 * time.Second
+	retryBackoffCap = 16 * time.Second
 	// maxUpstreamRetries is the number of reconnect attempts before marking a
 	// session errored and closing.
 	maxUpstreamRetries = 5
@@ -76,6 +76,7 @@ type subscriber struct {
 type activeSession struct {
 	cancel    context.CancelFunc
 	startTime time.Time
+	longLived bool // true for project-scoped sessions; sweeper and retry limits skip these
 	subs      []*subscriber
 	done      chan struct{} // closed when the pump goroutine exits
 }
@@ -634,6 +635,7 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 	sess := &activeSession{
 		cancel:    cancel,
 		startTime: m.clk.Now(),
+		longLived: true,
 		done:      make(chan struct{}),
 	}
 
@@ -713,39 +715,49 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 
 		attempt++
 		if attempt >= maxUpstreamRetries {
-			ctxlog.Logger(ctx).Error("sessionlog: project upstream permanently failed, closing session",
-				"project", project,
-				"error", err,
-				"attempts", attempt,
-			)
-			// Remove from active sessions, collect pending subs, and mark as failed.
-			// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
-			m.mu.Lock()
-			delete(m.activeSessions, key)
+			if sess.longLived {
+				// Long-lived sessions retry indefinitely; just log and fall
+				// through to the backoff below.
+				ctxlog.Logger(ctx).Warn("sessionlog: project upstream persistent error, retrying indefinitely",
+					"project", project,
+					"error", err,
+					"attempt", attempt,
+				)
+			} else {
+				ctxlog.Logger(ctx).Error("sessionlog: project upstream permanently failed, closing session",
+					"project", project,
+					"error", err,
+					"attempts", attempt,
+				)
+				// Remove from active sessions, collect pending subs, and mark as failed.
+				// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
+				m.mu.Lock()
+				delete(m.activeSessions, key)
 
-			subs := sess.subs
-			sess.subs = nil
-			// Drain any subscribers that raced between Subscribe and StartProject.
-			pendingSubs := m.pendingSubs[key]
-			delete(m.pendingSubs, key)
-			m.failedSessions[key] = struct{}{}
-			m.mu.Unlock()
+				subs := sess.subs
+				sess.subs = nil
+				// Drain any subscribers that raced between Subscribe and StartProject.
+				pendingSubs := m.pendingSubs[key]
+				delete(m.pendingSubs, key)
+				m.failedSessions[key] = struct{}{}
+				m.mu.Unlock()
 
-			terminal := Event{
-				Seq:       0,
-				Timestamp: time.Now(),
-				Type:      EventTypeTerminal,
-				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
+				terminal := Event{
+					Seq:       0,
+					Timestamp: time.Now(),
+					Type:      EventTypeTerminal,
+					Payload:   fmt.Appendf(nil, "upstream error: %v", err),
+				}
+
+				subs = append(subs, pendingSubs...)
+				closeSubscriber(subs, terminal)
+				// Clear the event buffer only; leave failedSessions intact.
+				m.mu.Lock()
+				delete(m.sessions, key)
+				m.mu.Unlock()
+
+				return
 			}
-
-			subs = append(subs, pendingSubs...)
-			closeSubscriber(subs, terminal)
-			// Clear the event buffer only; leave failedSessions intact.
-			m.mu.Lock()
-			delete(m.sessions, key)
-			m.mu.Unlock()
-
-			return
 		}
 
 		backoff := backoffDuration(attempt)
@@ -915,6 +927,10 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 	var stale []string
 
 	for cardID, sess := range m.activeSessions {
+		if sess.longLived {
+			continue
+		}
+
 		if now.Sub(sess.startTime) > m.sessionTTL {
 			stale = append(stale, cardID)
 		}
