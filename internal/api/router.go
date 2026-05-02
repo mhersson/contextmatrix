@@ -18,7 +18,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner"
@@ -76,6 +75,7 @@ type APIError struct {
 type RouterConfig struct {
 	Service             *service.CardService
 	Bus                 *events.Bus
+	RunnerEventBuffer   *events.RunnerEventBuffer
 	CORSOrigin          string
 	Syncer              Syncer
 	Runner              *runner.Client
@@ -83,8 +83,7 @@ type RouterConfig struct {
 	MCPAPIKey           string
 	Port                int
 	GitHubTokenProvider githubauth.TokenGenerator
-	TaskSkillsGit       *gitops.Manager // reserved for git-pull refresh of task-skills (future)
-	TaskSkillsDir       string          // absolute path to the task-skills directory; empty disables the skills selector
+	TaskSkillsDir       string // absolute path to the task-skills directory; empty disables the skills selector
 	GitHubAPIBaseURL    string
 	GitHubAllowedHosts  []string
 	SessionManager      *sessionlog.Manager // optional; enables card-scoped SSE log path
@@ -108,6 +107,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
+	reh := newRunnerEventHandlers(cfg.RunnerEventBuffer, cfg.MCPAPIKey)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
 	bh := &branchHandlers{
@@ -127,6 +127,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// SSE events
 	mux.HandleFunc("GET /api/events", eh.streamEvents)
+	mux.HandleFunc("GET /api/runner/events", reh.handleStream)
 
 	// Project routes
 	mux.HandleFunc("GET /api/projects", ph.listProjects)
@@ -178,6 +179,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mcpAPIKey:      cfg.MCPAPIKey,
 		port:           cfg.Port,
 		sessionManager: cfg.SessionManager,
+		runnerEventBuf: cfg.RunnerEventBuffer,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -202,16 +204,88 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	// Apply middleware chain. First entry is outermost:
-	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> mux
+	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> csrfGuard -> mux
 	// requestID runs before observe so the request_id is in-context when the
 	// request log line fires. observe sits inside recovery so any panic's
-	// stack trace is logged with the request's context.
-	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit}
+	// stack trace is logged with the request's context. csrfGuard sits just
+	// outside the mux so route handlers run only when the header check
+	// passes (or the path is exempt).
+	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit, csrfGuard}
 	if cfg.CORSOrigin != "" {
-		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit}
+		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit, csrfGuard}
 	}
 
 	return chain(mux, middlewares...)
+}
+
+// csrfGuard rejects browser-initiated cross-origin POST/PUT/PATCH/DELETE
+// requests by requiring an X-Requested-With: contextmatrix header on every
+// non-safe method. Browsers refuse to set arbitrary custom headers in a
+// "simple request"; a CORS preflight is required, and we serve no permissive
+// CORS for state-changing routes — so a missing header is a strong signal of
+// a cross-origin attempt that bypassed the SOP.
+//
+// Exempt paths:
+//   - GET / HEAD / OPTIONS (read-only)
+//   - /api/runner/*  — HMAC-signed runner callbacks; no browser path here
+//   - /api/v1/*      — HMAC-signed runner verify-autonomous
+//   - /mcp           — Bearer-authed MCP endpoint
+//   - /healthz, /readyz — probe endpoints, no body
+//
+// The web UI sets the header on every fetch via web/src/api/client.ts.
+func csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if csrfExempt(r) {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		if r.Header.Get("X-Requested-With") != "contextmatrix" {
+			writeError(w, http.StatusForbidden, ErrCodeBadRequest,
+				"missing X-Requested-With header", "")
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// csrfMutatingExemptions enumerates the exact mutating-method paths that
+// bypass the CSRF X-Requested-With check. Each entry is a state-changing
+// endpoint that authenticates via HMAC (server↔runner callbacks) or its own
+// Bearer scheme (MCP). Adding a new entry here is a deliberate opt-out: the
+// handler MUST verify a server-to-server credential that browsers cannot
+// forge. A prefix-based allowlist (the previous design) silently inherited
+// CSRF bypass into any future state-changing route under the prefix, so the
+// rule is now exact-path.
+var csrfMutatingExemptions = map[string]struct{}{
+	"/api/runner/status":        {}, // POST, HMAC-signed runner→server callback
+	"/api/runner/skill-engaged": {}, // POST, HMAC-signed runner→server telemetry
+	"/mcp":                      {}, // POST/DELETE, Bearer-authed MCP transport
+}
+
+// csrfExempt reports whether the request is excluded from the CSRF
+// guard. Read-only methods (GET, HEAD, OPTIONS) and the unauthenticated
+// probes (/healthz, /readyz) bypass unconditionally. State-changing methods
+// only bypass for paths in csrfMutatingExemptions, which must each carry
+// their own server-to-server auth.
+func csrfExempt(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+
+	path := r.URL.Path
+
+	if path == "/healthz" || path == "/readyz" {
+		return true
+	}
+
+	_, ok := csrfMutatingExemptions[path]
+
+	return ok
 }
 
 // observe records RED metrics and emits a per-request log line. Health probes
@@ -243,7 +317,7 @@ func observe(next http.Handler) http.Handler {
 		// SSE streams would pollute the REST latency histogram and the
 		// path label set — skip them entirely for metrics. MCP Streamable
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
-		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" ||
+		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/events" || r.URL.Path == "/api/runner/logs" ||
 			(r.Method == http.MethodGet && r.URL.Path == "/mcp") {
 			return
 		}
@@ -487,6 +561,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrCardNotVetted):
 		writeError(w, http.StatusForbidden, ErrCodeCardNotVetted,
 			"card not vetted", "externally imported cards must be vetted by a human before agents can claim them")
+	case errors.Is(err, service.ErrPromoteRequiresHuman):
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"promote requires human agent", sanitizeErrorDetails(err))
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
@@ -500,7 +577,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, board.ErrMissingNotPlannedTransitions):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid project config", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidType), errors.Is(err, board.ErrInvalidState), errors.Is(err, board.ErrInvalidPriority),
-		errors.Is(err, board.ErrInvalidAutonomousConfig):
+		errors.Is(err, board.ErrInvalidAutonomousConfig),
+		errors.Is(err, board.ErrInvalidExternalURL),
+		errors.Is(err, board.ErrInvalidRunnerStatus):
 		var ve *board.ValidationError
 
 		details := ""

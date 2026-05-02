@@ -638,7 +638,6 @@ input, select, textarea {
    `.chip-pill` for shape/typography. */
 .chip-state-todo        { background-color: var(--bg2);        color: var(--grey2); }
 .chip-state-in_progress { background-color: var(--bg-blue);    color: var(--blue); }
-.chip-state-hitl        { background-color: var(--bg-aqua);    color: var(--aqua); }
 .chip-state-review      { background-color: var(--bg-yellow);  color: var(--yellow); }
 .chip-state-done        { background-color: var(--bg-green);   color: var(--green); }
 .chip-state-blocked     { background-color: var(--bg-red);     color: var(--red); }
@@ -957,7 +956,22 @@ input, select, textarea {
   }
 }
 
-/* Override markdown editor styles for Everforest theme */
+/* Override markdown editor styles for Everforest theme.
+ *
+ * The library's CSS is lazy-loaded with the MDEditor chunk and appended to
+ * <head> *after* this stylesheet. With equal selector specificity, a later
+ * `!important` rule beats an earlier one — so flat `.w-md-editor-text-input`
+ * overrides here lose to the library's identical-specificity rules. Two
+ * defenses, applied together:
+ *   1. Set `--md-editor-font-family` here so the library's own
+ *      `font-family: var(--md-editor-font-family) !important` resolves to
+ *      JetBrains Mono instead of going invalid (the library expected
+ *      consumers to use this variable, not to override font-family directly).
+ *   2. For everything that doesn't have a library variable (font-size,
+ *      line-height, ligature/kerning resets), prefix the selector with
+ *      `.w-md-editor` to boost specificity above the library's flat class
+ *      selectors.
+ */
 .w-md-editor {
   --color-canvas-default: var(--bg-dim) !important;
   --color-canvas-subtle: var(--bg1) !important;
@@ -965,18 +979,32 @@ input, select, textarea {
   --color-border-muted: var(--bg3) !important;
   --color-fg-default: var(--fg) !important;
   --color-fg-muted: var(--grey1) !important;
+  --md-editor-font-family: var(--font-mono);
   background-color: var(--bg-dim) !important;
   border-color: var(--bg3) !important;
   border-radius: 8px !important;
 }
 
-.w-md-editor-text-pre > code,
-.w-md-editor-text-input,
-.w-md-editor-text {
+.w-md-editor .w-md-editor-text,
+.w-md-editor .w-md-editor-text-pre,
+.w-md-editor .w-md-editor-text-pre > code,
+.w-md-editor .w-md-editor-text-input {
   color: var(--fg) !important;
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   line-height: 1.65 !important;
+  /* Defensive resets against asymmetric inheritance between the transparent
+     textarea and the colored overlay it sits on top of:
+     - `letter-spacing` and `font-feature-settings` come from the body
+       (Geist tracking + stylistic sets) and reach the overlay but not the
+       textarea (UA reset on form controls).
+     - `font-variant-ligatures: common-ligatures` is set by the library on
+       the text wrapper; without this reset, JetBrains Mono ligatures
+       (`==`, `!=`, `=>`, ...) render in the overlay but not in the textarea
+       and the caret drifts on every ligature transition. */
+  letter-spacing: normal !important;
+  font-feature-settings: normal !important;
+  font-variant-ligatures: none !important;
 }
 
 .w-md-editor-toolbar {
@@ -1049,6 +1077,49 @@ input, select, textarea {
 .bf-markdown pre,
 .bf-markdown pre code {
   font-family: var(--font-mono) !important;
+}
+
+/*
+ * Chat-bubble markdown: tighter spacing so structured status messages
+ * and short summaries don't look like blog posts. The first/last child
+ * margins collapse to keep the bubble snug, headings shrink, and pre
+ * blocks pick up a bit of contrast against the bubble background.
+ * Scoped via the `.bf-chat-markdown` class applied in CardChat.
+ */
+.bf-chat-markdown .wmde-markdown {
+  font-size: 0.875rem !important;
+}
+
+.bf-chat-markdown .wmde-markdown > *:first-child {
+  margin-top: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown p,
+.bf-chat-markdown .wmde-markdown ul,
+.bf-chat-markdown .wmde-markdown ol {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.bf-chat-markdown .wmde-markdown h1,
+.bf-chat-markdown .wmde-markdown h2,
+.bf-chat-markdown .wmde-markdown h3,
+.bf-chat-markdown .wmde-markdown h4 {
+  font-size: 0.95rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
+  padding-bottom: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.bf-chat-markdown .wmde-markdown pre {
+  margin: 0.25rem 0 !important;
+  padding: 0.5rem !important;
+  border: 1px solid var(--bg3) !important;
 }
 
 /* Card flash animation for newly created cards */

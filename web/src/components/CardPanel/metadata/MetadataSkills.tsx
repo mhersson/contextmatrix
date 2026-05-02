@@ -1,14 +1,21 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { api } from '../../../api/client';
-import type { Card, ProjectConfig, TaskSkillSummary } from '../../../types';
+import type { ProjectConfig, TaskSkillSummary } from '../../../types';
 
 type Mode = 'inherit' | 'specific' | 'none';
 
 interface MetadataSkillsProps {
-  card: Card;
-  editedCard: Card;
+  value: string[] | null | undefined;
   config: ProjectConfig;
   onSkillsChange: (next: string[] | null) => void;
+  /**
+   * Lock the selector once the workflow has started — skills are mounted
+   * into the runner's working directory at run start, so changes after
+   * that point do not reach the live agent.
+   */
+  disabled?: boolean;
+  /** Optional message shown next to the heading when `disabled` is true. */
+  lockedReason?: string;
 }
 
 function modeFor(value: string[] | null | undefined): Mode {
@@ -18,34 +25,29 @@ function modeFor(value: string[] | null | undefined): Mode {
 }
 
 /**
- * Skills section of the Info rail tab. Three-state selector that mirrors
- * the project-level DefaultSkillsSelector but with an extra constraint:
- * when the project has `default_skills` set, the per-card list must be a
- * *subset* of the project default. Other entries are hidden from the
- * options list to make the constraint visible.
+ * Skills selector — three-state radio (inherit / specific / none) shared
+ * between the card detail panel's Info tab and the create-card panel's Info
+ * tab. When the project has `default_skills` set, the per-card list must be
+ * a subset of the project default; other entries are hidden from the options
+ * list to make the constraint visible.
  *
- * Edits update `editedCard.skills` via `onSkillsChange`. Persistence
- * happens through CardPanel's normal save flow; `buildCardPatch` emits
- * either `skills: [...]` or `skills_clear: true` depending on the mode.
+ * `value` is the current selection (null = inherit, [] = none, [...] =
+ * specific). The parent owns the state — this component is purely
+ * controlled — so it works equally well backed by `editedCard.skills` in
+ * CardPanel or by local React state in CreateCardPanel.
  */
 export function MetadataSkills({
-  card,
-  editedCard,
+  value,
   config,
   onSkillsChange,
+  disabled = false,
+  lockedReason,
 }: MetadataSkillsProps) {
   const [allSkills, setAllSkills] = useState<TaskSkillSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const headingId = useId();
   const radioName = useId();
-
-  // Suppress unused-var warning while keeping a stable reference to the
-  // unedited card; future enhancements (diff badge, revert affordance)
-  // will read from it.
-  void card;
-
-  const value = editedCard.skills;
 
   // Track previous value to detect external resets during render (derived-state pattern).
   const [prevValue, setPrevValue] = useState(value);
@@ -99,7 +101,7 @@ export function MetadataSkills({
   };
 
   return (
-    <section className="bf-aside-section">
+    <section className={`bf-aside-section ${disabled ? 'opacity-60' : ''}`}>
       <h4 id={headingId}>Skills</h4>
       <div className="space-y-2.5">
         <ModeRadio
@@ -114,6 +116,7 @@ export function MetadataSkills({
                 : `Use project default (${(config.default_skills ?? []).length} skill${(config.default_skills ?? []).length === 1 ? '' : 's'})`
           }
           onChange={setMode}
+          disabled={disabled}
         />
         <ModeRadio
           name={radioName}
@@ -121,7 +124,7 @@ export function MetadataSkills({
           value="specific"
           label="Specific skills"
           onChange={setMode}
-          disabled={projectAllowsNone}
+          disabled={disabled || projectAllowsNone}
         />
         {localMode === 'specific' && (
           <div className="pl-6">
@@ -133,11 +136,15 @@ export function MetadataSkills({
             {!loading && !error && options.length > 0 && (
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
                 {options.map(s => (
-                  <label key={s.name} className="flex items-start gap-2 cursor-pointer">
+                  <label
+                    key={s.name}
+                    className={`flex items-start gap-2 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
                     <input
                       type="checkbox"
                       checked={selected.has(s.name)}
                       onChange={() => toggle(s.name)}
+                      disabled={disabled}
                       className="mt-0.5 accent-[var(--green)]"
                     />
                     <span className="text-sm leading-tight" style={{ color: 'var(--fg)' }}>
@@ -155,7 +162,13 @@ export function MetadataSkills({
           value="none"
           label="Mount no skills"
           onChange={setMode}
+          disabled={disabled}
         />
+        {disabled && (
+          <div className="bf-locked-banner">
+            🔒 {lockedReason ?? 'Skills locked once the workflow has started'}
+          </div>
+        )}
       </div>
     </section>
   );

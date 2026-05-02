@@ -25,7 +25,7 @@ interface BuildCardPanelTabsOptions {
   branches: string[];
   branchesLoading: boolean;
   branchesError: boolean;
-  editingLocked: boolean;
+  automationLocked: boolean;
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
   forcedFeatureBranch: boolean;
@@ -37,9 +37,12 @@ interface BuildCardPanelTabsOptions {
 /**
  * Assembles the rail tab registry. Each tab's `content` is a dedicated
  * component so the JSX tree stays shallow and each tab can be updated or
- * memoised independently. The chat tab is only pushed when an HITL run
- * is active — the `defaultTab` shifts with it so freshly opening an
- * HITL-running card lands on the chat by default.
+ * memoised independently. The chat tab is pushed whenever a transcript
+ * exists (live HITL or replayed history) so the conversation stays
+ * accessible after finalize / autonomous promotion. The pulse indicator
+ * is only rendered while HITL is live; `defaultTab` still flips to chat
+ * only on a live session so freshly opening a finalized card lands on
+ * Automation by default.
  *
  * Not a hook: no state, no effects — a pure builder. Named `buildCardPanelTabs`
  * so React/ESLint hook rules and readers don't mistake it for one.
@@ -49,19 +52,22 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
   defaultTab: RailTabKey;
 } {
   const tabs: RailTab[] = [];
+  const isSubtask = opts.card.type === 'subtask';
 
-  if (opts.isHITLRunning) {
+  if (!isSubtask && (opts.isHITLRunning || opts.cardLogs.length > 0)) {
     tabs.push({
       key: 'chat',
       label: 'Chat',
-      indicator: (
+      indicator: opts.isHITLRunning ? (
         <span
           className="inline-block w-2 h-2 rounded-full animate-pulse"
           style={{ backgroundColor: 'var(--aqua)' }}
           aria-hidden="true"
         />
+      ) : undefined,
+      content: (
+        <ChatTab card={opts.card} cardLogs={opts.cardLogs} />
       ),
-      content: <ChatTab card={opts.card} cardLogs={opts.cardLogs} />,
     });
   }
 
@@ -76,7 +82,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         branches={opts.branches}
         branchesLoading={opts.branchesLoading}
         branchesError={opts.branchesError}
-        editingLocked={opts.editingLocked}
+        editingLocked={opts.automationLocked}
         automationLockedReason={opts.automationLockedReason}
         forcedFeatureBranch={opts.forcedFeatureBranch}
         forcedCreatePR={opts.forcedCreatePR}

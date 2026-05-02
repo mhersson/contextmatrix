@@ -89,10 +89,18 @@ export function useRunnerLogs({
     es.onopen = () => {
       setConnected(true);
       setError(null);
-      reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      // Backoff is reset on the FIRST received message rather than
+      // here. An accept-then-close server would otherwise tight-loop
+      // reconnect at 1 s and defeat the backoff ladder.
     };
 
     es.onmessage = (event) => {
+      // First frame on this connection — only now is it safe to reset
+      // the reconnect delay; an accept-then-close upstream cannot
+      // produce one.
+      if (reconnectDelayRef.current !== INITIAL_RECONNECT_DELAY) {
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      }
       try {
         const data = JSON.parse(event.data) as Record<string, unknown>;
 
@@ -209,16 +217,23 @@ export function useRunnerLogs({
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // Clear the buffer when opening the stream, or when the stream identity
-  // changes, so a fresh server-snapshot replay does not duplicate entries
-  // left over from a previous open or a previous project/card. Declared
-  // before the connect effect so clear() runs before connect() during the
-  // same commit.
+  // Clear the buffer when the stream identity changes (project/cardId).
+  // Independent of `enabled`: the hook stays mounted across card selections
+  // in ProjectShell, so a card switch with `enabled=false` on both sides
+  // would otherwise leak the previous card's transcript into the newly
+  // opened panel. Declared before the connect effect so clear() runs before
+  // connect() during the same commit.
+  useEffect(() => {
+    clear();
+  }, [project, cardId, clear]);
+
+  // Also clear when re-enabling so a fresh server-snapshot replay does not
+  // pile onto a buffer left full from before the stream was paused.
   useEffect(() => {
     if (enabled) {
       clear();
     }
-  }, [project, cardId, enabled, clear]);
+  }, [enabled, clear]);
 
   useEffect(() => {
     if (enabled) {

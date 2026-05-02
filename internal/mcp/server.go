@@ -70,29 +70,42 @@ func clearWriteDeadlineForStreaming(next http.Handler) http.Handler {
 }
 
 // mcpAuthMiddleware wraps an http.Handler with Bearer token authentication.
+//
+// Every authentication failure returns the same 401 + WWW-Authenticate +
+// constant body. RFC 7235 says "Unauthorized" is the right code for a
+// rejected credential; using 403 leaked a missing-vs-wrong-credential
+// oracle that a probing attacker could exploit. Collapsing the body to
+// a constant matches what CM does on the runner-status / autonomous
+// endpoints.
 func mcpAuthMiddleware(next http.Handler, apiKey string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			http.Error(w, `{"error":"missing Authorization header"}`, http.StatusUnauthorized)
-
-			return
-		}
 
 		const prefix = "Bearer "
-		if !strings.HasPrefix(auth, prefix) {
-			http.Error(w, `{"error":"invalid Authorization format, expected Bearer <key>"}`, http.StatusUnauthorized)
+
+		if auth == "" || !strings.HasPrefix(auth, prefix) {
+			writeMCPAuthFailure(w)
 
 			return
 		}
 
 		token := strings.TrimPrefix(auth, prefix)
 		if subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
-			http.Error(w, `{"error":"invalid API key"}`, http.StatusForbidden)
+			writeMCPAuthFailure(w)
 
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// writeMCPAuthFailure emits the canonical 401 response for any MCP auth
+// failure: header signals the realm, body is a constant string with no
+// detail about which check failed.
+func writeMCPAuthFailure(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="contextmatrix"`)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }

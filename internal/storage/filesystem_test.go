@@ -1262,6 +1262,103 @@ Created by an external writer (e.g. git rebase pulling in a commit).
 	assert.Equal(t, "in_progress", got.State)
 }
 
+func TestFilesystemStoreReadProjectKB(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "_kb", "jira-projects"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pay-q3", "kb"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "repos", "auth-svc.md"), []byte("# auth-svc\nstuff"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "repos", "billing-svc.md"), []byte("# billing-svc\nmore"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "jira-projects", "PAY.md"), []byte("# PAY\nepic context"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pay-q3", "kb", "project.md"), []byte("# Q3 epic\nspecific"), 0o644))
+
+	project := &board.ProjectConfig{
+		Name:           "pay-q3",
+		JiraProjectKey: "PAY",
+		Repos: []board.RepoSpec{
+			{Slug: "auth-svc", URL: "https://github.com/acme/auth-svc.git"},
+			{Slug: "billing-svc", URL: "https://github.com/acme/billing-svc.git"},
+			{Slug: "web-frontend", URL: "https://github.com/acme/web.git"},
+		},
+	}
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+	kb, err := store.ReadProjectKB(context.Background(), project)
+	require.NoError(t, err)
+	require.Len(t, kb.Repos, 2, "only repos with files in _kb/repos/")
+	require.Contains(t, kb.Repos["auth-svc"], "stuff")
+	require.Contains(t, kb.Repos["billing-svc"], "more")
+	require.NotContains(t, kb.Repos, "web-frontend")
+	require.Contains(t, kb.JiraProject, "epic context")
+	require.Contains(t, kb.Project, "specific")
+}
+
+func TestFilesystemStoreReadProjectKBSingleRepoFilter(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "repos", "auth-svc.md"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "repos", "billing-svc.md"), []byte("b"), 0o644))
+
+	project := &board.ProjectConfig{
+		Name: "p",
+		Repos: []board.RepoSpec{
+			{Slug: "auth-svc"}, {Slug: "billing-svc"},
+		},
+	}
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+	kb, err := store.ReadProjectKB(context.Background(), project, "auth-svc")
+	require.NoError(t, err)
+	require.Len(t, kb.Repos, 1)
+	require.Contains(t, kb.Repos, "auth-svc")
+}
+
+func TestFilesystemStoreReadProjectKBEmpty(t *testing.T) {
+	// No _kb/ directory at all → empty KB, no error.
+	dir := t.TempDir()
+
+	project := &board.ProjectConfig{
+		Name:  "p",
+		Repos: []board.RepoSpec{{Slug: "auth-svc"}},
+	}
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+	kb, err := store.ReadProjectKB(context.Background(), project)
+	require.NoError(t, err)
+	require.True(t, kb.IsEmpty())
+}
+
+func TestFilesystemStoreReadProjectKBNilProject(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	_, err = store.ReadProjectKB(context.Background(), nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "project is nil")
+}
+
+func TestFilesystemStoreReadProjectKBFilterIgnoresUnknownSlug(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_kb", "repos", "auth-svc.md"), []byte("a"), 0o644))
+
+	project := &board.ProjectConfig{
+		Name:  "p",
+		Repos: []board.RepoSpec{{Slug: "auth-svc"}},
+	}
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+	// Filter contains a slug not in the registry — must be silently dropped.
+	kb, err := store.ReadProjectKB(context.Background(), project, "auth-svc", "not-in-registry")
+	require.NoError(t, err)
+	require.Len(t, kb.Repos, 1)
+	require.Contains(t, kb.Repos, "auth-svc")
+}
+
 // BenchmarkListCards_500Cards measures ListCards throughput with a warm cache.
 func BenchmarkListCards_500Cards(b *testing.B) {
 	dir := b.TempDir()

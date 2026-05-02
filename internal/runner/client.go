@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -39,34 +40,11 @@ type TriggerPayload struct {
 	RunnerImage string    `json:"runner_image,omitempty"`
 	BaseBranch  string    `json:"base_branch,omitempty"`
 	Interactive bool      `json:"interactive,omitempty"`
-	Model       string    `json:"model,omitempty"`
 	TaskSkills  *[]string `json:"task_skills,omitempty"`
 }
 
 // KillPayload is sent to the runner to stop a specific task.
 type KillPayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// MessagePayload is sent to the runner to deliver a human message to a running task.
-type MessagePayload struct {
-	CardID    string `json:"card_id"`
-	Project   string `json:"project"`
-	Content   string `json:"content"`
-	MessageID string `json:"message_id"`
-}
-
-// PromotePayload is sent to the runner to promote a task from interactive pause to completion.
-type PromotePayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// EndSessionPayload is sent to the runner to close the stdin of an interactive
-// container so claude exits on EOF. Used when a released card reaches a
-// terminal state.
-type EndSessionPayload struct {
 	CardID  string `json:"card_id"`
 	Project string `json:"project"`
 }
@@ -118,7 +96,6 @@ type listContainersResponseWire struct {
 type WebhookResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
 }
 
 // Client sends signed webhooks to the contextmatrix-runner.
@@ -150,22 +127,6 @@ func (c *Client) Kill(ctx context.Context, p KillPayload) error {
 // StopAll sends a stop-all webhook to stop all tasks.
 func (c *Client) StopAll(ctx context.Context, p StopAllPayload) error {
 	return c.send(ctx, c.baseURL+"/stop-all", p)
-}
-
-// Message sends a human message to a running interactive task.
-func (c *Client) Message(ctx context.Context, p MessagePayload) error {
-	return c.send(ctx, c.baseURL+"/message", p)
-}
-
-// Promote sends a promote webhook to signal that an interactive task may proceed.
-func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
-	return c.send(ctx, c.baseURL+"/promote", p)
-}
-
-// EndSession sends an end-session webhook so the runner closes the container's
-// stdin; claude receives EOF and exits, ending the interactive session.
-func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
-	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
 // ListContainers queries the runner's /containers endpoint for every Docker
@@ -372,7 +333,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 		// Runner explicitly rejected — do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
-			body:       parsed.Error,
+			body:       parsed.Message,
 			clientErr:  true,
 		}
 	}
@@ -407,4 +368,23 @@ func isClientError(err error) bool {
 	}
 
 	return false
+}
+
+// IsDuplicateRequest returns true when the runner rejected a webhook with
+// CodeDuplicate (HTTP 409 + code:"duplicate"), meaning the same signed
+// request had already been accepted within the replay-cache window. For
+// idempotent calls like /kill this is functionally success — the prior call
+// did the work — so the caller can downgrade the log line and avoid
+// alerting operators on a benign double-fire.
+func IsDuplicateRequest(err error) bool {
+	var we *webhookError
+	if !errors.As(err, &we) {
+		return false
+	}
+
+	if we.statusCode != http.StatusConflict {
+		return false
+	}
+
+	return strings.Contains(we.body, `"code":"duplicate"`)
 }

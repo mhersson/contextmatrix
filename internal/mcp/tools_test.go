@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -137,6 +139,68 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 		var updated board.Card
 		unmarshalResult(t, result, &updated)
 		assert.Contains(t, updated.Body, "runner update without agent_id")
+	})
+}
+
+// TestUpdateCard_FSMStateFields confirms the orchestrated runner can
+// persist its FSM resume state through update_card so a runner restart
+// resumes at the correct phase. Before the schema was extended these
+// fields were silently dropped and the runner replayed phases from
+// scratch on every restart.
+func TestUpdateCard_FSMStateFields(t *testing.T) {
+	t.Run("all FSM state fields persist", func(t *testing.T) {
+		env := setupMCP(t)
+		createTestCard(t, env, "FSM state plumbing", "task", "medium")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":            "test-project",
+			"card_id":            "TEST-001",
+			"revision_attempts":  2,
+			"discovery_complete": true,
+			"plan_approved":      true,
+			"review_approved":    true,
+			"revision_requested": true,
+			"docs_written":       true,
+		})
+		require.False(t, resultIsError(result, err), "update_card with FSM fields should succeed")
+
+		var updated board.Card
+		unmarshalResult(t, result, &updated)
+		assert.Equal(t, 2, updated.RevisionAttempts)
+		assert.True(t, updated.DiscoveryComplete)
+		assert.True(t, updated.PlanApproved)
+		assert.True(t, updated.ReviewApproved)
+		assert.True(t, updated.RevisionRequested)
+		assert.True(t, updated.DocsWritten)
+	})
+
+	t.Run("revision_attempts cannot move backwards", func(t *testing.T) {
+		env := setupMCP(t)
+		createTestCard(t, env, "Monotonic revision attempts", "task", "medium")
+
+		// First push the counter forward.
+		fwdResult, fwdErr := callToolRaw(t, env, "update_card", map[string]any{
+			"card_id":           "TEST-001",
+			"revision_attempts": 3,
+		})
+		require.False(t, resultIsError(fwdResult, fwdErr))
+
+		// Backwards write must be rejected.
+		bwdResult, bwdErr := callToolRaw(t, env, "update_card", map[string]any{
+			"card_id":           "TEST-001",
+			"revision_attempts": 1,
+		})
+		require.True(t, resultIsError(bwdResult, bwdErr),
+			"backwards revision_attempts must be rejected")
+		assert.Contains(t, errorText(bwdResult, bwdErr), "monotonically")
+
+		// And the value must still be 3.
+		getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+
+		var card board.Card
+
+		unmarshalResult(t, getResult, &card)
+		assert.Equal(t, 3, card.RevisionAttempts)
 	})
 }
 
@@ -322,6 +386,113 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 	})
 }
 
+func TestHITLMarkerTools_ReturnAcknowledged(t *testing.T) {
+	t.Run("discovery_complete", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "discovery marker", "task", "medium")
+		result := callTool(t, env, "discovery_complete", map[string]any{
+			"project":        "test-project",
+			"card_id":        card.ID,
+			"design_summary": "REST API with two endpoints",
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("plan_complete", func(t *testing.T) {
+		// plan_complete is a thin terminal signal; structured plan
+		// data lives in the card body's `## Plan` fenced JSON block
+		// (written via update_card). Tool input is just card_id and
+		// an optional summary for the activity log.
+		env := setupMCP(t)
+		card := createTestCard(t, env, "plan marker", "task", "medium")
+		result := callTool(t, env, "plan_complete", map[string]any{
+			"project":      "test-project",
+			"card_id":      card.ID,
+			"plan_summary": "decompose into 2 subtasks",
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("review_approve", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review approve marker", "task", "medium")
+		result := callTool(t, env, "review_approve", map[string]any{
+			"project": "test-project",
+			"card_id": card.ID,
+			"summary": "looks good",
+		})
+		require.False(t, result.IsError)
+	})
+
+	t.Run("review_revise", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review revise marker", "task", "medium")
+
+		callTool(t, env, "claim_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-A",
+		})
+		callTool(t, env, "transition_card", map[string]any{
+			"project":   "test-project",
+			"card_id":   card.ID,
+			"agent_id":  "agent-A",
+			"new_state": "review",
+		})
+
+		result := callTool(t, env, "review_revise", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-A",
+			"summary":  "needs work",
+			"feedback": "use REST not GraphQL",
+		})
+		require.False(t, result.IsError)
+
+		got := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
+		require.False(t, got.IsError)
+
+		var refreshed board.Card
+		unmarshalResult(t, got, &refreshed)
+		assert.Equal(t, "in_progress", refreshed.State,
+			"review_revise must transition the card back to in_progress so the orchestrator can re-run with new subtasks")
+	})
+
+	t.Run("review_revise rejects non-owner agent", func(t *testing.T) {
+		env := setupMCP(t)
+		card := createTestCard(t, env, "review revise mismatch", "task", "medium")
+
+		callTool(t, env, "claim_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "owner",
+		})
+		callTool(t, env, "transition_card", map[string]any{
+			"project":   "test-project",
+			"card_id":   card.ID,
+			"agent_id":  "owner",
+			"new_state": "review",
+		})
+
+		result := callTool(t, env, "review_revise", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "intruder",
+			"summary":  "should fail",
+			"feedback": "nope",
+		})
+		require.True(t, result.IsError, "non-owner agent must be rejected")
+
+		got := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
+		require.False(t, got.IsError)
+
+		var refreshed board.Card
+		unmarshalResult(t, got, &refreshed)
+		assert.Equal(t, "review", refreshed.State,
+			"failed review_revise must leave the card in review")
+	})
+}
+
 // TestStartReview_HappyPath verifies the fused transition + skill-load: claim
 // auto-transitions to in_progress, then start_review moves the card to review
 // AND returns the review-task skill in one call.
@@ -473,4 +644,116 @@ func TestStartReview_MissingCard(t *testing.T) {
 	})
 
 	require.True(t, resultIsError(result, err), "start_review for unknown card must fail")
+}
+
+// TestGetProjectKBRoundTrip verifies the full KB flow: per-repo and
+// jira-project layers are returned when their files exist on disk and the
+// project's registry/JiraProjectKey are configured.
+func TestGetProjectKBRoundTrip(t *testing.T) {
+	env := setupMCP(t)
+
+	// Update test-project config with Repos + JiraProjectKey
+	cfg, err := env.store.GetProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	cfg.JiraProjectKey = "PAY"
+	cfg.Repos = []board.RepoSpec{
+		{Slug: "r1", URL: "https://example.com/r1.git"},
+	}
+	require.NoError(t, env.store.SaveProject(context.Background(), cfg))
+
+	// Drop KB files into the boards dir.
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "jira-projects"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r1.md"), []byte("# r1 kb\nworld"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "jira-projects", "PAY.md"), []byte("# PAY"), 0o644))
+
+	result := callTool(t, env, "get_project_kb", map[string]any{
+		"project": "test-project",
+	})
+	require.False(t, result.IsError)
+
+	var out getProjectKBOutput
+	unmarshalResult(t, result, &out)
+	require.Contains(t, out.Repos, "r1")
+	assert.Contains(t, out.Repos["r1"], "world")
+	assert.Contains(t, out.JiraProject, "PAY")
+}
+
+// TestGetProjectKBWithRepoFilter verifies the optional repo_slug input
+// narrows the per-repo layer to a single registered slug.
+func TestGetProjectKBWithRepoFilter(t *testing.T) {
+	env := setupMCP(t)
+
+	cfg, err := env.store.GetProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	cfg.Repos = []board.RepoSpec{
+		{Slug: "r1", URL: "https://example.com/r1.git"},
+		{Slug: "r2", URL: "https://example.com/r2.git"},
+	}
+	require.NoError(t, env.store.SaveProject(context.Background(), cfg))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(env.boardsDir, "_kb", "repos"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r1.md"), []byte("r1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(env.boardsDir, "_kb", "repos", "r2.md"), []byte("r2"), 0o644))
+
+	result := callTool(t, env, "get_project_kb", map[string]any{
+		"project":   "test-project",
+		"repo_slug": "r1",
+	})
+	require.False(t, result.IsError)
+
+	var out getProjectKBOutput
+	unmarshalResult(t, result, &out)
+	require.Len(t, out.Repos, 1)
+	assert.Contains(t, out.Repos, "r1")
+	assert.NotContains(t, out.Repos, "r2")
+}
+
+// TestGetProjectKBProjectMissing verifies the tool surfaces an error when
+// the named project does not exist.
+func TestGetProjectKBProjectMissing(t *testing.T) {
+	env := setupMCP(t)
+	result, err := callToolRaw(t, env, "get_project_kb", map[string]any{
+		"project": "no-such-project",
+	})
+	require.True(t, resultIsError(result, err))
+}
+
+// TestGetProjectKBProjectRequired verifies that omitting the project field is
+// rejected.
+func TestGetProjectKBProjectRequired(t *testing.T) {
+	env := setupMCP(t)
+	result, err := callToolRaw(t, env, "get_project_kb", map[string]any{})
+	require.True(t, resultIsError(result, err))
+}
+
+// TestReportPushAcceptsRepo verifies the MCP report_push tool forwards the
+// new repo field through to the service layer and that one PushRecord is
+// appended per call.
+func TestReportPushAcceptsRepo(t *testing.T) {
+	env := setupMCP(t)
+	createTestCard(t, env, "Repo push", "task", "medium")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-1",
+	})
+
+	result := callTool(t, env, "report_push", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-1",
+		"repo":     "auth-svc",
+		"branch":   "cm/TEST-001",
+		"pr_url":   "https://github.com/acme/auth-svc/pull/42",
+	})
+	require.False(t, result.IsError, errorText(result, nil))
+
+	card, err := env.svc.GetCard(context.Background(), "test-project", "TEST-001")
+	require.NoError(t, err)
+	require.Len(t, card.PushRecords, 1)
+	assert.Equal(t, "auth-svc", card.PushRecords[0].Repo)
 }

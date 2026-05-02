@@ -17,6 +17,7 @@ import (
 // registerTools adds all MCP tools to the server.
 func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
 	registerListProjects(server, svc)
+	registerGetProjectKB(server, svc)
 	registerListCards(server, svc)
 	registerGetCard(server, svc)
 	registerCreateCard(server, svc)
@@ -42,6 +43,10 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
+	registerDiscoveryComplete(server, svc)
+	registerPlanComplete(server, svc)
+	registerReviewApprove(server, svc)
+	registerReviewRevise(server, svc)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
@@ -111,6 +116,18 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
+	// Runner-only FSM state fields. The orchestrated runner persists its
+	// resume state so a restart mid-flight returns to the right phase
+	// instead of replaying from scratch. Human users should leave these
+	// alone; the fields are still accepted because the MCP transport
+	// has no per-field auth and a runner-supplied agent_id already
+	// controls who can write.
+	RevisionAttempts  *int  `json:"revision_attempts,omitempty"  jsonschema:"runner-only: monotonic counter of revise→replan→execute cycles; rejects values lower than the current count"`
+	DiscoveryComplete *bool `json:"discovery_complete,omitempty" jsonschema:"runner-only: brainstorm/diagnose phase completed"`
+	PlanApproved      *bool `json:"plan_approved,omitempty"      jsonschema:"runner-only: planning phase converged on an accepted plan"`
+	ReviewApproved    *bool `json:"review_approved,omitempty"    jsonschema:"runner-only: review phase recommended approve"`
+	RevisionRequested *bool `json:"revision_requested,omitempty" jsonschema:"runner-only: review phase recommended revise; replan is pending"`
+	DocsWritten       *bool `json:"docs_written,omitempty"       jsonschema:"runner-only: documentation phase emitted DOCS_WRITTEN"`
 }
 
 type transitionCardInput struct {
@@ -199,6 +216,17 @@ type getReadyTasksOutput struct {
 	Cards []*board.Card `json:"cards"`
 }
 
+type getProjectKBInput struct {
+	Project  string `json:"project" jsonschema:"required,project name"`
+	RepoSlug string `json:"repo_slug,omitempty" jsonschema:"optional repo slug to narrow per-repo content"`
+}
+
+type getProjectKBOutput struct {
+	Repos       map[string]string `json:"repos,omitempty"`
+	JiraProject string            `json:"jira_project,omitempty"`
+	Project     string            `json:"project,omitempty"`
+}
+
 // --- Tool registrations ---
 
 func registerListProjects(server *mcp.Server, svc *service.CardService) {
@@ -212,6 +240,33 @@ func registerListProjects(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, listProjectsOutput{Projects: projects}, nil
+	})
+}
+
+func registerGetProjectKB(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_project_kb",
+		Description: "Returns the tiered knowledge-base content for a project: per-repo notes, Jira-project-level context, and project-specific notes. Empty layers are omitted. Optional repo_slug narrows the per-repo content.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getProjectKBInput) (*mcp.CallToolResult, getProjectKBOutput, error) {
+		if in.Project == "" {
+			return nil, getProjectKBOutput{}, fmt.Errorf("project is required")
+		}
+
+		var filter []string
+		if in.RepoSlug != "" {
+			filter = []string{in.RepoSlug}
+		}
+
+		kb, err := svc.GetProjectKB(ctx, in.Project, filter...)
+		if err != nil {
+			return nil, getProjectKBOutput{}, fmt.Errorf("get project kb %s: %w", in.Project, err)
+		}
+
+		return nil, getProjectKBOutput{
+			Repos:       kb.Repos,
+			JiraProject: kb.JiraProject,
+			Project:     kb.Project,
+		}, nil
 	})
 }
 
@@ -321,12 +376,18 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		}
 
 		patchInput := service.PatchCardInput{
-			AgentID:  input.AgentID,
-			Title:    input.Title,
-			Priority: input.Priority,
-			Labels:   input.Labels,
-			Skills:   input.Skills,
-			Body:     input.Body,
+			AgentID:           input.AgentID,
+			Title:             input.Title,
+			Priority:          input.Priority,
+			Labels:            input.Labels,
+			Skills:            input.Skills,
+			Body:              input.Body,
+			RevisionAttempts:  input.RevisionAttempts,
+			DiscoveryComplete: input.DiscoveryComplete,
+			PlanApproved:      input.PlanApproved,
+			ReviewApproved:    input.ReviewApproved,
+			RevisionRequested: input.RevisionRequested,
+			DocsWritten:       input.DocsWritten,
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
@@ -1097,6 +1158,7 @@ type reportPushInput struct {
 	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
+	Repo    string `json:"repo,omitempty" jsonschema:"repo slug from project registry; optional for single-repo projects"`
 	Branch  string `json:"branch" jsonschema:"required,git branch that was pushed to"`
 	PRUrl   string `json:"pr_url,omitempty" jsonschema:"pull request URL if created"`
 }
@@ -1149,7 +1211,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 
 		branch := strings.TrimSpace(input.Branch)
 
-		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, branch, input.PRUrl)
+		card, err := svc.RecordPush(ctx, project, input.CardID, input.AgentID, input.Repo, branch, input.PRUrl)
 		if err != nil {
 			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)
 		}
@@ -1186,5 +1248,105 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, card, nil
+	})
+}
+
+// --- HITL chat-loop terminal-marker tools ---
+//
+// The runner's claudeclient.RecognizeFromToolUse intercepts the tool_use
+// event from Claude's stream as a gate signal — these MCP handlers exist
+// only so the corresponding server-side response is non-error (otherwise
+// Claude surfaces a tool-failure message that confuses the agent).
+// CM persists no state for them; the runner is the consumer.
+
+type discoveryCompleteInput struct {
+	Project       string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID        string `json:"card_id"          jsonschema:"required,card identifier"`
+	DesignSummary string `json:"design_summary"   jsonschema:"required,one-paragraph summary of the agreed design"`
+}
+
+type planCompleteInput struct {
+	Project     string `json:"project,omitempty"      jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID      string `json:"card_id"                jsonschema:"required,card identifier"`
+	PlanSummary string `json:"plan_summary,omitempty" jsonschema:"one-paragraph summary of the finalized plan; the structured plan lives in the card body's ## Plan section as a fenced JSON block"`
+}
+
+type reviewApproveInput struct {
+	Project string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID  string `json:"card_id"          jsonschema:"required,card identifier"`
+	Summary string `json:"summary"          jsonschema:"required,one-line approval summary"`
+}
+
+type reviewReviseInput struct {
+	Project  string `json:"project,omitempty" jsonschema:"project name (optional; resolved from card_id if absent)"`
+	CardID   string `json:"card_id"           jsonschema:"required,card identifier"`
+	AgentID  string `json:"agent_id"          jsonschema:"required,agent identifier (must own the card claim)"`
+	Summary  string `json:"summary"           jsonschema:"required,one-line revision-required summary"`
+	Feedback string `json:"feedback"          jsonschema:"required,detailed feedback driving the next replan"`
+}
+
+func registerDiscoveryComplete(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "discovery_complete",
+		Description: "Signal that the brainstorming chat has converged on an agreed design. Call this only after the user has explicitly approved. The orchestrator persists the design and proceeds to planning.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input discoveryCompleteInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerPlanComplete(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "plan_complete",
+		Description: "Signal that the planning chat has converged on a finalized plan. Call this only after the user has explicitly approved. The structured plan must already be in the card body's ## Plan section as a fenced ```json block (written via update_card). The runner reads the body; this tool call is just the terminal signal — pass {card_id} only.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input planCompleteInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerReviewApprove(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "review_approve",
+		Description: "Signal that the review chat has converged on approval. Call this only after the user has explicitly approved. The orchestrator proceeds to finalize (push branches, open PR).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reviewApproveInput) (*mcp.CallToolResult, any, error) {
+		if _, err := resolveProject(ctx, svc, input.Project, input.CardID); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
+	})
+}
+
+func registerReviewRevise(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "review_revise",
+		Description: "Signal that the review chat requires a revision pass. Call this only after the user has " +
+			"explicitly asked for changes. Atomically transitions the card from 'review' back to 'in_progress' so " +
+			"the orchestrator can re-run replan/execute with the new feedback. Caller must own the card claim " +
+			"(agent_id is required and is verified against the assigned agent). Feedback is the detailed change " +
+			"request the replan agent will read.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reviewReviseInput) (*mcp.CallToolResult, any, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		newState := board.StateInProgress
+
+		if _, err := svc.PatchCard(ctx, project, input.CardID, service.PatchCardInput{
+			AgentID: input.AgentID,
+			State:   &newState,
+		}); err != nil {
+			return nil, nil, fmt.Errorf("review_revise transition for %s: %w", input.CardID, err)
+		}
+
+		return nil, map[string]string{"status": "acknowledged"}, nil
 	})
 }

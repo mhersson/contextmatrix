@@ -9,7 +9,6 @@ interface ColumnProps {
   collapsed?: boolean;
   onToggleCollapse?: (state: string) => void;
   onCardClick?: (card: Card) => void;
-  onCreateCard?: (state: string) => void;
   activeCardState?: string | null;
   flashCardId?: string | null;
   collapsedCards?: Set<string>;
@@ -26,7 +25,7 @@ function formatStateName(state: string): string {
     .join(' ');
 }
 
-export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, onCreateCard, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick }: ColumnProps) {
+export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -144,18 +143,6 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 20l7-7 7 7" />
                 </svg>
               )}
-            </button>
-          )}
-          {onCreateCard && (
-            <button
-              onClick={() => onCreateCard(state)}
-              className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--green)] hover:bg-[var(--bg2)] transition-colors"
-              title="New card"
-              aria-label={`Create new card in ${formatStateName(state)}`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
             </button>
           )}
           <span className="chip-pill" style={{ backgroundColor: 'var(--bg2)', color: 'var(--grey1)' }}>

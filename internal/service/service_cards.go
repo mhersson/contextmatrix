@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,66 +23,73 @@ import (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title               string
-	Type                string
-	Priority            string
-	Labels              []string
-	Parent              string
-	Body                string
-	Source              *board.Source // Optional, immutable after creation
-	Autonomous          bool
-	UseOpusOrchestrator bool
-	FeatureBranch       bool
-	CreatePR            bool
-	Vetted              bool
-	Skills              *[]string
+	Title         string
+	Type          string
+	Priority      string
+	Labels        []string
+	Parent        string
+	Body          string
+	Source        *board.Source // Optional, immutable after creation
+	Autonomous    bool
+	FeatureBranch bool
+	CreatePR      bool
+	Vetted        bool
+	Skills        *[]string
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
 // Immutable fields (id, project, created, source) are not included.
 // Value types match PUT's full-replacement semantics (omitted = zero value).
 type UpdateCardInput struct {
-	Title               string
-	Type                string
-	State               string
-	Priority            string
-	Labels              []string
-	Parent              string
-	Subtasks            []string
-	DependsOn           []string
-	Context             []string
-	Custom              map[string]any
-	Body                string
-	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous          bool
-	UseOpusOrchestrator bool
-	FeatureBranch       bool
-	CreatePR            bool
-	Vetted              bool
-	Skills              *[]string
+	Title           string
+	Type            string
+	State           string
+	Priority        string
+	Labels          []string
+	Parent          string
+	Subtasks        []string
+	DependsOn       []string
+	Context         []string
+	Custom          map[string]any
+	Body            string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      bool
+	FeatureBranch   bool
+	CreatePR        bool
+	Vetted          bool
+	Skills          *[]string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
-	Title               *string
-	State               *string
-	Priority            *string
-	Labels              []string // nil = don't change, empty slice = clear
-	Body                *string
-	ImmediateCommit     bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous          *bool
-	UseOpusOrchestrator *bool
-	FeatureBranch       *bool
-	CreatePR            *bool
-	Vetted              *bool
-	Skills              *[]string // nil = don't change; non-nil = set (empty allowed)
+	Title           *string
+	Type            *string
+	State           *string
+	Priority        *string
+	Labels          []string // nil = don't change, empty slice = clear
+	Body            *string
+	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous      *bool
+	FeatureBranch   *bool
+	CreatePR        *bool
+	Vetted          *bool
+	Skills          *[]string // nil = don't change; non-nil = set (empty allowed)
 	// SkillsClear, when true, explicitly resets Skills to nil. Needed
 	// because pure JSON cannot distinguish "skills field omitted" from
 	// "skills: null" (Go decodes both as nil pointer); without this the
 	// UI cannot move a card back to "use project default" via PATCH.
 	SkillsClear bool
 	BaseBranch  *string
+	// FSM state fields written by the orchestrated runner so a restart
+	// mid-flight resumes at the right phase instead of replaying from
+	// scratch. RevisionAttempts is rejected if it tries to move backwards.
+	RevisionAttempts  *int
+	DiscoveryComplete *bool
+	PlanApproved      *bool
+	ReviewApproved    *bool
+	RevisionRequested *bool
+	DocsWritten       *bool
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -98,9 +106,6 @@ type CardContext struct {
 
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
 var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
-
-// ErrSourceImmutable is returned when an update attempts to change a card's source after creation.
-var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
 
 // branchNameSlugPattern matches anything that's not lowercase alphanumeric.
 var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -170,7 +175,7 @@ func decodePageCursor(cursor string) (string, error) {
 
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidCursor, err)
 	}
 
 	return string(raw), nil
@@ -309,24 +314,23 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// Build card
 	now := time.Now()
 	card := &board.Card{
-		ID:                  cardID,
-		Title:               input.Title,
-		Project:             project,
-		Type:                cardType,
-		State:               cfg.States[0], // Default to first state
-		Priority:            input.Priority,
-		Labels:              input.Labels,
-		Parent:              parentID,
-		Source:              input.Source,
-		Autonomous:          input.Autonomous,
-		UseOpusOrchestrator: input.UseOpusOrchestrator,
-		FeatureBranch:       input.FeatureBranch,
-		CreatePR:            input.CreatePR,
-		Vetted:              input.Vetted,
-		Skills:              input.Skills,
-		Created:             now,
-		Updated:             now,
-		Body:                input.Body,
+		ID:            cardID,
+		Title:         input.Title,
+		Project:       project,
+		Type:          cardType,
+		State:         cfg.States[0], // Default to first state
+		Priority:      input.Priority,
+		Labels:        input.Labels,
+		Parent:        parentID,
+		Source:        input.Source,
+		Autonomous:    input.Autonomous,
+		FeatureBranch: input.FeatureBranch,
+		CreatePR:      input.CreatePR,
+		Vetted:        input.Vetted,
+		Skills:        input.Skills,
+		Created:       now,
+		Updated:       now,
+		Body:          input.Body,
 	}
 
 	enforceVettingInvariant(card)
@@ -562,7 +566,6 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.Custom = input.Custom
 		card.Body = input.Body
 		card.Autonomous = input.Autonomous
-		card.UseOpusOrchestrator = input.UseOpusOrchestrator
 		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
@@ -649,6 +652,40 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.Title = *input.Title
 		}
 
+		if input.Type != nil && *input.Type != card.Type {
+			newType := *input.Type
+			// Subtask type is reserved: it is auto-set when a card is created
+			// with a parent and is immutable thereafter.
+			if newType == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "type 'subtask' cannot be set directly; create the card with a parent instead",
+				}
+			}
+
+			if card.Type == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "subtask cards cannot change type",
+				}
+			}
+
+			if !slices.Contains(cfg.Types, newType) {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: fmt.Sprintf("type %q not in project's allowed types %v", newType, cfg.Types),
+				}
+			}
+
+			card.Type = newType
+		}
+
 		if input.State != nil {
 			newState := *input.State
 			if newState != oldState {
@@ -683,10 +720,6 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.Autonomous = *input.Autonomous
 		}
 
-		if input.UseOpusOrchestrator != nil {
-			card.UseOpusOrchestrator = *input.UseOpusOrchestrator
-		}
-
 		if input.FeatureBranch != nil {
 			card.FeatureBranch = *input.FeatureBranch
 			// BranchName is immutable after first generation — only set when empty.
@@ -719,6 +752,39 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BaseBranch != nil {
 			card.BaseBranch = *input.BaseBranch
+		}
+
+		// FSM state plumbing: only the orchestrated runner writes these.
+		// RevisionAttempts is monotonic — rejecting a backwards write
+		// stops a stale resume from clobbering progress made by a more
+		// recent run.
+		if input.RevisionAttempts != nil {
+			if *input.RevisionAttempts < card.RevisionAttempts {
+				return fmt.Errorf("revision_attempts must be monotonically non-decreasing: have %d, got %d",
+					card.RevisionAttempts, *input.RevisionAttempts)
+			}
+
+			card.RevisionAttempts = *input.RevisionAttempts
+		}
+
+		if input.DiscoveryComplete != nil {
+			card.DiscoveryComplete = *input.DiscoveryComplete
+		}
+
+		if input.PlanApproved != nil {
+			card.PlanApproved = *input.PlanApproved
+		}
+
+		if input.ReviewApproved != nil {
+			card.ReviewApproved = *input.ReviewApproved
+		}
+
+		if input.RevisionRequested != nil {
+			card.RevisionRequested = *input.RevisionRequested
+		}
+
+		if input.DocsWritten != nil {
+			card.DocsWritten = *input.DocsWritten
 		}
 
 		return nil
@@ -863,6 +929,26 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
 	id = strings.ToUpper(id)
 
+	// Normalize skill_engaged entries: rewrite a parent-orchestrator
+	// runner agent to the per-card runner, and strip the legacy
+	// "engaged " prefix from the message so the action+message read as
+	// "skill_engaged — <skill>". Also populate the Skill field from
+	// the normalized message when the caller didn't set it explicitly
+	// — agent-driven add_log calls (Path A) carry the skill name in
+	// the message string only, but downstream consumers (rollup
+	// dedupe, UI badges, the assertSkillEngaged integration check)
+	// read the structured Skill field. Without this, the two recording
+	// paths (add_log vs RecordSkillEngaged) produce inconsistent
+	// shapes for the same logical event.
+	if entry.Action == "skill_engaged" {
+		entry.Agent = normalizeSkillEngagedActor(entry.Agent, id)
+		entry.Message = normalizeSkillEngagedMessage(entry.Message)
+
+		if entry.Skill == "" {
+			entry.Skill = entry.Message
+		}
+	}
+
 	if len(entry.Message) > maxLogMessage {
 		return fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
 	}
@@ -889,8 +975,10 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return fmt.Errorf("get card snapshot: %w", err)
 	}
 
-	// Verify agent ownership.
-	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+	// Verify agent ownership. The skill_engaged normalization above may
+	// have rewritten entry.Agent — bypass the ownership check for that
+	// action so the rewrite doesn't trip the assigned-agent guard.
+	if entry.Action != "skill_engaged" && card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
 		s.writeMu.Unlock()
 
 		return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -936,6 +1024,82 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		Type:      events.CardLogAdded,
 		Project:   project,
 		CardID:    id,
+		Agent:     entry.Agent,
+		Timestamp: entry.Timestamp,
+		Data: map[string]any{
+			"action":  entry.Action,
+			"message": entry.Message,
+		},
+	})
+
+	// Roll up skill_engaged entries onto the parent so an operator
+	// looking at the parent card sees what work the subtask did, with
+	// the subtask's own actor preserved. Best-effort: a rollup failure
+	// must not fail the original add_log call — the subtask entry is
+	// the canonical record.
+	if entry.Action == "skill_engaged" && card.Parent != "" {
+		if err := s.rollupSkillEngagedToParent(ctx, project, card.Parent, entry); err != nil {
+			ctxlog.Logger(ctx).Warn("skill_engaged rollup to parent failed",
+				"project", project, "card_id", id, "parent_id", card.Parent, "error", err)
+		}
+	}
+
+	return nil
+}
+
+// rollupSkillEngagedToParent appends a skill_engaged entry to the parent
+// card so the parent's activity log reflects work done by its subtasks.
+// The entry is stored verbatim — the subtask's own actor is preserved so
+// the parent shows e.g. `runner:SUBTASK-ID — skill_engaged — go-development`
+// instead of misleadingly attributing the engagement to itself.
+func (s *CardService) rollupSkillEngagedToParent(ctx context.Context, project, parentID string, entry board.ActivityEntry) error {
+	parentID = strings.ToUpper(parentID)
+
+	s.writeMu.Lock()
+
+	parent, err := s.store.GetCard(ctx, project, parentID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get parent card: %w", err)
+	}
+
+	parentSnapshot, err := s.store.GetCard(ctx, project, parentID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get parent snapshot: %w", err)
+	}
+
+	parent.ActivityLog = append(parent.ActivityLog, entry)
+	if len(parent.ActivityLog) > maxActivityLogEntries {
+		parent.ActivityLog = parent.ActivityLog[len(parent.ActivityLog)-maxActivityLogEntries:]
+	}
+
+	parent.Updated = time.Now()
+
+	if err := s.store.UpdateCard(ctx, project, parent); err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("update parent card: %w", err)
+	}
+
+	commitDone, notify := s.enqueueCardCommit(ctx, project, parentID, entry.Agent, "log: "+entry.Action+" (rollup)")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, parentSnapshot, err)
+		s.writeMu.Unlock()
+
+		return rollbackErr
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardLogAdded,
+		Project:   project,
+		CardID:    parentID,
 		Agent:     entry.Agent,
 		Timestamp: entry.Timestamp,
 		Data: map[string]any{

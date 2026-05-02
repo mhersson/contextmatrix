@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1393,15 +1392,15 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
 }
 
+// TestMessageCard_HappyPath verifies the response shape (202 + UUID
+// message_id). The legacy stdin webhook fan-out is gone — the orchestrated
+// runner consumes chat_input via the RunnerEventBuffer SSE stream, which
+// TestMessageCard_FansOutChatInputEvent covers separately.
 func TestMessageCard_HappyPath(t *testing.T) {
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
-	var receivedPayload runner.MessagePayload
-
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
-
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
@@ -1432,52 +1431,44 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	assert.True(t, result.OK)
 	// UUID format check: 8-4-4-4-12 hex digits.
 	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, result.MessageID)
-
-	// Verify the forwarded payload.
-	assert.Equal(t, card.ID, receivedPayload.CardID)
-	assert.Equal(t, "test-project", receivedPayload.Project)
-	assert.Equal(t, result.MessageID, receivedPayload.MessageID)
-	assert.Equal(t, "please clarify the task", receivedPayload.Content)
 }
 
-func TestMessageCard_WebhookFailure(t *testing.T) {
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
-
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
-
+func TestMessageCard_FansOutChatInputEvent(t *testing.T) {
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"ok":false,"error":"runner error"}`))
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerCfg:         config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerEventBuffer: buf,
 	})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := strings.NewReader(`{"content":"hello"}`)
+	body := strings.NewReader(`{"content":"hello from human"}`)
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/message", body)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+	evs := buf.Since(card.ID, 0)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "chat_input", evs[0].Type)
+	assert.Equal(t, "hello from human", evs[0].Data)
 }
 
 // --- POST /api/projects/{project}/cards/{id}/promote ---
@@ -1495,6 +1486,46 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 	require.NoError(t, err)
 
 	return card
+}
+
+// TestPromoteCard_MissingAgentID confirms a request without X-Agent-ID
+// is rejected with 400. Previously the handler synthesised "human:api"
+// when the header was absent, which let any caller with tunnel access
+// flip a card autonomous and bypass the human-only gate.
+func TestPromoteCard_MissingAgentID(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	// no X-Agent-ID header
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
 }
 
 func TestPromoteCard_HumanOnly(t *testing.T) {
@@ -1561,6 +1592,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -1610,6 +1642,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -1676,7 +1709,10 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
 	assert.True(t, respCard.FeatureBranch, "card should have feature_branch after promote")
 	assert.True(t, respCard.CreatePR, "card should have create_pr after promote")
-	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
+	// The legacy /promote stdin webhook is gone; the orchestrated runner
+	// observes promotion via the SSE RunnerEventBuffer, asserted in
+	// TestPromoteCard_FansOutPromotionEvent.
+	assert.Equal(t, 0, promoteCalled, "no legacy /promote webhook should be sent")
 
 	// Verify flags and log entry are persisted.
 	ctx := context.Background()
@@ -1701,11 +1737,51 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	assert.True(t, found, "promote activity log entry must be present")
 }
 
+func TestPromoteCard_FansOutPromotionEvent(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card := newInteractiveRunningCard(t, svc)
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		RunnerCfg:         config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		RunnerEventBuffer: buf,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	evs := buf.Since(card.ID, 0)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "promotion", evs[0].Type)
+	assert.Equal(t, "{}", evs[0].Data)
+}
+
 func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
-	// The new design: PromoteToAutonomous sets the flag first (server-authoritative).
-	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
-	// autonomous flag — the flag flip already committed to git and is the source of truth.
-	// The runner-side handlePromote is responsible for failing closed (no stdin write).
+	// PromoteToAutonomous sets the flag first (server-authoritative). The
+	// legacy /promote webhook to the runner is best-effort: the
+	// orchestrated runner consumes promotion via the RunnerEventBuffer
+	// SSE stream, not via a stdin write, so a webhook failure is purely
+	// informational. CM returns 202 and keeps the autonomous flag set.
 	origBackoff := runner.BackoffBase
 	runner.BackoffBase = time.Millisecond
 
@@ -1739,21 +1815,17 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
 	resp, err := http.DefaultClient.Do(req)
 
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
-
-	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
-	// delivery problem, not a flag problem). The runner-side handlePromote will see
-	// the flag is now set on the card and can retry or the human can re-promote.
+	// Autonomous flag stays set (server is authoritative; runner webhook
+	// delivery is best-effort relative to the SSE fan-out).
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -1958,15 +2030,14 @@ func TestRunCard_Interactive(t *testing.T) {
 	})
 }
 
-// TestPromoteCard_RecursionGuard verifies that when the runner's /promote handler
-// calls back into CM's /promote endpoint (simulating the original infinite-recursion
-// bug), the idempotency guard on CM's side short-circuits on the second call and
-// does NOT forward the webhook again.
-//
-// Without the guard this test would spin up goroutines indefinitely until the
-// 2-second client deadline fires; with the guard the top-level call returns 200
-// and the fake runner receives exactly one POST /promote.
-func TestPromoteCard_RecursionGuard(t *testing.T) {
+// TestPromoteCard_IdempotentOnAutonomous verifies the short-circuit guard:
+// promoting an already-autonomous card returns 202 immediately and does
+// NOT re-run the flow. The original recursion-guard scenario (runner
+// posting back to CM during /promote) is gone now that the legacy stdin
+// webhook to the runner has been removed; the autonomous-flag short-circuit
+// remains because a stray client retry could otherwise re-fan-out the SSE
+// promotion event.
+func TestPromoteCard_IdempotentOnAutonomous(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
@@ -1980,174 +2051,37 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session")
 	require.NoError(t, err)
 
-	// cmURL is set after the CM server starts; the fake runner closure captures the pointer.
-	var cmURL atomic.Value
+	// Flip the card autonomous via the service so the second /promote
+	// hits the short-circuit branch.
+	card, err = svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+	require.True(t, card.Autonomous)
 
-	// promoteCallCount tracks how many times the fake runner's /promote handler fires.
-	var promoteCallCount atomic.Int32
-
-	// Fake runner: when it receives POST /promote, it calls back into CM's /promote
-	// endpoint synchronously — this reproduces the original buggy runner behaviour.
-	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/promote" {
-			count := promoteCallCount.Add(1)
-
-			// Only call back on the first invocation to avoid spinning up a truly
-			// unbounded number of goroutines in the "without guard" scenario.
-			// One callback is enough to demonstrate the recursion.
-			if count == 1 {
-				base, _ := cmURL.Load().(string)
-				if base != "" {
-					callbackURL := base + "/api/projects/test-project/cards/" + card.ID + "/promote"
-					// Use a short per-call timeout so the test fails fast if the guard is absent.
-					callbackClient := &http.Client{Timeout: 500 * time.Millisecond}
-					cbReq, _ := http.NewRequest("POST", callbackURL, nil)
-					// No X-Agent-ID → treated as human (no agent prefix guard needed here).
-					cbResp, cbErr := callbackClient.Do(cbReq)
-					if cbErr == nil && cbResp != nil {
-						_ = cbResp.Body.Close()
-					}
-				}
-			}
-		}
-
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
 	}))
-	defer fakeRunner.Close()
+	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{
-			Enabled: true,
-			URL:     fakeRunner.URL,
-			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-		},
+		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 	})
 
 	cmServer := httptest.NewServer(router)
 	defer cmServer.Close()
 
-	cmURL.Store(cmServer.URL)
-
-	// Issue the top-level promote with a 2-second deadline.
-	// Without the guard the fake runner's callback will call CM again → CM calls the
-	// runner again → the fan-out continues until the 2-second deadline fires.
-	// With the guard CM sees autonomous==true on the callback and short-circuits.
-	topLevelClient := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest("POST",
 		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
 
-	resp, err := topLevelClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 
-	require.NoError(t, err, "top-level promote must not time out (guard must short-circuit the callback)")
+	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusAccepted, resp.StatusCode, "top-level promote must return 202")
-
-	// The fake runner must have been called exactly once — the callback from the runner
-	// must NOT have triggered a second outbound webhook from CM.
-	assert.Equal(t, int32(1), promoteCallCount.Load(),
-		"fake runner must receive exactly one POST /promote; guard must block the recursive call")
-}
-
-// TestRunCard_ModelInPayload verifies that the model field in TriggerPayload is
-// populated from RunnerConfig: OrchestratorOpusModel when use_opus_orchestrator is
-// true, OrchestratorSonnetModel otherwise. Non-default values are used so the test
-// proves that the config is threaded through rather than matching defaults by accident.
-func TestRunCard_ModelInPayload(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("sonnet model sent for default card", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-		defer cleanup()
-
-		var capturedPayload runner.TriggerPayload
-
-		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
-		}))
-		defer mockRunner.Close()
-
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{
-				Enabled:                 true,
-				URL:                     mockRunner.URL,
-				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				OrchestratorSonnetModel: "test-sonnet-9",
-				OrchestratorOpusModel:   "test-opus-9",
-			},
-		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Sonnet card", Type: "task", Priority: "medium",
-		})
-		require.NoError(t, err)
-
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-		assert.Equal(t, "test-sonnet-9", capturedPayload.Model, "default card must use OrchestratorSonnetModel")
-	})
-
-	t.Run("opus model sent for use_opus_orchestrator card", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-		defer cleanup()
-
-		var capturedPayload runner.TriggerPayload
-
-		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
-		}))
-		defer mockRunner.Close()
-
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{
-				Enabled:                 true,
-				URL:                     mockRunner.URL,
-				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				OrchestratorSonnetModel: "test-sonnet-9",
-				OrchestratorOpusModel:   "test-opus-9",
-			},
-		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Opus card", Type: "task", Priority: "medium",
-			UseOpusOrchestrator: true,
-		})
-		require.NoError(t, err)
-
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-		assert.Equal(t, "test-opus-9", capturedPayload.Model, "use_opus_orchestrator card must use OrchestratorOpusModel")
-	})
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"second promote on an already-autonomous card must return 202")
 }
 
 // --- GET /api/v1/cards/{project}/{id}/autonomous ---

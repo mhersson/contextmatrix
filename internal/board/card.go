@@ -12,38 +12,58 @@ import (
 
 // Card represents a task card with YAML frontmatter and markdown body.
 type Card struct {
-	ID                  string          `yaml:"id"              json:"id"`
-	Title               string          `yaml:"title"           json:"title"`
-	Project             string          `yaml:"project"         json:"project"`
-	Type                string          `yaml:"type"            json:"type"`
-	State               string          `yaml:"state"           json:"state"`
-	Priority            string          `yaml:"priority"        json:"priority"`
-	AssignedAgent       string          `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
-	LastHeartbeat       *time.Time      `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
-	Parent              string          `yaml:"parent,omitempty"         json:"parent,omitempty"`
-	Subtasks            []string        `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
-	DependsOn           []string        `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
-	DependenciesMet     *bool           `yaml:"-"                        json:"dependencies_met,omitempty"`
-	Context             []string        `yaml:"context,omitempty"        json:"context,omitempty"`
-	Labels              []string        `yaml:"labels,omitempty"         json:"labels,omitempty"`
-	Skills              *[]string       `yaml:"skills,omitempty"         json:"skills,omitempty"`
-	Source              *Source         `yaml:"source,omitempty"         json:"source,omitempty"`
-	Custom              map[string]any  `yaml:"custom,omitempty"          json:"custom,omitempty"`
-	Autonomous          bool            `yaml:"autonomous,omitempty"           json:"autonomous"`
-	UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
-	Vetted              bool            `yaml:"vetted,omitempty"               json:"vetted"`
-	FeatureBranch       bool            `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
-	CreatePR            bool            `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
-	BranchName          string          `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
-	BaseBranch          string          `yaml:"base_branch,omitempty"     json:"base_branch,omitempty"`
-	PRUrl               string          `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
-	ReviewAttempts      int             `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
-	RunnerStatus        string          `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`
-	TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
-	Created             time.Time       `yaml:"created"                   json:"created"`
-	Updated             time.Time       `yaml:"updated"                   json:"updated"`
-	ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"    json:"activity_log,omitempty"`
-	Body                string          `yaml:"-"                         json:"body"`
+	ID                string            `yaml:"id"                              json:"id"`
+	Title             string            `yaml:"title"                           json:"title"`
+	Project           string            `yaml:"project"                         json:"project"`
+	Type              string            `yaml:"type"                            json:"type"`
+	State             string            `yaml:"state"                           json:"state"`
+	Priority          string            `yaml:"priority"                        json:"priority"`
+	AssignedAgent     string            `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
+	LastHeartbeat     *time.Time        `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
+	Parent            string            `yaml:"parent,omitempty"                json:"parent,omitempty"`
+	Subtasks          []string          `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
+	DependsOn         []string          `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
+	DependenciesMet   *bool             `yaml:"-"                               json:"dependencies_met,omitempty"`
+	Context           []string          `yaml:"context,omitempty"               json:"context,omitempty"`
+	Labels            []string          `yaml:"labels,omitempty"                json:"labels,omitempty"`
+	Skills            *[]string         `yaml:"skills,omitempty"                json:"skills,omitempty"`
+	Source            *Source           `yaml:"source,omitempty"                json:"source,omitempty"`
+	Custom            map[string]any    `yaml:"custom,omitempty"                json:"custom,omitempty"`
+	Autonomous        bool              `yaml:"autonomous,omitempty"            json:"autonomous"`
+	Vetted            bool              `yaml:"vetted,omitempty"                json:"vetted"`
+	FeatureBranch     bool              `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
+	CreatePR          bool              `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
+	BranchName        string            `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
+	BaseBranch        string            `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
+	PRUrl             string            `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
+	ReviewAttempts    int               `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
+	RunnerStatus      string            `yaml:"runner_status,omitempty"         json:"runner_status,omitempty"`
+	TokenUsage        *TokenUsage       `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
+	Created           time.Time         `yaml:"created"                         json:"created"`
+	Updated           time.Time         `yaml:"updated"                         json:"updated"`
+	ActivityLog       []ActivityEntry   `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
+	Repos             []string          `yaml:"repos,omitempty"                 json:"repos,omitempty"`
+	ChosenRepos       []string          `yaml:"chosen_repos,omitempty"          json:"chosen_repos,omitempty"`
+	BlockerCards      []string          `yaml:"blocker_cards,omitempty"         json:"blocker_cards,omitempty"`
+	RevisionAttempts  int               `yaml:"revision_attempts,omitempty"     json:"revision_attempts,omitempty"`
+	RevisionRequested bool              `yaml:"revision_requested,omitempty"    json:"revision_requested,omitempty"`
+	PlanApproved      bool              `yaml:"plan_approved,omitempty"         json:"plan_approved,omitempty"`
+	ReviewApproved    bool              `yaml:"review_approved,omitempty"       json:"review_approved,omitempty"`
+	DiscoveryComplete bool              `yaml:"discovery_complete,omitempty"    json:"discovery_complete,omitempty"`
+	AgentSessions     map[string]string `yaml:"agent_sessions,omitempty"        json:"agent_sessions,omitempty"`
+	DocsWritten       bool              `yaml:"docs_written,omitempty"          json:"docs_written,omitempty"`
+	PushRecords       []PushRecord      `yaml:"push_records,omitempty"          json:"push_records,omitempty"`
+	Body              string            `yaml:"-"                               json:"body"`
+}
+
+// PushRecord is one branch push to one repo for the card. All fields are
+// required when a record is present; the parent slice's omitempty handles
+// the empty case.
+type PushRecord struct {
+	Repo     string    `yaml:"repo"      json:"repo"`
+	Branch   string    `yaml:"branch"    json:"branch"`
+	PRURL    string    `yaml:"pr_url"    json:"pr_url"`
+	PushedAt time.Time `yaml:"pushed_at" json:"pushed_at"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.
@@ -112,7 +132,7 @@ func ParseCard(data []byte) (*Card, error) {
 
 	var card Card
 	if err := yaml.Unmarshal(yamlContent, &card); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedFrontmatter, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformedFrontmatter, err)
 	}
 
 	// Third part is markdown body (strip leading newline from after ---)

@@ -4,7 +4,13 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelBody, type RailTabKey } from './CardPanelBody';
 import { CardPanelLeft } from './CardPanelLeft';
 import { buildCardPanelTabs } from './buildCardPanelTabs';
-import { buildCardPatch, isCardDirty, isRunnerAttached, primaryAction } from './utils';
+import {
+  buildCardPatch,
+  isCardDirty,
+  isRunnerAttached,
+  mergeServerCardWithLocalEdits,
+  primaryAction,
+} from './utils';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
@@ -18,11 +24,10 @@ interface CardPanelProps {
   onClose: () => void;
   onSave: (updates: PatchCardInput) => Promise<void>;
   onDelete: (cardId: string) => Promise<void>;
-  onClaim: (agentId: string) => Promise<void>;
-  onRelease: (agentId: string) => Promise<void>;
+  onClaim: () => Promise<void>;
+  onRelease: () => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
   currentAgentId: string | null;
-  onPromptAgentId: () => string | null;
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
@@ -50,7 +55,7 @@ interface CardPanelProps {
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
-    onSubtaskClick, currentAgentId, onPromptAgentId, onRunCard, onStopCard } = props;
+    onSubtaskClick, currentAgentId, onRunCard, onStopCard } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
@@ -74,41 +79,31 @@ export function CardPanel(props: CardPanelProps) {
   // refreshes of the same card (state transitions, log additions, etc.) must
   // not collapse the rail mid-session. The edit buffer is refreshed whenever
   // the card object reference changes so unedited fields reflect server-side
-  // updates; activeTab resets only when `isHITLRunning` flips, since that is
-  // what changes the default tab set.
-  // hitlOffCount: how many consecutive sync events have observed
-  // isHITLRunning===false since the first true→false flip. The chat tab only
-  // collapses once this reaches 2, so a single-render transient SSE glitch
-  // (runner_status briefly stale) does not switch the tab away. Resets on
-  // HITL-on flip, on card-id change, and on user-initiated tab change.
-  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
+  // updates. When HITL flips on for the same card, jump to the chat tab and
+  // expand the rail. When HITL flips off, the chat tab persists in the
+  // registry (transcript stays visible), so the active tab is left alone.
+  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning });
   if (sync.cardId !== card.id) {
-    setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
+    setSync({ cardId: card.id, card, isHITLRunning });
     setEditedCard(card);
     setRailExpanded(isHITLRunning);
     setForcedFeatureBranch(false);
     setForcedCreatePR(false);
     setActiveTab(defaultTab);
   } else if (sync.card !== card || sync.isHITLRunning !== isHITLRunning) {
-    const hitlFlipped = sync.isHITLRunning !== isHITLRunning;
+    const hitlFlippedOn = sync.isHITLRunning !== isHITLRunning && isHITLRunning;
     const cardRefChanged = sync.card !== card;
-    if (cardRefChanged) setEditedCard(card);
-    if (hitlFlipped && isHITLRunning) {
-      // HITL turned on: reset stability counter and switch to chat immediately.
-      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
-      setActiveTab(defaultTab);
+    if (cardRefChanged) {
+      // Per-field merge: any field the user has not modified picks up
+      // the new server value; modified fields keep the in-flight edit.
+      // The previous unconditional `setEditedCard(card)` here wiped
+      // user typing on every SSE refresh (heartbeat, log append, …).
+      setEditedCard((prev) => mergeServerCardWithLocalEdits(card, sync.card, prev));
+    }
+    setSync({ cardId: card.id, card, isHITLRunning });
+    if (hitlFlippedOn) {
+      setActiveTab('chat');
       setRailExpanded(true);
-    } else if (!isHITLRunning && (hitlFlipped || sync.hitlOffCount > 0)) {
-      // HITL is off and we're either in the initial flip or already counting:
-      // require two consecutive false-state sync events before collapsing the
-      // chat tab so a single-render transient SSE glitch is ignored.
-      const newCount = sync.hitlOffCount + 1;
-      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: newCount });
-      if (newCount >= 2) {
-        setActiveTab(defaultTab);
-      }
-    } else {
-      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: sync.hitlOffCount });
     }
   }
 
@@ -128,13 +123,15 @@ export function CardPanel(props: CardPanelProps) {
   }, [isDirty, isSaving, editedCard, card, onSave]);
 
   const handleClaim = useCallback(async () => {
-    const agentId = currentAgentId || onPromptAgentId();
-    if (agentId) await onClaim(agentId);
-  }, [currentAgentId, onPromptAgentId, onClaim]);
+    // currentAgentId is always set (useAgentId defaults to "human:user" on
+    // first load), so the X-Agent-ID header is guaranteed to ride along.
+    if (!currentAgentId) return;
+    await onClaim();
+  }, [currentAgentId, onClaim]);
 
   const handleRelease = useCallback(async () => {
     if (!currentAgentId || !card.assigned_agent) return;
-    await onRelease(card.assigned_agent);
+    await onRelease();
   }, [currentAgentId, card.assigned_agent, onRelease]);
 
   const canDelete =
@@ -262,14 +259,18 @@ export function CardPanel(props: CardPanelProps) {
   // state that can re-run. Both feed the left column (Labels) and the
   // Automation tab (checkbox rail), so compute once here.
   const isTodo = card.state === 'todo';
+  const isSubtask = card.type === 'subtask';
   const stateLocksEditing = !isTodo && !runnerAttached;
   const editingLocked = runnerAttached || stateLocksEditing;
+  const automationLocked = editingLocked || isSubtask;
   const lockedReason = runnerAttached
     ? 'locked during remote run'
     : `locked outside todo · move card back to todo to edit (current: ${card.state.replace(/_/g, ' ')})`;
-  const automationLockedReason = runnerAttached
-    ? 'Automation locked during remote run'
-    : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
+  const automationLockedReason = isSubtask
+    ? 'Automation is managed on the parent card'
+    : runnerAttached
+      ? 'Automation locked during remote run'
+      : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
   const canToggleEditor =
     !runnerAttached &&
     (card.state === 'todo' || card.state === 'done' || card.state === 'not_planned');
@@ -293,7 +294,7 @@ export function CardPanel(props: CardPanelProps) {
     branches,
     branchesLoading,
     branchesError,
-    editingLocked,
+    automationLocked,
     automationLockedReason,
     excludeStateFromPicker,
     forcedFeatureBranch,
@@ -339,6 +340,7 @@ export function CardPanel(props: CardPanelProps) {
           onSave={handleSave}
           onTitleChange={(title) => setEditedCard((prev) => ({ ...prev, title }))}
           onPriorityChange={(priority) => setEditedCard((prev) => ({ ...prev, priority }))}
+          onTypeChange={(type) => setEditedCard((prev) => ({ ...prev, type }))}
           onPrimaryAction={handlePrimary}
           onStopCard={onStopCard}
           onOpenDependency={onSubtaskClick}
@@ -359,10 +361,7 @@ export function CardPanel(props: CardPanelProps) {
           }
           tabs={tabs}
           activeTab={effectiveTab}
-          onTabChange={(tab) => {
-            setSync((prev) => ({ ...prev, hitlOffCount: 0 }));
-            setActiveTab(tab);
-          }}
+          onTabChange={(tab) => setActiveTab(tab)}
           railExpanded={railExpanded}
           onToggleRail={() => setRailExpanded((v) => !v)}
         />

@@ -188,24 +188,11 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_API_KEY
   api_key: ""
 
-  # Model ID used for the Sonnet orchestrator in autonomous runs.
-  # Passed to runner containers via the trigger payload so the orchestrator
-  # selects the correct model. Update when a newer Sonnet model ships.
-  # Default: claude-sonnet-4-6
-  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL
-  orchestrator_sonnet_model: "claude-sonnet-4-6"
-
-  # Model ID used for the Opus orchestrator in autonomous runs (when the user
-  # selects the high-capability mode). Update when a newer Opus model ships.
-  # Default: claude-opus-4-7
-  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL
-  orchestrator_opus_model: "claude-opus-4-7"
-
   # How often the backstop sweep scans every project for cards that are in a
   # terminal state (done / not_planned), released (no assigned agent), and
   # still have an active runner_status ({queued, running}). For each match the
-  # sweep fires /end-session + /kill against the runner — the same protocol
-  # the event subscriber uses on CardReleased / CardStateChanged.
+  # sweep fires /kill against the runner — the same protocol the terminal-kill
+  # subscriber uses on CardReleased / CardStateChanged.
   #
   # The sweep exists because events.Bus drops events when any subscriber's
   # buffer fills and events published during a CM restart are never delivered;

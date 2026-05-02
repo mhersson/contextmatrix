@@ -275,6 +275,49 @@ func TestValidateProjectConfig(t *testing.T) {
 			},
 			expectedErr: nil,
 		},
+		{
+			name: "rejects jira_project_key with parent traversal",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "../etc/passwd"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects jira_project_key with path separator",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "PAY/secret"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects jira_project_key with backslash",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "..\\etc"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects repo slug with parent traversal",
+			modify: func(cfg *ProjectConfig) {
+				cfg.Repos = []RepoSpec{{Slug: "..", URL: "git@github.com:org/x.git"}}
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects repo slug with path separator",
+			modify: func(cfg *ProjectConfig) {
+				cfg.Repos = []RepoSpec{{Slug: "a/b", URL: "git@github.com:org/x.git"}}
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "accepts well-formed jira_project_key and slugs",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "PAY"
+				cfg.Repos = []RepoSpec{{Slug: "billing-svc", URL: "git@github.com:org/billing.git"}}
+			},
+			expectedErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -623,6 +666,80 @@ func TestProjectConfig_DefaultSkillsRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded.DefaultSkills)
 	assert.Equal(t, []string{"go-development", "documentation"}, *loaded.DefaultSkills)
+}
+
+func TestProjectConfigRepoRegistry(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &ProjectConfig{
+		Name:           "payments-epic",
+		Prefix:         "PAY",
+		NextID:         1,
+		JiraProjectKey: "PAY",
+		Repos: []RepoSpec{
+			{Slug: "auth-svc", URL: "https://github.com/acme/auth-svc.git", Description: "User authentication, session management."},
+			{Slug: "billing-svc", URL: "https://github.com/acme/billing-svc.git", Description: "Subscription, invoicing."},
+		},
+		States:     []string{"todo", "stalled", "not_planned"},
+		Types:      []string{"task"},
+		Priorities: []string{"medium"},
+		Transitions: map[string][]string{
+			"todo":        {},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
+		},
+	}
+	require.NoError(t, SaveProjectConfig(dir, cfg))
+	loaded, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "PAY", loaded.JiraProjectKey)
+	require.Len(t, loaded.Repos, 2)
+	assert.Equal(t, "auth-svc", loaded.Repos[0].Slug)
+	assert.Equal(t, "https://github.com/acme/auth-svc.git", loaded.Repos[0].URL)
+	assert.Equal(t, "User authentication, session management.", loaded.Repos[0].Description)
+}
+
+func TestProjectConfigBackwardCompatRepoExpansion(t *testing.T) {
+	dir := t.TempDir()
+	yaml := []byte(`name: legacy
+prefix: LEGACY
+next_id: 1
+repo: https://github.com/acme/legacy.git
+states:
+  - todo
+  - stalled
+  - not_planned
+types:
+  - task
+priorities:
+  - medium
+transitions:
+  todo: []
+  stalled: [todo]
+  not_planned: [todo]
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".board.yaml"), yaml, 0o644))
+
+	loaded, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+	require.Len(t, loaded.Repos, 1, "single repo: should expand to one-element Repos")
+	assert.Equal(t, "https://github.com/acme/legacy.git", loaded.Repos[0].URL)
+	assert.Equal(t, "legacy", loaded.Repos[0].Slug, "slug derived from URL last path segment")
+	// Original Repo field still populated for backward-compat callers.
+	assert.Equal(t, "https://github.com/acme/legacy.git", loaded.Repo)
+}
+
+func TestDeriveSlugFromURL(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/owner/repo.git":  "repo",
+		"https://github.com/owner/repo":      "repo",
+		"https://github.com/owner/repo/":     "repo",
+		"https://github.com/owner/repo.git/": "repo",
+		"git@github.com:owner/repo.git":      "repo",
+		"":                                   "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, deriveSlugFromURL(in), "input=%q", in)
+	}
 }
 
 func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {

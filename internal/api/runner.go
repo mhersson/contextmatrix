@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -39,8 +40,9 @@ type runnerHandlers struct {
 	runnerCfg         config.RunnerConfig
 	mcpAPIKey         string
 	port              int
-	sessionManager    *sessionlog.Manager // nil when session manager is not configured
-	keepaliveInterval time.Duration       // zero → use default (30s)
+	sessionManager    *sessionlog.Manager       // nil when session manager is not configured
+	keepaliveInterval time.Duration             // zero → use default (30s)
+	runnerEventBuf    *events.RunnerEventBuffer // SSE bus for HITL chat / promotion fan-out
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
@@ -134,12 +136,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build trigger payload.
-	model := h.runnerCfg.OrchestratorSonnetModel
-	if card.UseOpusOrchestrator {
-		model = h.runnerCfg.OrchestratorOpusModel
-	}
-
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
 	var taskSkills *[]string
 
@@ -157,7 +153,6 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
 		Interactive: runBody.Interactive,
-		Model:       model,
 		TaskSkills:  taskSkills,
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
@@ -250,16 +245,30 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messageID := uuid.New().String()
-	if err := h.runner.Message(r.Context(), runner.MessagePayload{
-		CardID:    id,
-		Project:   project,
-		MessageID: messageID,
-		Content:   body.Content,
-	}); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner message webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to send message to runner", "")
 
-		return
+	// Fan out to the SSE bus — this is the orchestrated runner's chat
+	// delivery mechanism. The legacy /message stdin webhook is gone;
+	// orchestrated workers consume chat input from the SSE stream.
+	if h.runnerEventBuf != nil {
+		h.runnerEventBuf.Append(id, events.RunnerEvent{
+			Type: "chat_input",
+			Data: body.Content,
+		})
+	}
+
+	// Publish to the session log so /api/runner/logs SSE consumers
+	// (web UI transcript, integration test transcript) see the human
+	// side of the conversation alongside agent events. The frontend's
+	// LogEntry type uses "user" for human-typed messages — the chat
+	// component renders these as right-aligned bubbles. Publishing as
+	// any other type (e.g. "user_chat") would render them with the
+	// generic agent-output styling instead.
+	if h.sessionManager != nil {
+		h.sessionManager.PublishLocal(id, sessionlog.Event{
+			Timestamp: time.Now(),
+			Type:      "user",
+			Payload:   []byte(body.Content),
+		})
 	}
 
 	writeJSON(w, http.StatusAccepted, messageResponse{OK: true, MessageID: messageID})
@@ -267,7 +276,19 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 
 // promoteCard handles POST /api/projects/{project}/cards/{id}/promote — promote to autonomous.
 func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
-	if isNonHumanAgent(r) {
+	// Require an explicit human-prefixed X-Agent-ID. Synthesising a
+	// "human:api" fallback would let any caller with tunnel access flip
+	// any non-terminal card autonomous, defeating the documented
+	// human-only gate (CLAUDE.md rule 13). The web UI sets this header
+	// from the user's stored agent ID — see useAgentId.
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "X-Agent-ID header is required", "")
+
+		return
+	}
+
+	if !strings.HasPrefix(agentID, "human:") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can promote cards", "")
 
 		return
@@ -325,13 +346,8 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract agent identity from header. Fall back to "human:api" so the
-	// service-layer human-only gate passes when the header is absent (e.g. web UI).
-	agentID := r.Header.Get("X-Agent-ID")
-	if agentID == "" {
-		agentID = "human:api"
-	}
-
+	// agentID was validated at the top of the handler; a missing or
+	// non-human-prefixed value short-circuits before this point.
 	// Flip the autonomous flag (idempotent; errors on terminal state).
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
 	if err != nil {
@@ -356,16 +372,37 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Send promote webhook to runner.
-	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
-		CardID:  id,
-		Project: project,
-	}); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")
-
-		return
+	// Fan out to the SSE bus — this is the orchestrated runner's promotion
+	// delivery mechanism. The legacy /promote HTTP webhook below is a
+	// best-effort interactive-stdin relay for any worker still listening
+	// on it; failure is logged but does not fail the request, mirroring
+	// the /message endpoint. The autonomous flag is server-authoritative
+	// and has already committed above.
+	if h.runnerEventBuf != nil {
+		h.runnerEventBuf.Append(id, events.RunnerEvent{
+			Type: "promotion",
+			Data: "{}",
+		})
 	}
+
+	// Mirror the messageCard hook: surface the promotion in the
+	// session log so transcript consumers can see when the human flips
+	// the card to autonomous mid-run. Use "system" — the frontend
+	// renders system-typed entries with a green accent bar; this is
+	// not a user-typed chat message so "user" would mis-style it as a
+	// right-aligned bubble. Phrasing matches the activity-log entry
+	// produced by CardService.PromoteToAutonomous.
+	if h.sessionManager != nil {
+		h.sessionManager.PublishLocal(id, sessionlog.Event{
+			Timestamp: time.Now(),
+			Type:      "system",
+			Payload:   []byte("Promoted to autonomous mode"),
+		})
+	}
+
+	// The legacy /promote stdin webhook is gone; the orchestrated
+	// runner observes promotion via the RunnerEventBuffer SSE fan-out
+	// above and the autonomous flag is server-authoritative.
 
 	writeJSON(w, http.StatusAccepted, updatedCard)
 }
@@ -633,10 +670,13 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 }
 
 // skillEngagedRequest is the JSON body sent by the runner when the agent
-// invokes the Skill tool.
+// invokes the Skill tool. AgentID identifies the agent that engaged the
+// skill (e.g. "runner:CARD-001"); empty values are accepted for older
+// runners and fall back to "runner" in the activity entry.
 type skillEngagedRequest struct {
 	CardID    string `json:"card_id"`
 	Project   string `json:"project"`
+	AgentID   string `json:"agent_id"`
 	SkillName string `json:"skill_name"`
 }
 
@@ -661,7 +701,7 @@ func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.SkillName); err != nil {
+	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.AgentID, req.SkillName); err != nil {
 		handleServiceError(w, r, err)
 
 		return

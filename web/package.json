@@ -14,19 +14,16 @@
   },
   "size-limit": [
     {
-      "name": "md-editor chunk (lazy, fetched on first editor open)",
-      "path": "dist/assets/md-editor-*.js",
-      "limit": "350 kB"
+      "name": "Cold-load entry (the only thing modulepreloaded on first paint)",
+      "path": "dist/assets/index-*.js",
+      "limit": "100 kB",
+      "gzip": true
     },
     {
-      "name": "ProjectShell chunk (main app shell, critical path)",
+      "name": "ProjectShell chunk (main app shell)",
       "path": "dist/assets/ProjectShell-*.js",
-      "limit": "40 kB"
-    },
-    {
-      "name": "React runtime chunk",
-      "path": "dist/assets/react-*.js",
-      "limit": "80 kB"
+      "limit": "60 kB",
+      "gzip": true
     }
   ],
   "dependencies": {

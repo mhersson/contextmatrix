@@ -48,40 +48,48 @@ beforeEach(() => {
   mockPromoteCardToAutonomous.mockResolvedValue({ ...runningCard, autonomous: true });
 });
 
-describe('CardChat — visibility gate', () => {
-  it('returns null when runner_status is not "running"', () => {
-    const { container } = render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
-  });
+describe('CardChat — read-only footer when HITL is not active', () => {
+  const transcriptLog: LogEntry[] = [
+    { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'agent reply preserved' },
+  ];
 
-  it('renders when runner_status is "running"', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-  });
-
-  it('returns null when runner_status is "running" AND autonomous is true', () => {
-    const { container } = render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
+  it('hides the compose row and shows the "Session ended" footer when runner_status is not "running"', () => {
+    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Session ended/);
   });
 
-  it('renders normally when runner_status is "running" AND autonomous is false', () => {
+  it('renders the conversation transcript even when the session is not running', () => {
+    render(<CardChat card={stoppedCard} cardLogs={transcriptLog} />);
+    expect(screen.getByText(/agent reply preserved/)).toBeInTheDocument();
+  });
+
+  it('shows the "Promoted to autonomous" footer when autonomous is true', () => {
+    render(<CardChat card={autonomousCard} cardLogs={transcriptLog} />);
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Promoted to autonomous/);
+  });
+
+  it('renders the compose row and hides the footer while HITL is active', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('chat UI disappears when autonomous flips from false to true (simulates promote)', () => {
-    const { container, rerender } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    // Initially visible
+  it('swaps the compose row for the autonomous footer when autonomous flips false → true', () => {
+    const { rerender } = render(<CardChat card={runningCard} cardLogs={transcriptLog} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-    // Simulate HITL→Auto promotion: re-render with autonomous=true
-    rerender(<CardChat card={autonomousCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
+    rerender(<CardChat card={autonomousCard} cardLogs={transcriptLog} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Promoted to autonomous/);
+    // Transcript stays visible.
+    expect(screen.getByText(/agent reply preserved/)).toBeInTheDocument();
   });
 });
 
@@ -136,6 +144,34 @@ describe('CardChat — Enter-to-send', () => {
     expect(mockSendCardMessage).not.toHaveBeenCalled();
     // Textarea still has the content (default not prevented = browser would insert \n, but we just confirm no submit)
     expect(textarea.value).toBe('line1');
+  });
+
+  it('refocuses the textarea after Enter-send so the next message can be typed without re-clicking', async () => {
+    // Asserting only that focus() was called is a false positive: browsers
+    // silently drop focus() against a disabled element, but JSDOM does
+    // not. The real bug was that setSending(false) only queued the
+    // disabled→enabled flip, so focus() ran while the textarea was still
+    // disabled in the DOM. Capture `disabled` at the moment focus() is
+    // invoked to prove the flip committed first.
+    let disabledAtFocus: boolean | null = null;
+    const focusSpy = vi.spyOn(HTMLTextAreaElement.prototype, 'focus').mockImplementation(function (this: HTMLTextAreaElement) {
+      disabledAtFocus = this.disabled;
+    });
+
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: 'Hello agent' } });
+
+    focusSpy.mockClear();
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    expect(mockSendCardMessage).toHaveBeenCalledOnce();
+    expect(focusSpy).toHaveBeenCalled();
+    expect(disabledAtFocus).toBe(false);
+    focusSpy.mockRestore();
   });
 });
 
@@ -216,6 +252,17 @@ describe('CardChat — Switch to Autonomous button', () => {
 
     expect(mockPromoteCardToAutonomous).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('promotes without prompting for an agent id (header is supplied by useAgentId default)', async () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch to Autonomous/ }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Promote' }));
+    });
+
+    expect(mockPromoteCardToAutonomous).toHaveBeenCalledOnce();
   });
 });
 
@@ -359,11 +406,11 @@ describe('CardChat — message type filter bar', () => {
     expect(screen.getByText(/toggle me/)).toBeInTheDocument();
   });
 
-  it('filter bar is not rendered when session is not running', () => {
+  it('filter bar stays rendered when session is not running so the transcript can be inspected', () => {
     render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
-    expect(screen.queryByRole('checkbox', { name: /Text/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /Tool calls/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /Thinking/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
   });
 });
 

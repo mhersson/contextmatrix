@@ -7,7 +7,7 @@ import type { Card, PatchCardInput, ProjectConfig } from '../../types';
  */
 export function chipClassForState(state: string): string {
   const known = new Set([
-    'todo', 'in_progress', 'hitl', 'review', 'done',
+    'todo', 'in_progress', 'review', 'done',
     'blocked', 'stalled', 'not_planned',
   ]);
   return known.has(state) ? `chip-state-${state}` : 'chip-state-todo';
@@ -39,16 +39,63 @@ function skillsEqual(
   return arraysEqual(aNorm, bNorm);
 }
 
+/**
+ * Merges a fresh server card with the user's in-flight edited card. For each
+ * field the user might be editing, the local edit wins iff the user changed
+ * it relative to the previous server snapshot. Otherwise the server value
+ * flows in. This prevents an SSE refresh (e.g. an activity-log heartbeat)
+ * from wiping a half-typed title or body, while still letting agent-driven
+ * mutations appear in the panel.
+ */
+export function mergeServerCardWithLocalEdits(
+  next: Card,
+  prev: Card,
+  edited: Card,
+): Card {
+  const merged: Card = { ...next };
+
+  if (edited.title !== prev.title) merged.title = edited.title;
+  if (edited.type !== prev.type) merged.type = edited.type;
+  if (edited.state !== prev.state) merged.state = edited.state;
+  if (edited.priority !== prev.priority) merged.priority = edited.priority;
+  if (edited.body !== prev.body) merged.body = edited.body;
+  if (!arraysEqual(edited.labels, prev.labels)) merged.labels = edited.labels;
+  if (
+    (edited.autonomous ?? false) !== (prev.autonomous ?? false)
+  ) {
+    merged.autonomous = edited.autonomous;
+  }
+  if (
+    (edited.feature_branch ?? false) !== (prev.feature_branch ?? false)
+  ) {
+    merged.feature_branch = edited.feature_branch;
+  }
+  if ((edited.create_pr ?? false) !== (prev.create_pr ?? false)) {
+    merged.create_pr = edited.create_pr;
+  }
+  if ((edited.vetted ?? false) !== (prev.vetted ?? false)) {
+    merged.vetted = edited.vetted;
+  }
+  if ((edited.base_branch ?? '') !== (prev.base_branch ?? '')) {
+    merged.base_branch = edited.base_branch;
+  }
+  if (!skillsEqual(edited.skills, prev.skills)) {
+    merged.skills = edited.skills;
+  }
+
+  return merged;
+}
+
 /** True when the edited card differs from the server card in any save-relevant field. */
 export function isCardDirty(edited: Card, original: Card): boolean {
   return (
     edited.title !== original.title ||
+    edited.type !== original.type ||
     edited.state !== original.state ||
     edited.priority !== original.priority ||
     edited.body !== original.body ||
     !arraysEqual(edited.labels, original.labels) ||
     (edited.autonomous ?? false) !== (original.autonomous ?? false) ||
-    (edited.use_opus_orchestrator ?? false) !== (original.use_opus_orchestrator ?? false) ||
     (edited.feature_branch ?? false) !== (original.feature_branch ?? false) ||
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
@@ -61,6 +108,7 @@ export function isCardDirty(edited: Card, original: Card): boolean {
 export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   const updates: PatchCardInput = {};
   if (edited.title !== original.title) updates.title = edited.title;
+  if (edited.type !== original.type) updates.type = edited.type;
   if (edited.state !== original.state) updates.state = edited.state;
   if (edited.priority !== original.priority) updates.priority = edited.priority;
   if (edited.body !== original.body) updates.body = edited.body;
@@ -69,9 +117,6 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.autonomous ?? false) !== (original.autonomous ?? false)) {
     updates.autonomous = edited.autonomous ?? false;
-  }
-  if ((edited.use_opus_orchestrator ?? false) !== (original.use_opus_orchestrator ?? false)) {
-    updates.use_opus_orchestrator = edited.use_opus_orchestrator ?? false;
   }
   if ((edited.feature_branch ?? false) !== (original.feature_branch ?? false)) {
     updates.feature_branch = edited.feature_branch ?? false;

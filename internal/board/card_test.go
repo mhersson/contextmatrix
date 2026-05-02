@@ -674,125 +674,6 @@ func TestRoundTrip_VettedField(t *testing.T) {
 	})
 }
 
-func TestParseCard_UseOpusOrchestratorField(t *testing.T) {
-	t.Run("use_opus_orchestrator true deserializes correctly", func(t *testing.T) {
-		input := `---
-id: TEST-001
-title: Opus card
-project: test
-type: task
-state: todo
-priority: medium
-use_opus_orchestrator: true
-created: 2026-03-30T10:00:00Z
-updated: 2026-03-30T10:00:00Z
----
-`
-		card, err := ParseCard([]byte(input))
-		require.NoError(t, err)
-		assert.True(t, card.UseOpusOrchestrator)
-	})
-
-	t.Run("without use_opus_orchestrator field defaults to false", func(t *testing.T) {
-		input := `---
-id: TEST-001
-title: Normal card
-project: test
-type: task
-state: todo
-priority: medium
-created: 2026-03-30T10:00:00Z
-updated: 2026-03-30T10:00:00Z
----
-`
-		card, err := ParseCard([]byte(input))
-		require.NoError(t, err)
-		assert.False(t, card.UseOpusOrchestrator)
-	})
-}
-
-func TestSerializeCard_UseOpusOrchestratorOmitempty(t *testing.T) {
-	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
-
-	t.Run("use_opus_orchestrator false omitted from YAML", func(t *testing.T) {
-		card := &Card{
-			ID:                  "TEST-001",
-			Title:               "Test card",
-			Project:             "test-project",
-			Type:                "task",
-			State:               "todo",
-			Priority:            "medium",
-			UseOpusOrchestrator: false,
-			Created:             created,
-			Updated:             created,
-		}
-		data, err := SerializeCard(card)
-		require.NoError(t, err)
-		assert.NotContains(t, string(data), "use_opus_orchestrator")
-	})
-
-	t.Run("use_opus_orchestrator true present in YAML", func(t *testing.T) {
-		card := &Card{
-			ID:                  "TEST-001",
-			Title:               "Test card",
-			Project:             "test-project",
-			Type:                "task",
-			State:               "todo",
-			Priority:            "medium",
-			UseOpusOrchestrator: true,
-			Created:             created,
-			Updated:             created,
-		}
-		data, err := SerializeCard(card)
-		require.NoError(t, err)
-		assert.Contains(t, string(data), "use_opus_orchestrator: true")
-	})
-}
-
-func TestRoundTrip_UseOpusOrchestratorField(t *testing.T) {
-	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
-
-	t.Run("use_opus_orchestrator true round-trips correctly", func(t *testing.T) {
-		original := &Card{
-			ID:                  "TEST-001",
-			Title:               "Opus card",
-			Project:             "test-project",
-			Type:                "task",
-			State:               "todo",
-			Priority:            "medium",
-			UseOpusOrchestrator: true,
-			Created:             created,
-			Updated:             created,
-		}
-		data, err := SerializeCard(original)
-		require.NoError(t, err)
-
-		parsed, err := ParseCard(data)
-		require.NoError(t, err)
-		assert.True(t, parsed.UseOpusOrchestrator)
-	})
-
-	t.Run("use_opus_orchestrator false round-trips correctly", func(t *testing.T) {
-		original := &Card{
-			ID:                  "TEST-001",
-			Title:               "Normal card",
-			Project:             "test-project",
-			Type:                "task",
-			State:               "todo",
-			Priority:            "medium",
-			UseOpusOrchestrator: false,
-			Created:             created,
-			Updated:             created,
-		}
-		data, err := SerializeCard(original)
-		require.NoError(t, err)
-
-		parsed, err := ParseCard(data)
-		require.NoError(t, err)
-		assert.False(t, parsed.UseOpusOrchestrator)
-	})
-}
-
 func TestRoundTrip_CustomFields(t *testing.T) {
 	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
@@ -903,6 +784,62 @@ body
 		assert.Contains(t, string(out), "go-development")
 		assert.Contains(t, string(out), "documentation")
 	})
+}
+
+func TestRoundTripWithRunnerOrchestrationFields(t *testing.T) {
+	created := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	pushedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+
+	original := &Card{
+		ID:                "ABC-1",
+		Title:             "test",
+		Project:           "test-project",
+		Type:              "task",
+		State:             "todo",
+		Priority:          "medium",
+		Created:           created,
+		Updated:           created,
+		Repos:             []string{"auth-svc", "billing-svc"},
+		ChosenRepos:       []string{"auth-svc"},
+		BlockerCards:      []string{"ABC-9"},
+		RevisionAttempts:  2,
+		RevisionRequested: true,
+		PlanApproved:      true,
+		ReviewApproved:    false,
+		DiscoveryComplete: true,
+		AgentSessions:     map[string]string{"brainstorm": "sess_abc"},
+		DocsWritten:       true,
+		PushRecords: []PushRecord{
+			{
+				Repo:     "auth-svc",
+				Branch:   "cm/ABC-1",
+				PRURL:    "https://github.com/acme/auth-svc/pull/42",
+				PushedAt: pushedAt,
+			},
+		},
+	}
+
+	bytes, err := SerializeCard(original)
+	require.NoError(t, err)
+
+	parsed, err := ParseCard(bytes)
+	require.NoError(t, err)
+
+	require.Equal(t, original.Repos, parsed.Repos)
+	require.Equal(t, original.ChosenRepos, parsed.ChosenRepos)
+	require.Equal(t, original.BlockerCards, parsed.BlockerCards)
+	require.Equal(t, original.RevisionAttempts, parsed.RevisionAttempts)
+	require.True(t, parsed.RevisionRequested)
+	require.True(t, parsed.PlanApproved)
+	require.False(t, parsed.ReviewApproved)
+	require.True(t, parsed.DiscoveryComplete)
+	require.Equal(t, "sess_abc", parsed.AgentSessions["brainstorm"])
+	require.True(t, parsed.DocsWritten)
+	require.Len(t, parsed.PushRecords, 1)
+	require.Equal(t, "auth-svc", parsed.PushRecords[0].Repo)
+	require.Equal(t, "cm/ABC-1", parsed.PushRecords[0].Branch)
+	require.Equal(t, "https://github.com/acme/auth-svc/pull/42", parsed.PushRecords[0].PRURL)
+	require.True(t, parsed.PushRecords[0].PushedAt.Equal(original.PushRecords[0].PushedAt))
 }
 
 func TestActivityEntry_SkillField(t *testing.T) {

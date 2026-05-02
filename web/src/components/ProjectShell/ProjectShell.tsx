@@ -9,6 +9,7 @@ import { useLastProject } from '../../hooks/useLastProject';
 import { useProjects } from '../../hooks/useProjects';
 import { useToast } from '../../hooks/useToast';
 import { useRunnerLogs } from '../../hooks/useRunnerLogs';
+import { useCardLogCache } from '../../hooks/useCardLogCache';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
@@ -41,7 +42,7 @@ export function ProjectShell() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { showToast } = useToast();
-  const { agentId, promptForAgentId } = useAgentId();
+  const { agentId } = useAgentId();
   const [, setLastProject] = useLastProject();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
@@ -166,17 +167,58 @@ export function ProjectShell() {
     [cards]
   );
 
-  // Card-scoped log stream for CardChat — enabled only when a HITL session is running.
-  // This avoids opening a second EventSource from inside CardChat itself.
-  const isHITLCardRunning = useMemo(
-    () => currentSelectedCard?.runner_status === 'running' && !(currentSelectedCard?.autonomous ?? false),
-    [currentSelectedCard?.runner_status, currentSelectedCard?.autonomous],
-  );
-  const { logs: selectedCardLogs } = useRunnerLogs({
+  // Card-scoped log stream for CardChat. The stream-target card id is
+  // *sticky* across panel close: once the user opens a card with active
+  // HITL we keep that EventSource alive even after the panel is closed,
+  // so reopening the same card shows the transcript instantly instead
+  // of waiting 4-5 s for the server to replay the snapshot. Released
+  // only when the user opens a *different* non-HITL card (signaling
+  // they're done with the prior session). Derived in render via the
+  // same in-render setState pattern CardPanel uses (CardPanel.tsx:85-108)
+  // to avoid the useEffect→setState double-render lint.
+  const [streamCardId, setStreamCardId] = useState<string | null>(null);
+  if (currentSelectedCard) {
+    const isHITL = currentSelectedCard.runner_status === 'running'
+      && !(currentSelectedCard.autonomous ?? false);
+    if (isHITL) {
+      if (streamCardId !== currentSelectedCard.id) setStreamCardId(currentSelectedCard.id);
+    } else if (streamCardId !== null && streamCardId !== currentSelectedCard.id) {
+      // Different non-HITL card opened — release the prior stream. Same card
+      // with HITL just ended is preserved so the transcript stays available.
+      setStreamCardId(null);
+    }
+  }
+
+  const { logs: streamLogs } = useRunnerLogs({
     project: project || '',
-    cardId: currentSelectedCard?.id,
-    enabled: !!isHITLCardRunning,
+    cardId: streamCardId ?? undefined,
+    enabled: streamCardId !== null,
   });
+
+  // Per-card log buffer cache. The single ring buffer in useRunnerLogs is
+  // wiped whenever its cardId flips, so visiting card B between closing
+  // and reopening card A would otherwise lose A's transcript and force
+  // a 4-5 s wait for the server snapshot replay. This layer keeps each
+  // card's entries in its own cache slot, deduped by per-card high-water
+  // seq so reconnect-time replays don't double-up.
+  const { cache: cardLogCache, reset: resetCardLogCache } = useCardLogCache(
+    streamLogs,
+    streamCardId,
+  );
+
+  // Drop per-card buffers when the project changes — cardIds across
+  // projects don't collide, but the cache would otherwise leak forever.
+  // Uses the same in-render derived-state pattern as the prevProject
+  // block at the top of this component.
+  const [prevProjectForCache, setPrevProjectForCache] = useState(project);
+  if (prevProjectForCache !== project) {
+    setPrevProjectForCache(project);
+    resetCardLogCache();
+  }
+
+  const selectedCardLogs = currentSelectedCard
+    ? cardLogCache.get(currentSelectedCard.id) ?? []
+    : [];
 
   useKeyboardShortcuts(
     useMemo(
@@ -285,7 +327,6 @@ export function ProjectShell() {
             onDelete={handleCardDelete}
             onClaim={handleClaim} onRelease={handleRelease}
             onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
-            onPromptAgentId={promptForAgentId}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
           />
         </ErrorBoundary>

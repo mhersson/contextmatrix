@@ -59,31 +59,25 @@ export function useCardActions({
     [selectedCard, selectedProject, showToast]
   );
 
-  const handleClaim = useCallback(
-    async (claimAgentId: string) => {
-      if (!selectedCard) return;
-      try {
-        await api.claimCard(selectedProject, selectedCard.id, claimAgentId);
-        showToast('Card claimed', 'success');
-      } catch (err) {
-        showToast(isAPIError(err) ? err.error : 'Failed to claim card', 'error');
-      }
-    },
-    [selectedCard, selectedProject, showToast]
-  );
+  const handleClaim = useCallback(async () => {
+    if (!selectedCard) return;
+    try {
+      await api.claimCard(selectedProject, selectedCard.id);
+      showToast('Card claimed', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to claim card', 'error');
+    }
+  }, [selectedCard, selectedProject, showToast]);
 
-  const handleRelease = useCallback(
-    async (releaseAgentId: string) => {
-      if (!selectedCard) return;
-      try {
-        await api.releaseCard(selectedProject, selectedCard.id, releaseAgentId);
-        showToast('Card released', 'success');
-      } catch (err) {
-        showToast(isAPIError(err) ? err.error : 'Failed to release card', 'error');
-      }
-    },
-    [selectedCard, selectedProject, showToast]
-  );
+  const handleRelease = useCallback(async () => {
+    if (!selectedCard) return;
+    try {
+      await api.releaseCard(selectedProject, selectedCard.id);
+      showToast('Card released', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to release card', 'error');
+    }
+  }, [selectedCard, selectedProject, showToast]);
 
   const handleCreateCard = useCallback(
     async (input: CreateCardInput) => {

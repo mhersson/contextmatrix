@@ -1,7 +1,20 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
+
+// Lazy-load the markdown previewer so the chat panel doesn't pay the
+// bundle cost until the user opens an HITL session. Reuses the same
+// component CardPanelEditor mounts for the description preview.
+//
+// We deliberately do NOT plumb the theme through here. The chat
+// markdown styling is fully driven by CSS custom properties scoped to
+// :root and [data-theme="light"] (see .wmde-markdown rules in
+// index.css), so dark/light switches automatically without
+// data-color-mode. This also keeps ChatEntry test-friendly — it does
+// not need a ThemeProvider wrapper.
+const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 const MAX_MESSAGE_LENGTH = 8000;
 const NEAR_BOTTOM_THRESHOLD = 50;
@@ -17,8 +30,11 @@ interface CardChatProps {
  * right-aligned bubbles. Newlines are preserved via `white-space: pre-wrap`.
  * The Send button only lives here — never duplicate it in the panel header.
  *
- * Returns null when the runner isn't running an HITL session — kept identical
- * to the previous gate so parent components don't have to special-case it.
+ * The conversation log stays visible whenever the parent mounts this
+ * component. When HITL is no longer active (runner stopped or card promoted
+ * to autonomous) the compose row and Switch-to-Autonomous button are
+ * replaced by a thin read-only footer so the transcript is preserved while
+ * input is closed.
  */
 export function CardChat({ card, cardLogs }: CardChatProps) {
   const [message, setMessage] = useState('');
@@ -31,6 +47,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [showThinking, setShowThinking] = useState(false);
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const userScrolledUpRef = useRef(false);
 
   const handleLogScroll = useCallback(() => {
@@ -49,9 +66,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     el.scrollTop = el.scrollHeight;
   }, [cardLogs]);
 
-  if (card.runner_status !== 'running' || card.autonomous) {
-    return null;
-  }
+  const hitlActive = card.runner_status === 'running' && !card.autonomous;
 
   const filteredLogs = cardLogs.filter((entry) => {
     if (entry.type === 'text') return showText;
@@ -81,7 +96,13 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     } catch (err) {
       setError(isAPIError(err) ? err.error : 'Failed to send message');
     } finally {
-      setSending(false);
+      // Browsers drop focus() calls against a disabled input. setSending(false)
+      // only queues the disabled→enabled flip — without flushSync, the textarea
+      // is still disabled when .focus() runs and the call is silently ignored.
+      // flushSync commits the state update before the imperative focus call so
+      // the user can type the next message without re-clicking the textarea.
+      flushSync(() => setSending(false));
+      textareaRef.current?.focus();
     }
   };
 
@@ -140,65 +161,89 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
         {filteredLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.ts}-${entry.card_id}-${idx}`} entry={entry} />)
+          filteredLogs.map((entry, idx) => {
+            const prev = idx > 0 ? filteredLogs[idx - 1] : null;
+            // Only label the first message in a consecutive run from
+            // the same sender — mirrors how messaging apps stack
+            // bubbles under a single name header.
+            const showSender = !prev || senderFor(prev.type) !== senderFor(entry.type);
+            return (
+              <ChatEntry
+                key={`${entry.ts}-${entry.card_id}-${idx}`}
+                entry={entry}
+                showSender={showSender}
+              />
+            );
+          })
         )}
       </div>
 
-      {/* Compose */}
-      <div className="bf-tk-compose">
-        <label htmlFor={messageId} className="sr-only">Message</label>
-        <textarea
-          id={messageId}
-          className="bf-input"
-          placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          maxLength={MAX_MESSAGE_LENGTH}
-          disabled={sending}
-          rows={2}
-        />
-        <button
-          type="button"
-          onClick={() => void handleSend()}
-          disabled={!canSend}
-          className="bf-btn-primary"
+      {hitlActive ? (
+        <>
+          {/* Compose */}
+          <div className="bf-tk-compose">
+            <label htmlFor={messageId} className="sr-only">Message</label>
+            <textarea
+              ref={textareaRef}
+              id={messageId}
+              className="bf-input"
+              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              maxLength={MAX_MESSAGE_LENGTH}
+              disabled={sending}
+              rows={2}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={!canSend}
+              className="bf-btn-primary"
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+
+          <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
+            {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
+              <div
+                className="text-xs font-mono mr-auto"
+                style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
+              >
+                {message.length} / {MAX_MESSAGE_LENGTH}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              disabled={promoting}
+              className="bf-btn-ghost bf-btn-sm"
+              style={{ color: 'var(--orange)', borderColor: 'color-mix(in oklab, var(--orange) 35%, transparent)' }}
+            >
+              {promoting ? 'Promoting…' : '⇢ Switch to Autonomous'}
+            </button>
+
+            {error && (
+              <div
+                className="text-xs px-2 py-1 rounded font-mono"
+                style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
+              >
+                {error}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div
+          className="px-4 py-2 text-xs font-mono italic text-center border-t border-[var(--bg3)]"
+          style={{ backgroundColor: 'var(--bg4)', color: 'var(--grey2)' }}
+          role="status"
         >
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-      </div>
-
-      <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
-        {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
-          <div
-            className="text-xs font-mono mr-auto"
-            style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
-          >
-            {message.length} / {MAX_MESSAGE_LENGTH}
-          </div>
-        )}
-
-        {!card.autonomous && (
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            disabled={promoting}
-            className="bf-btn-ghost bf-btn-sm"
-            style={{ color: 'var(--orange)', borderColor: 'color-mix(in oklab, var(--orange) 35%, transparent)' }}
-          >
-            {promoting ? 'Promoting…' : '⇢ Switch to Autonomous'}
-          </button>
-        )}
-
-        {error && (
-          <div
-            className="text-xs px-2 py-1 rounded font-mono"
-            style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
+          {card.autonomous ? 'Promoted to autonomous — read-only' : 'Session ended — read-only'}
+        </div>
+      )}
 
       <ConfirmModal
         open={confirmOpen}
@@ -213,7 +258,12 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   );
 }
 
-function ChatEntry({ entry }: { entry: LogEntry }) {
+function ChatEntry({ entry, showSender }: { entry: LogEntry; showSender: boolean }) {
+  // Human-typed messages render as right-aligned bubbles in --bg-blue —
+  // the active-agent indicator's blue, deliberately distinct from
+  // agent text so the conversation reads like a messaging app. The
+  // user is implicitly the sender of right-aligned bubbles, so no
+  // sender label is rendered.
   if (entry.type === 'user') {
     return (
       <div className="flex justify-end">
@@ -227,13 +277,77 @@ function ChatEntry({ entry }: { entry: LogEntry }) {
     );
   }
 
-  // Document-style agent output with a left accent bar.
+  // Agent text and orchestrator system announcements render as
+  // left-aligned bubbles with markdown — fenced JSON / code blocks in
+  // structured status messages and plan summaries get proper code
+  // styling instead of raw triple-backticks. The sender label sits
+  // above the first bubble in a consecutive run so stacked messages
+  // read like a normal messaging-app conversation.
+  if (entry.type === 'text' || entry.type === 'system') {
+    const isSystem = entry.type === 'system';
+    return (
+      <div className="flex flex-col items-start gap-0.5">
+        {showSender && (
+          <span className="text-[10px] uppercase tracking-wide text-[var(--grey1)] pl-1">
+            {senderFor(entry.type)}
+          </span>
+        )}
+        <div
+          className="max-w-[85%] rounded-lg px-3 py-2 text-sm break-words"
+          style={{
+            backgroundColor: isSystem ? 'var(--bg-green)' : 'var(--bg2)',
+            color: 'var(--fg)',
+          }}
+        >
+          <ChatMarkdown source={entry.content} />
+        </div>
+      </div>
+    );
+  }
+
+  // Thinking, tool_call, stderr, gap — keep the document-style accent
+  // bar; these are diagnostic streams, not conversation turns.
   return (
     <div
-      className="pl-3 border-l-2 text-sm text-[var(--fg)] font-mono leading-relaxed whitespace-pre-wrap break-words"
+      className="pl-3 border-l-2 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words"
       style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
     >
       {entry.content}
+    </div>
+  );
+}
+
+// senderFor labels left-aligned bubbles. Diagnostic types
+// (thinking/tool_call/stderr/gap) and 'user' return "" because they
+// either don't render as bubbles or are implicitly the human side; the
+// run-grouping logic in the parent uses "" as a distinct group so
+// they don't suppress a real sender label on the next text/system
+// bubble.
+function senderFor(type: LogEntry['type']): string {
+  switch (type) {
+    case 'text':
+      return 'Agent';
+    case 'system':
+      return 'Orchestrator';
+    default:
+      return '';
+  }
+}
+
+// ChatMarkdown renders a chat message body through the same markdown
+// previewer the description surface uses. Wrapped in Suspense (the
+// previewer is lazy-loaded) with a plain-text fallback so streaming
+// frames never flash empty.
+function ChatMarkdown({ source }: { source: string }) {
+  return (
+    <div className="bf-chat-markdown">
+      <Suspense
+        fallback={
+          <div className="whitespace-pre-wrap break-words text-sm">{source}</div>
+        }
+      >
+        <MarkdownPreview source={source} skipHtml />
+      </Suspense>
     </div>
   );
 }
@@ -243,7 +357,6 @@ function accentFor(type: LogEntry['type']): string {
     case 'thinking': return 'var(--grey2)';
     case 'tool_call': return 'var(--aqua)';
     case 'stderr': return 'var(--yellow)';
-    case 'system': return 'var(--green)';
     case 'gap': return 'var(--orange)';
     default: return 'var(--bg3)';
   }
@@ -254,7 +367,6 @@ function textFor(type: LogEntry['type']): string {
     case 'thinking': return 'var(--grey2)';
     case 'tool_call': return 'var(--aqua)';
     case 'stderr': return 'var(--yellow)';
-    case 'system': return 'var(--green)';
     case 'gap': return 'var(--orange)';
     default: return 'var(--fg)';
   }

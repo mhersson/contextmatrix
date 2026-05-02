@@ -30,7 +30,6 @@ export interface Card {
   vetted?: boolean;
   custom?: Record<string, unknown>;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
@@ -157,36 +156,20 @@ export interface CreateCardInput {
   body?: string;
   source?: Source;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
   skills?: string[] | null;
 }
 
-export interface UpdateCardInput {
-  title: string;
-  type: string;
-  state: string;
-  priority: string;
-  labels?: string[];
-  parent?: string;
-  subtasks?: string[];
-  depends_on?: string[];
-  context?: string[];
-  custom?: Record<string, unknown>;
-  body?: string;
-  skills?: string[] | null;
-}
-
 export interface PatchCardInput {
   title?: string;
+  type?: string;
   state?: string;
   priority?: string;
   labels?: string[];
   body?: string;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -196,12 +179,6 @@ export interface PatchCardInput {
   // "set back to nil so the project default applies".
   skills?: string[] | null;
   skills_clear?: boolean;
-}
-
-export interface CardContext {
-  card: Card;
-  project: ProjectConfig;
-  template?: string;
 }
 
 export interface ActiveAgent {

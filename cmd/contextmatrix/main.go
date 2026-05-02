@@ -142,13 +142,16 @@ func main() {
 		taskSkillsCloneURL = cfg.TaskSkills.GitRemoteURL
 	}
 
-	taskSkillsGit, err := gitops.NewManager(
+	// gitops.NewManager performs a clone-on-empty side effect when the
+	// directory is empty and a remote URL is configured. The returned manager
+	// is otherwise unused — task-skills are read directly from the filesystem
+	// by the API layer.
+	if _, err := gitops.NewManager(
 		cfg.TaskSkills.Dir,
 		taskSkillsCloneURL,
 		"task-skills",
 		tokenProvider,
-	)
-	if err != nil {
+	); err != nil {
 		slog.Error("failed to create task-skills git manager", "error", err)
 		os.Exit(1)
 	}
@@ -168,6 +171,9 @@ func main() {
 	bus := events.NewBus()
 
 	slog.Info("event bus initialized")
+
+	runnerBuf := events.NewRunnerEventBuffer(500, 24*time.Hour)
+	slog.Info("runner event buffer initialized", "max_per_card", 500, "max_age", 24*time.Hour)
 
 	// Initialize lock manager
 	lockMgr := lock.NewManager(store, heartbeatTimeout)
@@ -252,16 +258,16 @@ func main() {
 		runnerClient = runner.NewClient(cfg.Runner.URL, cfg.Runner.APIKey)
 		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
 
-		runner.StartEndSessionSubscriber(ctx, bus, svc, runnerClient, slog.Default())
-		slog.Info("end-session subscriber started")
+		runner.StartTerminalKillSubscriber(ctx, bus, svc, runnerClient, slog.Default())
+		slog.Info("terminal-kill subscriber started")
 
 		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
 		// The sweep takes the CardService (CardLookup) and the runner client
-		// (ReconcileClient: ListContainers + EndSession + Kill). It uses the
-		// runner's Docker state as the authoritative "is this container
-		// running?" input and the card store as the authoritative "should it
-		// be?" — see internal/runner/reconcile.go for why we no longer gate
-		// on card.runner_status.
+		// (ReconcileClient: ListContainers + Kill). It uses the runner's
+		// Docker state as the authoritative "is this container running?"
+		// input and the card store as the authoritative "should it be?" —
+		// see internal/runner/reconcile.go for why we no longer gate on
+		// card.runner_status.
 		runner.StartReconciliationSweep(ctx, svc, runnerClient, reconcileInterval, slog.Default())
 
 		if reconcileInterval > 0 {
@@ -300,6 +306,7 @@ func main() {
 	mux := api.NewRouter(api.RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
+		RunnerEventBuffer:   runnerBuf,
 		CORSOrigin:          cfg.CORSOrigin,
 		Syncer:              apiSyncer,
 		Runner:              runnerClient,
@@ -307,7 +314,6 @@ func main() {
 		MCPAPIKey:           cfg.MCPAPIKey,
 		Port:                cfg.Port,
 		GitHubTokenProvider: tokenProvider,
-		TaskSkillsGit:       taskSkillsGit,
 		TaskSkillsDir:       cfg.TaskSkills.Dir,
 		GitHubAPIBaseURL:    cfg.GitHub.ResolvedAPIBaseURL(),
 		GitHubAllowedHosts:  cfg.GitHub.AllowedHosts(),

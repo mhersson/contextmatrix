@@ -41,41 +41,39 @@ type cardHandlers struct {
 
 // createCardRequest is the JSON body for creating a card.
 type createCardRequest struct {
-	Title               string        `json:"title"`
-	Type                string        `json:"type"`
-	Priority            string        `json:"priority"`
-	Labels              []string      `json:"labels"`
-	Parent              string        `json:"parent"`
-	Body                string        `json:"body"`
-	Source              *board.Source `json:"source"`
-	Autonomous          bool          `json:"autonomous"`
-	UseOpusOrchestrator bool          `json:"use_opus_orchestrator"`
-	FeatureBranch       bool          `json:"feature_branch"`
-	CreatePR            bool          `json:"create_pr"`
-	Vetted              bool          `json:"vetted"`
-	Skills              *[]string     `json:"skills,omitempty"`
+	Title         string        `json:"title"`
+	Type          string        `json:"type"`
+	Priority      string        `json:"priority"`
+	Labels        []string      `json:"labels"`
+	Parent        string        `json:"parent"`
+	Body          string        `json:"body"`
+	Source        *board.Source `json:"source"`
+	Autonomous    bool          `json:"autonomous"`
+	FeatureBranch bool          `json:"feature_branch"`
+	CreatePR      bool          `json:"create_pr"`
+	Vetted        bool          `json:"vetted"`
+	Skills        *[]string     `json:"skills,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
 // All fields use value types to match PUT's full-replacement semantics.
 type updateCardRequest struct {
-	Title               string         `json:"title"`
-	Type                string         `json:"type"`
-	State               string         `json:"state"`
-	Priority            string         `json:"priority"`
-	Labels              []string       `json:"labels"`
-	Parent              string         `json:"parent"`
-	Subtasks            []string       `json:"subtasks"`
-	DependsOn           []string       `json:"depends_on"`
-	Context             []string       `json:"context"`
-	Custom              map[string]any `json:"custom"`
-	Body                string         `json:"body"`
-	Autonomous          bool           `json:"autonomous"`
-	UseOpusOrchestrator bool           `json:"use_opus_orchestrator"`
-	FeatureBranch       bool           `json:"feature_branch"`
-	CreatePR            bool           `json:"create_pr"`
-	Vetted              bool           `json:"vetted"`
-	Skills              *[]string      `json:"skills,omitempty"`
+	Title         string         `json:"title"`
+	Type          string         `json:"type"`
+	State         string         `json:"state"`
+	Priority      string         `json:"priority"`
+	Labels        []string       `json:"labels"`
+	Parent        string         `json:"parent"`
+	Subtasks      []string       `json:"subtasks"`
+	DependsOn     []string       `json:"depends_on"`
+	Context       []string       `json:"context"`
+	Custom        map[string]any `json:"custom"`
+	Body          string         `json:"body"`
+	Autonomous    bool           `json:"autonomous"`
+	FeatureBranch bool           `json:"feature_branch"`
+	CreatePR      bool           `json:"create_pr"`
+	Vetted        bool           `json:"vetted"`
+	Skills        *[]string      `json:"skills,omitempty"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -87,19 +85,19 @@ type updateCardRequest struct {
 // project default applies again". This sits alongside the normal
 // `skills` field used for explicit list / explicit empty.
 type patchCardRequest struct {
-	Title               *string   `json:"title,omitempty"`
-	State               *string   `json:"state,omitempty"`
-	Priority            *string   `json:"priority,omitempty"`
-	Labels              []string  `json:"labels,omitempty"`
-	Body                *string   `json:"body,omitempty"`
-	Autonomous          *bool     `json:"autonomous,omitempty"`
-	UseOpusOrchestrator *bool     `json:"use_opus_orchestrator,omitempty"`
-	FeatureBranch       *bool     `json:"feature_branch,omitempty"`
-	CreatePR            *bool     `json:"create_pr,omitempty"`
-	Vetted              *bool     `json:"vetted,omitempty"`
-	BaseBranch          *string   `json:"base_branch,omitempty"`
-	Skills              *[]string `json:"skills,omitempty"`
-	SkillsClear         bool      `json:"skills_clear,omitempty"`
+	Title         *string   `json:"title,omitempty"`
+	Type          *string   `json:"type,omitempty"`
+	State         *string   `json:"state,omitempty"`
+	Priority      *string   `json:"priority,omitempty"`
+	Labels        []string  `json:"labels,omitempty"`
+	Body          *string   `json:"body,omitempty"`
+	Autonomous    *bool     `json:"autonomous,omitempty"`
+	FeatureBranch *bool     `json:"feature_branch,omitempty"`
+	CreatePR      *bool     `json:"create_pr,omitempty"`
+	Vetted        *bool     `json:"vetted,omitempty"`
+	BaseBranch    *string   `json:"base_branch,omitempty"`
+	Skills        *[]string `json:"skills,omitempty"`
+	SkillsClear   bool      `json:"skills_clear,omitempty"`
 }
 
 // validateCardSkills validates that each skill name in `skills` exists in
@@ -311,9 +309,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted) {
+	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be set via the UI")
 
 		return
 	}
@@ -325,19 +323,18 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.CreateCardInput{
-		Title:               req.Title,
-		Type:                req.Type,
-		Priority:            req.Priority,
-		Labels:              req.Labels,
-		Parent:              req.Parent,
-		Body:                req.Body,
-		Source:              req.Source,
-		Autonomous:          req.Autonomous,
-		UseOpusOrchestrator: req.UseOpusOrchestrator,
-		FeatureBranch:       req.FeatureBranch,
-		CreatePR:            req.CreatePR,
-		Vetted:              req.Vetted,
-		Skills:              req.Skills,
+		Title:         req.Title,
+		Type:          req.Type,
+		Priority:      req.Priority,
+		Labels:        req.Labels,
+		Parent:        req.Parent,
+		Body:          req.Body,
+		Source:        req.Source,
+		Autonomous:    req.Autonomous,
+		FeatureBranch: req.FeatureBranch,
+		CreatePR:      req.CreatePR,
+		Vetted:        req.Vetted,
+		Skills:        req.Skills,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -406,12 +403,11 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous fields can only be changed by human users (UI), never by agents.
 	// For PUT semantics, compare against existing values to catch both setting AND clearing.
 	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
-		req.UseOpusOrchestrator != existingCard.UseOpusOrchestrator ||
 		req.FeatureBranch != existingCard.FeatureBranch ||
 		req.CreatePR != existingCard.CreatePR ||
 		req.Vetted != existingCard.Vetted) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be changed via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, and vetted can only be changed via the UI")
 
 		return
 	}
@@ -423,24 +419,23 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.UpdateCardInput{
-		Title:               req.Title,
-		Type:                req.Type,
-		State:               req.State,
-		Priority:            req.Priority,
-		Labels:              req.Labels,
-		Parent:              req.Parent,
-		Subtasks:            req.Subtasks,
-		DependsOn:           req.DependsOn,
-		Context:             req.Context,
-		Custom:              req.Custom,
-		Body:                req.Body,
-		ImmediateCommit:     existingCard.AssignedAgent == "",
-		Autonomous:          req.Autonomous,
-		UseOpusOrchestrator: req.UseOpusOrchestrator,
-		FeatureBranch:       req.FeatureBranch,
-		CreatePR:            req.CreatePR,
-		Vetted:              req.Vetted,
-		Skills:              req.Skills,
+		Title:           req.Title,
+		Type:            req.Type,
+		State:           req.State,
+		Priority:        req.Priority,
+		Labels:          req.Labels,
+		Parent:          req.Parent,
+		Subtasks:        req.Subtasks,
+		DependsOn:       req.DependsOn,
+		Context:         req.Context,
+		Custom:          req.Custom,
+		Body:            req.Body,
+		ImmediateCommit: existingCard.AssignedAgent == "",
+		Autonomous:      req.Autonomous,
+		FeatureBranch:   req.FeatureBranch,
+		CreatePR:        req.CreatePR,
+		Vetted:          req.Vetted,
+		Skills:          req.Skills,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -472,9 +467,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous != nil || req.UseOpusOrchestrator != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil || req.BaseBranch != nil) {
+	if isNonHumanAgent(r) && (req.Autonomous != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil || req.BaseBranch != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and base_branch can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, and base_branch can only be set via the UI")
 
 		return
 	}
@@ -500,20 +495,20 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.PatchCardInput{
-		Title:               req.Title,
-		State:               req.State,
-		Priority:            req.Priority,
-		Labels:              req.Labels,
-		Body:                req.Body,
-		ImmediateCommit:     existingCard.AssignedAgent == "",
-		Autonomous:          req.Autonomous,
-		UseOpusOrchestrator: req.UseOpusOrchestrator,
-		FeatureBranch:       req.FeatureBranch,
-		CreatePR:            req.CreatePR,
-		Vetted:              req.Vetted,
-		BaseBranch:          req.BaseBranch,
-		Skills:              req.Skills,
-		SkillsClear:         req.SkillsClear,
+		Title:           req.Title,
+		Type:            req.Type,
+		State:           req.State,
+		Priority:        req.Priority,
+		Labels:          req.Labels,
+		Body:            req.Body,
+		ImmediateCommit: existingCard.AssignedAgent == "",
+		Autonomous:      req.Autonomous,
+		FeatureBranch:   req.FeatureBranch,
+		CreatePR:        req.CreatePR,
+		Vetted:          req.Vetted,
+		BaseBranch:      req.BaseBranch,
+		Skills:          req.Skills,
+		SkillsClear:     req.SkillsClear,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

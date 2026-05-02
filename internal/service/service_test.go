@@ -4281,25 +4281,25 @@ func TestRecordPush_BranchProtection(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("main rejected at service layer", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "main", "")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "main", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrProtectedBranch)
 	})
 
 	t.Run("master rejected at service layer", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "master", "")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "master", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrProtectedBranch)
 	})
 
 	t.Run("refs/heads/main rejected", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "refs/heads/main", "")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "refs/heads/main", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrProtectedBranch)
 	})
 
 	t.Run("feature branch allowed", func(t *testing.T) {
-		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", card.ID+"/fix-login", "")
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", card.ID+"/fix-login", "")
 		require.NoError(t, err)
 		assert.NotNil(t, pushed)
 	})
@@ -4377,31 +4377,31 @@ func TestRecordPush_InvalidPRUrl(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("javascript URL rejected", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "javascript:alert(1)")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/fix", "javascript:alert(1)")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidPRUrl)
 	})
 
 	t.Run("data URL rejected", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "data:text/html,<h1>hi</h1>")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/fix", "data:text/html,<h1>hi</h1>")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidPRUrl)
 	})
 
 	t.Run("https URL accepted", func(t *testing.T) {
-		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "https://github.com/org/repo/pull/1")
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/fix", "https://github.com/org/repo/pull/1")
 		require.NoError(t, err)
 		assert.Equal(t, "https://github.com/org/repo/pull/1", pushed.PRUrl)
 	})
 
 	t.Run("http URL accepted", func(t *testing.T) {
-		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "http://gitlab.local/pr/2")
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/fix", "http://gitlab.local/pr/2")
 		require.NoError(t, err)
 		assert.Equal(t, "http://gitlab.local/pr/2", pushed.PRUrl)
 	})
 
 	t.Run("empty PR URL accepted (no validation needed)", func(t *testing.T) {
-		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/fix", "")
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/fix", "")
 		require.NoError(t, err)
 		assert.NotNil(t, pushed)
 	})
@@ -4421,13 +4421,13 @@ func TestRecordPush_AgentOwnership(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("wrong agent rejected", func(t *testing.T) {
-		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-intruder", "feat/fix", "")
+		_, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-intruder", "", "feat/fix", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, lock.ErrAgentMismatch)
 	})
 
 	t.Run("correct agent allowed", func(t *testing.T) {
-		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-owner", "feat/fix", "")
+		pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-owner", "", "feat/fix", "")
 		require.NoError(t, err)
 		assert.NotNil(t, pushed)
 	})
@@ -4503,7 +4503,7 @@ func TestRecordPush_Atomic(t *testing.T) {
 	require.NoError(t, err)
 
 	// Record a push with PR URL — both PR URL and log entry should be set atomically
-	pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/login", "https://github.com/org/repo/pull/42")
+	pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "feat/login", "https://github.com/org/repo/pull/42")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/org/repo/pull/42", pushed.PRUrl)
 

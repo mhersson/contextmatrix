@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -448,6 +449,94 @@ func (s *FilesystemStore) ProjectCardCount(ctx context.Context, name string) (in
 	}
 
 	return len(idx.cards), nil
+}
+
+// ReadProjectKB assembles the tiered KB for a project. See Store interface
+// for layer details.
+func (s *FilesystemStore) ReadProjectKB(ctx context.Context, project *board.ProjectConfig, repoSlugFilter ...string) (board.ProjectKB, error) {
+	if err := ctx.Err(); err != nil {
+		return board.ProjectKB{}, err
+	}
+
+	if project == nil {
+		return board.ProjectKB{}, fmt.Errorf("project is nil")
+	}
+
+	var kb board.ProjectKB
+
+	// Determine which slugs to read.
+	var slugs []string
+
+	if len(repoSlugFilter) > 0 {
+		registry := make(map[string]struct{}, len(project.Repos))
+		for _, r := range project.Repos {
+			registry[r.Slug] = struct{}{}
+		}
+
+		for _, slug := range repoSlugFilter {
+			if _, ok := registry[slug]; ok {
+				slugs = append(slugs, slug)
+			}
+		}
+	} else {
+		slugs = make([]string, 0, len(project.Repos))
+		for _, r := range project.Repos {
+			slugs = append(slugs, r.Slug)
+		}
+	}
+
+	repos := make(map[string]string, len(slugs))
+
+	for _, slug := range slugs {
+		path := filepath.Join(s.boardsDir, "_kb", "repos", slug+".md")
+
+		b, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			return board.ProjectKB{}, fmt.Errorf("read repo kb %s: %w", slug, err)
+		}
+
+		repos[slug] = string(b)
+	}
+
+	if len(repos) > 0 {
+		kb.Repos = repos
+	}
+
+	if project.JiraProjectKey != "" {
+		path := filepath.Join(s.boardsDir, "_kb", "jira-projects", project.JiraProjectKey+".md")
+
+		b, err := os.ReadFile(path)
+
+		switch {
+		case err == nil:
+			kb.JiraProject = string(b)
+		case errors.Is(err, os.ErrNotExist):
+			// optional layer; ignore
+		default:
+			return board.ProjectKB{}, fmt.Errorf("read jira-project kb %s: %w", project.JiraProjectKey, err)
+		}
+	}
+
+	if project.Name != "" {
+		path := filepath.Join(s.boardsDir, project.Name, "kb", "project.md")
+
+		b, err := os.ReadFile(path)
+
+		switch {
+		case err == nil:
+			kb.Project = string(b)
+		case errors.Is(err, os.ErrNotExist):
+			// optional layer; ignore
+		default:
+			return board.ProjectKB{}, fmt.Errorf("read project kb %s: %w", project.Name, err)
+		}
+	}
+
+	return kb, nil
 }
 
 // ListCards returns all cards in a project matching the filter.

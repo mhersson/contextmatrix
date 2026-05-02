@@ -6,10 +6,8 @@ import type {
   APIError,
   CreateCardInput,
   CreateProjectInput,
-  UpdateCardInput,
   UpdateProjectInput,
   PatchCardInput,
-  CardContext,
   DashboardData,
   SyncStatus,
   StopAllResponse,
@@ -43,6 +41,11 @@ class APIClient {
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      // X-Requested-With trips the server's CSRF guard: a malicious tab
+      // cannot set this header in a "simple request" without a CORS
+      // preflight, so its presence is proof the call originated from
+      // a same-origin script that was loaded with our CSP.
+      'X-Requested-With': 'contextmatrix',
       ...options.headers,
     };
 
@@ -159,17 +162,6 @@ class APIClient {
     });
   }
 
-  async updateCard(
-    project: string,
-    id: string,
-    input: UpdateCardInput
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    });
-  }
-
   async patchCard(
     project: string,
     id: string,
@@ -187,51 +179,19 @@ class APIClient {
     });
   }
 
-  // Agent operations
-  async claimCard(project: string, id: string, agentId: string): Promise<Card> {
+  // Agent operations. Identity comes from the X-Agent-ID header (set by
+  // useAgentId), so these endpoints have no body fields and the methods
+  // take no agentId parameter.
+  async claimCard(project: string, id: string): Promise<Card> {
     return this.request<Card>(`/projects/${project}/cards/${id}/claim`, {
       method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
     });
   }
 
-  async releaseCard(
-    project: string,
-    id: string,
-    agentId: string
-  ): Promise<Card> {
+  async releaseCard(project: string, id: string): Promise<Card> {
     return this.request<Card>(`/projects/${project}/cards/${id}/release`, {
       method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
     });
-  }
-
-  async heartbeatCard(
-    project: string,
-    id: string,
-    agentId: string
-  ): Promise<void> {
-    return this.request<void>(`/projects/${project}/cards/${id}/heartbeat`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async addLogEntry(
-    project: string,
-    id: string,
-    agentId: string,
-    action: string,
-    message: string
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/log`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, action, message }),
-    });
-  }
-
-  async getCardContext(project: string, id: string): Promise<CardContext> {
-    return this.request<CardContext>(`/projects/${project}/cards/${id}/context`);
   }
 
   async getDashboard(project: string): Promise<DashboardData> {

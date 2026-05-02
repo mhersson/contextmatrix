@@ -33,13 +33,13 @@ type ContainerLister interface {
 }
 
 // ReconcileClient is the union of interfaces the sweep needs: it both lists
-// containers (authoritative answer to "what's running") and kills them
-// (via EndSession + Kill). In production both methods come from the same
-// *Client, but keeping them as separate interfaces lets the sweep test inject
-// a fake without standing up an HTTP server.
+// containers (authoritative answer to "what's running") and kills them.
+// In production both methods come from the same *Client, but keeping them
+// as separate interfaces lets the sweep test inject a fake without standing
+// up an HTTP server.
 type ReconcileClient interface {
 	ContainerLister
-	EndSessionClient
+	TerminalKillClient
 }
 
 // CardLookup is the per-card read path used by the sweep. A missing card is a
@@ -150,7 +150,7 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 			"reason", reason,
 		)
 
-		endSessionAndKill(ctx, client, logger, c.Project, c.CardID, "", "", sourceSweep)
+		killTerminalContainer(ctx, client, logger, c.Project, c.CardID, "", "", sourceSweep)
 	}
 
 	logger.Info("reconcile sweep tick",
