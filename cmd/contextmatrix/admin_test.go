@@ -1,15 +1,67 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fakeProjectLister is a minimal projectLister for testing startProjectPumps.
+type fakeProjectLister struct {
+	projects []board.ProjectConfig
+	err      error
+}
+
+func (f *fakeProjectLister) ListProjects(_ context.Context) ([]board.ProjectConfig, error) {
+	return f.projects, f.err
+}
+
+// TestStartProjectPumps verifies the boot-time session pump seeding logic.
+func TestStartProjectPumps(t *testing.T) {
+	t.Run("seeds a session for each project", func(t *testing.T) {
+		lister := &fakeProjectLister{
+			projects: []board.ProjectConfig{
+				{Name: "alpha"},
+				{Name: "beta"},
+			},
+		}
+		mgr := sessionlog.NewManager()
+		t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+		startProjectPumps(context.Background(), lister, mgr)
+
+		assert.True(t, mgr.HasProjectSession("alpha"), "expected active session for alpha")
+		assert.True(t, mgr.HasProjectSession("beta"), "expected active session for beta")
+	})
+
+	t.Run("ListProjects error does not block boot", func(t *testing.T) {
+		lister := &fakeProjectLister{err: errors.New("store unavailable")}
+		mgr := sessionlog.NewManager()
+		t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+		// Must return without panicking or blocking.
+		startProjectPumps(context.Background(), lister, mgr)
+	})
+
+	t.Run("no projects means no sessions", func(t *testing.T) {
+		lister := &fakeProjectLister{projects: nil}
+		mgr := sessionlog.NewManager()
+		t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+		startProjectPumps(context.Background(), lister, mgr)
+
+		assert.False(t, mgr.HasProjectSession("nonexistent"))
+	})
+}
 
 // TestAdminMux_Pprof exercises the pprof endpoints served by newAdminMux via
 // httptest so we do not have to race a real listener. Binding to an ephemeral

@@ -670,6 +670,15 @@ func (m *Manager) StopProject(project string) {
 	m.Stop(projectKey(project))
 }
 
+// HasProjectSession reports whether an active long-lived session is currently
+// running for the given project. Safe for concurrent use.
+func (m *Manager) HasProjectSession(project string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.activeSessions[projectKey(project)]
+	return ok
+}
+
 // SubscribeProject returns a channel that first delivers a snapshot of all
 // buffered project events and then delivers live events as they arrive.
 // The second return value is an unsubscribe function; calling it removes this
