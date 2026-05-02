@@ -89,6 +89,19 @@ const (
 	templateExtension = ".md"
 )
 
+// validatePathComponent rejects components that would let directory
+// traversal sneak into KB file paths. Mirrors the storage-layer rule
+// (storage/filesystem.go); kept inline here to avoid an import cycle.
+func validatePathComponent(component string) error {
+	if component == "" || component == "." || component == ".." ||
+		strings.ContainsAny(component, "/\\") ||
+		filepath.Clean(component) != component {
+		return fmt.Errorf("%w: %q", ErrInvalidProjectConfig, component)
+	}
+
+	return nil
+}
+
 // LoadProjectConfig reads a project's .board.yaml configuration.
 // The dir parameter should be the project directory (e.g., "boards/project-alpha").
 func LoadProjectConfig(dir string) (*ProjectConfig, error) {
@@ -191,6 +204,18 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 			if !slices.Contains(allStates, target) {
 				return fmt.Errorf("%w: transition from %q targets non-existent state %q", ErrInvalidProjectConfig, fromState, target)
 			}
+		}
+	}
+
+	if cfg.JiraProjectKey != "" {
+		if err := validatePathComponent(cfg.JiraProjectKey); err != nil {
+			return fmt.Errorf("jira_project_key: %w", err)
+		}
+	}
+
+	for i, r := range cfg.Repos {
+		if err := validatePathComponent(r.Slug); err != nil {
+			return fmt.Errorf("repos[%d].slug: %w", i, err)
 		}
 	}
 

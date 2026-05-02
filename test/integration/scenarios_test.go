@@ -143,18 +143,11 @@ func testHITLStub(t *testing.T) {
 // testHITLReviewLoopStub drives a two-round review loop in HITL mode.
 // Round 1 plans, executes, then sends "please revise" to trigger
 // review_revise; round 2 replans, executes, and approves. Asserts the
-// FSM walked through replan and review fired twice.
-//
-// We don't assert the card's RevisionAttempts/ReviewAttempts counter:
-// the runner's IncrementRevisionAttemptsAction pushes the new value
-// via update_card with a "revision_attempts" key, but CM's update_card
-// tool only forwards a fixed set of mutable fields (Title, Priority,
-// Labels, Skills, Body) and silently drops unknown fields. The
-// in-memory counter on the runner side is still correct (the
-// autonomous max-revision-attempts guard uses it), so this is a
-// data-observability gap rather than a correctness bug — to be wired
-// up in a follow-up. Activity-log entries are the load-bearing
-// signal for now.
+// FSM walked through replan and review fired twice via the activity
+// log's phase markers. RevisionAttempts itself is plumbed end-to-end
+// (mcp/tools.go: updateCardInput → service/service_cards.go) but this
+// test stays focused on the FSM transitions; a separate unit test in
+// contextmatrix-runner/internal/orchestrator covers the IncrementRevisionAttemptsAction.
 func testHITLReviewLoopStub(t *testing.T) {
 	start := time.Now()
 

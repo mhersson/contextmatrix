@@ -205,3 +205,65 @@ func TestRunnerEventsPollInvalidSince(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
+
+// TestRunnerEventsSSEPreservesNewlinesInData locks in the SSE contract for
+// multi-line chat content. The producer must split Data on \n and emit
+// one data: line per fragment per the SSE spec; the consumer rejoins with \n.
+// Without this, user-typed multi-line chat is silently truncated and may
+// corrupt subsequent events on the wire.
+func TestRunnerEventsSSEPreservesNewlinesInData(t *testing.T) {
+	buf := events.NewRunnerEventBuffer(100, time.Hour)
+	h := newRunnerEventHandlers(buf, "")
+
+	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", srv.URL+"?card_id=c1", nil)
+	require.NoError(t, err)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	const multiline = "line one\nline two\n\nline four after blank"
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		buf.Append("c1", events.RunnerEvent{Type: "chat_input", Data: multiline})
+	}()
+
+	sc := bufio.NewScanner(resp.Body)
+
+	var (
+		sawType   bool
+		dataLines []string
+		eventDone bool
+	)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for sc.Scan() && time.Now().Before(deadline) && !eventDone {
+		line := sc.Text()
+
+		switch {
+		case strings.HasPrefix(line, "event: chat_input"):
+			sawType = true
+		case sawType && strings.HasPrefix(line, "data: "):
+			dataLines = append(dataLines, strings.TrimPrefix(line, "data: "))
+		case sawType && line == "" && len(dataLines) > 0:
+			eventDone = true
+
+			cancel()
+		}
+	}
+
+	require.True(t, sawType, "expected event: chat_input frame")
+	require.True(t, eventDone, "expected event terminator")
+	require.Equal(t, multiline, strings.Join(dataLines, "\n"),
+		"all newline-separated content must round-trip across the SSE boundary")
+}

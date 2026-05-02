@@ -275,6 +275,49 @@ func TestValidateProjectConfig(t *testing.T) {
 			},
 			expectedErr: nil,
 		},
+		{
+			name: "rejects jira_project_key with parent traversal",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "../etc/passwd"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects jira_project_key with path separator",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "PAY/secret"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects jira_project_key with backslash",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "..\\etc"
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects repo slug with parent traversal",
+			modify: func(cfg *ProjectConfig) {
+				cfg.Repos = []RepoSpec{{Slug: "..", URL: "git@github.com:org/x.git"}}
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "rejects repo slug with path separator",
+			modify: func(cfg *ProjectConfig) {
+				cfg.Repos = []RepoSpec{{Slug: "a/b", URL: "git@github.com:org/x.git"}}
+			},
+			expectedErr: ErrInvalidProjectConfig,
+		},
+		{
+			name: "accepts well-formed jira_project_key and slugs",
+			modify: func(cfg *ProjectConfig) {
+				cfg.JiraProjectKey = "PAY"
+				cfg.Repos = []RepoSpec{{Slug: "billing-svc", URL: "git@github.com:org/billing.git"}}
+			},
+			expectedErr: nil,
+		},
 	}
 
 	for _, tt := range tests {

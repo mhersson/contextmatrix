@@ -202,11 +202,25 @@ func (h *runnerEventHandlers) handleStream(w http.ResponseWriter, r *http.Reques
 
 // writeRunnerSSEEvent formats one RunnerEvent in SSE wire format. The
 // `event:` line carries the type and `id:` carries the monotonic
-// event_id; the `data:` payload is just the inner Data string so
-// consumers (the runner driver, the chat-loop sessions) can use it
-// directly without parsing a JSON wrapper.
+// event_id; the `data:` payload is the inner Data string, split on \n
+// and emitted as one `data:` line per fragment per the SSE spec so
+// embedded newlines round-trip intact. Consumers (the runner driver,
+// the chat-loop sessions) reconstruct the original string by joining
+// the fragments with `\n`.
 func writeRunnerSSEEvent(w io.Writer, ev events.RunnerEvent) error {
-	_, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.EventID, ev.Type, ev.Data)
+	if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\n", ev.EventID, ev.Type); err != nil {
+		return err
+	}
 
-	return err
+	for _, frag := range strings.Split(ev.Data, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", frag); err != nil {
+			return err
+		}
+	}
+
+	if _, err := io.WriteString(w, "\n"); err != nil {
+		return err
+	}
+
+	return nil
 }
