@@ -227,7 +227,6 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
                 collapsed={collapsedColumns.has(state)}
                 onToggleCollapse={toggleCollapse}
                 onCardClick={onCardClick}
-                onCreateCard={onCreateCard}
                 activeCardState={activeCard?.state}
                 flashCardId={flashCardId}
                 collapsedCards={collapsedCards}
