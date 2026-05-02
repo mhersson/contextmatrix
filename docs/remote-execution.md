@@ -724,15 +724,15 @@ If the session manager is not initialised (runner disabled), returns 204.
 **Project-scoped path** (`?project=P`, no `card_id`):
 
 Used by the Runner Console panel (`ProjectShell`). Backed by the same Session
-Log Manager as the card-scoped path. On each client connection, calls
-`manager.StartProject(project)` (idempotent) to open a single long-lived
-upstream SSE connection that accepts all events for the project. Calls
-`manager.SubscribeProject(project)`, which replays the buffered snapshot first
-and then tails live events — identical snapshot-before-live ordering guarantee
-as the card-scoped path. Reconnecting clients receive all events buffered since
-the first connect. The session key is namespaced as `"project:<name>"` in the
-shared Manager maps so it cannot collide with card IDs. Cleanup is handled by
-the idle TTL sweeper (2 h default); no explicit stop is needed.
+Log Manager as the card-scoped path. The upstream session is started on cm boot
+(one per registered project) and on `POST /api/projects`, so it is already
+running when the first client connects. Calls `manager.SubscribeProject(project)`,
+which replays the buffered snapshot first and then tails live events — identical
+snapshot-before-live ordering guarantee as the card-scoped path. Reconnecting
+clients receive all events buffered since cm started. The session key is
+namespaced as `"project:<name>"` in the shared Manager maps so it cannot
+collide with card IDs. The session is not swept by the idle TTL — it persists
+for the process lifetime.
 
 If the session manager is not initialised (runner disabled), returns 204.
 
@@ -761,10 +761,14 @@ layer that fixes the reconnect-loses-log-history bug.
   `SubscribeProject(project)` mirror the card-scoped API but buffer all events
   for the project (no card-ID filter). The internal session key is
   `"project:<name>"`, which cannot collide with card IDs in the shared maps.
-  `StartProject` is called by `streamProjectSession` on each client connect
-  (idempotent); cleanup is handled by the idle sweeper. Project-scoped events
-  include a populated `CardID` field on `sessionlog.Event` so the frontend
-  card-ID filter dropdown keeps working.
+  `StartProject` is called on cm boot for every registered project (via
+  `startProjectPumps` in `main.go`) and by the `POST /api/projects` handler for
+  newly created projects. It is idempotent — a second call for the same project
+  attaches to the existing session. Project sessions are marked long-lived: the
+  idle sweeper skips them and the pump retries indefinitely on upstream failure
+  (see Upstream retry below). Project-scoped events include a populated `CardID`
+  field on `sessionlog.Event` so the frontend card-ID filter dropdown keeps
+  working.
 - **Bounded ring buffer**: each session (card-scoped or project-scoped) enforces
   dual caps — 2000 events OR 1 MiB total payload, whichever is reached first.
   On overflow, the oldest events are dropped and a single synthetic `dropped`
@@ -775,16 +779,20 @@ layer that fixes the reconnect-loses-log-history bug.
   cancels the upstream connection, sends a `terminal` event to all subscribers,
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
-  (250 ms base, 4 s cap, 5 attempts). The `attempt` counter resets to 0
-  whenever a frame is successfully delivered, so transient disconnects during
-  a long-running session do not accumulate toward the permanent-failure limit —
-  a session can tolerate arbitrarily many brief disconnects as long as each
-  reconnection delivers at least one frame. After all retries are exhausted
-  without a successful frame the session is marked permanently failed: all
-  active and pending subscribers receive a `terminal` event and their channels
-  are closed. Any subsequent `Subscribe` call for that card takes a fast path —
-  it receives an immediate `terminal` event without parking — until `Start` is
-  called again (which clears the failure flag).
+  (250 ms base, 16 s cap). The `attempt` counter resets to 0 whenever a frame
+  is successfully delivered, so transient disconnects do not accumulate toward
+  the failure threshold — a session tolerates arbitrarily many brief disconnects
+  as long as each reconnection delivers at least one frame. Behavior on
+  exhaustion differs by session type:
+  - **Card-scoped sessions** (5 attempts maximum): after exhaustion the session
+    is marked permanently failed — all active and pending subscribers receive a
+    `terminal` event and their channels are closed. Any subsequent `Subscribe`
+    call for that card returns an immediate `terminal` event without parking
+    until `Start` is called again (which clears the failure flag).
+  - **Project-scoped (long-lived) sessions**: no attempt limit. The pump keeps
+    retrying indefinitely with the backoff capped at 16 s. Events emitted during
+    a disconnect window are reflected as a `dropped` marker once the upstream
+    reconnects and delivers the next frame.
 - **Slow-subscriber drops**: the fan-out loop is non-blocking. If a subscriber's
   channel (256-entry buffer) is full, the event is dropped. Each drop:
   increments `Manager.DroppedEvents()` (an atomic counter, monotonically
@@ -798,8 +806,9 @@ layer that fixes the reconnect-loses-log-history bug.
   project-scoped combined); `Start`/`StartProject` return an error if the cap is
   reached.
 - **Idle sweeper**: `StartSweeper(ctx)` runs a background goroutine that
-  force-closes sessions running longer than the TTL (default 2 h) without an
-  explicit Stop. Sweeps at TTL/2 intervals.
+  force-closes card-scoped sessions running longer than the TTL (default 2 h)
+  without an explicit Stop. Sweeps at TTL/2 intervals. Long-lived project
+  sessions (started via `StartProject`) are exempt — the sweeper skips them.
 
 #### Defaults and configuration knobs
 

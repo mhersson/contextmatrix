@@ -81,18 +81,20 @@ write and commit completion. The service layer closes that gap on failure:
   commit → event publish. Also runs the heartbeat timeout checker goroutine,
   which lives here (not in the lock manager) because it coordinates store, git,
   and events.
-- **Session Log Manager** (`runner/sessionlog.Manager`): server-side per-card
-  SSE buffer and fan-out hub. Keeps a single long-lived authenticated upstream
-  connection to the runner per active card, tees events into a bounded ring
-  buffer, and replays the buffer snapshot to every new subscriber before tailing
-  live events. Started by `CardService.UpdateRunnerStatus` on `→running`,
-  stopped (fire-and-forget) on terminal statuses. See `docs/remote-execution.md`
-  § Session Log Manager for full details.
+- **Session Log Manager** (`runner/sessionlog.Manager`): server-side SSE buffer
+  and fan-out hub for both card-scoped and project-scoped runner log sessions.
+  Keeps a single long-lived authenticated upstream connection per active session,
+  tees events into a bounded ring buffer, and replays the buffer snapshot to
+  every new subscriber before tailing live events. Card-scoped sessions start on
+  `CardService.UpdateRunnerStatus → running` and stop (fire-and-forget) on
+  terminal statuses. Project-scoped sessions start on cm boot (one per
+  registered project) and on `POST /api/projects`; they are never swept — they
+  persist for the process lifetime and retry indefinitely on upstream failure.
+  See `docs/remote-execution.md` § Session Log Manager for full details.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
-  `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
-  for replay-on-reconnect) and project-scoped legacy proxy (forwards the raw
-  runner SSE stream verbatim).
+  `GET /api/runner/logs` has two modes: card-scoped and project-scoped (both use
+  the session manager for snapshot replay on reconnect).
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `POST /mcp`. Registered on the same
   `http.ServeMux` as the REST API, so it inherits the shared middleware chain
