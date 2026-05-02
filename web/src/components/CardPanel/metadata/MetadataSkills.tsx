@@ -1,12 +1,11 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { api } from '../../../api/client';
-import type { Card, ProjectConfig, TaskSkillSummary } from '../../../types';
+import type { ProjectConfig, TaskSkillSummary } from '../../../types';
 
 type Mode = 'inherit' | 'specific' | 'none';
 
 interface MetadataSkillsProps {
-  card: Card;
-  editedCard: Card;
+  value: string[] | null | undefined;
   config: ProjectConfig;
   onSkillsChange: (next: string[] | null) => void;
 }
@@ -18,19 +17,19 @@ function modeFor(value: string[] | null | undefined): Mode {
 }
 
 /**
- * Skills section of the Info rail tab. Three-state selector that mirrors
- * the project-level DefaultSkillsSelector but with an extra constraint:
- * when the project has `default_skills` set, the per-card list must be a
- * *subset* of the project default. Other entries are hidden from the
- * options list to make the constraint visible.
+ * Skills selector — three-state radio (inherit / specific / none) shared
+ * between the card detail panel's Info tab and the create-card panel's Info
+ * tab. When the project has `default_skills` set, the per-card list must be
+ * a subset of the project default; other entries are hidden from the options
+ * list to make the constraint visible.
  *
- * Edits update `editedCard.skills` via `onSkillsChange`. Persistence
- * happens through CardPanel's normal save flow; `buildCardPatch` emits
- * either `skills: [...]` or `skills_clear: true` depending on the mode.
+ * `value` is the current selection (null = inherit, [] = none, [...] =
+ * specific). The parent owns the state — this component is purely
+ * controlled — so it works equally well backed by `editedCard.skills` in
+ * CardPanel or by local React state in CreateCardPanel.
  */
 export function MetadataSkills({
-  card,
-  editedCard,
+  value,
   config,
   onSkillsChange,
 }: MetadataSkillsProps) {
@@ -39,13 +38,6 @@ export function MetadataSkills({
   const [error, setError] = useState<string | null>(null);
   const headingId = useId();
   const radioName = useId();
-
-  // Suppress unused-var warning while keeping a stable reference to the
-  // unedited card; future enhancements (diff badge, revert affordance)
-  // will read from it.
-  void card;
-
-  const value = editedCard.skills;
 
   // Track previous value to detect external resets during render (derived-state pattern).
   const [prevValue, setPrevValue] = useState(value);

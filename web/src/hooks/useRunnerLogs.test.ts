@@ -469,6 +469,35 @@ describe('useRunnerLogs — close→reopen does not duplicate entries', () => {
 });
 
 describe('useRunnerLogs — stream identity changes', () => {
+  it('clears buffer when cardId changes even if stream is disabled on both sides', () => {
+    // Repro: HITL runs on card A → buffer fills. HITL ends → enabled flips to
+    // false but transcript is preserved on A. User then opens card B (a fresh
+    // todo card with no HITL) → enabled is still false, but cardId changed.
+    // A's logs must not leak into B's panel.
+    const { result, rerender } = renderHook(
+      ({ enabled, cardId }: { enabled: boolean; cardId: string }) =>
+        useRunnerLogs({ project: 'proj', enabled, cardId }),
+      { initialProps: { enabled: true, cardId: 'CARD-A' } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'a-1', card_id: 'CARD-A', ts, seq: 1 });
+    });
+    expect(result.current.logs).toHaveLength(1);
+
+    // HITL ends on card A — enabled flips false. Transcript stays visible.
+    act(() => { rerender({ enabled: false, cardId: 'CARD-A' }); });
+    expect(result.current.logs).toHaveLength(1);
+
+    // User opens card B; B has no HITL session so enabled remains false.
+    // The buffer must clear so card B's panel does not show A's chat.
+    act(() => { rerender({ enabled: false, cardId: 'CARD-B' }); });
+    expect(result.current.logs).toHaveLength(0);
+  });
+
   it('clears buffer when cardId changes so entries from previous card do not bleed', () => {
     const { result, rerender } = renderHook(
       ({ cardId }: { cardId: string }) =>

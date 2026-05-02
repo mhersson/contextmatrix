@@ -956,7 +956,22 @@ input, select, textarea {
   }
 }
 
-/* Override markdown editor styles for Everforest theme */
+/* Override markdown editor styles for Everforest theme.
+ *
+ * The library's CSS is lazy-loaded with the MDEditor chunk and appended to
+ * <head> *after* this stylesheet. With equal selector specificity, a later
+ * `!important` rule beats an earlier one — so flat `.w-md-editor-text-input`
+ * overrides here lose to the library's identical-specificity rules. Two
+ * defenses, applied together:
+ *   1. Set `--md-editor-font-family` here so the library's own
+ *      `font-family: var(--md-editor-font-family) !important` resolves to
+ *      JetBrains Mono instead of going invalid (the library expected
+ *      consumers to use this variable, not to override font-family directly).
+ *   2. For everything that doesn't have a library variable (font-size,
+ *      line-height, ligature/kerning resets), prefix the selector with
+ *      `.w-md-editor` to boost specificity above the library's flat class
+ *      selectors.
+ */
 .w-md-editor {
   --color-canvas-default: var(--bg-dim) !important;
   --color-canvas-subtle: var(--bg1) !important;
@@ -964,18 +979,32 @@ input, select, textarea {
   --color-border-muted: var(--bg3) !important;
   --color-fg-default: var(--fg) !important;
   --color-fg-muted: var(--grey1) !important;
+  --md-editor-font-family: var(--font-mono);
   background-color: var(--bg-dim) !important;
   border-color: var(--bg3) !important;
   border-radius: 8px !important;
 }
 
-.w-md-editor-text-pre > code,
-.w-md-editor-text-input,
-.w-md-editor-text {
+.w-md-editor .w-md-editor-text,
+.w-md-editor .w-md-editor-text-pre,
+.w-md-editor .w-md-editor-text-pre > code,
+.w-md-editor .w-md-editor-text-input {
   color: var(--fg) !important;
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   line-height: 1.65 !important;
+  /* Defensive resets against asymmetric inheritance between the transparent
+     textarea and the colored overlay it sits on top of:
+     - `letter-spacing` and `font-feature-settings` come from the body
+       (Geist tracking + stylistic sets) and reach the overlay but not the
+       textarea (UA reset on form controls).
+     - `font-variant-ligatures: common-ligatures` is set by the library on
+       the text wrapper; without this reset, JetBrains Mono ligatures
+       (`==`, `!=`, `=>`, ...) render in the overlay but not in the textarea
+       and the caret drifts on every ligature transition. */
+  letter-spacing: normal !important;
+  font-feature-settings: normal !important;
+  font-variant-ligatures: none !important;
 }
 
 .w-md-editor-toolbar {

@@ -68,8 +68,7 @@ export function CardPanelMetadata({
       />
 
       <MetadataSkills
-        card={card}
-        editedCard={editedCard}
+        value={editedCard.skills}
         config={config}
         onSkillsChange={onSkillsChange}
       />
