@@ -8,6 +8,14 @@ interface MetadataSkillsProps {
   value: string[] | null | undefined;
   config: ProjectConfig;
   onSkillsChange: (next: string[] | null) => void;
+  /**
+   * Lock the selector once the workflow has started — skills are mounted
+   * into the runner's working directory at run start, so changes after
+   * that point do not reach the live agent.
+   */
+  disabled?: boolean;
+  /** Optional message shown next to the heading when `disabled` is true. */
+  lockedReason?: string;
 }
 
 function modeFor(value: string[] | null | undefined): Mode {
@@ -32,6 +40,8 @@ export function MetadataSkills({
   value,
   config,
   onSkillsChange,
+  disabled = false,
+  lockedReason,
 }: MetadataSkillsProps) {
   const [allSkills, setAllSkills] = useState<TaskSkillSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,7 +101,7 @@ export function MetadataSkills({
   };
 
   return (
-    <section className="bf-aside-section">
+    <section className={`bf-aside-section ${disabled ? 'opacity-60' : ''}`}>
       <h4 id={headingId}>Skills</h4>
       <div className="space-y-2.5">
         <ModeRadio
@@ -106,6 +116,7 @@ export function MetadataSkills({
                 : `Use project default (${(config.default_skills ?? []).length} skill${(config.default_skills ?? []).length === 1 ? '' : 's'})`
           }
           onChange={setMode}
+          disabled={disabled}
         />
         <ModeRadio
           name={radioName}
@@ -113,7 +124,7 @@ export function MetadataSkills({
           value="specific"
           label="Specific skills"
           onChange={setMode}
-          disabled={projectAllowsNone}
+          disabled={disabled || projectAllowsNone}
         />
         {localMode === 'specific' && (
           <div className="pl-6">
@@ -125,11 +136,15 @@ export function MetadataSkills({
             {!loading && !error && options.length > 0 && (
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
                 {options.map(s => (
-                  <label key={s.name} className="flex items-start gap-2 cursor-pointer">
+                  <label
+                    key={s.name}
+                    className={`flex items-start gap-2 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
                     <input
                       type="checkbox"
                       checked={selected.has(s.name)}
                       onChange={() => toggle(s.name)}
+                      disabled={disabled}
                       className="mt-0.5 accent-[var(--green)]"
                     />
                     <span className="text-sm leading-tight" style={{ color: 'var(--fg)' }}>
@@ -147,7 +162,13 @@ export function MetadataSkills({
           value="none"
           label="Mount no skills"
           onChange={setMode}
+          disabled={disabled}
         />
+        {disabled && (
+          <div className="bf-locked-banner">
+            🔒 {lockedReason ?? 'Skills locked once the workflow has started'}
+          </div>
+        )}
       </div>
     </section>
   );

@@ -240,6 +240,40 @@ describe('MetadataSkills — checkbox list subset constraint', () => {
   });
 });
 
+describe('MetadataSkills — disabled prop locks every input', () => {
+  it('all radios are disabled and a locked banner is shown when disabled is true', () => {
+    vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
+    render(
+      <MetadataSkills
+        value={null}
+        config={makeConfig()}
+        onSkillsChange={vi.fn()}
+        disabled
+        lockedReason="Skills locked during remote run"
+      />,
+    );
+    expect(screen.getByRole('radio', { name: /Use project default/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Specific skills/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Mount no skills/i })).toBeDisabled();
+    expect(screen.getByText(/Skills locked during remote run/i)).toBeInTheDocument();
+  });
+
+  it('checkboxes inside Specific mode are disabled when disabled is true', async () => {
+    vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
+    render(
+      <MetadataSkills
+        value={['go-development']}
+        config={makeConfig()}
+        onSkillsChange={vi.fn()}
+        disabled
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /go-development/i })).toBeDisabled();
+    });
+  });
+});
+
 describe('MetadataSkills — "Specific skills" disabled when config.default_skills=[]', () => {
   it('"Specific skills" radio is disabled when config.default_skills is empty', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);

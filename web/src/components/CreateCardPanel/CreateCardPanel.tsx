@@ -56,7 +56,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [bodyDirty, setBodyDirty] = useState(false);
   const [autonomous, setAutonomous] = useState(false);
   const [featureBranch, setFeatureBranch] = useState(true);
-  const [createPR, setCreatePR] = useState(false);
+  const [createPR, setCreatePR] = useState(true);
   const [baseBranch, setBaseBranch] = useState('');
   // null = inherit project default, [] = mount none, [...] = specific list.
   const [skills, setSkills] = useState<string[] | null>(null);

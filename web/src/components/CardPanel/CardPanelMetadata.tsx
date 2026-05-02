@@ -71,6 +71,12 @@ export function CardPanelMetadata({
         value={editedCard.skills}
         config={config}
         onSkillsChange={onSkillsChange}
+        disabled={runnerAttached || card.state !== 'todo'}
+        lockedReason={
+          runnerAttached
+            ? 'Skills locked during remote run'
+            : `Skills can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
+        }
       />
 
       <MetadataRelated
