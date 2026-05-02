@@ -9,6 +9,11 @@ interface UseRunnerLogsOptions {
   /** When set, the hook connects to the card-scoped session endpoint and
    *  receives only events for this card (server-filtered). */
   cardId?: string;
+  /** When changed, force a fresh stream: clear the ring buffer, reset the
+   *  terminal-halt latch, close the existing EventSource, and reconnect.
+   *  Used when the same cardId starts a new server-side session (e.g. an
+   *  HITL run is started again after the previous one terminated). */
+  sessionToken?: string | number;
 }
 
 interface UseRunnerLogsResult {
@@ -36,6 +41,7 @@ export function useRunnerLogs({
   enabled,
   maxEntries = 5000,
   cardId,
+  sessionToken,
 }: UseRunnerLogsOptions): UseRunnerLogsResult {
   const ringBuffer = useRingBuffer(maxEntries);
   const { append, clear } = ringBuffer;
@@ -82,6 +88,13 @@ export function useRunnerLogs({
     let url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
     if (cardId) {
       url += `&card_id=${encodeURIComponent(cardId)}`;
+    }
+    // sessionToken is a cache-busting query parameter (ignored by the
+    // server). Including it here makes the dep genuinely used so a fresh
+    // session for the same cardId opens a new EventSource instead of
+    // reusing the old one's URL.
+    if (sessionToken !== undefined) {
+      url += `&_session=${encodeURIComponent(String(sessionToken))}`;
     }
     const es = new EventSource(url);
     eventSourceRef.current = es;
@@ -203,7 +216,7 @@ export function useRunnerLogs({
         connectRef.current();
       }, delay);
     };
-  }, [project, cardId, append]);
+  }, [project, cardId, sessionToken, append]);
 
   // Keep connectRef in sync with connect
   useEffect(() => {
@@ -217,7 +230,8 @@ export function useRunnerLogs({
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // Clear the buffer when the stream identity changes (project/cardId).
+  // Clear the buffer when the stream identity changes (project/cardId)
+  // or when the caller signals a new session via sessionToken.
   // Independent of `enabled`: the hook stays mounted across card selections
   // in ProjectShell, so a card switch with `enabled=false` on both sides
   // would otherwise leak the previous card's transcript into the newly
@@ -225,7 +239,7 @@ export function useRunnerLogs({
   // connect() during the same commit.
   useEffect(() => {
     clear();
-  }, [project, cardId, clear]);
+  }, [project, cardId, sessionToken, clear]);
 
   // Also clear when re-enabling so a fresh server-snapshot replay does not
   // pile onto a buffer left full from before the stream was paused.

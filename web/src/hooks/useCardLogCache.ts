@@ -4,6 +4,7 @@ import type { LogEntry } from '../types';
 interface UseCardLogCacheResult {
   cache: ReadonlyMap<string, readonly LogEntry[]>;
   reset: () => void;
+  invalidate: (cardId: string) => void;
 }
 
 interface CardLogCacheStore {
@@ -11,6 +12,7 @@ interface CardLogCacheStore {
   getSnapshot: () => ReadonlyMap<string, readonly LogEntry[]>;
   append: (cardId: string, entries: readonly LogEntry[]) => void;
   reset: () => void;
+  invalidate: (cardId: string) => void;
   lengthFor: (cardId: string) => number;
 }
 
@@ -43,6 +45,12 @@ function createStore(): CardLogCacheStore {
     reset() {
       if (cache.size === 0) return;
       cache = new Map();
+      notify();
+    },
+    invalidate(cardId) {
+      if (!cache.has(cardId)) return;
+      cache = new Map(cache);
+      cache.delete(cardId);
       notify();
     },
     lengthFor(cardId) {
@@ -115,5 +123,17 @@ export function useCardLogCache(
     store.reset();
   }, [store]);
 
-  return { cache, reset };
+  // Drop a single card's slot. Also resets the per-card "first commit"
+  // marker so the next render with the same cardId is treated like a
+  // fresh attach: stale liveLogs from the previous session (which the
+  // caller is about to replace) cannot re-populate the slot before the
+  // upstream stream actually clears.
+  const invalidate = useCallback((id: string) => {
+    store.invalidate(id);
+    if (prevCardIdRef.current === id) {
+      prevCardIdRef.current = null;
+    }
+  }, [store]);
+
+  return { cache, reset, invalidate };
 }

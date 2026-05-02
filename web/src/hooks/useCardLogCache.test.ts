@@ -216,6 +216,64 @@ describe('useCardLogCache', () => {
     ]);
   });
 
+  it('invalidate(cardId) drops a single card slot without affecting other cards', () => {
+    const { result, rerender } = renderHook(
+      ({ l, id }: { l: readonly LogEntry[]; id: string | null }) =>
+        useCardLogCache(l, id),
+      { initialProps: { l: [] as readonly LogEntry[], id: 'A' as string | null } },
+    );
+    rerender({ l: [entry('A', 1, 'a-1')], id: 'A' });
+
+    rerender({ l: [entry('A', 1, 'a-1')], id: 'B' });
+    rerender({ l: [] as readonly LogEntry[], id: 'B' });
+    rerender({ l: [entry('B', 1, 'b-1')], id: 'B' });
+
+    expect(result.current.cache.get('A')).toEqual([entry('A', 1, 'a-1')]);
+    expect(result.current.cache.get('B')).toEqual([entry('B', 1, 'b-1')]);
+
+    act(() => { result.current.invalidate('A'); });
+
+    expect(result.current.cache.has('A')).toBe(false);
+    expect(result.current.cache.get('B')).toEqual([entry('B', 1, 'b-1')]);
+  });
+
+  it('after invalidate(currentCardId), stale liveLogs do not re-populate the cache', () => {
+    // HITL-restart bug repro: a session ends with the cache holding 3
+    // entries. The parent invalidates the slot when a fresh run starts,
+    // but useRunnerLogs's clear effect has not fired yet, so liveLogs
+    // still contains the previous run's entries. The cache must NOT
+    // re-cache those stale entries — they belong to the dead session.
+    const { result, rerender } = renderHook(
+      ({ l, id }: { l: readonly LogEntry[]; id: string | null }) =>
+        useCardLogCache(l, id),
+      { initialProps: { l: [] as readonly LogEntry[], id: 'A' as string | null } },
+    );
+
+    rerender({
+      l: [flatEntry('A', 'r1-1'), flatEntry('A', 'r1-2'), flatEntry('A', 'r1-3')],
+      id: 'A',
+    });
+    expect(result.current.cache.get('A')).toHaveLength(3);
+
+    act(() => { result.current.invalidate('A'); });
+    expect(result.current.cache.has('A')).toBe(false);
+
+    // Stale render: liveLogs still carries the previous run's entries.
+    rerender({
+      l: [flatEntry('A', 'r1-1'), flatEntry('A', 'r1-2'), flatEntry('A', 'r1-3')],
+      id: 'A',
+    });
+    expect(result.current.cache.has('A')).toBe(false);
+
+    // Then useRunnerLogs's clear effect fires.
+    rerender({ l: [] as readonly LogEntry[], id: 'A' });
+
+    // First entry of run 2 arrives.
+    rerender({ l: [flatEntry('A', 'r2-1')], id: 'A' });
+
+    expect(result.current.cache.get('A')).toEqual([flatEntry('A', 'r2-1')]);
+  });
+
   it('reset() clears every cached buffer and forgets high-water marks', () => {
     const { result, rerender } = renderHook(
       ({ l, id }: { l: readonly LogEntry[]; id: string | null }) =>

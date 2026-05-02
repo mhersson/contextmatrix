@@ -406,6 +406,79 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
   });
 });
 
+describe('useRunnerLogs — sessionToken forces fresh stream', () => {
+  it('changing sessionToken closes the existing EventSource and opens a new one', () => {
+    const { rerender } = renderHook(
+      ({ token }: { token: number }) =>
+        useRunnerLogs({ project: 'proj', enabled: true, cardId: 'CARD-A', sessionToken: token }),
+      { initialProps: { token: 1 } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+    const firstES = latestES();
+    expect(firstES.closed).toBe(false);
+    const countBefore = FakeEventSource.instances.length;
+
+    act(() => { rerender({ token: 2 }); });
+
+    expect(firstES.closed).toBe(true);
+    expect(FakeEventSource.instances.length).toBeGreaterThan(countBefore);
+  });
+
+  it('changing sessionToken clears the ring buffer', () => {
+    const { result, rerender } = renderHook(
+      ({ token }: { token: number }) =>
+        useRunnerLogs({ project: 'proj', enabled: true, cardId: 'CARD-A', sessionToken: token }),
+      { initialProps: { token: 1 } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+    const ts = new Date().toISOString();
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'old', card_id: 'CARD-A', ts, seq: 1 });
+    });
+    expect(result.current.logs).toHaveLength(1);
+
+    act(() => { rerender({ token: 2 }); });
+    expect(result.current.logs).toHaveLength(0);
+  });
+
+  it('changing sessionToken resets the terminal halt so a new connection can be established', () => {
+    // HITL-restart bug: after a clean terminal halts reconnects, bumping
+    // sessionToken signals a fresh server-side session — the hook must
+    // resume listening, not stay halted.
+    const { result, rerender } = renderHook(
+      ({ token }: { token: number }) =>
+        useRunnerLogs({ project: 'proj', enabled: true, cardId: 'CARD-A', sessionToken: token }),
+      { initialProps: { token: 1 } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+    const ts = new Date().toISOString();
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'old', card_id: 'CARD-A', ts, seq: 1 });
+    });
+    act(() => {
+      latestES().simulateMessage({ type: 'terminal' });
+    });
+    expect(result.current.connected).toBe(false);
+
+    const countBefore = FakeEventSource.instances.length;
+
+    act(() => { rerender({ token: 2 }); });
+
+    expect(FakeEventSource.instances.length).toBeGreaterThan(countBefore);
+    expect(result.current.logs).toHaveLength(0);
+
+    act(() => { latestES().simulateOpen(); });
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'fresh', card_id: 'CARD-A', ts, seq: 1 });
+    });
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].content).toBe('fresh');
+  });
+});
+
 describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
   it('onerror triggers reconnect after delay when not terminal', () => {
     renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));

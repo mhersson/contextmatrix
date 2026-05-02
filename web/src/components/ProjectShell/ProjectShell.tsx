@@ -189,10 +189,24 @@ export function ProjectShell() {
     }
   }
 
+  // Per-card session token. Bumped whenever any card's runner_status
+  // transitions to 'running' from a non-running state — that signals a
+  // fresh server-side session (e.g. a failed/stopped HITL run was moved
+  // back to todo and started again). useRunnerLogs uses sessionToken to
+  // drop the terminal-halt latch and open a new EventSource; the cache
+  // slot for the transitioning card is invalidated in the same render so
+  // the prior transcript cannot bleed into the new run. Tracked across
+  // ALL cards (not just the currently-viewed one) so the fix works even
+  // when the panel was closed during the transition.
+  const [cardRunStatuses, setCardRunStatuses] =
+    useState<ReadonlyMap<string, string | null>>(() => new Map());
+  const [sessionToken, setSessionToken] = useState(0);
+
   const { logs: streamLogs } = useRunnerLogs({
     project: project || '',
     cardId: streamCardId ?? undefined,
     enabled: streamCardId !== null,
+    sessionToken,
   });
 
   // Per-card log buffer cache. The single ring buffer in useRunnerLogs is
@@ -201,10 +215,35 @@ export function ProjectShell() {
   // a 4-5 s wait for the server snapshot replay. This layer keeps each
   // card's entries in its own cache slot, deduped by per-card high-water
   // seq so reconnect-time replays don't double-up.
-  const { cache: cardLogCache, reset: resetCardLogCache } = useCardLogCache(
-    streamLogs,
-    streamCardId,
-  );
+  const { cache: cardLogCache, reset: resetCardLogCache, invalidate: invalidateCardLogSlot } =
+    useCardLogCache(streamLogs, streamCardId);
+
+  // Detect runner_status transitions to 'running' across all cards.
+  // tracked===null on first observation is NOT a transition (it just
+  // populates the map). Subsequent flips from non-running to 'running'
+  // signal a fresh server-side session for that card.
+  let nextRunStatuses: Map<string, string | null> | null = null;
+  const transitionsToRunning: string[] = [];
+  for (const c of cards) {
+    const tracked = cardRunStatuses.get(c.id) ?? null;
+    const current = c.runner_status ?? null;
+    if (tracked !== current) {
+      if (nextRunStatuses === null) nextRunStatuses = new Map(cardRunStatuses);
+      nextRunStatuses.set(c.id, current);
+      if (tracked !== null && tracked !== 'running' && current === 'running') {
+        transitionsToRunning.push(c.id);
+      }
+    }
+  }
+  if (nextRunStatuses !== null) {
+    setCardRunStatuses(nextRunStatuses);
+  }
+  for (const cid of transitionsToRunning) {
+    invalidateCardLogSlot(cid);
+  }
+  if (streamCardId !== null && transitionsToRunning.includes(streamCardId)) {
+    setSessionToken((t) => t + 1);
+  }
 
   // Drop per-card buffers when the project changes — cardIds across
   // projects don't collide, but the cache would otherwise leak forever.
