@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,6 +66,7 @@ type UpdateCardInput struct {
 // Nil values mean "do not change".
 type PatchCardInput struct {
 	Title               *string
+	Type                *string
 	State               *string
 	Priority            *string
 	Labels              []string // nil = don't change, empty slice = clear
@@ -647,6 +649,40 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.Title != nil {
 			card.Title = *input.Title
+		}
+
+		if input.Type != nil && *input.Type != card.Type {
+			newType := *input.Type
+			// Subtask type is reserved: it is auto-set when a card is created
+			// with a parent and is immutable thereafter.
+			if newType == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "type 'subtask' cannot be set directly; create the card with a parent instead",
+				}
+			}
+
+			if card.Type == board.SubtaskType {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: "subtask cards cannot change type",
+				}
+			}
+
+			if !slices.Contains(cfg.Types, newType) {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidType,
+					Field:   "type",
+					Value:   newType,
+					Message: fmt.Sprintf("type %q not in project's allowed types %v", newType, cfg.Types),
+				}
+			}
+
+			card.Type = newType
 		}
 
 		if input.State != nil {

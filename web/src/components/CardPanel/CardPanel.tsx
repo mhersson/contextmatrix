@@ -343,6 +343,7 @@ export function CardPanel(props: CardPanelProps) {
           onSave={handleSave}
           onTitleChange={(title) => setEditedCard((prev) => ({ ...prev, title }))}
           onPriorityChange={(priority) => setEditedCard((prev) => ({ ...prev, priority }))}
+          onTypeChange={(type) => setEditedCard((prev) => ({ ...prev, type }))}
           onPrimaryAction={handlePrimary}
           onStopCard={onStopCard}
           onOpenDependency={onSubtaskClick}

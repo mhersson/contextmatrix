@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -379,4 +380,84 @@ func TestPatchCard_AcceptsValidSkillNames(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updated.Skills)
 	assert.Equal(t, skills, *updated.Skills)
+}
+
+func TestPatchCard_TypeChange(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	t.Run("changes type to allowed value", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "switch type",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		newType := "feature"
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Type: &newType,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "feature", updated.Type)
+	})
+
+	t.Run("rejects setting type to subtask directly", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "no manual subtask",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		newType := "subtask"
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Type: &newType,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
+
+	t.Run("rejects type not in project's allowed list", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "unknown type",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		newType := "epic"
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Type: &newType,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
+
+	t.Run("rejects changing type on a subtask card", func(t *testing.T) {
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "parent",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "child",
+			Type:     "task",
+			Priority: "low",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, board.SubtaskType, subtask.Type)
+
+		newType := "feature"
+		_, err = svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{
+			Type: &newType,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, board.ErrInvalidType)
+	})
 }

@@ -46,6 +46,7 @@ const defaultProps = {
   onSave: vi.fn(),
   onTitleChange: vi.fn(),
   onPriorityChange: vi.fn(),
+  onTypeChange: vi.fn(),
   onPrimaryAction: vi.fn(),
   onStopCard: vi.fn().mockResolvedValue(undefined),
   onOpenDependency: vi.fn(),

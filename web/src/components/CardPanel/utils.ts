@@ -43,6 +43,7 @@ function skillsEqual(
 export function isCardDirty(edited: Card, original: Card): boolean {
   return (
     edited.title !== original.title ||
+    edited.type !== original.type ||
     edited.state !== original.state ||
     edited.priority !== original.priority ||
     edited.body !== original.body ||
@@ -61,6 +62,7 @@ export function isCardDirty(edited: Card, original: Card): boolean {
 export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   const updates: PatchCardInput = {};
   if (edited.title !== original.title) updates.title = edited.title;
+  if (edited.type !== original.type) updates.type = edited.type;
   if (edited.state !== original.state) updates.state = edited.state;
   if (edited.priority !== original.priority) updates.priority = edited.priority;
   if (edited.body !== original.body) updates.body = edited.body;

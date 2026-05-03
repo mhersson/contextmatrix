@@ -181,6 +181,7 @@ export interface UpdateCardInput {
 
 export interface PatchCardInput {
   title?: string;
+  type?: string;
   state?: string;
   priority?: string;
   labels?: string[];

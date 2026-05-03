@@ -12,6 +12,8 @@ interface CardPanelHeaderChipsProps {
   onClose: () => void;
   onPriorityChange: (priority: string) => void;
   priorityId: string;
+  onTypeChange: (type: string) => void;
+  typeId: string;
 }
 
 /**
@@ -30,8 +32,10 @@ export function CardPanelHeaderChips({
   onClose,
   onPriorityChange,
   priorityId,
+  onTypeChange,
+  typeId,
 }: CardPanelHeaderChipsProps) {
-  const typeTint = typeColors[card.type] || 'var(--grey1)';
+  const typeTint = typeColors[editedCard.type] || 'var(--grey1)';
   const stateTint = stateColors[card.state] || 'var(--grey1)';
   const priorityTint = priorityColors[editedCard.priority] || 'var(--grey1)';
 
@@ -39,6 +43,18 @@ export function CardPanelHeaderChips({
   // card is still in `todo`. Outside todo the value already shaped how the
   // last run was queued and editing it would silently drift from history.
   const priorityLocked = runnerAttached || card.state !== 'todo';
+
+  // Type follows the same gating as Priority, plus subtask cards are locked:
+  // their type is parent-derived and the server invariant rejects changes.
+  const typeLocked =
+    runnerAttached || card.state !== 'todo' || card.type === 'subtask';
+  const typeLockedTitle =
+    card.type === 'subtask'
+      ? 'Subtasks cannot change type'
+      : runnerAttached
+        ? undefined
+        : `Type can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
+  const typeOptions = config.types.filter((t) => t !== 'subtask');
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -64,20 +80,58 @@ export function CardPanelHeaderChips({
         {card.id}
       </span>
 
-      {/* Type chip. Subtask uses the same solid --bg-blue / --aqua palette
-          as the parent ID badge so both chips read as the same color family
-          on the board and in the panel header; other types use the tinted
-          look. */}
-      <span
+      {/* Type picker-chip. Subtask uses the same solid --bg-blue / --aqua
+          palette as the parent ID badge so both chips read as the same color
+          family on the board and in the panel header; other types use the
+          tinted look. The select is disabled on subtasks (parent-derived) and
+          outside todo (would silently drift from how the last run was queued). */}
+      <label htmlFor={typeId} className="sr-only">Type</label>
+      <div
         className="chip-pill"
         style={
           card.type === 'subtask'
-            ? { backgroundColor: 'var(--bg-blue)', color: typeTint }
-            : { backgroundColor: `color-mix(in srgb, ${typeTint} 22%, transparent)`, color: typeTint }
+            ? {
+                backgroundColor: 'var(--bg-blue)',
+                color: typeTint,
+                padding: '3px 4px 3px 8px',
+                gap: '2px',
+              }
+            : {
+                backgroundColor: `color-mix(in srgb, ${typeTint} 22%, transparent)`,
+                color: typeTint,
+                padding: '3px 4px 3px 8px',
+                gap: '2px',
+              }
         }
+        title={typeLockedTitle}
       >
-        {card.type}
-      </span>
+        <select
+          id={typeId}
+          value={editedCard.type}
+          disabled={typeLocked}
+          onChange={(e) => onTypeChange(e.target.value)}
+          className="bg-transparent border-none outline-none appearance-none"
+          style={{
+            color: typeTint,
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            letterSpacing: '0.02em',
+            paddingRight: typeLocked ? '0' : '14px',
+            marginRight: typeLocked ? '0' : '-12px',
+            cursor: typeLocked ? 'not-allowed' : 'pointer',
+          }}
+          aria-label="Type"
+        >
+          {card.type === 'subtask' ? (
+            <option value="subtask" className="bg-[var(--bg2)] text-[var(--fg)]">subtask</option>
+          ) : (
+            typeOptions.map((t) => (
+              <option key={t} value={t} className="bg-[var(--bg2)] text-[var(--fg)]">{t}</option>
+            ))
+          )}
+        </select>
+        {!typeLocked && <span className="pointer-events-none">{HeaderCaret}</span>}
+      </div>
 
       {/* State chip (display only; transitions go through Info tab). */}
       <span
