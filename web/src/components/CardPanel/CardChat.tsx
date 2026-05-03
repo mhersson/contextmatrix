@@ -1,7 +1,14 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
+
+// Lazy-load the markdown previewer so the chat panel doesn't pay the
+// bundle cost until the user opens an HITL session. The chat markdown
+// styling is fully driven by CSS custom properties scoped to :root and
+// [data-theme="light"] (see .wmde-markdown rules in index.css), so dark
+// /light switches automatically without data-color-mode.
+const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 const MAX_MESSAGE_LENGTH = 8000;
 const NEAR_BOTTOM_THRESHOLD = 50;
@@ -227,13 +234,46 @@ function ChatEntry({ entry }: { entry: LogEntry }) {
     );
   }
 
-  // Document-style agent output with a left accent bar.
+  // Agent text and system announcements render markdown so fenced code
+  // blocks, links, and structured prose come through formatted instead
+  // of as raw triple-backticks.
+  if (entry.type === 'text' || entry.type === 'system') {
+    return (
+      <div
+        className="pl-3 border-l-2 text-sm text-[var(--fg)] leading-relaxed break-words"
+        style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
+      >
+        <ChatMarkdown source={entry.content} />
+      </div>
+    );
+  }
+
+  // Diagnostic streams (thinking/tool_call/stderr/gap) keep the plain
+  // monospace document-style accent bar.
   return (
     <div
       className="pl-3 border-l-2 text-sm text-[var(--fg)] font-mono leading-relaxed whitespace-pre-wrap break-words"
       style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
     >
       {entry.content}
+    </div>
+  );
+}
+
+// ChatMarkdown renders an agent message body through the markdown
+// previewer the description surface uses. Wrapped in Suspense (the
+// previewer is lazy-loaded) with a plain-text fallback so streaming
+// frames never flash empty.
+function ChatMarkdown({ source }: { source: string }) {
+  return (
+    <div className="bf-chat-markdown">
+      <Suspense
+        fallback={
+          <div className="whitespace-pre-wrap break-words text-sm">{source}</div>
+        }
+      >
+        <MarkdownPreview source={source} skipHtml />
+      </Suspense>
     </div>
   );
 }
