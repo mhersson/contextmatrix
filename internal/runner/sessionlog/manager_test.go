@@ -49,8 +49,8 @@ func newFailFastManager(t *testing.T, extra ...Option) (*Manager, func()) {
 			case <-stop:
 				return
 			case <-ticker.C:
-				// 5s covers backoffDuration's 4s cap with room to spare.
-				fake.Advance(5 * time.Second)
+				// 20s covers backoffDuration's 16s cap with room to spare.
+				fake.Advance(20 * time.Second)
 			}
 		}
 	}()
@@ -1339,12 +1339,13 @@ func TestBackoffDuration(t *testing.T) {
 		attempt  int
 		expected time.Duration
 	}{
-		{1, retryBackoffBase},     // 250ms
-		{2, 2 * retryBackoffBase}, // 500ms
-		{3, 4 * retryBackoffBase}, // 1s
-		{4, 8 * retryBackoffBase}, // 2s
-		{5, retryBackoffCap},      // 16*250ms=4s, capped
-		{10, retryBackoffCap},     // still capped
+		{1, retryBackoffBase},      // 250ms
+		{2, 2 * retryBackoffBase},  // 500ms
+		{3, 4 * retryBackoffBase},  // 1s
+		{4, 8 * retryBackoffBase},  // 2s
+		{5, 16 * retryBackoffBase}, // 4s (below new 16s cap)
+		{7, retryBackoffCap},       // 64*250ms=16s, capped
+		{10, retryBackoffCap},      // still capped
 	}
 	for _, tc := range cases {
 		got := backoffDuration(tc.attempt)
@@ -2186,4 +2187,202 @@ loop:
 	m.mu.Unlock()
 
 	assert.False(t, stillPending, "pendingSubs entry must be removed after Close")
+}
+
+// TestLongLivedSweeperExemption verifies that the idle sweeper skips project-
+// scoped (long-lived) sessions but still reaps card-scoped sessions.
+func TestLongLivedSweeperExemption(t *testing.T) {
+	const (
+		cardID  = "SWEEP-CARD-001"
+		project = "sweep-proj"
+	)
+
+	ttl := 2 * time.Hour
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	srv := sseServerInfinite(t)
+	defer srv.Close()
+
+	m := NewManager(
+		WithRunnerConfig(srv.URL, "test-key"),
+		WithClock(fake),
+		WithSessionTTL(ttl),
+	)
+
+	defer func() {
+		m.Stop(cardID)
+		m.StopProject(project)
+	}()
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+	require.NoError(t, m.StartProject(context.Background(), project))
+
+	// Advance past sessionTTL to make both sessions look stale.
+	fake.Advance(ttl + time.Minute)
+
+	m.sweepIdleSessions(context.Background())
+
+	m.mu.Lock()
+	_, cardActive := m.activeSessions[cardID]
+	_, projActive := m.activeSessions[projectKey(project)]
+	m.mu.Unlock()
+
+	assert.False(t, cardActive, "card-scoped session must be reaped by sweeper")
+	assert.True(t, projActive, "project session must NOT be reaped (long-lived)")
+}
+
+// TestProjectPumpIndefiniteReconnect verifies that a project-scoped session
+// does NOT fail permanently after maxUpstreamRetries failed connections — it
+// keeps retrying indefinitely.
+func TestProjectPumpIndefiniteReconnect(t *testing.T) {
+	const project = "proj-indefinite"
+
+	var connCount atomic.Int32
+
+	// Server always returns 500, forcing the pump to retry without resetting attempt.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		connCount.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	t.Cleanup(cleanup)
+
+	require.NoError(t, m.StartProject(context.Background(), project))
+
+	key := projectKey(project)
+
+	// Wait for strictly more than maxUpstreamRetries (5) connections.
+	// With a fake clock auto-advancing, backoffs collapse to sub-millisecond.
+	const wantConns = 8 // > maxUpstreamRetries
+
+	require.Eventually(t, func() bool {
+		return int(connCount.Load()) > maxUpstreamRetries
+	}, 5*time.Second, 10*time.Millisecond,
+		"expected >%d connection attempts; got %d", maxUpstreamRetries, connCount.Load())
+
+	// Session must still be active — long-lived sessions never hit permanent failure.
+	m.mu.Lock()
+	_, active := m.activeSessions[key]
+	_, failed := m.failedSessions[key]
+	m.mu.Unlock()
+
+	assert.True(t, active, "project session must remain active after >%d failed connections", wantConns)
+	assert.False(t, failed, "project session must NOT be in failedSessions")
+
+	m.StopProject(project)
+}
+
+// TestProjectBufferContinuity verifies that events from both sides of a
+// disconnect/reconnect cycle are retained in the buffer and delivered via
+// the Subscribe snapshot.
+func TestProjectBufferContinuity(t *testing.T) {
+	const project = "proj-buf-cont"
+
+	var connCount atomic.Int32
+
+	beforePayloads := []sseJSONPayload{
+		{Seq: 1, Type: "log", Content: "before-1", CardID: "CARD-A"},
+		{Seq: 2, Type: "log", Content: "before-2", CardID: "CARD-A"},
+	}
+	afterPayloads := []sseJSONPayload{
+		{Seq: 3, Type: "log", Content: "after-1", CardID: "CARD-A"},
+		{Seq: 4, Type: "log", Content: "after-2", CardID: "CARD-A"},
+	}
+
+	holdOpen := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "not supported", http.StatusInternalServerError)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		idx := int(connCount.Add(1))
+
+		var payloads []sseJSONPayload
+		if idx == 1 {
+			payloads = beforePayloads
+		} else {
+			payloads = afterPayloads
+		}
+
+		for _, p := range payloads {
+			data, err := json.Marshal(p)
+			if err != nil {
+				return
+			}
+
+			if _, err = fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return
+			}
+
+			flusher.Flush()
+		}
+
+		if idx == 1 {
+			return // close first connection to trigger a reconnect
+		}
+
+		// Hold the second connection open until the test finishes.
+		<-holdOpen
+	}))
+
+	defer func() {
+		close(holdOpen)
+		srv.Close()
+	}()
+
+	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	t.Cleanup(cleanup)
+
+	require.NoError(t, m.StartProject(context.Background(), project))
+
+	key := projectKey(project)
+
+	// Wait for both connections and all 4 events to land in the buffer.
+	require.Eventually(t, func() bool {
+		return connCount.Load() >= 2 && len(m.Snapshot(key)) >= 4
+	}, 5*time.Second, 10*time.Millisecond, "expected reconnect and 4 buffered events")
+
+	// Subscribe; snapshot must contain events from both connections.
+	ch, unsub := m.SubscribeProject(project)
+	defer unsub()
+
+	got := drainN(ch, 4, 2*time.Second)
+	require.Len(t, got, 4, "expected 4 events across the disconnect/reconnect cycle")
+
+	contents := make(map[string]bool, 4)
+	for _, evt := range got {
+		contents[string(evt.Payload)] = true
+	}
+
+	assert.True(t, contents["before-1"], "before-1 must appear in snapshot")
+	assert.True(t, contents["before-2"], "before-2 must appear in snapshot")
+	assert.True(t, contents["after-1"], "after-1 must appear in snapshot")
+	assert.True(t, contents["after-2"], "after-2 must appear in snapshot")
+
+	m.StopProject(project)
+}
+
+// TestBackoffCapAt16s verifies that backoffDuration returns retryBackoffCap
+// (16s) for high attempt numbers, confirming the new cap value.
+func TestBackoffCapAt16s(t *testing.T) {
+	const wantCap = 16 * time.Second
+
+	assert.Equal(t, wantCap, retryBackoffCap, "retryBackoffCap must be 16s")
+
+	// attempt=7: 250ms * 2^6 = 16s — exactly at the cap.
+	assert.Equal(t, wantCap, backoffDuration(7), "backoffDuration(7) must equal 16s")
+	// attempt=8: 250ms * 2^7 = 32s — capped at 16s.
+	assert.Equal(t, wantCap, backoffDuration(8), "backoffDuration(8) must be capped at 16s")
+	// attempt=20: would be huge without the cap.
+	assert.Equal(t, wantCap, backoffDuration(20), "backoffDuration(20) must be capped at 16s")
 }

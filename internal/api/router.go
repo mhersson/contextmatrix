@@ -103,7 +103,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	taskSkillsLister := newTaskSkillsLister(cfg.TaskSkillsDir)
 	tsh := &taskSkillHandlers{lister: taskSkillsLister}
 
-	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
+	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister, sessionManager: cfg.SessionManager}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)

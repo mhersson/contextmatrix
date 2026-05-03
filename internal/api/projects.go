@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -33,9 +35,10 @@ type updateProjectRequest struct {
 
 // projectHandlers contains handlers for project-related endpoints.
 type projectHandlers struct {
-	svc           *service.CardService
-	runnerEnabled bool
-	taskSkills    *taskSkillsLister
+	svc            *service.CardService
+	runnerEnabled  bool
+	taskSkills     *taskSkillsLister
+	sessionManager *sessionlog.Manager
 }
 
 // effectiveRemoteExecution returns a cloned project config with remote_execution.enabled
@@ -179,6 +182,12 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 		handleServiceError(w, r, err)
 
 		return
+	}
+
+	if h.sessionManager != nil {
+		if err := h.sessionManager.StartProject(r.Context(), cfg.Name); err != nil {
+			slog.Warn("createProject: failed to start session pump", "project", cfg.Name, "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, cfg)

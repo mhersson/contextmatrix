@@ -24,6 +24,7 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
@@ -284,6 +285,7 @@ func main() {
 		sessionlog.WithSessionTTL(2*time.Hour),
 	)
 	sessionMgr.StartSweeper(ctx)
+	startProjectPumps(ctx, svc, sessionMgr)
 	svc.SetSessionManager(sessionMgr)
 	slog.Info("session log manager initialized")
 
@@ -513,6 +515,31 @@ func main() {
 		slog.Error("server shutdown error", "error", mainShutdownErr)
 		os.Exit(1)
 	}
+}
+
+// projectLister is the subset of service.CardService used by startProjectPumps.
+type projectLister interface {
+	ListProjects(ctx context.Context) ([]board.ProjectConfig, error)
+}
+
+// startProjectPumps seeds a long-lived session pump for every existing project.
+// Boot must not be blocked: ListProjects errors are logged and skipped, and
+// per-project StartProject errors (e.g. session cap) are logged and skipped.
+// StartProject is idempotent, so this is safe to call multiple times.
+func startProjectPumps(ctx context.Context, svc projectLister, sessionMgr *sessionlog.Manager) {
+	projects, err := svc.ListProjects(ctx)
+	if err != nil {
+		slog.Warn("boot: failed to list projects for session pumps", "error", err)
+		return
+	}
+
+	for _, p := range projects {
+		if err := sessionMgr.StartProject(ctx, p.Name); err != nil {
+			slog.Warn("boot: failed to start project session pump", "project", p.Name, "error", err)
+		}
+	}
+
+	slog.Info("boot: started project session pumps", "count", len(projects))
 }
 
 // waitSyncer wraps a blocking Wait() call with a context deadline. It runs
