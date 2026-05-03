@@ -2386,3 +2386,18 @@ func TestBackoffCapAt16s(t *testing.T) {
 	// attempt=20: would be huge without the cap.
 	assert.Equal(t, wantCap, backoffDuration(20), "backoffDuration(20) must be capped at 16s")
 }
+
+// TestSignSSERequest_DistinctPerQuery guards against the boot-time replay
+// collision where N concurrent project pumps signing the same path within
+// the same Unix second produced identical signatures and tripped the
+// runner's replay cache (HTTP 409). Binding the query string into the HMAC
+// is what makes the signatures distinct.
+func TestSignSSERequest_DistinctPerQuery(t *testing.T) {
+	const apiKey = "test-key"
+
+	sigA, tsA := signSSERequest(apiKey, "/logs?project=alpha")
+	sigB, tsB := signSSERequest(apiKey, "/logs?project=beta")
+
+	assert.Equal(t, tsA, tsB, "test assumes both signs happen in the same second")
+	assert.NotEqual(t, sigA, sigB, "different query strings must produce different signatures")
+}

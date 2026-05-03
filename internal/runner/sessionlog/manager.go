@@ -675,7 +675,9 @@ func (m *Manager) StopProject(project string) {
 func (m *Manager) HasProjectSession(project string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	_, ok := m.activeSessions[projectKey(project)]
+
 	return ok
 }
 
@@ -798,9 +800,13 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 // counter so that transient disconnects after successful frames do not
 // accumulate toward the permanent-failure threshold.
 func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, sess *activeSession) (bool, error) {
-	upstreamURL := m.runnerURL + "/logs"
+	signURI := "/logs"
+	upstreamURL := m.runnerURL + signURI
+
 	if project != "" {
-		upstreamURL += "?project=" + url.QueryEscape(project)
+		query := "?project=" + url.QueryEscape(project)
+		upstreamURL += query
+		signURI += query
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
@@ -808,7 +814,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, signURI)
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1046,9 +1052,13 @@ func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *act
 // retry-attempt counter so transient disconnects after successful frames do
 // not accumulate toward the permanent-failure threshold.
 func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess *activeSession) (bool, error) {
-	upstreamURL := m.runnerURL + "/logs"
+	signURI := "/logs"
+	upstreamURL := m.runnerURL + signURI
+
 	if project != "" {
-		upstreamURL += "?project=" + url.QueryEscape(project)
+		query := "?project=" + url.QueryEscape(project)
+		upstreamURL += query
+		signURI += query
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
@@ -1056,7 +1066,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, signURI)
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1197,15 +1207,17 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 }
 
 // signSSERequest computes HMAC-SHA256 auth headers for a GET SSE request.
-// The signed content is "GET\n<path>\n<ts>." with an empty body, matching the
-// method/path-bound pattern used by runner.SignRequestHeaders. Inlined here
-// rather than importing the runner package to avoid an import cycle.
-func signSSERequest(apiKey, path string) (sigHeader, tsHeader string) {
+// The signed content is "GET\n<uri>\n<ts>." with an empty body, where uri is
+// the request-target (path + raw query) — the same value `r.URL.RequestURI()`
+// returns on the receiving side. Matches the method/uri-bound pattern used by
+// runner.SignRequestHeaders. Inlined here rather than importing the runner
+// package to avoid an import cycle.
+func signSSERequest(apiKey, uri string) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(apiKey))
 	mac.Write([]byte(http.MethodGet))
 	mac.Write([]byte("\n"))
-	mac.Write([]byte(path))
+	mac.Write([]byte(uri))
 	mac.Write([]byte("\n"))
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))

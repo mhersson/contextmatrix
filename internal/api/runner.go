@@ -561,7 +561,7 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.Path, sig, tsHeader, body, runner.DefaultMaxClockSkew) {
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return
@@ -660,7 +660,7 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 
 	sig := strings.TrimPrefix(sigHeader, "sha256=")
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.Path, sig, tsHeader, nil, runner.DefaultMaxClockSkew) {
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, runner.DefaultMaxClockSkew) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
@@ -711,8 +711,9 @@ func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http
 }
 
 // authenticateRunnerPost reads the request body, verifies the HMAC-SHA256
-// signature over method+path+body. Returns (body, true) on success; on
-// failure it writes the 403/400 response and returns (nil, false).
+// signature over method+uri+body (uri = path + raw query). Returns
+// (body, true) on success; on failure it writes the 403/400 response and
+// returns (nil, false).
 func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	if h.runnerCfg.APIKey == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
@@ -749,7 +750,7 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.Path, sig, tsHeader, body, runner.DefaultMaxClockSkew) {
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return nil, false

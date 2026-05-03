@@ -59,7 +59,7 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 		assert.NotEmpty(t, tsHeader, "timestamp header should be present")
 
 		body, _ := io.ReadAll(r.Body)
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.Path, sig, tsHeader, body, DefaultMaxClockSkew),
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, DefaultMaxClockSkew),
 			"HMAC signature with timestamp should be valid")
 
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
@@ -360,7 +360,7 @@ func TestClient_ListContainers_Success(t *testing.T) {
 		assert.Empty(t, body, "GET body must be empty")
 
 		sig := strings.TrimPrefix(receivedSig, "sha256=")
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.Path, sig, receivedTS, nil, DefaultMaxClockSkew),
+		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, receivedTS, nil, DefaultMaxClockSkew),
 			"HMAC over empty body + timestamp must verify")
 
 		payload := map[string]any{

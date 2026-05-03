@@ -66,37 +66,42 @@ a separate binary that:
 All webhooks are signed using a shared secret configured in both ContextMatrix
 (`runner.api_key`) and the runner (`api_key`). The secret is never transmitted
 over the wire. The scheme binds the signature to the HTTP method, request
-path, timestamp, and body — so a valid signature for one endpoint cannot be
-replayed against a different endpoint with an identical body (e.g. `/kill`
-and `/stop-all`, which share an overlapping `{card_id, project}` payload
-shape). Applies uniformly to every signed request: POST webhooks, GET
-`/logs` / `/containers` / `/autonomous` / `/metrics`, and the runner's
-status callbacks to CM.
+URI (path + raw query), timestamp, and body — so a valid signature for one
+endpoint cannot be replayed against a different endpoint with an identical
+body (e.g. `/kill` and `/stop-all`, which share an overlapping
+`{card_id, project}` payload shape), and concurrent requests to the same
+path with different query strings (e.g. `GET /logs?project=A` vs
+`GET /logs?project=B`) produce distinct signatures so they don't collide
+in the receiver's replay cache. Applies uniformly to every signed request:
+POST webhooks, GET `/logs` / `/containers` / `/autonomous` / `/metrics`,
+and the runner's status callbacks to CM.
 
 **Signed content:**
 
 ```
-<METHOD>\n<PATH>\n<TIMESTAMP>.<BODY>
+<METHOD>\n<URI>\n<TIMESTAMP>.<BODY>
 ```
 
 - `METHOD`: uppercase HTTP method (`POST`, `GET`)
-- `PATH`: request path component — no scheme/host/query (e.g. `/kill`,
-  `/api/runner/status`). Sender and receiver MUST agree: any intermediate
-  proxy that rewrites paths will cause HMAC auth to fail.
+- `URI`: request-target — path plus raw query string if present, no scheme
+  or host (e.g. `/kill`, `/api/runner/status`, `/logs?project=alpha`). This
+  is the same value `r.URL.RequestURI()` returns on the receiving side.
+  Sender and receiver MUST agree: any intermediate proxy that rewrites
+  paths or queries will cause HMAC auth to fail.
 - `TIMESTAMP`: Unix seconds, decimal string
 - `BODY`: JSON payload bytes, or empty for GET
 
 **Signing process:**
 
 1. Marshal the JSON payload body (empty for GET).
-2. Compute `HMAC-SHA256(shared_secret, METHOD + "\n" + PATH + "\n" + TIMESTAMP + "." + BODY)`.
+2. Compute `HMAC-SHA256(shared_secret, METHOD + "\n" + URI + "\n" + TIMESTAMP + "." + BODY)`.
 3. Hex-encode the result.
 4. Set headers: `X-Signature-256: sha256=<hex>` and `X-Webhook-Timestamp: <ts>`.
 
-**Verification:** The receiver reads method + path from the incoming HTTP
-request, computes the expected HMAC, and compares using constant-time
-comparison. It also rejects payloads whose timestamp falls outside the
-allowed clock-skew window (5 minutes default).
+**Verification:** The receiver reads method + `r.URL.RequestURI()` from the
+incoming HTTP request, computes the expected HMAC, and compares using
+constant-time comparison. It also rejects payloads whose timestamp falls
+outside the allowed clock-skew window (5 minutes default).
 
 ### ContextMatrix → Runner Webhooks
 
@@ -376,7 +381,7 @@ Returns:
 ```
 
 **Authentication:** HMAC-SHA256 signature under the standard
-method/path/timestamp scheme (empty body) with the shared runner secret.
+method/uri/timestamp scheme (empty body) with the shared runner secret.
 Headers:
 
 - `X-Signature-256: sha256=<hex>`
@@ -573,7 +578,9 @@ directions:
 - Uses HMAC-SHA256 — the secret never travels over the wire
 
 For the `GET /logs` request the body is empty, so the signature covers
-`timestamp.""` (timestamp bytes concatenated with empty body bytes).
+`GET\n/logs[?project=...]\ntimestamp.` — the trailing dot delimits an
+empty body, and the project filter (when present) is included in the
+signed URI so concurrent project pumps produce distinct signatures.
 
 ### MCP Authentication (Bearer Token)
 

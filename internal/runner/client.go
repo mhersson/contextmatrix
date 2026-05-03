@@ -177,22 +177,22 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	return out, nil
 }
 
-// requestPath extracts the path component of an absolute URL for HMAC signing.
-// The path is what the receiver binds the signature to (via r.URL.Path), so
-// sender and receiver must agree — any path-rewriting proxy between them
-// would break auth. An empty path is normalized to "/" to match how net/http
-// reports the default root path.
-func requestPath(rawURL string) (string, error) {
+// requestURI extracts the request-target (path + raw query) from an absolute
+// URL for HMAC signing. The receiver binds the signature to
+// r.URL.RequestURI(), so sender and receiver must agree — any path- or
+// query-rewriting proxy between them would break auth. An empty path is
+// normalized to "/" to match how net/http reports the default root path.
+func requestURI(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("parse url %q: %w", rawURL, err)
 	}
 
 	if u.Path == "" {
-		return "/", nil
+		u.Path = "/"
 	}
 
-	return u.Path, nil
+	return u.RequestURI(), nil
 }
 
 // send marshals payload, signs it, and POSTs to rawURL with retries.
@@ -202,13 +202,13 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	path, err := requestPath(rawURL)
+	uri, err := requestURI(rawURL)
 	if err != nil {
 		return err
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, http.MethodPost, path, body, ts)
+	signature := signPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
 
 	var lastErr error
 	for attempt := range maxRetries {
@@ -246,13 +246,13 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 // this on a 60s tick and a transient failure is better surfaced than
 // silently retried (the next tick retries anyway).
 func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
-	path, err := requestPath(rawURL)
+	uri, err := requestURI(rawURL)
 	if err != nil {
 		return nil, err
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, http.MethodGet, path, nil, ts)
+	signature := signPayloadWithTimestamp(c.apiKey, http.MethodGet, uri, nil, ts)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {

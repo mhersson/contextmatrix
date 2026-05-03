@@ -737,7 +737,7 @@ in-memory `RunnerEventBuffer` and fans them out here.
 ### GET /api/v1/cards/{project}/{id}/autonomous
 
 Read-only endpoint for the runner to confirm a card's `autonomous` flag.
-HMAC-signed under the standard method/path/timestamp scheme (empty body) with
+HMAC-signed under the standard method/uri/timestamp scheme (empty body) with
 `runner.api_key`. Only registered when `runner.enabled: true`.
 
 ```json
