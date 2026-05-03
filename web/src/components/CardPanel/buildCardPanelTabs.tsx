@@ -25,7 +25,7 @@ interface BuildCardPanelTabsOptions {
   branches: string[];
   branchesLoading: boolean;
   branchesError: boolean;
-  editingLocked: boolean;
+  automationLocked: boolean;
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
   forcedFeatureBranch: boolean;
@@ -49,8 +49,9 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
   defaultTab: RailTabKey;
 } {
   const tabs: RailTab[] = [];
+  const isSubtask = opts.card.type === 'subtask';
 
-  if (opts.isHITLRunning) {
+  if (!isSubtask && opts.isHITLRunning) {
     tabs.push({
       key: 'chat',
       label: 'Chat',
@@ -76,7 +77,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         branches={opts.branches}
         branchesLoading={opts.branchesLoading}
         branchesError={opts.branchesError}
-        editingLocked={opts.editingLocked}
+        editingLocked={opts.automationLocked}
         automationLockedReason={opts.automationLockedReason}
         forcedFeatureBranch={opts.forcedFeatureBranch}
         forcedCreatePR={opts.forcedCreatePR}

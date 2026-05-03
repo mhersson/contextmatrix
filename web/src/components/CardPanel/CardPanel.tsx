@@ -262,14 +262,18 @@ export function CardPanel(props: CardPanelProps) {
   // state that can re-run. Both feed the left column (Labels) and the
   // Automation tab (checkbox rail), so compute once here.
   const isTodo = card.state === 'todo';
+  const isSubtask = card.type === 'subtask';
   const stateLocksEditing = !isTodo && !runnerAttached;
   const editingLocked = runnerAttached || stateLocksEditing;
+  const automationLocked = editingLocked || isSubtask;
   const lockedReason = runnerAttached
     ? 'locked during remote run'
     : `locked outside todo · move card back to todo to edit (current: ${card.state.replace(/_/g, ' ')})`;
-  const automationLockedReason = runnerAttached
-    ? 'Automation locked during remote run'
-    : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
+  const automationLockedReason = isSubtask
+    ? 'Automation is managed on the parent card'
+    : runnerAttached
+      ? 'Automation locked during remote run'
+      : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
   const canToggleEditor =
     !runnerAttached &&
     (card.state === 'todo' || card.state === 'done' || card.state === 'not_planned');
@@ -293,7 +297,7 @@ export function CardPanel(props: CardPanelProps) {
     branches,
     branchesLoading,
     branchesError,
-    editingLocked,
+    automationLocked,
     automationLockedReason,
     excludeStateFromPicker,
     forcedFeatureBranch,
