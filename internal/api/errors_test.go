@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -201,6 +202,94 @@ func TestHandleServiceError_BoardProjectNotFound_Returns404(t *testing.T) {
 			var apiErr APIError
 			require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
 			assert.Equal(t, ErrCodeProjectNotFound, apiErr.Code)
+		})
+	}
+}
+
+// TestHandleServiceError_PromoteRequiresHuman verifies that
+// service.ErrPromoteRequiresHuman is mapped to 403 HUMAN_ONLY_FIELD instead
+// of falling through to the generic 500 branch.
+func TestHandleServiceError_PromoteRequiresHuman(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/promote", nil)
+
+	wrapped := fmt.Errorf("promote card X-1: %w", service.ErrPromoteRequiresHuman)
+	handleServiceError(rec, req, wrapped)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var apiErr APIError
+	require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+}
+
+// TestExtractAgentID_HeaderOnly is a regression guard: extractAgentID must
+// return only the header value. The previous body-field fallback (deleted to
+// preserve the human:-prefix gate) would have allowed a request with an
+// empty header but agent_id="human:alice" in body to claim as Alice.
+func TestExtractAgentID_HeaderOnly(t *testing.T) {
+	t.Run("header populated wins", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/claim", nil)
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		assert.Equal(t, "human:alice", extractAgentID(req))
+	})
+
+	t.Run("header missing returns empty even when body would have agent_id", func(t *testing.T) {
+		// Body content is irrelevant; extractAgentID never reads it.
+		req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/claim", nil)
+		assert.Empty(t, extractAgentID(req))
+	})
+
+	t.Run("whitespace-only header returns empty", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/claim", nil)
+		req.Header.Set("X-Agent-ID", "  ")
+
+		assert.Empty(t, extractAgentID(req))
+	})
+}
+
+// TestHandleServiceError_BoardValidationSentinels verifies that the
+// validation-error sentinels added to the 422 branch (ErrInvalidExternalURL,
+// ErrInvalidRunnerStatus) are mapped to 422 VALIDATION_ERROR instead of
+// falling through to the generic 500 branch.
+func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "ErrInvalidExternalURL wrapped in ValidationError",
+			err: &board.ValidationError{
+				Err:     board.ErrInvalidExternalURL,
+				Field:   "source.external_url",
+				Value:   "javascript:alert(1)",
+				Message: "scheme must be http or https",
+			},
+		},
+		{
+			name: "ErrInvalidRunnerStatus wrapped in ValidationError",
+			err: &board.ValidationError{
+				Err:     board.ErrInvalidRunnerStatus,
+				Field:   "runner_status",
+				Value:   "bogus",
+				Message: "invalid status",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/projects/p/cards/X-1", nil)
+
+			handleServiceError(rec, req, tc.err)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+
+			var apiErr APIError
+			require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeValidationError, apiErr.Code)
 		})
 	}
 }

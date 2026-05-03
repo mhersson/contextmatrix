@@ -3409,6 +3409,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	defer cleanup2()
 
 	router2 := NewRouter(RouterConfig{Service: svc2, Bus: bus2, TaskSkillsDir: skillsDir})
+
 	server2 := httptest.NewServer(router2)
 	defer server2.Close()
 
@@ -3486,6 +3487,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"go-development"}
+
 		resp := putCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
@@ -3502,6 +3504,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 
 		// code-review exists in the skills dir but is not in the project default.
 		skills := []string{"go-development", "code-review"}
+
 		resp := putCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
@@ -3523,6 +3526,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		httpReq, _ := http.NewRequest(http.MethodPatch, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
 		httpReq.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(httpReq)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -3542,6 +3546,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"totally-made-up-skill"}
+
 		resp := putCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
@@ -3557,6 +3562,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		cardID := createCard2(t)
 
 		emptySkills := []string{}
+
 		resp := putCardSkills(t, cardID, &emptySkills)
 		defer closeBody(t, resp.Body)
 
@@ -3572,6 +3578,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"go-development", "documentation"}
+
 		resp := putCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 

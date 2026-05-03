@@ -44,9 +44,9 @@ func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -79,9 +79,9 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -114,9 +114,9 @@ func (h *agentHandlers) heartbeatCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -148,9 +148,9 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -238,9 +238,9 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -286,9 +286,9 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := extractAgentID(r, req.AgentID)
+	agentID := extractAgentID(r)
 	if agentID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "provide X-Agent-ID header or agent_id in body")
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "agent_id required", "X-Agent-ID header is required")
 
 		return
 	}
@@ -310,12 +310,12 @@ func (h *agentHandlers) reportPush(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, card)
 }
 
-// extractAgentID gets the agent ID from X-Agent-ID header with fallback to body value.
-// The result is trimmed of whitespace.
-func extractAgentID(r *http.Request, bodyAgentID string) string {
-	if headerID := strings.TrimSpace(r.Header.Get("X-Agent-ID")); headerID != "" {
-		return headerID
-	}
-
-	return strings.TrimSpace(bodyAgentID)
+// extractAgentID returns the trimmed X-Agent-ID header. It is the sole source
+// of agent identity on agent endpoints. The previous body-field fallback was
+// removed because it bypassed the human:-prefix gate enforced elsewhere
+// (cards.go callers read only the header): a request with no header but
+// agent_id="human:alice" in body would claim as Alice while later mutation
+// checks would reject the same caller.
+func extractAgentID(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-Agent-ID"))
 }

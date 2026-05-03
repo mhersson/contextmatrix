@@ -43,6 +43,7 @@ class APIClient {
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      'X-Requested-With': 'contextmatrix',
       ...options.headers,
     };
 

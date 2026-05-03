@@ -2037,6 +2037,8 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	topLevelClient := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest("POST",
 		cmServer.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.Header.Set("X-Agent-ID", "human:tester")
 
 	resp, err := topLevelClient.Do(req)
 
