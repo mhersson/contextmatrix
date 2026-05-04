@@ -163,7 +163,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
               type="text"
               value={displayName}
               onChange={(e) => handleDisplayNameChange(e.target.value)}
-              placeholder="Epic Planner"
+              placeholder="My Project"
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={{
                 backgroundColor: 'var(--bg2)',
@@ -180,7 +180,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="epic-planner"
+              placeholder="my-project"
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={{
                 backgroundColor: 'var(--bg2)',

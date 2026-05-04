@@ -49,9 +49,11 @@ beforeEach(() => {
 });
 
 describe('CardChat — visibility gate', () => {
-  it('returns null when runner_status is not "running"', () => {
-    const { container } = render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
+  it('renders a read-only footer when runner_status is not "running"', () => {
+    render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
   });
 
   it('renders when runner_status is "running"', () => {
@@ -59,12 +61,12 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
   });
 
-  it('returns null when runner_status is "running" AND autonomous is true', () => {
-    const { container } = render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
+  it('renders a "Promoted to autonomous" read-only footer when autonomous is true', () => {
+    render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
   });
 
   it('renders normally when runner_status is "running" AND autonomous is false', () => {
@@ -74,14 +76,12 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
   });
 
-  it('chat UI disappears when autonomous flips from false to true (simulates promote)', () => {
-    const { container, rerender } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    // Initially visible
+  it('compose hides and read-only footer appears when autonomous flips from false to true (simulates promote)', () => {
+    const { rerender } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-    // Simulate HITL→Auto promotion: re-render with autonomous=true
     rerender(<CardChat card={autonomousCard} cardLogs={noLogs} />);
-    expect(container.firstChild).toBeNull();
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
   });
 });
 
@@ -359,11 +359,11 @@ describe('CardChat — message type filter bar', () => {
     expect(screen.getByText(/toggle me/)).toBeInTheDocument();
   });
 
-  it('filter bar is not rendered when session is not running', () => {
+  it('filter bar remains visible when session is not running (transcript stays filterable)', () => {
     render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
-    expect(screen.queryByRole('checkbox', { name: /Text/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /Tool calls/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /Thinking/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
   });
 });
 

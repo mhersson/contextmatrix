@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { api } from '../../../api/client';
-import type { Card, ProjectConfig } from '../../../types';
+import type { ProjectConfig } from '../../../types';
 import { MetadataSkills } from './MetadataSkills';
 
 const mockSkills = [
@@ -9,21 +9,6 @@ const mockSkills = [
   { name: 'typescript-react', description: 'React/TypeScript patterns' },
   { name: 'security-review', description: 'Security review patterns' },
 ];
-
-function makeCard(overrides: Partial<Card> = {}): Card {
-  return {
-    id: 'TEST-001',
-    title: 'Test Card',
-    project: 'test',
-    type: 'task',
-    state: 'todo',
-    priority: 'medium',
-    created: '2026-01-01T00:00:00Z',
-    updated: '2026-01-01T00:00:00Z',
-    body: '',
-    ...overrides,
-  };
-}
 
 function makeConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
@@ -45,11 +30,9 @@ beforeEach(() => {
 describe('MetadataSkills — initial radio state', () => {
   it('editedCard.skills=null → "Use project default" radio is checked', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
-    const card = makeCard();
     render(
       <MetadataSkills
-        card={card}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -60,11 +43,9 @@ describe('MetadataSkills — initial radio state', () => {
 
   it('editedCard.skills=[] → "Mount no skills" radio is checked', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
-    const card = makeCard();
     render(
       <MetadataSkills
-        card={card}
-        editedCard={makeCard({ skills: [] })}
+        value={[]}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -75,11 +56,9 @@ describe('MetadataSkills — initial radio state', () => {
 
   it('editedCard.skills=["go-development"] → "Specific skills" radio is checked', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
-    const card = makeCard();
     render(
       <MetadataSkills
-        card={card}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -94,8 +73,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: null })}
         onSkillsChange={vi.fn()}
       />,
@@ -107,8 +85,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: undefined })}
         onSkillsChange={vi.fn()}
       />,
@@ -120,8 +97,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: [] })}
         onSkillsChange={vi.fn()}
       />,
@@ -133,8 +109,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: ['go-development'] })}
         onSkillsChange={vi.fn()}
       />,
@@ -146,8 +121,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: ['go-development', 'typescript-react'] })}
         onSkillsChange={vi.fn()}
       />,
@@ -162,8 +136,7 @@ describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inh
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -180,8 +153,7 @@ describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inh
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -200,8 +172,7 @@ describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inh
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: [] })}
+        value={[]}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -218,8 +189,7 @@ describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inh
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: [] })}
+        value={[]}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -239,8 +209,7 @@ describe('MetadataSkills — checkbox list subset constraint', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig({ default_skills: ['go-development'] })}
         onSkillsChange={vi.fn()}
       />,
@@ -257,8 +226,7 @@ describe('MetadataSkills — checkbox list subset constraint', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig({ default_skills: null })}
         onSkillsChange={vi.fn()}
       />,
@@ -272,13 +240,46 @@ describe('MetadataSkills — checkbox list subset constraint', () => {
   });
 });
 
+describe('MetadataSkills — disabled prop locks every input', () => {
+  it('all radios are disabled and a locked banner is shown when disabled is true', () => {
+    vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
+    render(
+      <MetadataSkills
+        value={null}
+        config={makeConfig()}
+        onSkillsChange={vi.fn()}
+        disabled
+        lockedReason="Skills locked during remote run"
+      />,
+    );
+    expect(screen.getByRole('radio', { name: /Use project default/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Specific skills/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Mount no skills/i })).toBeDisabled();
+    expect(screen.getByText(/Skills locked during remote run/i)).toBeInTheDocument();
+  });
+
+  it('checkboxes inside Specific mode are disabled when disabled is true', async () => {
+    vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
+    render(
+      <MetadataSkills
+        value={['go-development']}
+        config={makeConfig()}
+        onSkillsChange={vi.fn()}
+        disabled
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /go-development/i })).toBeDisabled();
+    });
+  });
+});
+
 describe('MetadataSkills — "Specific skills" disabled when config.default_skills=[]', () => {
   it('"Specific skills" radio is disabled when config.default_skills is empty', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig({ default_skills: [] })}
         onSkillsChange={vi.fn()}
       />,
@@ -294,8 +295,7 @@ describe('MetadataSkills — mode-switch behaviour', () => {
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: [] })}
+        value={[]}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -310,8 +310,7 @@ describe('MetadataSkills — mode-switch behaviour', () => {
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -328,8 +327,7 @@ describe('MetadataSkills — toggling a checkbox', () => {
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -348,8 +346,7 @@ describe('MetadataSkills — toggling a checkbox', () => {
     const onSkillsChange = vi.fn();
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development', 'typescript-react'] })}
+        value={['go-development', 'typescript-react']}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -372,8 +369,7 @@ describe('MetadataSkills — loading and error states', () => {
 
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -392,8 +388,7 @@ describe('MetadataSkills — loading and error states', () => {
 
     render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig()}
         onSkillsChange={vi.fn()}
       />,
@@ -413,8 +408,7 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
     // Start with null (inherit mode)
     const { rerender } = render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -428,8 +422,7 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
     // prevValue changes so localMode re-derives to 'specific' (same, no visual change)
     rerender(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: ['go-development'] })}
+        value={['go-development']}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -444,8 +437,7 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
     // Start with null (inherit mode)
     const { rerender } = render(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: null })}
+        value={null}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,
@@ -458,8 +450,7 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
     // Rerender with value=[] — modeFor([]) = 'none', prevValue changes, so localMode flips to 'none'
     rerender(
       <MetadataSkills
-        card={makeCard()}
-        editedCard={makeCard({ skills: [] })}
+        value={[]}
         config={makeConfig()}
         onSkillsChange={onSkillsChange}
       />,

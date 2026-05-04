@@ -7,6 +7,7 @@ import { CardPanelBody, type RailTabKey } from '../CardPanel/CardPanelBody';
 import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
 import { LabelsSection } from '../CardPanel/CardPanelLabels';
+import { MetadataSkills } from '../CardPanel/metadata/MetadataSkills';
 import { chipTint, typeColors, priorityColors, stateColors } from '../../lib/chip';
 import { HeaderCaret, headerTitleStyle } from '../../lib/header-tokens';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
@@ -56,8 +57,10 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const [autonomous, setAutonomous] = useState(false);
   const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
   const [featureBranch, setFeatureBranch] = useState(true);
-  const [createPR, setCreatePR] = useState(false);
+  const [createPR, setCreatePR] = useState(true);
   const [baseBranch, setBaseBranch] = useState('');
+  // null = inherit project default, [] = mount none, [...] = specific list.
+  const [skills, setSkills] = useState<string[] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activeTab, setActiveTab] = useState<RailTabKey>(isMobile ? 'card' : 'automation');
@@ -127,7 +130,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     feature_branch: forRun ? true : featureBranch || undefined,
     create_pr: forRun ? true : createPR || undefined,
     base_branch: baseBranch || undefined,
-  }), [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch]);
+    // null = inherit project default; only forward an explicit override.
+    skills: skills === null ? undefined : skills,
+  }), [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch, skills]);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -234,6 +239,12 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
               Leave empty for a top-level card. Setting a parent locks the type to <code style={{ color: 'var(--purple)' }}>subtask</code>.
             </div>
           </section>
+
+          <MetadataSkills
+            value={skills}
+            config={config}
+            onSkillsChange={setSkills}
+          />
 
           <section className="bf-aside-section">
             <h4>Initial state</h4>

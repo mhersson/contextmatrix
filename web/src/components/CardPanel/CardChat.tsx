@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
@@ -19,13 +20,16 @@ interface CardChatProps {
 }
 
 /**
- * Two-channel chat panel. Agent output renders as a document column with a
- * left accent bar (handles long plan outputs); human replies render as
- * right-aligned bubbles. Newlines are preserved via `white-space: pre-wrap`.
- * The Send button only lives here — never duplicate it in the panel header.
+ * Two-channel chat panel. Agent output renders as left-aligned bubbles;
+ * human replies render as right-aligned bubbles. Newlines are preserved
+ * via `white-space: pre-wrap`. The Send button only lives here — never
+ * duplicate it in the panel header.
  *
- * Returns null when the runner isn't running an HITL session — kept identical
- * to the previous gate so parent components don't have to special-case it.
+ * The transcript stays visible whenever the parent mounts this component.
+ * When HITL is no longer active (runner stopped or card promoted to
+ * autonomous) the compose row and Switch-to-Autonomous button are replaced
+ * by a thin read-only footer so the conversation is preserved while input
+ * is closed.
  */
 export function CardChat({ card, cardLogs }: CardChatProps) {
   const [message, setMessage] = useState('');
@@ -38,6 +42,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [showThinking, setShowThinking] = useState(false);
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const userScrolledUpRef = useRef(false);
 
   const handleLogScroll = useCallback(() => {
@@ -56,9 +61,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     el.scrollTop = el.scrollHeight;
   }, [cardLogs]);
 
-  if (card.runner_status !== 'running' || card.autonomous) {
-    return null;
-  }
+  const hitlActive = card.runner_status === 'running' && !card.autonomous;
 
   const filteredLogs = cardLogs.filter((entry) => {
     if (entry.type === 'text') return showText;
@@ -88,7 +91,11 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     } catch (err) {
       setError(isAPIError(err) ? err.error : 'Failed to send message');
     } finally {
-      setSending(false);
+      // Browsers drop focus() calls against a disabled input. setSending(false)
+      // only queues the flip — flushSync commits it before the imperative focus
+      // so the user can keep typing without re-clicking the textarea.
+      flushSync(() => setSending(false));
+      textareaRef.current?.focus();
     }
   };
 
@@ -151,61 +158,72 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
         )}
       </div>
 
-      {/* Compose */}
-      <div className="bf-tk-compose">
-        <label htmlFor={messageId} className="sr-only">Message</label>
-        <textarea
-          id={messageId}
-          className="bf-input"
-          placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          maxLength={MAX_MESSAGE_LENGTH}
-          disabled={sending}
-          rows={2}
-        />
-        <button
-          type="button"
-          onClick={() => void handleSend()}
-          disabled={!canSend}
-          className="bf-btn-primary"
+      {hitlActive ? (
+        <>
+          {/* Compose */}
+          <div className="bf-tk-compose">
+            <label htmlFor={messageId} className="sr-only">Message</label>
+            <textarea
+              ref={textareaRef}
+              id={messageId}
+              className="bf-input"
+              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              maxLength={MAX_MESSAGE_LENGTH}
+              disabled={sending}
+              rows={2}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={!canSend}
+              className="bf-btn-primary"
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+
+          <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
+            {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
+              <div
+                className="text-xs font-mono mr-auto"
+                style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
+              >
+                {message.length} / {MAX_MESSAGE_LENGTH}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              disabled={promoting}
+              className="bf-btn-ghost bf-btn-sm"
+              style={{ color: 'var(--orange)', borderColor: 'color-mix(in oklab, var(--orange) 35%, transparent)' }}
+            >
+              {promoting ? 'Promoting…' : '⇢ Switch to Autonomous'}
+            </button>
+
+            {error && (
+              <div
+                className="text-xs px-2 py-1 rounded font-mono"
+                style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
+              >
+                {error}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div
+          className="px-4 py-2 text-xs font-mono italic text-center border-t border-[var(--bg3)]"
+          style={{ backgroundColor: 'var(--bg4)', color: 'var(--grey2)' }}
+          role="status"
         >
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-      </div>
-
-      <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
-        {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
-          <div
-            className="text-xs font-mono mr-auto"
-            style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
-          >
-            {message.length} / {MAX_MESSAGE_LENGTH}
-          </div>
-        )}
-
-        {!card.autonomous && (
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            disabled={promoting}
-            className="bf-btn-ghost bf-btn-sm"
-            style={{ color: 'var(--orange)', borderColor: 'color-mix(in oklab, var(--orange) 35%, transparent)' }}
-          >
-            {promoting ? 'Promoting…' : '⇢ Switch to Autonomous'}
-          </button>
-        )}
-
-        {error && (
-          <div
-            className="text-xs px-2 py-1 rounded font-mono"
-            style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
+          {card.autonomous ? 'Promoted to autonomous — read-only' : 'Session ended — read-only'}
+        </div>
+      )}
 
       <ConfirmModal
         open={confirmOpen}
@@ -234,13 +252,27 @@ function ChatEntry({ entry }: { entry: LogEntry }) {
     );
   }
 
-  // Agent text and system announcements render markdown so fenced code
-  // blocks, links, and structured prose come through formatted instead
-  // of as raw triple-backticks.
-  if (entry.type === 'text' || entry.type === 'system') {
+  // Agent text renders as a left-aligned bubble, mirroring the
+  // right-aligned human bubble above.
+  if (entry.type === 'text') {
+    return (
+      <div className="flex justify-start">
+        <div
+          className="max-w-[85%] rounded-lg px-3 py-2 text-sm break-words"
+          style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
+        >
+          <ChatMarkdown source={entry.content} />
+        </div>
+      </div>
+    );
+  }
+
+  // Orchestrator system announcements keep the document-style accent bar
+  // so they read distinctly from agent conversation.
+  if (entry.type === 'system') {
     return (
       <div
-        className="pl-3 border-l-2 text-sm text-[var(--fg)] leading-relaxed break-words"
+        className="pl-3 border-l-2 text-sm leading-relaxed break-words"
         style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
       >
         <ChatMarkdown source={entry.content} />
