@@ -127,21 +127,28 @@ type TaskSkillsConfig struct {
 
 // Config holds the application configuration.
 type Config struct {
-	Port              int                  `yaml:"port"`
-	Boards            BoardsConfig         `yaml:"boards"`
-	HeartbeatTimeout  string               `yaml:"heartbeat_timeout"`
-	CORSOrigin        string               `yaml:"cors_origin"`
-	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
-	TaskSkills        TaskSkillsConfig     `yaml:"task_skills"`
-	Theme             string               `yaml:"theme"`
-	TokenCosts        map[string]ModelCost `yaml:"token_costs"`
-	MCPAPIKey         string               `yaml:"mcp_api_key"`
-	Runner            RunnerConfig         `yaml:"runner"`
-	GitHub            GitHubConfig         `yaml:"github"`
-	LogFormat         string               `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel          string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort         int                  `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr     string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Port             int          `yaml:"port"`
+	Boards           BoardsConfig `yaml:"boards"`
+	HeartbeatTimeout string       `yaml:"heartbeat_timeout"`
+	// StalledCheckInterval is how often the lock manager scans for
+	// cards whose last heartbeat is older than HeartbeatTimeout and
+	// transitions them to `stalled`. Empty defaults to 1m, which is
+	// fine for production (heartbeat is typically a few minutes).
+	// Test harnesses shrink it to seconds so heartbeat-timeout
+	// scenarios don't have to wait a full tick.
+	StalledCheckInterval string               `yaml:"stalled_check_interval"`
+	CORSOrigin           string               `yaml:"cors_origin"`
+	WorkflowSkillsDir    string               `yaml:"workflow_skills_dir"`
+	TaskSkills           TaskSkillsConfig     `yaml:"task_skills"`
+	Theme                string               `yaml:"theme"`
+	TokenCosts           map[string]ModelCost `yaml:"token_costs"`
+	MCPAPIKey            string               `yaml:"mcp_api_key"`
+	Runner               RunnerConfig         `yaml:"runner"`
+	GitHub               GitHubConfig         `yaml:"github"`
+	LogFormat            string               `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel             string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort            int                  `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr        string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 }
 
 // defaults returns a Config with default values.
@@ -155,11 +162,12 @@ func defaults() *Config {
 			GitAutoPull:     false,
 			GitPullInterval: "60s",
 		},
-		HeartbeatTimeout:  "30m",
-		CORSOrigin:        "http://localhost:5173",
-		WorkflowSkillsDir: "",
-		TaskSkills:        TaskSkillsConfig{},
-		Theme:             "everforest",
+		HeartbeatTimeout:     "30m",
+		StalledCheckInterval: "1m",
+		CORSOrigin:           "http://localhost:5173",
+		WorkflowSkillsDir:    "",
+		TaskSkills:           TaskSkillsConfig{},
+		Theme:                "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
 			OrchestratorOpusModel:   "claude-opus-4-7",
@@ -209,6 +217,16 @@ func (c *Config) Validate() error {
 
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
+	}
+
+	if c.StalledCheckInterval == "" {
+		c.StalledCheckInterval = "1m"
+	}
+
+	if d, err := time.ParseDuration(c.StalledCheckInterval); err != nil {
+		return fmt.Errorf("invalid stalled_check_interval %q: %w", c.StalledCheckInterval, err)
+	} else if d <= 0 {
+		return fmt.Errorf("stalled_check_interval must be positive (got %s)", d)
 	}
 
 	if c.Boards.GitPullInterval == "" {
@@ -589,6 +607,13 @@ func applyEnvOverrides(cfg *Config) {
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
 func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
+}
+
+// StalledCheckIntervalDuration parses StalledCheckInterval as a
+// time.Duration. Validate ensures the string parses and is positive,
+// so this returns nil error in normal flow.
+func (c *Config) StalledCheckIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(c.StalledCheckInterval)
 }
 
 // PullIntervalDuration parses Boards.GitPullInterval as a time.Duration.

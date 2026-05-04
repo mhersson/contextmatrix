@@ -103,6 +103,51 @@ func TestCommitFile_OnlyStagesSpecifiedFile(t *testing.T) {
 	assert.True(t, hasChanges, "file2.txt should still be untracked")
 }
 
+// TestCommitFile_EmptyDiffReturnsNil covers the race where two
+// concurrent writers both stage the same final state for one card
+// file: the first commit captures both writes, leaving the second
+// goroutine's wt.Commit() with nothing to commit. go-git returns
+// git.ErrEmptyCommit; the manager must surface that as a no-op
+// success since the desired state is already on HEAD.
+func TestCommitFile_EmptyDiffReturnsNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	const file = "card.md"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file), []byte("body"), 0o644))
+	require.NoError(t, mgr.CommitFile(context.Background(), file, "initial"))
+
+	// Second commit of the unchanged file: go-git would return
+	// ErrEmptyCommit. The fix collapses that to nil.
+	err = mgr.CommitFile(context.Background(), file, "no-op duplicate")
+	require.NoError(t, err)
+
+	// The HEAD commit should still be the original — no extra commit
+	// was created.
+	last, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "initial", last)
+}
+
+// TestCommitAll_EmptyDiffReturnsNil mirrors the above for CommitAll.
+func TestCommitAll_EmptyDiffReturnsNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("a"), 0o644))
+	require.NoError(t, mgr.CommitAll(context.Background(), "first"))
+
+	// No tree changes since last commit → go-git returns ErrEmptyCommit.
+	err = mgr.CommitAll(context.Background(), "no-op")
+	require.NoError(t, err)
+
+	last, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "first", last)
+}
+
 func TestCommitAll(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))

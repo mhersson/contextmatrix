@@ -54,6 +54,11 @@ linters:
     - linters: [gosec]
       text: "G101|G107|G115"
       path: "_test\\.go$"
+    # Integration harness fixtures: bind 0.0.0.0, math/rand for ports,
+    # net/http/cgi for git-http-backend — all test-only, all reviewed.
+    - linters: [gosec]
+      text: "G102|G404|G504"
+      path: "test/integration/.*_test\\.go$"
     # noctx in tests: test HTTP helpers use context.Background() implicitly
     - linters: [noctx]
       path: "_test\\.go$"

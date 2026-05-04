@@ -177,6 +177,13 @@ func (m *Manager) CommitFile(ctx context.Context, path, message string) error {
 	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 	if err != nil {
+		// ErrEmptyCommit means the file content already matches HEAD — a
+		// concurrent writer's commit captured our changes first. Treat as
+		// a no-op success: the desired state is already committed.
+		if errors.Is(err, git.ErrEmptyCommit) {
+			return nil
+		}
+
 		return fmt.Errorf("commit: %w", err)
 	}
 
@@ -218,6 +225,10 @@ func (m *Manager) CommitFiles(ctx context.Context, paths []string, message strin
 	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 	if err != nil {
+		if errors.Is(err, git.ErrEmptyCommit) {
+			return nil
+		}
+
 		return fmt.Errorf("commit: %w", err)
 	}
 
@@ -257,6 +268,10 @@ func (m *Manager) CommitAll(ctx context.Context, message string) error {
 	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 	if err != nil {
+		if errors.Is(err, git.ErrEmptyCommit) {
+			return nil
+		}
+
 		return fmt.Errorf("commit: %w", err)
 	}
 

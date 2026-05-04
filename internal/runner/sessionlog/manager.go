@@ -787,7 +787,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1031,7 +1031,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1171,16 +1171,16 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 	}, p.CardID, true
 }
 
-// signSSERequest computes HMAC-SHA256 auth headers for a GET SSE request.
-// The signed content is "GET\n<path>\n<ts>." with an empty body, matching the
-// method/path-bound pattern used by runner.SignRequestHeaders. Inlined here
-// rather than importing the runner package to avoid an import cycle.
-func signSSERequest(apiKey, path string) (sigHeader, tsHeader string) {
+// The signed content is "GET\n<uri>\n<ts>." with an empty body, matching the
+// method/uri-bound pattern used by runner.SignRequestHeaders. uri must be the
+// request-target form (`req.URL.RequestURI()`). Inlined here rather than
+// importing the runner package to avoid an import cycle.
+func signSSERequest(apiKey, uri string) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(apiKey))
 	mac.Write([]byte(http.MethodGet))
 	mac.Write([]byte("\n"))
-	mac.Write([]byte(path))
+	mac.Write([]byte(uri))
 	mac.Write([]byte("\n"))
 	mac.Write([]byte(ts))
 	mac.Write([]byte("."))

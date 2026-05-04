@@ -206,8 +206,17 @@ func main() {
 	httpCtx, httpCancel := context.WithCancel(ctx)
 	defer httpCancel()
 
-	// Start timeout checker (checks every minute)
-	svc.StartTimeoutChecker(ctx, time.Minute)
+	// Start timeout checker. Interval is configurable so test harnesses
+	// can shrink it for fast heartbeat-timeout scenarios; production
+	// default is 1m. Validate ensures the duration parses and is positive.
+	stalledTick, err := cfg.StalledCheckIntervalDuration()
+	if err != nil {
+		slog.Error("invalid stalled_check_interval; falling back to 1m", "error", err)
+
+		stalledTick = time.Minute
+	}
+
+	svc.StartTimeoutChecker(ctx, stalledTick)
 
 	// Initialize git sync
 	var syncer *gitsync.Syncer

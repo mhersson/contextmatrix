@@ -1,3 +1,4 @@
 /contextmatrix
 boards/
 config.yaml
+test/integration/stub-worker/stub-worker
