@@ -40,7 +40,7 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
     ? null
     : card.assigned_agent
       ? 'An agent has an active claim on this card. Release it first.'
-      : `Only cards in todo or not_planned can be deleted — current state is ${card.state.replace(/_/g, ' ')}. Move it there first (manually or via the state machine).`;
+      : `Only cards in todo or not_planned can be deleted — current state is ${card.state.replace(/_/g, ' ')}.`;
 
   return (
     <>
