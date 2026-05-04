@@ -787,7 +787,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -1031,7 +1031,7 @@ func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, "/logs")
+	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 

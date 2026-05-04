@@ -2,6 +2,9 @@ package sessionlog
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -2186,4 +2189,87 @@ loop:
 	m.mu.Unlock()
 
 	assert.False(t, stillPending, "pendingSubs entry must be removed after Close")
+}
+
+// TestSignSSERequestBindsPath asserts signSSERequest treats the path
+// argument as load-bearing — different paths yield different sigs.
+// Regression-detects the simpler half of the bug class.
+func TestSignSSERequestBindsPath(t *testing.T) {
+	pathOnly, _ := signSSERequest("k", "/logs")
+	pathQuery, _ := signSSERequest("k", "/logs?project=foo")
+
+	assert.NotEqual(t, pathOnly, pathQuery,
+		"signSSERequest must hash over the path arg; same key, different paths must differ")
+}
+
+// TestSSESignatureBindsFullURI is the integration-style regression
+// for the round-2 fix that changed `signSSERequest(key, "/logs")` to
+// `signSSERequest(key, req.URL.RequestURI())` at both project and
+// per-card call sites. A reverting refactor that drops the query
+// string from the signed payload causes the HMAC verification on the
+// server side to fail; this test fails closed in that case.
+func TestSSESignatureBindsFullURI(t *testing.T) {
+	const apiKey = "harness-key"
+
+	var (
+		captured atomic.Value
+		verified atomic.Bool
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uri := r.URL.RequestURI()
+		captured.Store(uri)
+
+		got := r.Header.Get("X-Signature-256")
+		ts := r.Header.Get("X-Webhook-Timestamp")
+
+		// Recompute what signSSERequest WOULD have produced if it was
+		// fed the full URI we just received. Mirrors signSSERequest's
+		// own algorithm (METHOD + "\n" + path + "\n" + ts + ".").
+		mac := hmac.New(sha256.New, []byte(apiKey))
+		mac.Write([]byte(http.MethodGet))
+		mac.Write([]byte("\n"))
+		mac.Write([]byte(uri))
+		mac.Write([]byte("\n"))
+		mac.Write([]byte(ts))
+		mac.Write([]byte("."))
+		want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+		if got != want {
+			http.Error(w, "signature mismatch", http.StatusUnauthorized)
+
+			return
+		}
+
+		verified.Store(true)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "no flusher", http.StatusInternalServerError)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "event: terminal\ndata: {\"seq\":0,\"type\":\"terminal\"}\n\n")
+
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	m := NewManager(WithRunnerConfig(srv.URL, apiKey))
+
+	defer func() { _ = m.Close(context.Background()) }()
+
+	require.NoError(t, m.Start(context.Background(), "C-1", "harness-project"))
+
+	require.Eventually(t, verified.Load, 5*time.Second, 50*time.Millisecond,
+		"server should have verified the signature against the full request URI")
+
+	uri, _ := captured.Load().(string)
+	assert.Contains(t, uri, "/logs", "URI should hit /logs endpoint")
+	assert.Contains(t, uri, "project=harness-project",
+		"URI must carry the project query — that's the bytes the signature binds")
 }
