@@ -30,21 +30,22 @@ Code.
 
 **Message paths:**
 
-- **Run Auto / Run HITL / Stop / Stop All** — trigger/kill/stop-all webhooks from CM to
-  runner.
+- **Run Auto / Run HITL / Stop / Stop All** — trigger/kill/stop-all webhooks
+  from CM to runner.
 - **Live log streaming** — runner exposes `GET /logs` SSE endpoint; CM proxies
   as `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
   Console panel is open.
 - **Chat input** (interactive mode only) — Web UI sends
-  `POST /api/runner/message` to CM, which forwards to the runner's `/message`
-  endpoint. The runner writes the message to the container's stdin and echoes it
-  as a `user` log entry.
-- **Promote to autonomous** — Web UI sends `POST /api/runner/promote` to CM,
-  which flips the card's `autonomous` flag server-side (git commit + SSE event),
-  then forwards to the runner's `/promote` endpoint. The runner calls the
-  contextmatrix promote API first (fail closed — returns 502 without stdin write
-  on failure), then emits a `system` log entry and injects a canned message into
-  stdin telling the agent to check the card at its next gate.
+  `POST /api/projects/{project}/cards/{id}/message` to CM, which forwards to the
+  runner's `/message` endpoint. The runner writes the message to the container's
+  stdin and echoes it as a `user` log entry.
+- **Promote to autonomous** — Web UI sends
+  `POST /api/projects/{project}/cards/{id}/promote` to CM, which flips the
+  card's `autonomous` flag server-side (git commit + SSE event), then forwards
+  to the runner's `/promote` endpoint. The runner calls the contextmatrix
+  promote API first (fail closed — returns 502 without stdin write on failure),
+  then emits a `system` log entry and injects a canned message into stdin
+  telling the agent to check the card at its next gate.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -63,37 +64,43 @@ a separate binary that:
 
 All webhooks are signed using a shared secret configured in both ContextMatrix
 (`runner.api_key`) and the runner (`api_key`). The secret is never transmitted
-over the wire. The scheme binds the signature to the HTTP method, request
-path, timestamp, and body — so a valid signature for one endpoint cannot be
-replayed against a different endpoint with an identical body (e.g. `/kill`
-and `/end-session`, which both carry `{card_id, project}`). Applies uniformly
-to every signed request: POST webhooks, GET `/logs` / `/containers` /
-`/autonomous` / `/metrics`, and the runner's status callbacks to CM.
+over the wire. The scheme binds the signature to the HTTP method, request path,
+timestamp, and body — so a valid signature for one endpoint cannot be replayed
+against a different endpoint with an identical body (e.g. `/kill` and
+`/end-session`, which both carry `{card_id, project}`). Applies uniformly to
+every signed request: POST webhooks, GET `/logs` / `/containers` / `/autonomous`
+/ `/metrics`, and the runner's status callbacks to CM.
 
 **Signed content:**
 
 ```
-<METHOD>\n<PATH>\n<TIMESTAMP>.<BODY>
+<METHOD>\n<URI>\n<TIMESTAMP>.<BODY>
 ```
 
 - `METHOD`: uppercase HTTP method (`POST`, `GET`)
-- `PATH`: request path component — no scheme/host/query (e.g. `/kill`,
-  `/api/runner/status`). Sender and receiver MUST agree: any intermediate
-  proxy that rewrites paths will cause HMAC auth to fail.
+- `URI`: request-target form — path plus `?<raw-query>` when a query is present,
+  otherwise just the path (e.g. `/kill`, `/logs?project=alpha`,
+  `/api/runner/status`). This is the same value `r.URL.RequestURI()` returns on
+  the receiving side. Binding the query string prevents two concurrent requests
+  to the same path (e.g. `GET /logs?project=A` vs `GET /logs?project=B`) from
+  sharing a signature in the same Unix second. Sender and receiver MUST agree:
+  any intermediate proxy that rewrites the path or query will cause HMAC auth to
+  fail.
 - `TIMESTAMP`: Unix seconds, decimal string
 - `BODY`: JSON payload bytes, or empty for GET
 
 **Signing process:**
 
 1. Marshal the JSON payload body (empty for GET).
-2. Compute `HMAC-SHA256(shared_secret, METHOD + "\n" + PATH + "\n" + TIMESTAMP + "." + BODY)`.
+2. Compute
+   `HMAC-SHA256(shared_secret, METHOD + "\n" + URI + "\n" + TIMESTAMP + "." + BODY)`.
 3. Hex-encode the result.
 4. Set headers: `X-Signature-256: sha256=<hex>` and `X-Webhook-Timestamp: <ts>`.
 
-**Verification:** The receiver reads method + path from the incoming HTTP
+**Verification:** The receiver reads method + URI from the incoming HTTP
 request, computes the expected HMAC, and compares using constant-time
-comparison. It also rejects payloads whose timestamp falls outside the
-allowed clock-skew window (5 minutes default).
+comparison. It also rejects payloads whose timestamp falls outside the allowed
+clock-skew window (5 minutes default).
 
 ### ContextMatrix → Runner Webhooks
 
@@ -116,7 +123,12 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
 }
 ```
 
-`model` is always populated by CM from config. When the card's `use_opus_orchestrator` flag is `true`, CM sends `runner.orchestrator_opus_model`; otherwise it sends `runner.orchestrator_sonnet_model`. The runner passes this value to the container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the entrypoint uses as the `--model` argument to Claude Code.
+`model` is always populated by CM from config. When the card's
+`use_opus_orchestrator` flag is `true`, CM sends
+`runner.orchestrator_opus_model`; otherwise it sends
+`runner.orchestrator_sonnet_model`. The runner passes this value to the
+container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the
+entrypoint uses as the `--model` argument to Claude Code.
 
 `base_branch` is omitted when not set on the card. When present, the runner
 should clone using `-b <base_branch>` and instruct Claude Code to open PRs
@@ -132,17 +144,23 @@ input is required to begin. See [Interactive Mode](#interactive-mode) for
 details.
 
 **Note:** `feature_branch` and `create_pr` are auto-enabled on the card for
-**all** run triggers — both autonomous and HITL runs. This ensures a
-feature branch and PR are always created regardless of the execution mode chosen
-at launch.
+**all** run triggers — both autonomous and HITL runs. This ensures a feature
+branch and PR are always created regardless of the execution mode chosen at
+launch.
 
 ## Task skills mount
 
-The runner bind-mounts `task_skills_dir` (configured per runner host) read-only into worker containers at `/host-skills`. The entrypoint copies the resolved subset of skills into `~/.claude/skills/` for Claude Code to discover.
+When `task_skills_dir` is configured on the runner host (i.e. the value is
+non-empty), the runner bind-mounts that directory read-only into worker
+containers at `/host-skills`. When `task_skills_dir` is the empty string, no
+`/host-skills` mount is added and the trigger payload's `task_skills` field is
+ignored. The entrypoint copies the resolved subset of skills into
+`~/.claude/skills/` for Claude Code to discover.
 
 ### Trigger payload field
 
-CM resolves the skill list (per `docs/data-model.md`) and ships it in the `/trigger` payload:
+CM resolves the skill list (per `docs/data-model.md`) and ships it in the
+`/trigger` payload:
 
 ```json
 {
@@ -153,7 +171,8 @@ CM resolves the skill list (per `docs/data-model.md`) and ships it in the `/trig
 }
 ```
 
-`task_skills` is omitted when the resolved list is `nil` (mount full set). Empty array means "explicit none — mount nothing."
+`task_skills` is omitted when the resolved list is `nil` (mount full set). Empty
+array means "explicit none — mount nothing."
 
 ### Runner env vars
 
@@ -162,7 +181,9 @@ The runner forwards the resolution to the container as:
 - `CM_TASK_SKILLS_SET=1` whenever the payload had a non-nil `task_skills` field.
 - `CM_TASK_SKILLS=<csv>` containing the comma-joined list (empty allowed).
 
-`CM_TASK_SKILLS_SET` distinguishes "unset → mount all" from "set-but-empty → mount nothing" — the env var alone isn't enough because `unset` and `empty string` are indistinguishable in shell.
+`CM_TASK_SKILLS_SET` distinguishes "unset → mount all" from "set-but-empty →
+mount nothing" — the env var alone isn't enough because `unset` and
+`empty string` are indistinguishable in shell.
 
 ### Entrypoint behaviour
 
@@ -179,11 +200,14 @@ if /host-skills exists:
 
 ### On-trigger pull
 
-Before constructing the container config, the runner runs `git pull --ff-only` on `task_skills_dir`. On failure, the runner logs and continues with the existing local clone — the trigger never aborts because of a sync issue.
+Before constructing the container config, the runner runs `git pull --ff-only`
+on `task_skills_dir`. On failure, the runner logs and continues with the
+existing local clone — the trigger never aborts because of a sync issue.
 
 ### Required tool
 
-The container's `--allowed-tools` allowlist must include `Skill` for Claude Code's native skill engagement to work.
+The container's `--allowed-tools` allowlist must include `Skill` for Claude
+Code's native skill engagement to work.
 
 #### POST {runner_url}/kill
 
@@ -199,34 +223,34 @@ subscriber / reconcile sweep when a card reaches a terminal state.
 
 **Idempotent.** Three server-side cases:
 
-1. **Tracker has the entry** → normal cancel path: cancel the run's context,
-   let `waitAndCleanup` run its defers (`docker stop` + `docker rm -f`).
-   Returns `200 {"ok": true, "message": "container killed"}`.
+1. **Tracker has the entry** → normal cancel path: cancel the run's context, let
+   `waitAndCleanup` run its defers (`docker stop` + `docker rm -f`). Returns
+   `200 {"ok": true, "message": "container killed"}`.
 2. **Tracker is empty but Docker still has a labeled container** for
-   `(project, card_id)` → the runner reaches past the tracker via
-   `docker rm -f` on every matching container. Returns `200 {"ok": true,
-   "message": "force-removed"}`. This closes the tracker/Docker divergence
-   case where a prior cleanup cleared the tracker entry before Docker
-   removal succeeded; without this fallback the container leaks to
-   `container_timeout` (default 2h).
-3. **Neither tracker nor Docker has a matching container** → true no-op.
-   Returns `200 {"ok": true, "message": "no-op (already stopped)"}`.
+   `(project, card_id)` → the runner reaches past the tracker via `docker rm -f`
+   on every matching container. Returns
+   `200 {"ok": true, "message": "force-removed"}`. This closes the
+   tracker/Docker divergence case where a prior cleanup cleared the tracker
+   entry before Docker removal succeeded; without this fallback the container
+   leaks to `container_timeout` (default 2h).
+3. **Neither tracker nor Docker has a matching container** → true no-op. Returns
+   `200 {"ok": true, "message": "no-op (already stopped)"}`.
 
-All three return `200` so CM's retry logic doesn't need to distinguish
-"not found" from "killed".
+All three return `200` so CM's retry logic doesn't need to distinguish "not
+found" from "killed".
 
 #### GET {runner_url}/containers
 
 Returns every Docker container labeled `contextmatrix.runner=true` on the
-runner, regardless of running / exited state. HMAC-signed (the timestamp
-covers an empty body).
+runner, regardless of running / exited state. HMAC-signed (the timestamp covers
+an empty body).
 
-Consumed by CM's reconcile sweep as the authoritative answer to "what
-containers are actually running right now" — independent of the runner's
-in-memory tracker and of CM's card-level `runner_status` field. The sweep
-correlates each entry against CM's card store and kills anything whose card
-is terminal, missing, or exceeds the max-age cap. See
-`internal/runner/reconcile.go` for the decision rules.
+Consumed by CM's reconcile sweep as the authoritative answer to "what containers
+are actually running right now" — independent of the runner's in-memory tracker
+and of CM's card-level `runner_status` field. The sweep correlates each entry
+against CM's card store and kills anything whose card is terminal, missing, or
+exceeds the max-age cap. See `internal/runner/reconcile.go` for the decision
+rules.
 
 ```json
 {
@@ -245,16 +269,16 @@ is terminal, missing, or exceeds the max-age cap. See
 }
 ```
 
-`tracked` reflects the runner's in-memory tracker state at response time.
-The signature of the divergence bug the sweep is designed to catch is
+`tracked` reflects the runner's in-memory tracker state at response time. The
+signature of the divergence bug the sweep is designed to catch is
 `tracked: false` combined with `state: "running"` — a container Docker is
 running that the runner's own tracker has already forgotten about.
 
 **Error responses:**
 
-| Status | Condition                                |
-| ------ | ---------------------------------------- |
-| 401    | Missing / invalid HMAC signature         |
+| Status | Condition                                      |
+| ------ | ---------------------------------------------- |
+| 401    | Missing / invalid HMAC signature               |
 | 502    | Docker daemon unreachable (`upstream_failure`) |
 
 #### POST {runner_url}/stop-all
@@ -323,8 +347,8 @@ The runner performs a two-step operation in strict order:
 1. **Verify the autonomous flag (fail closed):** Calls
    `GET {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` and checks
    that the response body `{"autonomous": bool}` is `true`. CM already flipped
-   the flag before sending this webhook, so the GET is a read-only
-   confirmation. The request is HMAC-SHA256-signed under the standard method/path/timestamp
+   the flag before sending this webhook, so the GET is a read-only confirmation.
+   The request is HMAC-SHA256-signed under the standard method/path/timestamp
    scheme (empty body) using `runner.api_key`. If the call fails (network error,
    non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
    **not** write to stdin — the card remains in interactive mode.
@@ -340,12 +364,12 @@ The runner performs a two-step operation in strict order:
    and skips the gate automatically. No stdin message is written on API failure.
 
 3. **Close stdin:** Immediately after the canned message is written, the runner
-   closes the container's stdin. This signals EOF to `claude
-   --input-format stream-json`, which causes the process to finish any in-flight
-   work and exit cleanly through the normal `waitAndCleanup` path — without
-   waiting for `container_timeout`. An already-closed stdin (e.g. a racing
-   `/end-session`) is treated as non-fatal: a warning is logged and the endpoint
-   still returns 200.
+   closes the container's stdin. This signals EOF to
+   `claude --input-format stream-json`, which causes the process to finish any
+   in-flight work and exit cleanly through the normal `waitAndCleanup` path —
+   without waiting for `container_timeout`. An already-closed stdin (e.g. a
+   racing `/end-session`) is treated as non-fatal: a warning is logged and the
+   endpoint still returns 200.
 
 **Error responses:**
 
@@ -358,10 +382,10 @@ The runner performs a two-step operation in strict order:
 #### POST {runner_url}/end-session
 
 Sent by ContextMatrix when a card tied to an interactive container reaches a
-terminal state (`done` or `not_planned`) and is released. Closes the
-container's stdin so `claude`, running with `--input-format stream-json`,
-receives EOF and exits; the container then terminates through the normal
-`waitAndCleanup` path. HMAC-signed identically to `/kill`.
+terminal state (`done` or `not_planned`) and is released. Closes the container's
+stdin so `claude`, running with `--input-format stream-json`, receives EOF and
+exits; the container then terminates through the normal `waitAndCleanup` path.
+HMAC-signed identically to `/kill`.
 
 ```json
 {
@@ -377,38 +401,38 @@ Sent by an event-bus subscriber in CM that listens for `card.released` and
 2. `card.state` is `done` or `not_planned`.
 
 `card.runner_status` is intentionally NOT part of this predicate. An earlier
-version gated on `runner_status ∈ {queued, running}`, which silently skipped
-any container whose `runner_status` had drifted away from Docker reality
-(the runner's `reportCompleted` / `reportFailure` callbacks flip the field
-before the Docker cleanup defers actually succeed). Gating on it turned every
-such drift into a permanent leak. The runner's `/kill` is idempotent, so the
-subscriber firing "spuriously" against an already-dead container costs one
-200 no-op and eliminates that class of bug at the source.
+version gated on `runner_status ∈ {queued, running}`, which silently skipped any
+container whose `runner_status` had drifted away from Docker reality (the
+runner's `reportCompleted` / `reportFailure` callbacks flip the field before the
+Docker cleanup defers actually succeed). Gating on it turned every such drift
+into a permanent leak. The runner's `/kill` is idempotent, so the subscriber
+firing "spuriously" against an already-dead container costs one 200 no-op and
+eliminates that class of bug at the source.
 
-This prevents the container from exiting on intermediate `release_card` calls
-an orchestrator makes between subtasks: a release without a terminal-state
+This prevents the container from exiting on intermediate `release_card` calls an
+orchestrator makes between subtasks: a release without a terminal-state
 transition does not satisfy the predicate.
 
-**End-session is always followed by `/kill`.** Claude in `--input-format
-stream-json` mode has been observed keeping the container process alive well
-past stdin EOF (processing in-flight work and then idling instead of exiting).
-The subscriber therefore calls `/end-session` first (polite close, lets claude
-exit gracefully if it respects EOF) and then calls `/kill` unconditionally as
-a safety net so a terminal-state card never leaves a live container behind.
-`/kill` is idempotent — if the container is already gone the runner returns
-200 no-op. Expected `/end-session` responses (409 no stdin attached for
-autonomous containers, 410 stdin already closed by an earlier `/promote`) are
-classified as normal and suppressed from the warning log; `/kill` still fires.
+**End-session is always followed by `/kill`.** Claude in
+`--input-format stream-json` mode has been observed keeping the container
+process alive well past stdin EOF (processing in-flight work and then idling
+instead of exiting). The subscriber therefore calls `/end-session` first (polite
+close, lets claude exit gracefully if it respects EOF) and then calls `/kill`
+unconditionally as a safety net so a terminal-state card never leaves a live
+container behind. `/kill` is idempotent — if the container is already gone the
+runner returns 200 no-op. Expected `/end-session` 409 responses (no stdin
+attached — autonomous container) are classified as normal and suppressed from
+the warning log; `/kill` still fires.
 
 The runner emits a `system` `LogEntry` with content
 `"session ended (stdin closed)"` before returning.
 
 **Error responses:**
 
-| Status | Condition                                                      |
-| ------ | -------------------------------------------------------------- |
-| 404    | No container tracked for this card                             |
-| 409    | Container is not in interactive mode, or stdin already closed  |
+| Status | Condition                            |
+| ------ | ------------------------------------ |
+| 404    | No container tracked for this card   |
+| 409    | Container is not in interactive mode |
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -447,14 +471,14 @@ Omit to receive entries from all projects.
 
 <a name="logentry-types"></a>
 
-| type        | Source             | Meaning                                                           |
-| ----------- | ------------------ | ----------------------------------------------------------------- |
-| `text`      | Claude Code stdout | Parsed assistant text block                                       |
-| `thinking`  | Claude Code stdout | Parsed assistant thinking block                                   |
+| type        | Source             | Meaning                                                               |
+| ----------- | ------------------ | --------------------------------------------------------------------- |
+| `text`      | Claude Code stdout | Parsed assistant text block                                           |
+| `thinking`  | Claude Code stdout | Parsed assistant thinking block                                       |
 | `tool_call` | Claude Code stdout | Non-MCP tool call: `Name: <summary>`, truncated to 200 runes with `…` |
-| `stderr`    | Container stderr   | Raw stderr line from the container                                |
-| `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled) |
-| `user`      | Chat input         | User message submitted via the chat input                         |
+| `stderr`    | Container stderr   | Raw stderr line from the container                                    |
+| `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled)     |
+| `user`      | Chat input         | User message submitted via the chat input                             |
 
 **Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
 prevent proxy and browser timeouts.
@@ -486,12 +510,11 @@ inside the container uses the normal MCP `complete_task` tool.
 
 #### GET /api/v1/cards/{project}/{id}/autonomous
 
-Read-only endpoint called by the runner during `/promote` to fail-closed
-confirm the card's autonomous flag before writing the canned stdin message.
-Returns:
+Read-only endpoint called by the runner during `/promote` to fail-closed confirm
+the card's autonomous flag before writing the canned stdin message. Returns:
 
 ```json
-{"autonomous": true}
+{ "autonomous": true }
 ```
 
 **Authentication:** HMAC-SHA256 signature under the standard
@@ -537,10 +560,10 @@ Or on error:
 | `conflict`         | Operation not valid in the current state                    |
 | `duplicate`        | A duplicate resource was detected                           |
 | `stdin_closed`     | Container stdin is closed; no further messages accepted     |
-| `too_large`        | Request payload exceeds the size limit (e.g., 8 KiB)       |
+| `too_large`        | Request payload exceeds the size limit (e.g., 8 KiB)        |
 | `limit_reached`    | A configured capacity limit has been reached                |
 | `internal`         | Unexpected runner-side error                                |
-| `upstream_failure` | Runner could not reach an upstream dependency (e.g., CM)   |
+| `upstream_failure` | Runner could not reach an upstream dependency (e.g., CM)    |
 | `draining`         | Runner is shutting down and not accepting new work          |
 
 **Per-endpoint behaviour notes:**
@@ -549,14 +572,18 @@ Or on error:
   stopped and others failed. The body contains per-card results.
 - **`/kill`** — idempotent: returns `200` (not 404) when the card is not
   tracked. Use this to safely call stop on cards that may already be finished.
-- **`/message`** — may return `410` with code `stdin_closed` after the
-  container session has ended and stdin is no longer writable.
-- **`/promote`** — closes stdin immediately after writing the canned message.
-  A subsequent `/end-session` on the same card is idempotent (returns `409`
+- **`/message`** — may return `410` with code `stdin_closed` after the container
+  session has ended and stdin is no longer writable.
+- **`/promote`** — closes stdin immediately after writing the canned message. A
+  subsequent `/end-session` on the same card is idempotent (returns `409`
   because stdin is already closed).
-- **All mutating endpoints** — return `503` with code `draining` while the
-  runner is performing a graceful shutdown. Clients should not retry during
-  a draining window.
+- **Drain short-circuit** — `/trigger`, `/message`, `/promote`, and
+  `/end-session` return `503` with code `draining` while the runner is
+  performing a graceful shutdown so the shutdown sequence is not racing new
+  long-running work. `/kill`, `/stop-all`, `/logs`, `/health`, and `/readyz`
+  intentionally remain reachable during drain — they either complete quickly or
+  surface state operators need to read while shutting down. Clients should not
+  retry the short-circuited endpoints during a draining window.
 
 ### Retry Policy
 
@@ -578,8 +605,8 @@ ContextMatrix retries failed webhooks with exponential backoff:
    - `--allowed-tools` with an explicit tool allowlist replaces
      `--dangerously-skip-permissions`. Two allowlist arrays are defined:
      - `ALLOWED_TOOLS_COMMON` — used for both HITL and autonomous runs
-     - `ALLOWED_TOOLS_AUTO_EXTRAS` — adds `Task` on top of `ALLOWED_TOOLS_COMMON`
-       for fully autonomous (non-interactive) runs
+     - `ALLOWED_TOOLS_AUTO_EXTRAS` — adds `Task` on top of
+       `ALLOWED_TOOLS_COMMON` for fully autonomous (non-interactive) runs
    - Git credentials mounted (not baked into image)
    - The card ID and project name passed as arguments
    - Injected environment variables include:
@@ -589,8 +616,10 @@ ContextMatrix retries failed webhooks with exponential backoff:
      - `CM_ORCHESTRATOR_MODEL` — model name from the trigger payload
      - `CM_INTERACTIVE` — `1` for HITL mode, unset or `0` for autonomous
      - `CM_CORRELATION_ID` — opaque ID propagated from the `/trigger` request's
-       `X-Correlation-ID` header; the container forwards it as `X-Correlation-ID`
-       on all outbound requests for end-to-end tracing
+       `X-Correlation-ID` header. Set on the container environment for
+       diagnostic visibility; the runner does not currently forward it as an
+       `X-Correlation-ID` header on outbound HTTP requests (tracked as a
+       follow-up).
 4. Claude Code runs the `run-autonomous` workflow:
    - Connects to ContextMatrix via MCP
    - Claims the card
@@ -606,50 +635,50 @@ discarded. No partial saves.
 
 ### Terminal-state cleanup (HITL containers)
 
-A HITL container's `claude` process does not exit when its stdin is closed —
-in stream-json mode it treats EOF as "no more user input for now" and keeps
-running. A card that reaches a terminal state (`done` or `not_planned`) and
-is released must therefore be killed by ContextMatrix explicitly, otherwise
-the container would leak until the runner's `container_timeout` (default 2h).
+A HITL container's `claude` process does not exit when its stdin is closed — in
+stream-json mode it treats EOF as "no more user input for now" and keeps
+running. A card that reaches a terminal state (`done` or `not_planned`) and is
+released must therefore be killed by ContextMatrix explicitly, otherwise the
+container would leak until the runner's `container_timeout` (default 2h).
 
-Two independent mechanisms guarantee this cleanup, and they now use
-different truths so a bug in either cannot silently hide a live container:
+Two independent mechanisms guarantee this cleanup, and they now use different
+truths so a bug in either cannot silently hide a live container:
 
-1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches
-   the event bus for `card.released` and `card.state_changed`. When it sees a
-   card with `state ∈ {done, not_planned}` + `assigned_agent == ""`, it fires
-   `/end-session` followed by `/kill` against the runner. Typical latency:
-   tens of milliseconds. `runner_status` is intentionally not consulted —
-   see the end-session section above for why.
+1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches the
+   event bus for `card.released` and `card.state_changed`. When it sees a card
+   with `state ∈ {done, not_planned}` + `assigned_agent == ""`, it fires
+   `/end-session` followed by `/kill` against the runner. Typical latency: tens
+   of milliseconds. `runner_status` is intentionally not consulted — see the
+   end-session section above for why.
 2. **Reconcile sweep (Docker-authoritative backstop).**
    `internal/runner/reconcile.go` runs every `runner.reconcile_interval`
-   (default **60s**). Every tick it calls `GET /containers` on the runner
-   and, for each container Docker is actually running, looks up the card
-   and kills the container when:
+   (default **60s**). Every tick it calls `GET /containers` on the runner and,
+   for each container Docker is actually running, looks up the card and kills
+   the container when:
    - the card is missing (deleted or renamed), or
    - the card's state is `done` / `not_planned`, or
    - the container has been alive longer than `ContainerMaxAge` (150m).
 
-   **The sweep does not read `runner_status`.** It reasons exclusively from
-   two authoritative sources — Docker ("is this container running?") and
-   the card store ("should it be?"). Every previous implementation of this
-   sweep consulted CM's own `runner_status` bookkeeping and inherited the
-   drift bug where a failed cleanup defer flipped the field to `completed`
-   / `failed` while Docker still had the container, then every subsequent
-   sweep silently skipped it. That class of bug is now unreachable.
+   **The sweep does not read `runner_status`.** It reasons exclusively from two
+   authoritative sources — Docker ("is this container running?") and the card
+   store ("should it be?"). Every previous implementation of this sweep
+   consulted CM's own `runner_status` bookkeeping and inherited the drift bug
+   where a failed cleanup defer flipped the field to `completed` / `failed`
+   while Docker still had the container, then every subsequent sweep silently
+   skipped it. That class of bug is now unreachable.
 
-The event path's logline is `"end-session + kill sent" source=subscriber`;
-the sweep's is `"reconcile sweep killing container" ... reason=<terminal_state
-|no_such_card|age_cap>` followed by the same `source=sweep` kill log. Every
-sweep tick also emits a `"reconcile sweep tick"` line with `scanned` and
-`killed` counts, so "is the sweep actually running?" is answerable from a
-single grep.
+The event path's logline is `"end-session + kill sent" source=subscriber`; the
+sweep's is
+`"reconcile sweep killing container" ... reason=<terminal_state |no_such_card|age_cap>`
+followed by the same `source=sweep` kill log. Every sweep tick also emits a
+`"reconcile sweep tick"` line with `scanned` and `killed` counts, so "is the
+sweep actually running?" is answerable from a single grep.
 
 Setting `reconcile_interval` to `"0s"` disables the sweep. Not recommended
 outside of tests — the event path is best-effort (events.Bus drops events on
 subscriber buffer overflow, and events published during CM restart are never
-delivered), so without the sweep a single dropped event can leak a container
-for the full `container_timeout` window.
+delivered), so without the sweep a single dropped event can leak a container for
+the full `container_timeout` window.
 
 ## Worker Safety
 
@@ -658,8 +687,8 @@ for the full `container_timeout` window.
 The runner monitors each container for output activity. If a container produces
 no stdout or stderr output for longer than `idle_output_timeout` (default: **30
 minutes**), the runner treats it as hung and force-kills the container. This
-prevents silent deadlocks — e.g., a Claude Code process blocked waiting for
-user input that will never arrive in autonomous mode — from consuming slots and
+prevents silent deadlocks — e.g., a Claude Code process blocked waiting for user
+input that will never arrive in autonomous mode — from consuming slots and
 leaving cards permanently `running`.
 
 The watchdog timer resets every time the container emits any output line. A
@@ -673,9 +702,9 @@ A background maintenance goroutine runs every `maintenance_interval` (default:
 **10 minutes**) and performs two cleanup tasks:
 
 1. **Orphan sweep** — scans running Docker containers for any that were started
-   by this runner but are no longer tracked in the in-memory container map (e.g.,
-   because the runner restarted mid-session). Orphaned containers are stopped and
-   their log sessions terminated.
+   by this runner but are no longer tracked in the in-memory container map
+   (e.g., because the runner restarted mid-session). Orphaned containers are
+   stopped and their log sessions terminated.
 2. **Image pruning** — removes dangling Docker images (untagged intermediate
    layers) that are older than 24 hours. This prevents unbounded disk growth
    from repeated image pulls and rebuilds.
@@ -773,25 +802,29 @@ The runner sets `CM_INTERACTIVE=1` in the container's environment. The
 ### Message Flow
 
 ```
-Web UI (chat input) → CM POST /api/runner/message
+Web UI (chat input) → CM POST /api/projects/{project}/cards/{id}/message
                      → Runner POST /message
                      → container stdin (stream-json user message)
                      → Runner LogEntry{type: "user"}  (echoed to browser)
 
-Web UI (promote btn) → CM POST /api/runner/promote
+Web UI (promote btn) → CM POST /api/projects/{project}/cards/{id}/promote
                       → CM flips card autonomous=true (git commit + SSE event)
                       → Runner POST /promote
                       → Runner GET /api/v1/cards/{project}/{id}/autonomous (HMAC-signed;
                                     502+stop if autonomous != true or request fails)
-                      → container stdin (canned autonomous-mode message)
                       → Runner LogEntry{type: "system", content: "promoted to autonomous mode"}
+                      → container stdin (canned autonomous-mode message)
                       → Runner closes container stdin (EOF → container exits after work done)
 ```
 
+The promote system `LogEntry` is published BEFORE the stdin write so the browser
+sees the mode-switch line in the correct order even if the stdin write fails or
+stalls.
+
 ### Feature Branch Flags
 
-`feature_branch` and `create_pr` are auto-enabled on the card whenever a run
-is triggered — for both autonomous and HITL runs. The `/promote` endpoint
+`feature_branch` and `create_pr` are auto-enabled on the card whenever a run is
+triggered — for both autonomous and HITL runs. The `/promote` endpoint
 additionally sets `autonomous: true` when the user switches a running
 interactive session to autonomous mode.
 
@@ -838,13 +871,23 @@ Cloudflare/nginx idle timeouts (~100 s).
 **SSE payload shapes:**
 
 Normal events:
+
 ```json
-{"type":"text","content":"...","card_id":"PROJ-042","ts":"...","seq":42}
+{
+  "type": "text",
+  "content": "...",
+  "card_id": "PROJ-042",
+  "ts": "...",
+  "seq": 42
+}
 ```
 
 Marker frames:
-- `{"type":"terminal","seq":N}` — session ended; client should stop reconnecting.
-- `{"type":"dropped","seq":N,"count":N}` — ring-buffer overflowed; `count` events evicted.
+
+- `{"type":"terminal","seq":N}` — session ended; client should stop
+  reconnecting.
+- `{"type":"dropped","seq":N,"count":N}` — ring-buffer overflowed; `count`
+  events evicted.
 
 **Card-scoped path** (`?project=P&card_id=X`):
 
@@ -894,17 +937,17 @@ layer that fixes the reconnect-loses-log-history bug.
   `(<-chan Event, unsub)`. The snapshot of all buffered events is delivered
   first (replay), then live events follow. Multiple browser tabs can subscribe
   concurrently.
-- **Project-scoped sessions**: `StartProject(ctx, project)` / `StopProject(project)` /
-  `SubscribeProject(project)` mirror the card-scoped API but buffer all events
-  for the project (no card-ID filter). The internal session key is
-  `"project:<name>"`, which cannot collide with card IDs in the shared maps.
-  `StartProject` is called by `streamProjectSession` on each client connect
-  (idempotent); cleanup is handled by the idle sweeper. Project-scoped events
-  include a populated `CardID` field on `sessionlog.Event` so the frontend
-  card-ID filter dropdown keeps working.
+- **Project-scoped sessions**: `StartProject(ctx, project)` /
+  `StopProject(project)` / `SubscribeProject(project)` mirror the card-scoped
+  API but buffer all events for the project (no card-ID filter). The internal
+  session key is `"project:<name>"`, which cannot collide with card IDs in the
+  shared maps. `StartProject` is called by `streamProjectSession` on each client
+  connect (idempotent); cleanup is handled by the idle sweeper. Project-scoped
+  events include a populated `CardID` field on `sessionlog.Event` so the
+  frontend card-ID filter dropdown keeps working.
 - **Bounded ring buffer**: each session (card-scoped or project-scoped) enforces
-  dual caps — 2000 events OR 1 MiB total payload, whichever is reached first.
-  On overflow, the oldest events are dropped and a single synthetic `dropped`
+  dual caps — 2000 events OR 1 MiB total payload, whichever is reached first. On
+  overflow, the oldest events are dropped and a single synthetic `dropped`
   marker event is inserted/updated at the front of the buffer.
 - **Lifecycle**: `Start` is called by `CardService.UpdateRunnerStatus` on
   `→running`. `Stop` is called (fire-and-forget, never fails the status update)
@@ -912,10 +955,10 @@ layer that fixes the reconnect-loses-log-history bug.
   cancels the upstream connection, sends a `terminal` event to all subscribers,
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
-  (250 ms base, 4 s cap, 5 attempts). The `attempt` counter resets to 0
-  whenever a frame is successfully delivered, so transient disconnects during
-  a long-running session do not accumulate toward the permanent-failure limit —
-  a session can tolerate arbitrarily many brief disconnects as long as each
+  (250 ms base, 4 s cap, 5 attempts). The `attempt` counter resets to 0 whenever
+  a frame is successfully delivered, so transient disconnects during a
+  long-running session do not accumulate toward the permanent-failure limit — a
+  session can tolerate arbitrarily many brief disconnects as long as each
   reconnection delivers at least one frame. After all retries are exhausted
   without a successful frame the session is marked permanently failed: all
   active and pending subscribers receive a `terminal` event and their channels
@@ -979,7 +1022,7 @@ runner:
   url: "http://localhost:9090" # Runner base URL
   api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
   orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
-  orchestrator_opus_model: "claude-opus-4-7"     # Model sent when use_opus_orchestrator is true
+  orchestrator_opus_model: "claude-opus-4-7" # Model sent when use_opus_orchestrator is true
 ```
 
 Environment variable overrides:
@@ -1002,8 +1045,9 @@ api_key: "shared-hmac-secret" # Must match CM's runner.api_key
 # HTTP ports
 # The main port serves public endpoints (/trigger, /readyz, /logs, etc.)
 # The admin_port serves privileged endpoints (/metrics, /ready) and is bound
-# to 127.0.0.1 only. Default: 9091
-admin_port: 9091
+# to 127.0.0.1 only. Default: 0 (disabled — set to a non-zero port such as
+# 9091 to expose Prometheus metrics).
+admin_port: 0
 
 # Logging
 log_format: "json" # "json" or "text"
@@ -1012,27 +1056,27 @@ log_format: "json" # "json" or "text"
 # base_image must be digest-pinned (e.g. "my-org/runner@sha256:abc123...")
 # to guarantee reproducible, tamper-proof execution environments.
 base_image: "contextmatrix/runner@sha256:<digest>"
-max_concurrent: 3    # Max simultaneous containers
+max_concurrent: 3 # Max simultaneous containers
 container_timeout: "2h" # Force-kill after this duration
 
 # Resource limits applied to every spawned container
-container_memory_limit: "4g"  # Docker memory limit (e.g. "512m", "4g")
-container_pids_limit: 512     # Docker PIDs limit
+container_memory_limit: 8589934592 # Docker memory limit in bytes (default: 8 GiB)
+container_pids_limit: 512 # Docker PIDs limit
 
 # Secrets directory — files here are mounted read-only into containers
-secrets_dir: "/run/secrets/runner"
+secrets_dir: "/var/run/cm-runner/secrets"
 
 # Allowed Docker images — if non-empty, the runner rejects trigger payloads
 # that request an image not on this list. Use digest-pinned refs.
 allowed_images: []
 
 # Replay-attack prevention for HMAC-signed webhooks
-webhook_replay_cache_size: 1024  # Number of recent webhook IDs to cache
-webhook_replay_skew_seconds: 30  # Allowed clock skew for timestamp validation
+webhook_replay_cache_size: 10000 # Number of recent webhook IDs to cache
+webhook_replay_skew_seconds: 330 # Allowed clock skew for timestamp validation
 
 # Stdin deduplication — prevents the same message being injected twice on retry
-message_dedup_cache_size: 512  # Number of recent message IDs to cache
-message_dedup_ttl_seconds: 300 # TTL for each dedup cache entry (seconds)
+message_dedup_cache_size: 1000 # Number of recent message IDs to cache
+message_dedup_ttl_seconds: 600 # TTL for each dedup cache entry (seconds)
 
 # Idle watchdog — kills a container that emits no stdout/stderr within this window
 idle_output_timeout: "30m"
@@ -1048,14 +1092,14 @@ use_hmac_for_verify_autonomous: true
 # auth_mode: "app" (recommended) or "pat".
 # For end-to-end setup see docs/github-auth-setup.md.
 github:
-  auth_mode: "app"  # CMR_GITHUB_AUTH_MODE
-  host: ""          # CMR_GITHUB_HOST — GHE/GHEC-DR hostname; empty for github.com
-  api_base_url: ""  # CMR_GITHUB_API_BASE_URL — override for non-standard enterprise URLs
+  auth_mode: "app" # CMR_GITHUB_AUTH_MODE
+  host: "" # CMR_GITHUB_HOST — GHE/GHEC-DR hostname; empty for github.com
+  api_base_url: "" # CMR_GITHUB_API_BASE_URL — override for non-standard enterprise URLs
 
   # GitHub App credentials (required when auth_mode is "app")
   app:
-    app_id: 0            # CMR_GITHUB_APP_ID
-    installation_id: 0   # CMR_GITHUB_INSTALLATION_ID
+    app_id: 0 # CMR_GITHUB_APP_ID
+    installation_id: 0 # CMR_GITHUB_INSTALLATION_ID
     private_key_path: "" # CMR_GITHUB_PRIVATE_KEY_PATH
 
   # Fine-grained PAT (required when auth_mode is "pat")
@@ -1064,15 +1108,15 @@ github:
 ```
 
 For end-to-end auth setup, see
-[`docs/github-auth-setup.md`](github-auth-setup.md). The runner uses
-the same model: a single identity (`app` with App credentials, or `pat`
-with a fine-grained PAT) covers all git operations inside worker containers.
+[`docs/github-auth-setup.md`](github-auth-setup.md). The runner uses the same
+model: a single identity (`app` with App credentials, or `pat` with a
+fine-grained PAT) covers all git operations inside worker containers.
 
 When using GitHub Enterprise, set `github.host` (and optionally
-`github.api_base_url`) in both ContextMatrix and the runner to target
-the same enterprise instance. The runner entrypoint derives the git host
-automatically from the repo URL sent in the trigger payload, so no
-additional git configuration is needed.
+`github.api_base_url`) in both ContextMatrix and the runner to target the same
+enterprise instance. The runner entrypoint derives the git host automatically
+from the repo URL sent in the trigger payload, so no additional git
+configuration is needed.
 
 ### Operator Endpoints
 
@@ -1080,16 +1124,16 @@ The runner exposes two categories of endpoints:
 
 **Public port** (configured by the main listener, default `:9090`):
 
-| Endpoint     | Auth        | Description                                                                                                                                                         |
-| ------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /readyz` | None        | Health probe. Returns `200 {"ok":true}` when the runner is ready to accept work. Returns `503 {"ok":false,"reason":"preflight"}` during startup warmup, and `503 {"ok":false,"reason":"draining"}` during graceful shutdown. Used by load balancers and Kubernetes liveness/readiness probes. |
+| Endpoint      | Auth | Description                                                                                                                                                                                                                                                                                   |
+| ------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /readyz` | None | Health probe. Returns `200 {"ok":true}` when the runner is ready to accept work. Returns `503 {"ok":false,"reason":"preflight"}` during startup warmup, and `503 {"ok":false,"reason":"draining"}` during graceful shutdown. Used by load balancers and Kubernetes liveness/readiness probes. |
 
 **Admin port** (`admin_port`, default `127.0.0.1:9091` — loopback only):
 
-| Endpoint       | Auth           | Description                                                                                                                    |
-| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /metrics` | HMAC-signed    | Prometheus metrics endpoint. Uses the same HMAC key as webhook signing (`api_key`). Only accessible on the loopback interface. |
-| `GET /ready`   | None (loopback) | Unauthenticated readiness probe. Identical semantics to `/readyz` but restricted to the admin port (loopback only).           |
+| Endpoint       | Auth            | Description                                                                                                                    |
+| -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /metrics` | HMAC-signed     | Prometheus metrics endpoint. Uses the same HMAC key as webhook signing (`api_key`). Only accessible on the loopback interface. |
+| `GET /ready`   | None (loopback) | Unauthenticated readiness probe. Identical semantics to `/readyz` but restricted to the admin port (loopback only).            |
 
 ### Per-Project (`.board.yaml`)
 
@@ -1104,16 +1148,29 @@ remote_execution:
 The `runner_status` field tracks the container lifecycle independently of the
 card's workflow state:
 
-| runner_status | Meaning                                                                       |
-| ------------- | ----------------------------------------------------------------------------- |
-| (empty)       | Not associated with runner                                                    |
-| `queued`      | Trigger webhook sent, container not yet started                               |
-| `running`     | Container is running, CC is working                                           |
-| `failed`      | Container crashed or webhook failed                                           |
-| `killed`      | User stopped the task                                                         |
-| `completed`   | Container finished successfully (transient — cleared on transition to `done`) |
+| runner_status | Meaning                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| (empty)       | Not associated with runner                                                                            |
+| `queued`      | Trigger webhook sent, container not yet started                                                       |
+| `running`     | Container is running, CC is working                                                                   |
+| `failed`      | Container crashed or webhook failed                                                                   |
+| `killed`      | User stopped the task                                                                                 |
+| `completed`   | Container finished successfully (cleared synchronously by `UpdateRunnerStatus("completed")` callback) |
 
-Runner status is cleared when a card transitions to `done` or `not_planned`.
+`runner_status` is cleared exclusively by the runner's
+`UpdateRunnerStatus("completed")` callback — the runner reports `completed` once
+the container has actually exited and the service then sets the field back to
+empty.
+
+State transitions to `done` or `not_planned` deliberately do **not** clear
+`runner_status` (`enforceTerminalStateInvariants` only resets agent fields on
+`not_planned`). The end-session subscriber and the reconcile sweep do not gate
+on `runner_status` at all — the subscriber fires on terminal-state +
+released-agent, and the sweep reasons exclusively from Docker (is the container
+running?) and the card store (should it be?). `runner_status` is informational
+bookkeeping for the UI; a card that reaches a terminal state while the runner is
+still running may briefly show a non-empty `runner_status` until the runner's
+completion callback fires.
 
 ## Kill Switch Semantics
 
@@ -1122,7 +1179,7 @@ Runner status is cleared when a card transitions to `done` or `not_planned`.
 | Stop (card)                  | Single card          | Kills specific container, sets `runner_status: killed` |
 | Stop All                     | All cards in project | Kills all containers for the project                   |
 | `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
-| Per-project `enabled: false` | Single project       | Hides run button for that project                     |
+| Per-project `enabled: false` | Single project       | Hides run button for that project                      |
 
 ## Graceful Shutdown
 
@@ -1137,13 +1194,16 @@ dropping in-flight work or leaving orphaned containers:
    requests are accepted.
 3. **Tracked containers killed** — all containers currently tracked by the
    runner are sent a kill signal. Each killed container is reported as
-   `runner_status: failed` to ContextMatrix so the card is not left in a
-   phantom running state.
-4. **Manager drain** — the container manager is given up to **30 seconds** to
-   finish draining (completing any pending state transitions and final log
-   flushes).
-5. **Force-cleanup** — after the 30s drain window, a **5-second** hard timeout
-   fires to release any remaining resources before the process exits.
+   `runner_status: failed` to ContextMatrix so the card is not left in a phantom
+   running state.
+4. **Manager drain** — after the HTTP listener has stopped and every tracked
+   container has been told to stop, the shutdown waits up to **30 seconds**
+   (`managerDrainTimeout`) for `manager.Wait()` to return so per-container
+   `waitAndCleanup` goroutines can exit cleanly. If the deadline fires the
+   shutdown logs a warning and proceeds — the next step is the backstop.
+5. **Force-cleanup** — for any container still tracked after the drain window,
+   the shutdown calls `manager.Kill` directly under a bounded context to release
+   remaining Docker resources before the process exits.
 
 ## See Also
 

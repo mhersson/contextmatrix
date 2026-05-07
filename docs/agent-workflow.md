@@ -13,8 +13,11 @@ sub-agent spawning with clean contexts. Two orchestration modes exist:
    `docs/data-model.md` § Reserved labels).
 2. **Remote runner:** `contextmatrix-runner` (a separate Go binary) receives
    HMAC-signed webhooks from ContextMatrix and spawns disposable Docker
-   containers running CC with the `run-autonomous` skill. See
-   `docs/remote-execution.md` for the runner architecture.
+   containers running CC. The runner supports two container modes: autonomous
+   primes Claude with `get_skill('run-autonomous', ...)` and runs without a
+   human channel; HITL (human-in-the-loop) primes Claude with
+   `get_skill('create-plan', ...)` and keeps the human approval gates open via
+   the chat channel. See `docs/remote-execution.md` for the runner architecture.
 
 ```text
 Human ↔ CC (main agent, Opus)
@@ -38,9 +41,10 @@ verifying API handler code; it is not a supported interface for agent board
 operations. This rule is enforced in the `workflowPreamble` injected into every
 skill prompt and is explicitly stated in each skill file's Rules section.
 
-## Skill files
+## Workflow Skill files
 
-Skill files are markdown documents in `workflow-skills/`. They serve two purposes:
+Skill files are markdown documents in `workflow-skills/`. They serve two
+purposes:
 
 1. **Human reference** — read directly from the repo
 2. **MCP prompts** — served via `prompts/list` + `prompts/get` as Claude Code
@@ -109,65 +113,91 @@ workflow-skills/
                           # /contextmatrix:start-workflow (server-side only — no skill file)
 ```
 
-Only three skills are exposed as slash commands: `create-task`,
-`init-project`, and `start-workflow`. Phase-specific skills (`create-plan`,
-`execute-task`, `review-task`, `document-task`, `run-autonomous`,
-`brainstorming`, `systematic-debugging`) are loaded by the orchestrator via
-`get_skill` (or `start_review` for the review-entry transition); they are
-not user-facing entry points. This mirrors how `brainstorming` and
-`systematic-debugging` have always worked.
+Only three skills are exposed as slash commands: `create-task`, `init-project`,
+and `start-workflow`. Phase-specific skills (`create-plan`, `execute-task`,
+`review-task`, `document-task`, `run-autonomous`, `brainstorming`,
+`systematic-debugging`) are loaded by the orchestrator via `get_skill` (or
+`start_review` for the review-entry transition); they are not user-facing entry
+points. This mirrors how `brainstorming` and `systematic-debugging` have always
+worked.
 
 `start-workflow` has no skill file. It exists as both a **prompt** (slash
-command) and a **tool** (`start_workflow`). Both are server-side only: they fetch
-the card, inspect the `autonomous` flag, and return the full skill content for
-`run-autonomous` or `create-plan`. The tool enables natural-language triggering
-— when a user writes "start workflow for ALPHA-001" (without a slash command),
-the agent sees the `start_workflow` tool and calls it to get the executable
-workflow content directly. If the card cannot be found, both paths return an
-error.
+command) and a **tool** (`start_workflow`). Both are server-side only: they
+fetch the card, inspect the `autonomous` flag, and return the full skill content
+for `run-autonomous` or `create-plan`. The tool enables natural-language
+triggering — when a user writes "start workflow for ALPHA-001" (without a slash
+command), the agent sees the `start_workflow` tool and calls it to get the
+executable workflow content directly. If the card cannot be found, both paths
+return an error.
 
 ## Task skills
 
-In addition to the workflow skills served via MCP prompts (lifecycle scaffolding), the runner mounts a curated set of **task skills** at `~/.claude/skills/` in the worker container. These are standard Claude Code skills with `SKILL.md` files, discovered by the model via the native Skill tool and engaged when their descriptions match the work being done.
+In addition to the workflow skills served via MCP prompts (lifecycle
+scaffolding), the runner mounts a curated set of **task skills** at
+`~/.claude/skills/` in the worker container. These are standard Claude Code
+skills with `SKILL.md` files, discovered by the model via the native Skill tool
+and engaged when their descriptions match the work being done.
 
 ### Two-channel design
 
-Workflow skills (existing): MCP prompts injected into the orchestrator's or a sub-agent's first message. Drives lifecycle.
+Workflow skills (existing): MCP prompts injected into the orchestrator's or a
+sub-agent's first message. Drives lifecycle.
 
-Task skills (new): Filesystem at `~/.claude/skills/<name>/SKILL.md`. Engaged automatically by the model based on description matching.
+Task skills (new): Filesystem at `~/.claude/skills/<name>/SKILL.md`. Engaged
+automatically by the model based on description matching.
 
-The two channels never overlap: workflow skills tell the agent *what to do*, task skills tell the agent *how to do it well*.
+The two channels never overlap: workflow skills tell the agent _what to do_,
+task skills tell the agent _how to do it well_.
 
 ### Selection
 
-A card's `skills` field constrains which task skills are mounted. See `docs/data-model.md` for the field's three-state semantics. Resolution at trigger time:
+A card's `skills` field constrains which task skills are mounted. See
+`docs/data-model.md` for the field's three-state semantics. Resolution at
+trigger time:
 
 1. `card.skills` if set (including explicit empty);
 2. else `project.default_skills` if set;
-3. else mount the full curated set from `task_skills_dir`.
+3. else mount the full curated set from `task_skills.dir` (the `dir` subfield of
+   the `task_skills` config object).
 
-### Guard / Permit
+### Engagement scoping
 
-Workflow skill files include a one-line guard (orchestrator) or permit (sub-agent) so engagement stays scoped to the right phase:
+Workflow skills shape specialist-skill engagement through a
+`## Specialist skills` section in the skill body. The section's prose tells the
+agent whether and how to engage filesystem skills; it is multi-sentence
+guidance, not a one-line marker. Engagement stays scoped to the right phase:
 
-- `run-autonomous`: **guard** — orchestrator does not engage specialists; sub-agents will.
-- `execute-task`, `review-task`, `document-task`: **permit** — engage when descriptions match. Workflow rules always take precedence over skill guidance.
-- `create-plan`: no nudge (runs inline on the orchestrator, covered by the run-autonomous guard).
-- `create-task`, `init-project`: no nudge (interview/bootstrap, no implementation work).
+- `run-autonomous`: includes a `## Specialist skills` section instructing the
+  orchestrator NOT to engage filesystem specialists; sub-agents will engage them
+  during their work phase.
+- `execute-task`, `review-task`, `document-task`: each includes a
+  `## Specialist skills` section permitting engagement when descriptions match,
+  requiring an `add_log(action="skill_engaged", ...)` on first engagement, and
+  noting that workflow rules always take precedence over skill guidance.
+- `create-plan`: no `## Specialist skills` section (runs inline on the
+  orchestrator; engagement is governed by run-autonomous when invoked from
+  there).
+- `create-task`, `init-project`: no `## Specialist skills` section
+  (interview/bootstrap, no implementation work).
 
 ### Description-writing convention
 
-Skills are engaged by description match. Authors should anchor descriptions in **observable activities and file types**, not subject areas. See `task-skills/README.md` (in the user's task-skills repo) for the full convention.
+Skills are engaged by description match. Authors should anchor descriptions in
+**observable activities and file types**, not subject areas. See
+[`task-skills/README.md`](../task-skills/README.md) in this repo for the full
+convention. Operators who maintain their own task-skills directory (configured
+via `task_skills.dir`) typically keep an analogous README alongside their
+skills.
 
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:
 
-| Command                         | Argument      | Type               | Description                                                                           |
-| ------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview                                                         |
-| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board                                                        |
-| `/contextmatrix:start-workflow` | `card_id`     | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag       |
+| Command                         | Argument      | Type               | Description                                                                     |
+| ------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview                                                   |
+| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board                                                  |
+| `/contextmatrix:start-workflow` | `card_id`     | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag |
 
 `/contextmatrix:start-workflow` is the canonical entry point: it inspects the
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
@@ -186,13 +216,13 @@ Usage examples:
 /contextmatrix:init-project my-new-project
 ```
 
-The two surviving skill-content prompts (`create-task`, `init-project`)
-return raw skill content for inline execution by the main agent — no sub-agent
+The two surviving skill-content prompts (`create-task`, `init-project`) return
+raw skill content for inline execution by the main agent — no sub-agent
 involved. `start-workflow` returns the workflow skill (`create-plan` or
 `run-autonomous`) wrapped in the inline-execution envelope; the orchestrator
-runs it directly. Phase-specific skills loaded later via `get_skill` either
-run inline (`brainstorming`, `review-task` when caller_model matches) or are
-spawned as sub-agents via the `Agent` tool with the returned `model`.
+runs it directly. Phase-specific skills loaded later via `get_skill` either run
+inline (`brainstorming`, `review-task` when caller_model matches) or are spawned
+as sub-agents via the `Agent` tool with the returned `model`.
 
 ## Workflow
 
@@ -204,7 +234,8 @@ creating the card on the board, and offering next steps — all without spawning
 sub-agent. This is required because the interview needs multi-turn
 back-and-forth with the user, which only works in the main agent's context.
 
-**2. Planning** (loaded internally — orchestrator calls `get_skill('create-plan')`)
+**2. Planning** (loaded internally — orchestrator calls
+`get_skill('create-plan')`)
 
 When a user invokes `/contextmatrix:start-workflow` on a HITL card (or the
 `start_workflow` MCP tool routes there), the orchestrator runs planning inline
@@ -228,7 +259,8 @@ The flow is:
    the plan. No sub-agent is spawned — this is trivial work that doesn't justify
    the overhead of a separate agent.
 
-**3. Execution** (loaded internally — orchestrator calls `get_skill('execute-task')`)
+**3. Execution** (loaded internally — orchestrator calls
+`get_skill('execute-task')`)
 
 CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 
@@ -241,8 +273,8 @@ CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 7. Prints structured completion summary (see below)
 
 Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
-card state is managed by the service layer and the orchestrator:** when the first
-subtask is claimed, the parent transitions `todo → in_progress`. When all
+card state is managed by the service layer and the orchestrator:** when the
+first subtask is claimed, the parent transitions `todo → in_progress`. When all
 subtasks reach `done`, the parent stays in `in_progress` — the orchestrator runs
 documentation first, then manually transitions the parent to `review`.
 Execute-task sub-agents ignore any `next_step` field returned by `complete_task`
@@ -257,7 +289,8 @@ This is separate from sub-agents' own `report_usage` calls; both are required.
 After review completes, the orchestrator makes one final `report_usage` call to
 capture remaining tokens before transitioning the parent to `done`.
 
-**4. Documentation** (loaded internally — orchestrator calls `get_skill('document-task')`)
+**4. Documentation** (loaded internally — orchestrator calls
+`get_skill('document-task')`)
 
 Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
 sub-agent that reads the parent card + all subtasks and writes external
@@ -270,9 +303,9 @@ The parent card remains in `in_progress` during this phase.
 
 The orchestrator calls `start_review(card_id, agent_id, caller_model)`, which
 atomically transitions the parent to `review` AND returns the `review-task`
-skill in one call — there is no path to load the review skill without
-committing the transition. Uses a two-phase flow to avoid sub-agent death
-during user-approval waits:
+skill in one call — there is no path to load the review skill without committing
+the transition. Uses a two-phase flow to avoid sub-agent death during
+user-approval waits:
 
 - **Phase 1 — Review sub-agent**: CC spawns a short-lived review sub-agent that
   evaluates both the code and any documentation written in step 4, writes a
@@ -303,13 +336,14 @@ The parent card lifecycle with potential rejections:
 Cards with `autonomous: true` bypass human approval gates. The
 `/contextmatrix:start-workflow` slash command (or the `start_workflow` MCP tool)
 routes the card to `run-autonomous` automatically and drives the entire
-lifecycle using the `run-autonomous.md` skill. The orchestrator model is set
-by the invoker — Opus for local autonomous (user's session), Sonnet for the
-remote runner (via container config).
+lifecycle using the `run-autonomous.md` skill. The orchestrator model is set by
+the invoker — Opus for local autonomous (user's session), Sonnet for the remote
+runner (via container config).
 
 **Lifecycle phases (create-plan skill, HITL and autonomous):**
 
 ```
+Phase 0:  Pre-planning Gate      → branch on card shape: maintenance-skip (Branch A), systematic-debugging sub-agent (Branch B, both modes), or brainstorming inline (Branch C, HITL only). Produces a ## Design or ## Diagnosis section before plan drafting.
 Phase 1:  Plan Drafting          → inline; drafts plan, updates card body, emits PLAN_DRAFTED
 Phase 2:  Plan Approval Gate     → get_card autonomous check; HITL presents plan, autonomous skips
 Phase 3:  Subtask Creation       → inline; dedupe then create_card for each subtask
@@ -326,13 +360,14 @@ For autonomous cards, `run-autonomous.md` drives the same lifecycle with these
 phase labels. run-autonomous starts from the correct phase based on card state:
 
 ```
-Step 0:  Claim the card     → claim_card called before any exploration begins
-Phase 1: Plan Drafting      → inline, calls create-plan skill
-Phase 2: Subtask Creation   → inline, orchestrator calls create_card directly
-Phase 3: Execution          → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
-Phase 4: Documentation      → spawns document-task sub-agent (parent in in_progress)
-Phase 5: Review             → orchestrator transitions parent to review, follows inline field
-Phase 6: Finalization       → transitions parent to done
+Step 0:  Claim the card        → claim_card called before any exploration begins
+Step 1:  Create feature branch → if feature_branch is true and branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
+Phase 1: Plan Drafting         → inline, calls create-plan skill
+Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
+Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
+Phase 4: Documentation         → spawns document-task sub-agent (parent in in_progress)
+Phase 5: Review                → orchestrator transitions parent to review, follows inline field
+Phase 6: Finalization          → transitions parent to done
 ```
 
 The orchestrator claims the card and moves it to `in_progress` before
@@ -345,10 +380,13 @@ which phase to resume from.
 - **Branch protection** — agents must never push to `main` or `master`. The
   `report_push` tool returns a hard error if the branch name is `main` or
   `master`.
-- **Maximum review cycles** — the orchestrator checks the card's
-  `review_attempts` field before each review cycle. After 2 rejections (on the
-  3rd review cycle) it prints `AUTONOMOUS_HALTED` and requires human
-  intervention.
+- **Maximum review cycles** — when a review returns `revise`, the orchestrator
+  calls `increment_review_attempts` and then checks whether the returned count
+  is `>= 3`; if so it calls `report_usage`, prints `AUTONOMOUS_HALTED`, and
+  stops, requiring human intervention. The skill enforces an at-most-3 cap this
+  way. The server applies a higher defense-in-depth cap (`maxReviewAttempts = 5`
+  in `internal/service/service.go`) so a manual override can still proceed past
+  3 if needed without bypassing the skill gate.
 - **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
   the parent card every 5 minutes and uses `check_agent_health` to detect and
   respawn stalled sub-agents.
@@ -518,21 +556,21 @@ management rather than model compatibility.
 
 ### Remote Runner (Sonnet orchestrator)
 
-| Phase            | Model  | Method                                                         | Why                                                                                |
-| ---------------- | ------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Orchestrator     | Sonnet | Runner container sets model via `--model` / env var            | Cost control — Opus premium not justified for well-defined protocol                |
-| Planning         | Sonnet | Inline on orchestrator                                         | Sonnet 4.6 plans well; inline avoids spawn overhead and retains plan context       |
-| Subtask creation | Sonnet | Inline — calls `create_card()` directly                        | Same as HITL — trivial work, no sub-agent needed                                   |
-| Execution        | Sonnet | Sub-agent per subtask                                          | Context isolation + parallel execution; same rationale as HITL                     |
+| Phase            | Model  | Method                                                            | Why                                                                                |
+| ---------------- | ------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Orchestrator     | Sonnet | Runner container sets model via `--model` / env var               | Cost control — Opus premium not justified for well-defined protocol                |
+| Planning         | Sonnet | Inline on orchestrator                                            | Sonnet 4.6 plans well; inline avoids spawn overhead and retains plan context       |
+| Subtask creation | Sonnet | Inline — calls `create_card()` directly                           | Same as HITL — trivial work, no sub-agent needed                                   |
+| Execution        | Sonnet | Sub-agent per subtask                                             | Context isolation + parallel execution; same rationale as HITL                     |
 | Review           | Opus   | Sub-agent (start_review inline=false, Sonnet!=Opus → spawns Opus) | Only phase where Opus premium pays off — catches issues before costly rework loops |
-| Documentation    | Sonnet | Sub-agent                                                      | Context isolation — runner has no human to intervene if context grows too large    |
+| Documentation    | Sonnet | Sub-agent                                                         | Context isolation — runner has no human to intervene if context grows too large    |
 
 ### Inline/sub-agent decision model
 
-The `inline` field returned by `get_skill` (and by `start_review`) uses
-**exact model match** — it returns `true` when the caller's model family
-matches the skill's model family AND the skill is on the inline-eligible
-whitelist (`review-task`, `create-plan`, `brainstorming`):
+The `inline` field returned by `get_skill` (and by `start_review`) uses **exact
+model match** — it returns `true` when the caller's model family matches the
+skill's model family AND the skill is on the inline-eligible whitelist
+(`review-task`, `create-plan`, `brainstorming`):
 
 - **Planning, subtask creation:** Always inline — orchestrator instructions
   override the inline field. The orchestrator retains context for downstream
@@ -543,9 +581,9 @@ whitelist (`review-task`, `create-plan`, `brainstorming`):
 - **Review:** Follow the inline field returned by `start_review` — this is the
   one phase where model compatibility matters. Opus caller gets `inline: true`
   (Opus==Opus) and runs review directly. Sonnet caller gets `inline: false`
-  (Sonnet!=Opus) and spawns an Opus sub-agent. Either way, `start_review`
-  has already transitioned the parent card to `review` before returning, so
-  the state and the action are atomically tied.
+  (Sonnet!=Opus) and spawns an Opus sub-agent. Either way, `start_review` has
+  already transitioned the parent card to `review` before returning, so the
+  state and the action are atomically tied.
 
 ### Why `run-autonomous.md` has no model
 
@@ -557,23 +595,53 @@ without code duplication or model override logic.
 
 ## Required permissions for target projects
 
-Agents working on code repositories need the following Claude Code permissions
-configured in the target project (e.g., `.claude/settings.local.json`):
+Agents working on code repositories need Claude Code permissions configured in
+the target project (e.g., `.claude/settings.local.json`). The remote runner sets
+the same allowlist on every worker container — see
+`contextmatrix-runner/docker/entrypoint.sh` (`ALLOWED_TOOLS_COMMON` and
+`ALLOWED_TOOLS_AUTO_EXTRAS`) for the canonical list. Mirror it locally for HITL
+sessions that drive the same skills.
 
-**Claude Code tools:**
+**Claude Code tools (common, always allowed):**
 
+- `Read` — read files
 - `Edit` — modify existing files
 - `Write` — create new files
+- `MultiEdit` — apply batched edits in one call
+- `NotebookEdit` — modify Jupyter notebook cells
+- `Skill` — engage filesystem-mounted task skills
+- `Glob` / `Grep` — search file contents and paths
+- `TodoWrite` — track in-flight work
+- `WebFetch` / `WebSearch` — fetch external references when researching
+
+**Claude Code tools (autonomous mode only):**
+
+- `Task` — spawn sub-agents via the `Agent` tool. The runner adds this only in
+  autonomous mode (no human review gate), so HITL containers cannot spawn
+  parallel sub-agents that would bypass approval. Local HITL sessions that drive
+  `create-plan` should likewise omit `Task` unless the user is comfortable with
+  sub-agents committing without review.
 
 **MCP tools (auto-available via MCP config):** All `mcp__contextmatrix__*` tools
 are available once the MCP server is configured. No per-tool allowlisting is
-needed for MCP tools.
+needed for MCP tools, but the runner does enumerate them explicitly in its
+allowlist.
 
-**Bash tools (project-specific):**
+**Bash tools (project-specific):** allowlisted by exact command prefix (e.g.,
+`Bash(make:*)`). The runner enables a baseline that covers Git/GitHub
+(`Bash(git:*)`, `Bash(gh:*)`), Go (`Bash(go test:*)`, `Bash(go build:*)`,
+`Bash(go vet:*)`, `Bash(go mod:*)`, `Bash(go run:*)`, `Bash(go install:*)`),
+Make (`Bash(make:*)`), Node/npm (`Bash(npm:*)`, `Bash(node:*)`, `Bash(npx:*)`),
+Python (`Bash(python3:*)`, `Bash(pip3:*)`), filesystem basics (`Bash(mv:*)`,
+`Bash(cp:*)`, `Bash(rm:*)`, `Bash(mkdir:*)`, `Bash(ls:*)`, `Bash(find:*)`,
+`Bash(which:*)`, `Bash(command:*)`), and text inspection (`Bash(cat:*)`,
+`Bash(head:*)`, `Bash(tail:*)`, `Bash(wc:*)`, `Bash(echo:*)`,
+`Bash(printenv:*)`, `Bash(sed:*)`, `Bash(awk:*)`, `Bash(grep:*)`,
+`Bash(sort:*)`, `Bash(uniq:*)`, `Bash(diff:*)`, `Bash(tr:*)`, `Bash(cut:*)`,
+`Bash(tee:*)`, `Bash(xargs:*)`, `Bash(date:*)`, `Bash(jq:*)`). Trim or extend
+this list to match the project's language and build system.
 
-- `Bash(go test:*)`, `Bash(make test:*)`, `Bash(make build:*)` etc. — vary by
-  project language and build system
-
-If `Edit` or `Write` is not in the target project's allowlist, execution agents
-will report `TASK_BLOCKED` with an actionable error message explaining what
-permissions are needed. The user must update the project's permissions config.
+If `Edit` or `Write` (or another tool an execution agent needs) is missing from
+the target project's allowlist, the agent will report `TASK_BLOCKED` with an
+actionable error message explaining what permissions are needed. The user must
+update the project's permissions config before retrying.

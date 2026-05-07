@@ -14,14 +14,14 @@ PUT    /api/projects/{project}/cards/{id}
 PATCH  /api/projects/{project}/cards/{id}
 DELETE /api/projects/{project}/cards/{id}
 
-POST   /api/projects/{project}/cards/{id}/claim      { "agent_id": "..." }
-POST   /api/projects/{project}/cards/{id}/release     { "agent_id": "..." }
-POST   /api/projects/{project}/cards/{id}/heartbeat   { "agent_id": "..." }
-POST   /api/projects/{project}/cards/{id}/log         { "agent_id": "...", "action": "...", "message": "..." }
+POST   /api/projects/{project}/cards/{id}/claim      # agent identity from X-Agent-ID header
+POST   /api/projects/{project}/cards/{id}/release     # agent identity from X-Agent-ID header
+POST   /api/projects/{project}/cards/{id}/heartbeat   # agent identity from X-Agent-ID header
+POST   /api/projects/{project}/cards/{id}/log         { "action": "...", "message": "..." }
 
 GET    /api/projects/{project}/cards/{id}/context
-POST   /api/projects/{project}/cards/{id}/usage       # report token usage
-POST   /api/projects/{project}/cards/{id}/report-push # record git push / PR
+POST   /api/projects/{project}/cards/{id}/usage       { "model": "...", "prompt_tokens": N, "completion_tokens": N }
+POST   /api/projects/{project}/cards/{id}/report-push { "branch": "...", "pr_url": "..." }
 
 GET    /api/projects/{project}/branches               # list branches from project's GitHub repo
 GET    /api/projects/{project}/usage                  # aggregated token usage
@@ -33,18 +33,24 @@ POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
-POST   /api/runner/status                              # runner status callback (HMAC-signed)
-GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner must be enabled)
+POST   /api/runner/status                              # runner status callback (HMAC-signed; runner-enabled only)
+POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; runner-enabled only)
+GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner-enabled only)
+GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; runner-enabled only)
 
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
 GET    /api/task-skills                                # list available task skill names
-GET    /api/app/config                                 # server-side app config (theme/palette)
+GET    /api/app/config                                 # server-side app config (theme/palette/version)
 
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # liveness probe (shallow)
-GET    /readyz                                         # readiness probe (dependency-checked)
+GET    /readyz                                        # readiness probe (dependency-checked)
+
+POST   /mcp                                            # MCP Streamable HTTP (Bearer auth; when MCP api key configured)
+GET    /mcp                                            # MCP Streamable HTTP SSE channel
+DELETE /mcp                                            # MCP Streamable HTTP session close
 ```
 
 **Admin/debug server:** when `admin_port` is configured (non-zero), a separate
@@ -57,12 +63,20 @@ Neither endpoint is exposed on the main listener. The admin listener has no
 built-in authentication — keep it loopback-only, or gate it with a firewall /
 NetworkPolicy / service-mesh rule.
 
-**Agent identification:** `X-Agent-ID` header on all requests. For mutations on
-claimed cards, the header value must match `assigned_agent` — otherwise 403.
+**Agent identification:** `X-Agent-ID` header is the **sole** source of agent
+identity. It is required on the agent endpoints (`/claim`, `/release`,
+`/heartbeat`, `/log`, `/usage`, `/report-push`) and on any mutation of a claimed
+card — there the header value must match `assigned_agent` (403 on mismatch). It
+is also used to gate human-only fields and human-only endpoints (`/run`,
+`/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
+value beginning with `human:`. Read endpoints, project CRUD, sync, branches, app
+config, task-skills, healthz, and readyz do not require the header. Request
+bodies on agent endpoints no longer carry an `agent_id` field — it is silently
+ignored if present.
 
-**Request correlation:** every response carries an `X-Request-ID` header. If
-the client sends an `X-Request-ID` matching `[A-Za-z0-9._-]{1,128}` it is
-echoed; otherwise the server generates a UUID. The same id is emitted as the
+**Request correlation:** every response carries an `X-Request-ID` header. If the
+client sends an `X-Request-ID` matching `[A-Za-z0-9._-]{1,128}` it is echoed;
+otherwise the server generates a UUID. The same id is emitted as the
 `request_id` attribute on every structured log line the request produces.
 
 **Error response format:**
@@ -77,13 +91,15 @@ echoed; otherwise the server generates a UUID. The same id is emitted as the
 
 **Response codes:**
 
-- 200: success (GET, PUT, PATCH)
-- 201: created (POST)
-- 202: accepted — async endpoint kicked off background work
-  (`POST /run`, `/stop`, `/promote`)
-- 204: deleted (DELETE)
-- 400: malformed input (bad JSON, missing/bad query param, unknown filter value) —
-  emitted with code `BAD_REQUEST`
+- 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`, `/log`,
+  `/usage`, `/report-push`, `/stop-all`, `/api/runner/status`,
+  `GET /api/v1/cards/.../autonomous`)
+- 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`)
+- 202: accepted — async endpoint kicked off background work (`POST /run`,
+  `/stop`, `/message`, `/promote`)
+- 204: deleted (DELETE) and `POST /heartbeat` (no body)
+- 400: malformed input (bad JSON, missing/bad query param, unknown filter value)
+  — emitted with code `BAD_REQUEST`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
   claim attempt (`CARD_NOT_VETTED`), or agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`)
@@ -99,15 +115,15 @@ echoed; otherwise the server generates a UUID. The same id is emitted as the
 
 **Error code / HTTP status mapping (selected):**
 
-| Code                     | HTTP | Meaning                                            |
-| ------------------------ | ---- | -------------------------------------------------- |
-| `BAD_REQUEST`            | 400  | malformed input / unknown filter value             |
-| `PARENT_NOT_FOUND`       | 404  | referenced parent card does not exist              |
-| `VALIDATION_ERROR`       | 422  | mutation body semantically invalid                 |
-| `RUNNER_CONFLICT`        | 409  | card already queued/running                        |
-| `RUNNER_UNAVAILABLE`     | 502  | runner webhook failed (host unreachable)           |
-| `RUNNER_NOT_RUNNING`     | 409  | card is not currently running                      |
-| `REVIEW_ATTEMPTS_CAPPED` | 409  | review attempts limit reached                      |
+| Code                     | HTTP | Meaning                                  |
+| ------------------------ | ---- | ---------------------------------------- |
+| `BAD_REQUEST`            | 400  | malformed input / unknown filter value   |
+| `PARENT_NOT_FOUND`       | 404  | referenced parent card does not exist    |
+| `VALIDATION_ERROR`       | 422  | mutation body semantically invalid       |
+| `RUNNER_CONFLICT`        | 409  | card already queued/running              |
+| `RUNNER_UNAVAILABLE`     | 502  | runner webhook failed (host unreachable) |
+| `RUNNER_NOT_RUNNING`     | 409  | card is not currently running            |
+| `REVIEW_ATTEMPTS_CAPPED` | 409  | review attempts limit reached            |
 
 **`APIError.details` sanitization:** downstream error strings that look like
 go-git transport errors, ssh/exec failures, or absolute filesystem paths are
@@ -118,35 +134,36 @@ clients. The raw error is always logged server-side with the request's
 
 **Error codes relevant to vetting:**
 
-| Code               | HTTP | When                                                                                                                      |
-| ------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------- |
-| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                 |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `vetted`, `autonomous`, `feature_branch`, `create_pr`, or `base_branch`. |
+| Code               | HTTP | When                                                                                                                                               |
+| ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, or `base_branch`. |
 
 ## Health Endpoints
 
 ### GET /healthz
 
-Shallow liveness probe. Always returns `200 OK` with the text body `ok` as long
-as the process is running. No dependency checks are performed.
+Shallow liveness probe. Always returns `200 OK` with JSON body `{"status":"ok"}`
+(`Content-Type: application/json`) as long as the process is running. No
+dependency checks are performed.
 
 Use this as a k8s `livenessProbe` target (or equivalent). Do not use it to gate
 traffic — a `200` from `/healthz` only means the process has not crashed.
 
 ```bash
 curl http://localhost:8080/healthz
-# → ok
+# → {"status":"ok"}
 ```
 
 ### GET /readyz
 
 Dependency-checked readiness probe. Runs three checks with a 500 ms timeout:
 
-| Check         | What it tests                                         |
-| ------------- | ----------------------------------------------------- |
-| `store`       | `ListProjects` succeeds (boards directory is readable) |
-| `git`         | `CurrentBranch` resolves (git manager is initialised) |
-| `session_log` | session-log manager is not nil (runner is operational) |
+| Check         | What it tests                                                                                                                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `store`       | `ListProjects` succeeds (boards directory is readable)                                                                                                                                                                                |
+| `git`         | `CurrentBranch` resolves (git manager is initialised)                                                                                                                                                                                 |
+| `session_log` | always reports `ok: true`. A nil session-log manager simply means the runner is disabled (still healthy); a non-nil manager means it is operational. The check is included for forward compatibility but never fails the probe today. |
 
 Returns **200** when all checks pass, **503** when any check fails.
 
@@ -156,8 +173,8 @@ Returns **200** when all checks pass, **503** when any check fails.
 {
   "status": "ok",
   "checks": [
-    { "name": "store",       "ok": true },
-    { "name": "git",         "ok": true },
+    { "name": "store", "ok": true },
+    { "name": "git", "ok": true },
     { "name": "session_log", "ok": true }
   ]
 }
@@ -169,8 +186,12 @@ Returns **200** when all checks pass, **503** when any check fails.
 {
   "status": "degraded",
   "checks": [
-    { "name": "store", "ok": false, "error": "open /data/boards: permission denied" },
-    { "name": "git",         "ok": true },
+    {
+      "name": "store",
+      "ok": false,
+      "error": "open /data/boards: permission denied"
+    },
+    { "name": "git", "ok": true },
     { "name": "session_log", "ok": true }
   ]
 }
@@ -179,7 +200,7 @@ Returns **200** when all checks pass, **503** when any check fails.
 Use this as a k8s `readinessProbe` target. Kubernetes operators should point:
 
 - `readinessProbe` → `GET /readyz`
-- `livenessProbe`  → `GET /healthz`
+- `livenessProbe` → `GET /healthz`
 
 ```bash
 curl http://localhost:8080/readyz
@@ -222,22 +243,23 @@ livenessProbe:
 
 ```json
 {
-  "items": [ { "id": "PROJ-001", "...": "..." } ],
+  "items": [{ "id": "PROJ-001", "...": "..." }],
   "next_cursor": "UFJPSi0wMDE",
   "total": 1234
 }
 ```
 
-- `items` — page of cards, ordered by ID ascending. Always present (may be `[]`).
+- `items` — page of cards, ordered by ID ascending. Always present (may be
+  `[]`).
 - `next_cursor` — opaque base64url token; pass back in `?cursor=` to fetch the
   next page. Omitted when the current page is the last page.
 - `total` — total un-filtered card count for the project. Emitted **only on the
   first page** (when the request has no `cursor`). Callers can use it for
   "showing X of Y" indicators even while a filter is active.
 
-Cursors encode the last card ID of the page and are stable across filter
-changes — callers must treat them as opaque. Invalid cursors (not valid
-base64url) return 400 `BAD_REQUEST`.
+Cursors encode the last card ID of the page and are stable across filter changes
+— callers must treat them as opaque. Invalid cursors (not valid base64url)
+return 400 `BAD_REQUEST`.
 
 Ordering is by card ID ascending. The server sorts before slicing, so walking
 `next_cursor` to exhaustion is guaranteed to visit every matching card exactly
@@ -261,20 +283,37 @@ curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAy
 
 ### GET /api/task-skills
 
-Returns the list of task skills available in the configured `task_skills.dir`. Each entry has a `name` (the skill directory name) and a `description` (read from the skill's `SKILL.md` frontmatter). The response is a JSON object with a `skills` array.
+Returns the list of task skills available in the configured `task_skills.dir`.
+Each entry has a `name` (the skill directory name) and a `description` (read
+from the skill's `SKILL.md` frontmatter). The response is a JSON object with a
+`skills` array.
 
 ```json
 {
   "skills": [
-    { "name": "documentation", "description": "Use when writing or updating documentation files." },
-    { "name": "go-development", "description": "Use when implementing or modifying Go source files." },
-    { "name": "python-development", "description": "Use when writing or modifying Python source files." },
-    { "name": "typescript-react", "description": "Use when writing or updating React or TypeScript component files." }
+    {
+      "name": "documentation",
+      "description": "Use when writing or updating documentation files."
+    },
+    {
+      "name": "go-development",
+      "description": "Use when implementing or modifying Go source files."
+    },
+    {
+      "name": "python-development",
+      "description": "Use when writing or modifying Python source files."
+    },
+    {
+      "name": "typescript-react",
+      "description": "Use when writing or updating React or TypeScript component files."
+    }
   ]
 }
 ```
 
-Returns `{"skills": []}` if `task_skills.dir` is not configured or the directory is empty. Used by the Project Settings UI to populate the `DefaultSkillsSelector`.
+Returns `{"skills": []}` if `task_skills.dir` is not configured or the directory
+is empty. Used by the Project Settings UI to populate the
+`DefaultSkillsSelector`.
 
 ### GET /api/app/config
 
@@ -285,27 +324,29 @@ to apply.
 **Response:**
 
 ```json
-{ "theme": "everforest" }
+{ "theme": "everforest", "version": "v0.42.0" }
 ```
 
 `theme` is one of `"everforest"` (default), `"radix"`, or `"catppuccin"`. The
 frontend sets `data-palette` on `<html>` to match the theme value;
-`"everforest"` removes the attribute (it is the default CSS block).
+`"everforest"` removes the attribute (it is the default CSS block). `version` is
+the build version string the binary was compiled with; it is always present and
+may be empty when the binary is built without the version ldflag.
 
 ```bash
 curl http://localhost:8080/api/app/config
-# → {"theme":"everforest"}
+# → {"theme":"everforest","version":"v0.42.0"}
 ```
 
 ## Agent Endpoints
 
 ### POST /api/projects/{project}/cards/{id}/usage
 
-Report token usage for a card. Accumulates across multiple calls.
+Report token usage for a card. Accumulates across multiple calls. Agent identity
+is taken from the `X-Agent-ID` header.
 
 ```json
 {
-  "agent_id": "claude-7a3f",
   "model": "claude-sonnet-4-6",
   "prompt_tokens": 1234,
   "completion_tokens": 567
@@ -322,11 +363,11 @@ models.
 ### POST /api/projects/{project}/cards/{id}/report-push
 
 Record a git push and optional PR URL on a card. Branch protection is enforced —
-pushing to `main` or `master` returns 403 `PROTECTED_BRANCH`.
+pushing to `main` or `master` returns 403 `PROTECTED_BRANCH`. Agent identity is
+taken from the `X-Agent-ID` header.
 
 ```json
 {
-  "agent_id": "claude-7a3f",
   "branch": "feat/user-auth",
   "pr_url": "https://github.com/org/repo/pull/42"
 }
@@ -338,7 +379,8 @@ Returns 200 with the updated card.
 
 ### POST /api/projects
 
-Create a new project. Either `name` (slug) or `display_name` (human-readable) must be provided; both may be provided together.
+Create a new project. Either `name` (slug) or `display_name` (human-readable)
+must be provided; both may be provided together.
 
 **Request body:**
 
@@ -364,21 +406,26 @@ Create a new project. Either `name` (slug) or `display_name` (human-readable) mu
 
 **Field rules:**
 
-| Field          | Required?    | Description                                                                                                                                    |
-| -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`         | conditional  | Slug — filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
-| `display_name` | conditional  | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar. |
-| `prefix`       | required     | Card ID prefix (e.g. `EPIC` → `EPIC-001`).                                                                                                    |
+| Field          | Required?   | Description                                                                                                                                                  |
+| -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`         | conditional | Slug — filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
+| `display_name` | conditional | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar.                              |
+| `prefix`       | required    | Card ID prefix (e.g. `EPIC` → `EPIC-001`).                                                                                                                   |
 
 At least one of `name` or `display_name` is required (400 if both are absent).
 
-**Slug auto-derivation:** when `name` is omitted, the server derives it from `display_name` by lowercasing and collapsing runs of non-alphanumeric characters to hyphens (e.g. `"Epic Planner"` → `"epic-planner"`). A 409 is returned if the derived or explicit slug already exists as a project directory.
+**Slug auto-derivation:** when `name` is omitted, the server derives it from
+`display_name` by lowercasing and collapsing runs of non-alphanumeric characters
+to hyphens (e.g. `"Epic Planner"` → `"epic-planner"`). A 409 is returned if the
+derived or explicit slug already exists as a project directory.
 
-**Response:** 201 Created with the full `ProjectConfig` object, including the stored `name` and `display_name`.
+**Response:** 201 Created with the full `ProjectConfig` object, including the
+stored `name` and `display_name`.
 
 ### GET /api/projects / GET /api/projects/{project}
 
-List all projects or get a single project by slug. Both responses include `display_name` when set.
+List all projects or get a single project by slug. Both responses include
+`display_name` when set.
 
 ```json
 {
@@ -391,23 +438,52 @@ List all projects or get a single project by slug. Both responses include `displ
 }
 ```
 
-Existing projects without `display_name` omit the field; clients should fall back to displaying `name`.
+Existing projects without `display_name` omit the field; clients should fall
+back to displaying `name`.
 
 ### PUT /api/projects/{project}
 
-Update the project configuration. Accepts the same fields as `POST /api/projects`, plus `default_skills`.
+Update the project configuration. The update body is a **subset** of
+`POST /api/projects` — `name`, `display_name`, and `prefix` are immutable and
+not accepted here. Two extra fields are available: `github` (GitHub import
+configuration) and `default_skills` (project-wide task-skill fallback).
 
-**`default_skills` field** — three-state semantics for the project-wide task-skill fallback:
+**Accepted fields:**
 
-| Value | Meaning |
-| ----- | ------- |
-| field omitted / `null` | Clear: runner mounts the full curated task-skills set |
-| `[]` (empty array) | Mount no task skills for cards without an explicit `skills` field |
-| `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list |
+```json
+{
+  "repo": "git@github.com:org/epic-planner.git",
+  "states": ["todo", "in_progress", "review", "done", "stalled", "not_planned"],
+  "types": ["task", "bug"],
+  "priorities": ["low", "medium", "high"],
+  "transitions": {
+    "todo": ["in_progress"],
+    "in_progress": ["review", "todo"],
+    "...": "..."
+  },
+  "github": { "...": "..." },
+  "default_skills": ["go-development", "documentation"]
+}
+```
 
-Each name in `default_skills` must exist in the configured `task_skills.dir` — unknown names return 400 `VALIDATION_ERROR`. A card's own `skills` field (including explicit empty) always overrides the project default.
+To rename a project or change its prefix, recreate it via `POST /api/projects`.
 
-The Project Settings UI exposes this as the **Default task skills** selector with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio buttons.
+**`default_skills` field** — three-state semantics for the project-wide
+task-skill fallback:
+
+| Value                                 | Meaning                                                           |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| field omitted / `null`                | Clear: runner mounts the full curated task-skills set             |
+| `[]` (empty array)                    | Mount no task skills for cards without an explicit `skills` field |
+| `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list            |
+
+Each name in `default_skills` must exist in the configured `task_skills.dir` —
+unknown names return 400 `VALIDATION_ERROR`. A card's own `skills` field
+(including explicit empty) always overrides the project default.
+
+The Project Settings UI exposes this as the **Default task skills** selector
+with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio
+buttons.
 
 Returns 200 with the updated `ProjectConfig`.
 
@@ -416,9 +492,10 @@ Returns 200 with the updated `ProjectConfig`.
 Returns a JSON array of branch name strings for the project's GitHub repository.
 Used by the card editor to populate the base branch dropdown.
 
-Requires a GitHub token to be configured (`github.token` in `config.yaml` or
-`CONTEXTMATRIX_GITHUB_TOKEN`). Returns 503 if no token is configured. Returns
-404 with `NO_GITHUB_REPO` if the project's `repo` field is not a GitHub URL.
+Returns 404 with `NO_GITHUB_REPO` if the project's `repo` field is not a GitHub
+URL. If GitHub credentials are missing or the upstream API call fails the
+handler currently returns 500 `INTERNAL_ERROR` with the underlying error logged
+server-side.
 
 ```json
 ["main", "develop", "release/v2", "feat/some-branch"]
@@ -426,10 +503,10 @@ Requires a GitHub token to be configured (`github.token` in `config.yaml` or
 
 **Error codes:**
 
-| Code              | HTTP | When                                          |
-| ----------------- | ---- | --------------------------------------------- |
-| `NO_GITHUB_TOKEN` | 503  | `github.token` is not configured              |
-| `NO_GITHUB_REPO`  | 404  | Project `repo` is not a GitHub repository URL |
+| Code             | HTTP | When                                                     |
+| ---------------- | ---- | -------------------------------------------------------- |
+| `NO_GITHUB_REPO` | 404  | Project `repo` is not a GitHub repository URL            |
+| `INTERNAL_ERROR` | 500  | GitHub branch fetch failed (auth, network, upstream API) |
 
 ### GET /api/projects/{project}/usage
 
@@ -475,6 +552,7 @@ Returns dashboard metrics for a project.
     {
       "card_id": "ALPHA-003",
       "card_title": "...",
+      "assigned_agent": "claude-7a3f",
       "prompt_tokens": 5000,
       "completion_tokens": 1200,
       "estimated_cost_usd": 0.033
@@ -482,6 +560,8 @@ Returns dashboard metrics for a project.
   ]
 }
 ```
+
+`assigned_agent` is omitted when no agent currently owns the card.
 
 ### POST /api/projects/{project}/recalculate-costs
 
@@ -511,8 +591,20 @@ remote configured).
 Returns current sync status.
 
 ```json
-{ "enabled": true, "last_sync": "2026-04-05T12:00:00Z", "error": "" }
+{
+  "last_sync_time": "2026-04-05T12:00:00Z",
+  "last_sync_error": "",
+  "syncing": false,
+  "enabled": true
+}
 ```
+
+| Field             | Type               | Description                                                   |
+| ----------------- | ------------------ | ------------------------------------------------------------- |
+| `last_sync_time`  | RFC 3339 / `null`  | Timestamp of the last completed sync attempt; `null` if none. |
+| `last_sync_error` | string (omitempty) | Error message from the most recent failed sync.               |
+| `syncing`         | bool               | `true` while a sync is in flight.                             |
+| `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
 
 ## Runner Endpoints
 
@@ -540,9 +632,9 @@ approval, subtask execution decision, review) via the chat input.
 Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
 enabled on the card for all run triggers (both autonomous and HITL).
 
-Returns **202 Accepted** with the updated card (`runner_status: "queued"`).
-The response is returned as soon as the runner webhook is accepted — the
-runner then provisions the container asynchronously.
+Returns **202 Accepted** with the updated card (`runner_status: "queued"`). The
+response is returned as soon as the runner webhook is accepted — the runner then
+provisions the container asynchronously.
 
 ### POST /api/projects/{project}/cards/{id}/message
 
@@ -570,8 +662,8 @@ Promote an interactive session to autonomous mode. Human-only. Requires
 
 The endpoint performs two steps in order:
 
-1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous`
-   flag to `true`, append an activity log entry (`action=promoted`), commit the
+1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous` flag
+   to `true`, append an activity log entry (`action=promoted`), commit the
    change to the boards git repository, and publish a `CardUpdated` SSE event.
    This step is **idempotent** — if the card is already autonomous, it returns
    the current card without writing a new log entry or commit.
@@ -591,8 +683,8 @@ The endpoint performs two steps in order:
   flip is **not** reverted; the card is permanently promoted
 
 Returns **202 Accepted** with the updated card. The idempotent short-circuit
-(card already autonomous) also returns 202 with the current card state and
-no new log entry.
+(card already autonomous) also returns 202 with the current card state and no
+new log entry.
 
 ```bash
 curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promote \
@@ -638,8 +730,8 @@ performed server-side toward the runner.
   if the session manager is unavailable.
 
 **Response:** `Content-Type: text/event-stream`. The server sets
-`X-Accel-Buffering: no` on all SSE responses to bypass nginx proxy buffering.
-A `: keepalive\n\n` comment is written every 30 seconds per subscription to
+`X-Accel-Buffering: no` on all SSE responses to bypass nginx proxy buffering. A
+`: keepalive\n\n` comment is written every 30 seconds per subscription to
 survive Cloudflare/nginx idle timeouts (~100 s).
 
 Each normal event carries a JSON payload:
@@ -656,10 +748,10 @@ Each normal event carries a JSON payload:
 
 Marker frames have a distinct shape:
 
-| Frame type | Payload shape | Meaning |
-| ---------- | ------------- | ------- |
-| `terminal` | `{"type":"terminal","seq":N}` | Session ended; no further events |
-| `dropped` | `{"type":"dropped","seq":N,"count":N}` | Server ring-buffer overflowed; `count` events were evicted |
+| Frame type | Payload shape                          | Meaning                                                    |
+| ---------- | -------------------------------------- | ---------------------------------------------------------- |
+| `terminal` | `{"type":"terminal","seq":N}`          | Session ended; no further events                           |
+| `dropped`  | `{"type":"dropped","seq":N,"count":N}` | Server ring-buffer overflowed; `count` events were evicted |
 
 `type` for normal events is one of: `text`, `thinking`, `tool_call`, `stderr`,
 `system`, `user`.
@@ -681,8 +773,15 @@ architecture, `LogEntry` type details, and session manager configuration.
 
 ### POST /api/runner/status
 
-Runner callback endpoint. Must include `X-Signature-256` header with HMAC-SHA256
-signature. Accepts `runner_status` updates (`"running"`, `"failed"`).
+Runner callback endpoint. Requires **both** an `X-Signature-256` header
+(HMAC-SHA256, prefixed with `sha256=`) and an `X-Webhook-Timestamp` header (used
+for clock-skew rejection). Missing either header, a malformed signature, or an
+expired timestamp returns 403 `INVALID_SIGNATURE`. Only registered when the
+runner is enabled in config.
+
+Accepts `runner_status` updates (`"running"`, `"failed"`, `"completed"`). The
+server-only statuses `"queued"` and `"killed"` are rejected with 422
+`VALIDATION_ERROR`.
 
 ```json
 {
@@ -692,3 +791,28 @@ signature. Accepts `runner_status` updates (`"running"`, `"failed"`).
   "message": "container started"
 }
 ```
+
+### POST /api/runner/skill-engaged
+
+Runner callback endpoint reporting that the in-container Claude session engaged
+a workflow skill. Same HMAC authentication as `/api/runner/status`
+(`X-Signature-256` + `X-Webhook-Timestamp`). Only registered when the runner is
+enabled. Used for runner-side telemetry; the response body is `{"ok": true}`.
+
+### GET /api/v1/cards/{project}/{id}/autonomous
+
+Runner-only read endpoint. Authenticated with HMAC-SHA256 over an empty body
+(`X-Signature-256` + `X-Webhook-Timestamp`). Returns the minimal shape
+`{"autonomous": <bool>}` so the runner can fail-closed verify a card's
+autonomous flag during `/promote` before writing the canned stdin message. Only
+registered when the runner is enabled. No other card fields are exposed on this
+path.
+
+## MCP Endpoints
+
+The MCP (Model Context Protocol) server is mounted at `/mcp` when an MCP API key
+is configured. The same handler is registered for `POST /mcp`, `GET /mcp`, and
+`DELETE /mcp` per the MCP Streamable HTTP transport spec. Authentication uses a
+`Bearer <api-key>` `Authorization` header. The path is exempt from the CSRF
+guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
+catalogue.

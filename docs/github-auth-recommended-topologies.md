@@ -1,25 +1,26 @@
 # Recommended GitHub auth topologies
 
-ContextMatrix has two binaries (the server and the runner). Each has
-its own GitHub auth identity, configured independently. This document
-covers three deployment patterns and provides side-by-side configs.
+ContextMatrix has two binaries (the server and the runner). Each is configured
+separately at its own binary, optionally with a shared or distinct GitHub
+identity. This document covers three deployment patterns and provides
+side-by-side configs.
 
 For step-by-step App / PAT creation, see
 [github-auth-setup.md](github-auth-setup.md).
 
-## Topology 1: Single App, both binaries *(recommended default)*
+## Topology 1: Single App, both binaries _(recommended default)_
 
-Use this when a single team owns both the server and the runner and
-you want the simplest auth surface.
+Use this when a single team owns both the server and the runner and you want the
+simplest auth surface.
 
 **Setup:**
+
 1. Create one GitHub App (e.g., `contextmatrix-yourorg`).
-2. Install it on: boards repo, task-skills repo, every project repo CM
-   tracks.
-3. Give both binaries the same App ID, installation ID, and private
-   key.
+2. Install it on: boards repo, task-skills repo, every project repo CM tracks.
+3. Give both binaries the same App ID, installation ID, and private key.
 
 **Server config:**
+
 ```yaml
 github:
   auth_mode: "app"
@@ -30,16 +31,25 @@ github:
 ```
 
 **Runner config:**
+
 ```yaml
 github:
   auth_mode: "app"
   app:
-    app_id: 123456                    # same as server
-    installation_id: 78910            # same as server
+    app_id: 123456 # same as server
+    installation_id: 78910 # same as server
     private_key_path: /etc/contextmatrix-runner/github-app/private-key.pem
 ```
 
+Note: the runner's `Validate()` `os.Stat`s `private_key_path` at startup and
+refuses to start if the file is missing. The server only checks that the value
+is non-empty and defers I/O errors until the first GitHub call. If you bake the
+path into config before the secret is mounted, the runner fails fast while the
+server starts "healthy" and only fails on first use — order secret-mount before
+runner start in your deployment.
+
 **k8s server Secret:**
+
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -56,6 +66,7 @@ stringData:
 ```
 
 **Runner systemd snippet:**
+
 ```ini
 [Service]
 Environment=CMR_GITHUB_AUTH_MODE=app
@@ -69,27 +80,31 @@ Environment=CMR_GITHUB_PRIVATE_KEY_PATH=/etc/contextmatrix-runner/github-app/pri
 Use this when GitHub App creation is restricted in your organization.
 
 **Setup:**
+
 1. Create one fine-grained PAT under a service account.
 2. Grant access to: boards repo, task-skills repo, every project repo.
 3. Distribute the same token to both binaries via env vars.
 
 **Server config:**
+
 ```yaml
 github:
   auth_mode: "pat"
   pat:
-    token: ""    # supplied via CONTEXTMATRIX_GITHUB_PAT_TOKEN env var
+    token: "" # supplied via CONTEXTMATRIX_GITHUB_PAT_TOKEN env var
 ```
 
 **Runner config:**
+
 ```yaml
 github:
   auth_mode: "pat"
   pat:
-    token: ""    # supplied via CMR_GITHUB_PAT_TOKEN env var
+    token: "" # supplied via CMR_GITHUB_PAT_TOKEN env var
 ```
 
 **k8s server Secret:**
+
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -101,6 +116,7 @@ stringData:
 ```
 
 **Server env (referencing Secret):**
+
 ```yaml
 - name: CONTEXTMATRIX_GITHUB_PAT_TOKEN
   valueFrom:
@@ -110,6 +126,7 @@ stringData:
 ```
 
 **Runner systemd snippet:**
+
 ```ini
 [Service]
 Environment=CMR_GITHUB_AUTH_MODE=pat
@@ -119,31 +136,34 @@ EnvironmentFile=/etc/contextmatrix-runner/github-pat.env
 
 ## Topology 3: Mixed — App on server, PAT on runner
 
-Use this when the runner runs on infrastructure where mounting an App
-private key is awkward (e.g., a multi-tenant build host), or when you
-want a per-binary audit trail.
+Use this when the runner runs on infrastructure where mounting an App private
+key is awkward (e.g., a multi-tenant build host), or when you want a per-binary
+audit trail.
 
 **Setup:**
-1. Create a GitHub App. Install it on: boards repo, task-skills repo,
-   every project repo. (Server uses this.)
-2. Create a fine-grained PAT. Grant access to: every project repo.
-   (Runner uses this; runner doesn't touch the boards or task-skills
-   repos.)
+
+1. Create a GitHub App. Install it on: boards repo, task-skills repo, every
+   project repo. (Server uses this.)
+2. Create a fine-grained PAT. Grant access to: task-skills repo and every
+   project repo. (Runner uses this; the runner doesn't touch the boards repo,
+   but it does `git pull` the task-skills repo before each worker spawn and
+   hands the same token to the worker container as `CM_GIT_TOKEN` for
+   project-repo clone/push.)
 
 **Server config:** identical to Topology 1's server.
 
 **Runner config:** identical to Topology 2's runner.
 
-The token paths and Secret manifests are the union of the two
-single-method topologies. Apply each to its respective binary.
+The token paths and Secret manifests are the union of the two single-method
+topologies. Apply each to its respective binary.
 
 ## Choosing for production
 
-| Question | Answer pushes you toward |
-|---|---|
-| Are you on a tenant with App restrictions? | Topology 2 (PAT) |
-| Do you want short-lived tokens for blast-radius reduction? | Topology 1 (App) |
-| Are server and runner managed by separate teams? | Topology 3 (mixed) |
-| Do you want the simplest possible config? | Topology 1 (App) |
+| Question                                                   | Answer pushes you toward |
+| ---------------------------------------------------------- | ------------------------ |
+| Are you on a tenant with App restrictions?                 | Topology 2 (PAT)         |
+| Do you want short-lived tokens for blast-radius reduction? | Topology 1 (App)         |
+| Are server and runner managed by separate teams?           | Topology 3 (mixed)       |
+| Do you want the simplest possible config?                  | Topology 1 (App)         |
 
 In doubt, start with Topology 1.

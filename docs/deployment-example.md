@@ -38,7 +38,7 @@ flowchart TB
     end
 
     browser --> proxy
-    proxy -- "block /mcp + /healthz + /readyz" --> cm_svc
+    proxy -- "operator-policy block at proxy:<br/>/mcp + /healthz + /readyz" --> cm_svc
     agents -- "MCP tools" --> cm_svc
     cm_svc --> boards
     cm_svc -- "clone on startup" --> boards_remote
@@ -55,11 +55,13 @@ The repo includes a multi-stage Dockerfile:
 
 - **Stage 1**: Node.js — builds the React frontend
 - **Stage 2**: Go — compiles the binary with embedded frontend
-- **Stage 3**: Alpine runtime with `git` and `openssh-client`
+- **Stage 3**: Alpine runtime with `git` and `ca-certificates` (HTTPS only — SSH
+  for boards repos is no longer supported)
 
-Workflow skills are baked into the image at `/etc/contextmatrix/workflow-skills/`
-(set `workflow_skills_dir` or `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` if you bake
-them at a different path).
+Workflow skills are baked into the image at `/etc/contextmatrix/skills/` (the
+Dockerfile sets `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` to that path). Override
+`workflow_skills_dir` or `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` if you bake them at
+a different path.
 
 ```bash
 docker build -t contextmatrix:latest .
@@ -90,7 +92,7 @@ For runner integration, add:
 ```bash
   -e CONTEXTMATRIX_RUNNER_ENABLED=true \
   -e CONTEXTMATRIX_RUNNER_URL=http://runner-host:9090 \
-  -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-min-32ch \
+  -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-must-be-at-least-32-chars-long \
 ```
 
 ## Running on Kubernetes
@@ -106,60 +108,20 @@ writers.
 - **Clone-on-empty** — if the PVC is empty on startup, ContextMatrix
   automatically clones the boards repo from the configured remote URL. No manual
   initialization needed.
-- **Git auth** — two modes supported; see variants below.
+- **GitHub auth mode required** — `github.auth_mode` (or
+  `CONTEXTMATRIX_GITHUB_AUTH_MODE`) must be set to either `app` or `pat`. The
+  server refuses to start without it.
+- **Git auth** — two modes supported; see variant below.
 - **Configuration** — all settings can be set via `CONTEXTMATRIX_*` environment
   variables. See `config.yaml.example` for the full list.
 - **Security context** — the image runs as `nobody`. Use
   `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and
   `/home/nobody`.
 
-### Example deployment snippet — SSH deploy key (default)
-
-Use this variant for any git host (GitHub, GitLab, Gitea, etc.). Mount a deploy
-key with write access to the boards repo. The SSH key file must be readable by
-the `nobody` user (mode `0400`).
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: contextmatrix
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  template:
-    spec:
-      containers:
-        - name: contextmatrix
-          image: contextmatrix:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: CONTEXTMATRIX_BOARDS_DIR
-              value: /data/boards
-            - name: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
-              value: git@github.com:org/boards.git
-            - name: CONTEXTMATRIX_MCP_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: contextmatrix-secrets
-                  key: mcp-api-key
-          volumeMounts:
-            - name: boards
-              mountPath: /data/boards
-            - name: ssh-key
-              mountPath: /etc/contextmatrix/ssh
-              readOnly: true
-      volumes:
-        - name: boards
-          persistentVolumeClaim:
-            claimName: contextmatrix-boards
-        - name: ssh-key
-          secret:
-            secretName: boards-deploy-key
-            defaultMode: 0400
-```
+> **SSH is no longer supported.** Earlier releases included an SSH deploy-key
+> variant; the server now rejects any `boards.git_remote_url` (and
+> `task_skills.git_remote_url`) that does not start with `https://`. Use the PAT
+> or GitHub App variants below.
 
 ### Example deployment snippet — GitHub fine-grained PAT
 
@@ -169,10 +131,13 @@ passed via the environment — it is never embedded in the remote URL or exposed
 in process argument lists.
 
 **Required PAT permissions:**
+
 - `boards` repo: `Contents: Read and write`
 - each project repo referenced in `.board.yaml`: `Issues: Read-only`
 
-**Note:** the remote URL must use HTTPS, not SSH.
+**Note:** all remote URLs (`boards.git_remote_url` and
+`task_skills.git_remote_url`) must use HTTPS — this is unconditional and applies
+to both PAT and GitHub App auth modes. SSH URLs are rejected at startup.
 
 ```yaml
 apiVersion: apps/v1
@@ -190,14 +155,16 @@ spec:
           image: contextmatrix:latest
           ports:
             - containerPort: 8080
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: CONTEXTMATRIX_BOARDS_DIR
               value: /data/boards
             - name: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
               value: https://github.com/org/boards.git
-            - name: CONTEXTMATRIX_BOARDS_GIT_AUTH_MODE
+            - name: CONTEXTMATRIX_GITHUB_AUTH_MODE
               value: pat
-            - name: CONTEXTMATRIX_GITHUB_TOKEN
+            - name: CONTEXTMATRIX_GITHUB_PAT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: contextmatrix-secrets
@@ -207,17 +174,44 @@ spec:
                 secretKeyRef:
                   name: contextmatrix-secrets
                   key: mcp-api-key
+            # Optional: enable curated task-skills (must point at a writable
+            # directory if git_clone_on_empty is enabled).
+            # - name: CONTEXTMATRIX_TASK_SKILLS_DIR
+            #   value: /data/task-skills
+            # - name: CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL
+            #   value: https://github.com/org/task-skills.git
+            # - name: CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY
+            #   value: "true"
           volumeMounts:
             - name: boards
               mountPath: /data/boards
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/nobody
+            # - name: task-skills
+            #   mountPath: /data/task-skills
       volumes:
         - name: boards
           persistentVolumeClaim:
             claimName: contextmatrix-boards
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        # - name: task-skills
+        #   persistentVolumeClaim:
+        #     claimName: contextmatrix-task-skills
 ```
 
 No SSH key volume is needed. The same `github-token` secret value is used for
 both boards git operations and issue import.
+
+**Task-skills:** the image does not bake task-skills into a fixed path. To
+enable the curated task-skills feature, set `CONTEXTMATRIX_TASK_SKILLS_DIR` to a
+writable directory and provide a volume for it. If
+`CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY=true` is set, ContextMatrix will
+clone the repo at startup; otherwise mount a pre-populated volume.
 
 ## Runner on a Separate Host
 
@@ -280,13 +274,12 @@ ports:
 
 Before first deployment, generate these:
 
-| Secret                    | Purpose                                | Notes                                                                                                   |
-| ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **MCP API key**           | Bearer token for MCP endpoint          | Random string, set in config                                                                            |
-| **Runner API key**        | HMAC-SHA256 webhook signing            | Shared between CM and runner, min 32 chars, never transmitted                                           |
-| **Boards SSH key**        | Git push to boards remote (SSH mode)   | Deploy key with write access; not needed in PAT mode                                                    |
+| Secret                      | Purpose                                   | Notes                                                                                                           |
+| --------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **MCP API key**             | Bearer token for MCP endpoint             | Random string, set in config                                                                                    |
+| **Runner API key**          | HMAC-SHA256 webhook signing               | Shared between CM and runner, min 32 chars, never transmitted                                                   |
 | **GitHub fine-grained PAT** | Boards git auth + issue import (PAT mode) | Requires `contents:write` on boards repo and `issues:read` on project repos; max 1-year expiry, rotate annually |
-| **GitHub App** (runner)   | Clone repos, push branches, create PRs | Short-lived tokens (1h expiry)                                                                          |
+| **GitHub App** (runner)     | Clone repos, push branches, create PRs    | Short-lived tokens (1h expiry)                                                                                  |
 
 ## Security Model
 
@@ -297,4 +290,4 @@ Before first deployment, generate these:
 | **LAN → MCP**         | Bearer token (`mcp_api_key`)                                                 |
 | **CM ↔ Runner**       | HMAC-SHA256 signed webhooks (shared secret, never transmitted)               |
 | **Runner containers** | All capabilities dropped, `no-new-privileges`, memory/PID limits, disposable |
-| **Git credentials**   | Short-lived GitHub App tokens (1h expiry), SSH deploy keys                   |
+| **Git credentials**   | Short-lived GitHub App tokens (1h expiry) or fine-grained PAT (HTTPS only)   |

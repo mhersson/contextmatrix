@@ -1,83 +1,53 @@
-# React + TypeScript + Vite
+# ContextMatrix Web
 
-This template provides a minimal setup to get React working in Vite with HMR and
-some ESLint rules.
+The React + TypeScript frontend for ContextMatrix, embedded into the Go binary
+at compile time.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react)
-  uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc)
-  uses [SWC](https://swc.rs/)
+React 19, TypeScript, Vite, Tailwind CSS, dnd-kit (`@dnd-kit/core`,
+`@dnd-kit/sortable`), `@uiw/react-md-editor`.
 
-## React Compiler
+## Development
 
-The React Compiler is not enabled on this template because of its impact on dev
-& build performances. To add it, see
-[this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the
-configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+npm install
+npm run dev
 ```
 
-You can also install
-[eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x)
-and
-[eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom)
-for React-specific lint rules:
+`npm run dev` starts the Vite dev server on its default port. Requests to `/api`
+are proxied to the backend at `http://localhost:8080` (see `vite.config.ts`).
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
+## Scripts
 
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+| Script            | Purpose                                    |
+| ----------------- | ------------------------------------------ |
+| `npm run dev`     | Vite dev server with HMR                   |
+| `npm run build`   | Type-check (`tsc -b`) and build to `dist/` |
+| `npm run lint`    | ESLint                                     |
+| `npm run preview` | Preview the production build               |
+| `npm run test`    | Vitest (jsdom)                             |
+
+## Build and embed
+
+`npm run build` writes the production bundle to `dist/`. That directory is
+embedded into the Go binary via `web/embed.go`, so run `npm run build` before
+`make build` for the backend.
+
+## Backend
+
+The Go backend runs as a separate process on `:8080`. See the repo root
+`README.md` for backend setup.
+
+## Theme
+
+Three palettes ship with the UI: `everforest` (default), `radix`, and
+`catppuccin`. The server-side default is set by the `theme:` field in
+`config.yaml`. Users can override the palette per-browser via the
+PaletteSelector in `AppHeader` (persisted to `localStorage` under the key
+`palette`) — see `web/src/components/AppHeader/PaletteSelector.tsx`.
+
+## Conventions
+
+Frontend conventions, palette tokens, and UI semantic mappings live in
+`web/CLAUDE.md`.

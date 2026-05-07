@@ -49,7 +49,7 @@ own repos, and report progress back through the board.
 ## Quick Start
 
 ```bash
-# Build (requires Go 1.26+ and Node.js 18+)
+# Build (requires Go 1.26+ and Node.js 20+)
 make install-frontend
 make build
 
@@ -76,10 +76,15 @@ Open `http://localhost:8080` for the web UI.
   persisted per-project in `localStorage`.
 - **Dashboard** — per-project or all state counts, active agents, and token cost
   breakdown
-- **Theme toggle** — sun/moon icon in the header switches between Everforest
-  dark and light palettes. The preference is persisted in `localStorage` and
-  defaults to your system's `prefers-color-scheme` setting if no preference is
-  stored.
+- **Theme toggle** — sun/moon icon in the header toggles between dark and light
+  modes. The preference is persisted in `localStorage` and defaults to your
+  system's `prefers-color-scheme` setting if no preference is stored.
+- **Palette selector** — a dropdown next to the theme toggle picks between three
+  color palettes: **Everforest** (default), **Radix**, and **Catppuccin**. The
+  server-side default is configurable via the `theme` config key
+  (`CONTEXTMATRIX_THEME`); each user's selection is stored per-browser in
+  `localStorage` under the `palette` key and overrides the server default on
+  subsequent loads.
 
 ## Creating a Board
 
@@ -195,11 +200,16 @@ project `.claude/claude.json`):
   "mcpServers": {
     "contextmatrix": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer your-mcp-api-key" }
     }
   }
 }
 ```
+
+The `Authorization` header is required when `mcp_api_key` is set in
+`config.yaml` (recommended for any non-localhost deployment). Omit the `headers`
+block if `mcp_api_key` is empty.
 
 ### MCP Tools
 
@@ -345,10 +355,12 @@ Reserved labels for details.
 - **Branch protection** — agents operating in autonomous mode must never push to
   `main` or `master`. The `report_push` MCP tool enforces this and returns a
   hard error if the branch name is `main` or `master`.
-- **Maximum review cycles** — after 3 review cycles without passing review, the
-  workflow halts and requires human intervention. The
-  `increment_review_attempts` tool tracks the counter; the orchestrator checks
-  it before spawning another review sub-agent.
+- **Maximum review cycles** — the orchestrator skill (`run-autonomous`) halts
+  after 3 review cycles (initial review + 2 rejections) and asks a human to
+  intervene. The server caps the `review_attempts` counter at 5 as
+  defense-in-depth, so even a misbehaving orchestrator cannot loop indefinitely.
+  The `increment_review_attempts` tool advances the counter; the orchestrator
+  checks it before spawning another review sub-agent.
 - **Heartbeat-based stall detection** — if a sub-agent's heartbeat times out,
   the service layer marks the card `stalled` and releases the claim. The
   orchestrator uses `check_agent_health` to detect stalled sub-agents and
@@ -419,9 +431,10 @@ card for both autonomous and HITL runs, so the container always works on a
 dedicated branch and opens a pull request.
 
 Cards track execution state via `runner_status`: `queued` → `running` →
-`failed`/`killed`. The web UI shows status badges and pulsing indicators for
-active tasks. See [`docs/remote-execution.md`](docs/remote-execution.md) for the
-full architecture, webhook protocol, and security model.
+`completed`/`failed`/`killed`. The web UI shows status badges and pulsing
+indicators for active tasks. See
+[`docs/remote-execution.md`](docs/remote-execution.md) for the full
+architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
 
@@ -464,8 +477,8 @@ enterprise host are allowed simultaneously). The API base URL is derived as
 `https://api.<host>` unless you override it explicitly.
 
 When using the runner with a GitHub Enterprise App, also set
-`github_app.api_base_url` in the runner's `config.yaml` to the same enterprise
-API endpoint. See the
+`github.api_base_url` in the runner's `config.yaml` to the same enterprise API
+endpoint. See the
 [runner README](https://github.com/mhersson/contextmatrix-runner) and
 [`docs/remote-execution.md`](docs/remote-execution.md) for details.
 
@@ -621,8 +634,10 @@ Events: `card.created`, `card.updated`, `card.deleted`, `card.state_changed`,
 
 ### Remote Execution
 
-These endpoints are human-only (agents with `X-Agent-ID` headers are rejected).
-Requires `runner.enabled: true` in config.
+These endpoints are human-only. Requests are rejected when the `X-Agent-ID`
+header is set to a non-human value (i.e. anything not prefixed with `human:`);
+omit the header or use a `human:<name>` ID. Requires `runner.enabled: true` in
+config.
 
 ```bash
 # Trigger remote execution (autonomous mode — no body required)
@@ -672,45 +687,55 @@ format.
 
 ### config.yaml
 
-| Field                                  | Default                    | Description                                                                             |
-| -------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `port`                                 | `8080`                     | HTTP server port                                                                        |
-| `heartbeat_timeout`                    | `"30m"`                    | Duration before a claimed card becomes stalled                                          |
-| `cors_origin`                          | `http://localhost:5173`    | Allowed CORS origin for the web UI (update for production)                              |
-| `workflow_skills_dir`                  | `./workflow-skills`        | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts) |
-| `task_skills.dir`                      | `<config-dir>/task-skills` | Path to the curated task-skills repo (specialist skills mounted into runner workers)    |
-| `task_skills.git_clone_on_empty`       | `false`                    | Clone on first start when `task_skills.dir` is empty                                    |
-| `task_skills.git_remote_url`           | `""`                       | HTTPS URL used for clone-on-empty                                                       |
-| `token_costs`                          | ---                        | Per-model token cost rates (see example below)                                          |
-| `mcp_api_key`                          | `""`                       | Bearer token for MCP endpoint authentication (empty = no auth)                          |
-| `boards.dir`                           | ---                        | Path to boards git repo (required)                                                      |
-| `boards.git_auto_commit`               | `true`                     | Auto-commit card mutations to git                                                       |
-| `boards.git_deferred_commit`           | `false`                    | Batch commits until a terminal state (done/not_planned) is reached                      |
-| `boards.git_auto_push`                 | `false`                    | Auto-push after each commit                                                             |
-| `boards.git_auto_pull`                 | `false`                    | Pull from remote on startup and at `boards.git_pull_interval`                           |
-| `boards.git_pull_interval`             | `"60s"`                    | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)           |
-| `boards.git_remote_url`                | `""`                       | Remote URL for the boards repo (HTTPS); required for clone-on-empty                     |
-| `boards.git_clone_on_empty`            | `false`                    | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup |
-| `runner.enabled`                       | `false`                    | Enable remote execution integration                                                     |
-| `runner.url`                           | `""`                       | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                     |
-| `runner.api_key`                       | `""`                       | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                            |
-| `github.auth_mode`                     | (required)                 | `"app"` (recommended) or `"pat"`                                                        |
-| `github.host`                          | `""`                       | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                         |
-| `github.api_base_url`                  | `""`                       | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)          |
-| `github.app.app_id`                    | `0`                        | GitHub App ID (required when `auth_mode` is `"app"`)                                    |
-| `github.app.installation_id`           | `0`                        | App installation ID                                                                     |
-| `github.app.private_key_path`          | `""`                       | Path to PEM private key                                                                 |
-| `github.pat.token`                     | `""`                       | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                 |
-| `github.issue_importing.enabled`       | `false`                    | Periodically fetch open issues from project repos that have `import_issues` set         |
-| `github.issue_importing.sync_interval` | `"5m"`                     | How often to check GitHub for new issues (minimum 5m)                                   |
+| Field                                  | Default                        | Description                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `port`                                 | `8080`                         | HTTP server port                                                                                                                                                                     |
+| `log_format`                           | `"text"`                       | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
+| `log_level`                            | `"info"`                       | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
+| `admin_port`                           | `0`                            | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
+| `admin_bind_addr`                      | `127.0.0.1`                    | Bind address for the admin server (loopback by default)                                                                                                                              |
+| `theme`                                | `"everforest"`                 | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
+| `heartbeat_timeout`                    | `"30m"`                        | Duration before a claimed card becomes stalled                                                                                                                                       |
+| `stalled_check_interval`               | `"1m"`                         | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
+| `cors_origin`                          | `http://localhost:5173`        | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
+| `workflow_skills_dir`                  | `<config-dir>/workflow-skills` | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
+| `task_skills.dir`                      | `<config-dir>/task-skills`     | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
+| `task_skills.git_clone_on_empty`       | `false`                        | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
+| `task_skills.git_remote_url`           | `""`                           | HTTPS URL used for clone-on-empty                                                                                                                                                    |
+| `token_costs`                          | ---                            | Per-model token cost rates (see example below)                                                                                                                                       |
+| `mcp_api_key`                          | `""`                           | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
+| `boards.dir`                           | ---                            | Path to boards git repo (required)                                                                                                                                                   |
+| `boards.git_auto_commit`               | `true`                         | Auto-commit card mutations to git                                                                                                                                                    |
+| `boards.git_deferred_commit`           | `false`                        | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
+| `boards.git_auto_push`                 | `false`                        | Auto-push after each commit                                                                                                                                                          |
+| `boards.git_auto_pull`                 | `false`                        | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
+| `boards.git_pull_interval`             | `"60s"`                        | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
+| `boards.git_remote_url`                | `""`                           | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
+| `boards.git_clone_on_empty`            | `false`                        | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
+| `runner.enabled`                       | `false`                        | Enable remote execution integration                                                                                                                                                  |
+| `runner.url`                           | `""`                           | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
+| `runner.api_key`                       | `""`                           | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
+| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`            | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
+| `runner.orchestrator_opus_model`       | `claude-opus-4-7`              | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
+| `runner.reconcile_interval`            | `"60s"`                        | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
+| `github.auth_mode`                     | (required)                     | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
+| `github.host`                          | `""`                           | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
+| `github.api_base_url`                  | `""`                           | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
+| `github.app.app_id`                    | `0`                            | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
+| `github.app.installation_id`           | `0`                            | App installation ID                                                                                                                                                                  |
+| `github.app.private_key_path`          | `""`                           | Path to PEM private key                                                                                                                                                              |
+| `github.pat.token`                     | `""`                           | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
+| `github.issue_importing.enabled`       | `false`                        | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
+| `github.issue_importing.sync_interval` | `"5m"`                         | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
 
 Token cost configuration:
 
 ```yaml
 token_costs:
-  claude-haiku-4-5: { prompt: 0.0000008, completion: 0.000004 }
+  claude-haiku-4-5: { prompt: 0.000001, completion: 0.000005 }
   claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 }
   claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 }
+  claude-opus-4-7: { prompt: 0.000005, completion: 0.000025 }
 ```
 
 ### Environment Variables
@@ -718,6 +743,11 @@ token_costs:
 All config fields can be overridden with environment variables:
 
 - `CONTEXTMATRIX_PORT`
+- `CONTEXTMATRIX_LOG_FORMAT`
+- `CONTEXTMATRIX_LOG_LEVEL`
+- `CONTEXTMATRIX_ADMIN_PORT`
+- `CONTEXTMATRIX_ADMIN_BIND_ADDR`
+- `CONTEXTMATRIX_THEME`
 - `CONTEXTMATRIX_BOARDS_DIR`
 - `CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT`
 - `CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT`
@@ -736,6 +766,9 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_ENABLED`
 - `CONTEXTMATRIX_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
+- `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL`
 - `CONTEXTMATRIX_GITHUB_AUTH_MODE`
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
@@ -785,7 +818,7 @@ For production deployment with Docker, Kubernetes, and external access, see
 ## Development
 
 ```bash
-# Prerequisites: Go 1.26+, Node.js 18+, npm, golangci-lint
+# Prerequisites: Go 1.26+, Node.js 20+, npm, golangci-lint
 
 # Run Go tests
 make test

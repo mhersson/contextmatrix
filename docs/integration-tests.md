@@ -3,15 +3,20 @@
 `test/integration/` runs end-to-end harness scenarios against real CM and runner
 binaries. Two suites:
 
-- **Stub** (`make test-integration`, ~25s): six scenarios driven by a synthetic
-  worker (`test/integration/stub-worker/`) that speaks MCP but fakes Claude.
-  Covers heartbeat-timeout, idle-watchdog, kill-mid-run, promote-HITL-to-auto,
-  and the autonomous + HITL happy paths.
-- **Real-Claude** (`make test-integration-real`, ~28min, ~$0.80 per run): builds
-  the worker Docker image, sends a canary card to the runner, and asserts that
-  real Claude (Sonnet sub-agents, Opus reviewer) drives the card to `done`
-  through the full production workflow. PR creation is intentionally skipped
-  (the fixture is a self-signed HTTPS git server, not a GitHub remote).
+- **Stub** (`make test-integration`, ~25s empirical — not enforced; the Makefile
+  target uses `-timeout 15m` per-process, with each scenario carrying its own
+  20-30s timeout): six scenarios driven by a synthetic worker
+  (`test/integration/stub-worker/`) that speaks MCP but fakes Claude. Covers
+  heartbeat-timeout, idle-watchdog, kill-mid-run, promote-HITL-to-auto, and the
+  autonomous + HITL happy paths.
+- **Real-Claude** (`make test-integration-real`): builds the worker Docker
+  image, sends a canary card to the runner, and asserts that real Claude (Sonnet
+  sub-agents, Opus reviewer) drives the card to `done` through the full
+  production workflow. The Makefile target caps the whole run at 60m
+  (autonomous-real has a 20m internal budget, HITL-real has 30m); actual
+  wall-clock and dollar cost vary per run and are not codified — observe a few
+  runs to set local expectations. PR creation is intentionally skipped (the
+  fixture is a self-signed HTTPS git server, not a GitHub remote).
 
 Per-scenario diagnostics land at `/tmp/cm-int-runs/<scenario>-<ts>/`:
 `cards.json`, `cm.log`, `runner.log`, `combined.log`, `worker.raw.jsonl`,
@@ -42,8 +47,9 @@ relaxations applied during the iteration loop:
 - Heartbeat scheduling — proxied via `report_usage`, not asserted directly.
 
 **Treat a passing run as evidence the plumbing works, not as evidence the
-production workflow is correct.** Do not gate every PR on this suite. Manual /
-nightly / pre-release only.
+production workflow is correct.** Do not gate every PR on this suite.
+Recommended cadence: nightly or pre-release; not currently CI-gated (see
+follow-ups below).
 
 ## Follow-ups
 
@@ -73,10 +79,12 @@ priority.
       twice" — it has no relation to gate count.
   - File: `test/integration/scenario_test.go`, `startHITLGateResponder`.
 - [ ] **Tighten plan-section check.** `## Plan OR ## Subtasks` is decorative —
-      the runner already creates `## Subtasks` from `create_card` calls, so the
-      OR-fallback is satisfied without Phase 1 having run. Either require
-      `## Plan` with N lines of body, or assert on an explicit `update_card`
-      activity-log entry that mutated the body during Phase 1.
+      the CM server's MCP prompt builders inject a `## Subtasks` block into the
+      prompt context any time the parent has child cards (see
+      `internal/mcp/prompts.go`), so the OR-fallback is satisfied without Phase
+      1 having run. Either require `## Plan` with N lines of body, or assert on
+      an explicit `update_card` activity-log entry that mutated the body during
+      Phase 1.
   - File: `test/integration/scenarios_test.go`, `assertAuthenticAutonomousRun`
     step 1.
 
@@ -115,11 +123,6 @@ priority.
       signal, or write `cards.json` periodically (every N seconds) so the latest
       snapshot survives.
   - File: `test/integration/main_test.go`, `test/integration/scenario_test.go`.
-- [ ] **Update the spec.**
-      `docs/superpowers/specs/2026-05-04-real-claude-authentic-workflow-design.md`
-      sets stronger guarantees than the implementation now delivers
-      (specifically items #2 ≥2 subtasks and #8 skill mount in HITL). Either
-      revise the spec to match, or fix the implementation to match the spec.
 - [ ] **Drop unused parameter on `dockerListByScenario`.** Today the function
       ignores its `scenarioID` arg and relies on subtests running sequentially.
       First parallelisation will sweep sibling-scenario containers. Either
