@@ -1,9 +1,5 @@
 //go:build integration
 
-// Package integration_test runs end-to-end harness tests of CM + runner
-// + a stub or real worker image. Gated behind the `integration` build
-// tag so `make test` ignores it. See
-// docs/superpowers/specs/2026-04-28-self-hosted-integration-harness-design.md.
 package integration_test
 
 import (
@@ -22,7 +18,6 @@ var (
 	cmBinary     string
 	runnerBinary string
 	tmpRoot      string
-	realClaudeOn bool
 )
 
 func TestMain(m *testing.M) {
@@ -50,8 +45,6 @@ func setup() error {
 	cmBinary = filepath.Join(tmpRoot, "contextmatrix")
 	runnerBinary = filepath.Join(tmpRoot, "contextmatrix-runner")
 
-	realClaudeOn = os.Getenv("CM_REAL_CLAUDE") == "1"
-
 	ctx := context.Background()
 
 	if err := buildCM(ctx, cmBinary); err != nil {
@@ -66,18 +59,12 @@ func setup() error {
 		return fmt.Errorf("build stub image: %w", err)
 	}
 
-	if realClaudeOn {
-		if err := ensureRealClaudeImage(ctx); err != nil {
-			return fmt.Errorf("ensure real-Claude image: %w", err)
-		}
-	}
-
 	if err := sweepOrphans(ctx); err != nil {
 		log.Printf("orphan sweep failed (non-fatal): %v", err)
 	}
 
-	log.Printf("harness ready: cm=%s runner=%s tmp=%s realClaude=%v",
-		cmBinary, runnerBinary, tmpRoot, realClaudeOn)
+	log.Printf("harness ready: cm=%s runner=%s tmp=%s",
+		cmBinary, runnerBinary, tmpRoot)
 
 	return nil
 }
@@ -143,29 +130,6 @@ func buildStubImage(ctx context.Context) error {
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 
 	return cmd.Run()
-}
-
-// ensureRealClaudeImage builds cm-worker-legacy:test if missing by
-// delegating to the runner repo's `make docker-worker`.
-func ensureRealClaudeImage(ctx context.Context) error {
-	if imageExists(ctx, "cm-worker-legacy:test") {
-		return nil
-	}
-
-	runnerRepo := filepath.Join(harnessRoot, "..", "..", "..", "contextmatrix-runner")
-	build := exec.CommandContext(ctx, "make", "docker-worker")
-	build.Dir = runnerRepo
-
-	build.Stdout, build.Stderr = os.Stderr, os.Stderr
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("make docker-worker: %w", err)
-	}
-
-	tag := exec.CommandContext(ctx, "docker", "tag",
-		"contextmatrix/worker:latest", "cm-worker-legacy:test")
-	tag.Stdout, tag.Stderr = os.Stderr, os.Stderr
-
-	return tag.Run()
 }
 
 func imageExists(ctx context.Context, ref string) bool {

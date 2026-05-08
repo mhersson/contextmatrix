@@ -3,10 +3,7 @@
 package integration_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,38 +11,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
 type scenarioCtx struct {
-	cfg        *scenarioConfig
-	cm         *process
-	runner     *process
-	client     *cmClient
-	project    string
-	creds      *claudeCredentials // nil in stub mode
-	fixtureURL string             // empty in stub mode; HTTPS clone URL in real-Claude
-	rl         *runLog            // observability (combined log + per-source files + run.md)
-	tb         *transcriptBuffer  // optional; set by startTranscriptCapture for real-Claude scenarios
+	cfg     *scenarioConfig
+	cm      *process
+	runner  *process
+	client  *cmClient
+	project string
+	rl      *runLog           // observability (combined log + per-source files + run.md)
+	tb      *transcriptBuffer // optional; set by startTranscript for HITL scenarios
 }
 
-func bootScenarioWithConfig(t *testing.T, scenarioID, project string, realClaude bool, override func(*scenarioConfig)) *scenarioCtx {
+func bootScenarioWithConfig(t *testing.T, scenarioID, project string, override func(*scenarioConfig)) *scenarioCtx {
 	t.Helper()
 
-	var creds *claudeCredentials
-
-	if realClaude {
-		c, err := resolveClaudeCredentials()
-		if err != nil {
-			t.Skipf("real-Claude credentials not configured: %v", err)
-		}
-
-		creds = c
-	}
-
-	cfg := newScenarioConfig(t, scenarioID, realClaude)
+	cfg := newScenarioConfig(t, scenarioID)
 	if override != nil {
 		override(cfg)
 	}
@@ -59,27 +42,13 @@ func bootScenarioWithConfig(t *testing.T, scenarioID, project string, realClaude
 
 	// sc is captured by the finalize cleanup below by pointer so the
 	// closure can pull the transcript out of sc.tb (set later by
-	// startTranscriptCapture for real-Claude scenarios) at finalize time.
+	// startTranscript for HITL scenarios) at finalize time.
 	var sc *scenarioCtx
 
-	// Real-Claude mode: provision the fixture bare repo + HTTPS server
-	// FIRST, then bake the resulting URL into .board.yaml when CM boots.
-	// We can't update the URL after boot via PUT — CM's UpdateProject
-	// only writes cfg.Repo (singular) and never reconciles cfg.Repos
-	// (plural, the registry the runner reads via MCP get_task_context),
-	// so a post-boot retarget leaves the runner cloning the stale URL.
-	// Stub mode keeps the placeholder URL — it never spawns a real
-	// worker against it.
-	fixtureURL := ""
-	if realClaude {
-		fixtureURL = initFixtureRepo(t, cfg.tmpDir)
-	}
-
-	initBoardsRepo(t, cfg.boardsDir, project, fixtureURL)
-	cfg.writeCanarySkill(t)
+	initBoardsRepo(t, cfg.boardsDir, project)
 
 	cmConfigPath := cfg.writeCMConfig(t)
-	runnerConfigPath := cfg.writeRunnerConfig(t, creds)
+	runnerConfigPath := cfg.writeRunnerConfig(t)
 
 	client := newCMClient(fmt.Sprintf("http://127.0.0.1:%d", cfg.cmPort))
 
@@ -174,21 +143,19 @@ func bootScenarioWithConfig(t *testing.T, scenarioID, project string, realClaude
 	t.Cleanup(capture.stop)
 
 	sc = &scenarioCtx{
-		cfg:        cfg,
-		cm:         cm,
-		runner:     runner,
-		client:     client,
-		project:    project,
-		creds:      creds,
-		fixtureURL: fixtureURL,
-		rl:         rl,
+		cfg:     cfg,
+		cm:      cm,
+		runner:  runner,
+		client:  client,
+		project: project,
+		rl:      rl,
 	}
 
 	return sc
 }
 
-func bootScenario(t *testing.T, scenarioID, project string, realClaude bool) *scenarioCtx {
-	return bootScenarioWithConfig(t, scenarioID, project, realClaude, nil)
+func bootScenario(t *testing.T, scenarioID, project string) *scenarioCtx {
+	return bootScenarioWithConfig(t, scenarioID, project, nil)
 }
 
 // transcriptToJSONL renders captured SSE events as one JSON object per
@@ -214,7 +181,7 @@ func transcriptToJSONL(events []transcriptEvent) []byte {
 	return b
 }
 
-func initBoardsRepo(t *testing.T, boardsDir, project, repoURL string) {
+func initBoardsRepo(t *testing.T, boardsDir, project string) {
 	t.Helper()
 	mustRun(t, boardsDir, "git", "init")
 	mustRun(t, boardsDir, "git", "config", "user.email", "harness@cm.test")
@@ -229,11 +196,10 @@ func initBoardsRepo(t *testing.T, boardsDir, project, repoURL string) {
 		t.Fatalf("mkdir templates: %v", err)
 	}
 
-	// Stub mode passes empty repoURL → use a placeholder. Real-Claude
-	// passes the local HTTPS git server URL provisioned by initFixtureRepo.
-	if repoURL == "" {
-		repoURL = fmt.Sprintf("https://example.invalid/harness/%s.git", project)
-	}
+	// Stub-only suite: the worker never actually clones or pushes, so
+	// the repo URL is a placeholder that the runner's validator
+	// accepts but no real network call hits.
+	repoURL := fmt.Sprintf("https://example.invalid/harness/%s.git", project)
 
 	boardYAML := fmt.Sprintf(`name: %s
 prefix: INT
@@ -262,8 +228,6 @@ priorities:
   - high
 remote_execution:
   enabled: true
-default_skills:
-  - harness-canary-skill
 `, project, repoURL)
 
 	if err := os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardYAML), 0o644); err != nil {
@@ -318,60 +282,6 @@ func (s *scenarioCtx) messageCard(t *testing.T, cardID, content string) {
 	}
 }
 
-// tryMessageCard is the goroutine-safe variant of messageCard. It uses
-// a stdlib HTTP client directly so no t.Fatalf path is reachable, and
-// returns errors instead. Used by the HITL gate responder. The 410
-// (stdin_closed) status is returned as a typed error so the caller can
-// stop polling without flagging a test failure.
-func (s *scenarioCtx) tryMessageCard(cardID, content string) error {
-	if s.rl != nil {
-		s.rl.writeLine("user_chat", fmt.Sprintf("%s: %s", cardID, content))
-	}
-
-	body, err := json.Marshal(map[string]any{"content": content})
-	if err != nil {
-		return fmt.Errorf("encode: %w", err)
-	}
-
-	url := fmt.Sprintf("http://127.0.0.1:%d/api/projects/%s/cards/%s/message",
-		s.cfg.cmPort, s.project, cardID)
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("new request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "human:harness")
-	req.Header.Set("X-Requested-With", "contextmatrix")
-
-	hc := &http.Client{Timeout: 5 * time.Second}
-
-	resp, err := hc.Do(req)
-	if err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusGone {
-		return errStdinClosed
-	}
-
-	if resp.StatusCode != http.StatusAccepted {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, raw)
-	}
-
-	return nil
-}
-
-// errStdinClosed is returned by tryMessageCard when CM/runner reports
-// the worker container's stdin has already been closed (e.g. after
-// promote, or after the agent finished). Callers stop polling on this
-// error rather than flag it as a test failure.
-var errStdinClosed = errors.New("stdin_closed")
-
 // promoteCard POSTs to /api/projects/{project}/cards/{id}/promote, flipping
 // the card's autonomous flag and fanning out a promotion event over SSE.
 func (s *scenarioCtx) promoteCard(t *testing.T, cardID string) {
@@ -421,26 +331,12 @@ func (s *scenarioCtx) createCard(t *testing.T, title string, autonomous bool) st
 func (s *scenarioCtx) createCardWithBody(t *testing.T, title, body string, autonomous bool) string {
 	t.Helper()
 
-	return s.createCanaryCard(t, title, body, autonomous, true)
-}
-
-// createCanaryCard creates a card with explicit feature_branch and
-// create_pr flags. Real-Claude scenarios set feature_branch=true so
-// the agent works on a branch but create_pr=false because the fixture
-// HTTPS git server isn't a GitHub remote and `gh pr create` would
-// fail. Without this, CM's /run handler auto-enables both when
-// feature_branch is unset, forcing create_pr=true.
-func (s *scenarioCtx) createCanaryCard(t *testing.T, title, body string, autonomous, createPR bool) string {
-	t.Helper()
-
 	req := map[string]any{
-		"title":          title,
-		"type":           "task",
-		"priority":       "medium",
-		"autonomous":     autonomous,
-		"body":           body,
-		"feature_branch": true,
-		"create_pr":      createPR,
+		"title":      title,
+		"type":       "task",
+		"priority":   "medium",
+		"autonomous": autonomous,
+		"body":       body,
 	}
 
 	var resp struct {
@@ -529,46 +425,6 @@ func tail(s string, n int) string {
 	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
-// initFixtureRepo creates a bare git repo with one seed commit, fronts
-// it with a local HTTPS git-http-backend on a free port, and returns
-// the URL the worker container should clone from. The runner's
-// validator only accepts https/ssh schemes (file:// and git:// are
-// rejected), and the worker can't reach host loopback paths anyway —
-// hence the HTTPS proxy in front of the bare repo.
-//
-// The returned URL uses host.docker.internal which the orchestrated
-// dispatcher already wires into ExtraHosts. Worker containers also
-// need GIT_SSL_NO_VERIFY=1 for the self-signed cert; that's set via
-// worker_extra_env in the runner config (see writeRunnerConfig).
-func initFixtureRepo(t *testing.T, parentTmpDir string) string {
-	t.Helper()
-
-	bare := filepath.Join(parentTmpDir, "fixture.git")
-	mustRun(t, parentTmpDir, "git", "init", "--bare", bare)
-	enableHTTPReceivePack(t, bare)
-
-	// Seed the bare via a local clone+push. Uses the on-disk path; the
-	// worker uses the HTTPS URL we return below.
-	work := filepath.Join(parentTmpDir, "fixture-seed")
-	mustRun(t, parentTmpDir, "git", "clone", bare, work)
-	mustRun(t, work, "git", "config", "user.email", "harness@cm.test")
-	mustRun(t, work, "git", "config", "user.name", "harness")
-
-	if err := os.WriteFile(filepath.Join(work, "README.md"),
-		[]byte("# integration harness fixture\n\n"), 0o644); err != nil {
-		t.Fatalf("write README: %v", err)
-	}
-
-	mustRun(t, work, "git", "add", "README.md")
-	mustRun(t, work, "git", "commit", "-m", "init")
-	mustRun(t, work, "git", "branch", "-M", "main")
-	mustRun(t, work, "git", "push", "-u", "origin", "main")
-
-	baseURL := startGitHTTPS(t, parentTmpDir)
-
-	return baseURL + "/fixture.git"
-}
-
 // startTranscript opens a transcript buffer and SSE consumer for the given
 // card and wires it into s.tb so the runlog finalize hook writes
 // transcript.jsonl. Returns the buffer for polling.
@@ -597,134 +453,4 @@ func dockerListByScenario(_ string) []string {
 	}
 
 	return nonEmptyLines(string(out))
-}
-
-// startHITLGateResponder spawns a goroutine that auto-approves each gate
-// emitted by a real-Claude HITL run. It uses idle-detection on the
-// transcript buffer: when the buffer stops growing for `idleThreshold`
-// after a `text` event, the agent has ended its turn and is waiting for
-// stdin → send "approve". Stops when ctx is cancelled OR the
-// container's stdin closes (run finished or promoted).
-//
-// Why idle-detection, not "?"-matching: real-Claude prompts often end
-// with a summary or recommendation, not a literal question mark
-// ("Here's the design summary. ... I recommend A."). Even with "?"
-// matched anywhere, mid-sentence "?" inside the agent's reasoning gets
-// false-positive'd and the trailing summary still doesn't match. The
-// runner emits no end-of-turn signal of its own. Idle-after-text is
-// the only reliable cross-gate signal available.
-//
-// Why type "text", not "assistant": the runner's logparser walks the
-// stream-json envelope ({type:assistant, message:{content:[{type:text,
-// ...}]}}) and emits the inner block as logbroadcast.LogEntry{Type:
-// "text"}. SSE consumers see Type="text", never Type="assistant".
-//
-// Returns a func() int that returns the count of approvals sent so far.
-// The HITL test calls it after the run completes to verify ≥2 gates were
-// exercised.
-//
-// Why tryMessageCard, not messageCard: the goroutine cannot call
-// t.Fatalf safely (testing.T fatal methods must be called from the test
-// goroutine). tryMessageCard returns errors instead.
-func (s *scenarioCtx) startHITLGateResponder(ctx context.Context, t *testing.T, cardID string, buf *transcriptBuffer) func() int {
-	t.Helper()
-
-	const (
-		// idleThreshold: after a text event, wait this long with no new
-		// events before declaring the agent waiting-for-input. 8s is
-		// well below the runner's 90s idle_output_timeout but above the
-		// few-hundred-ms gap between consecutive text/thinking frames.
-		idleThreshold = 8 * time.Second
-		// fireDebounce: minimum gap between two consecutive approvals.
-		// Once we fire, Claude responds within 1-3s and the buffer
-		// grows, resetting our idle clock. Debounce protects against
-		// flapping if Claude doesn't respond at all (MCP dead, etc.).
-		fireDebounce = 5 * time.Second
-	)
-
-	var (
-		mu        sync.Mutex
-		approvals int
-	)
-
-	go func() {
-		var (
-			lastBufLen  int
-			lastGrowAt  = time.Now()
-			lastFiredAt time.Time
-		)
-
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-
-			events := buf.snapshot()
-
-			// Buffer growing → agent is producing output. Reset the
-			// idle clock; nothing to do.
-			if len(events) > lastBufLen {
-				lastBufLen = len(events)
-				lastGrowAt = time.Now()
-
-				continue
-			}
-
-			if lastBufLen == 0 {
-				continue
-			}
-
-			// Buffer is steady. Has it been steady long enough?
-			if time.Since(lastGrowAt) < idleThreshold {
-				continue
-			}
-
-			// Only fire when the most recent event is a text frame.
-			// Idle-after-tool_call usually means the agent is waiting
-			// on a tool result, not on the user.
-			if events[lastBufLen-1].Type != "text" {
-				continue
-			}
-
-			if time.Since(lastFiredAt) < fireDebounce {
-				continue
-			}
-
-			if err := s.tryMessageCard(cardID, "approve"); err != nil {
-				if errors.Is(err, errStdinClosed) {
-					// Container stdin closed — run finished or was
-					// promoted. Stop the responder cleanly.
-					return
-				}
-
-				if s.rl != nil {
-					s.rl.writeLine("harness", "gate_responder: tryMessageCard: "+err.Error())
-				}
-
-				continue
-			}
-
-			lastFiredAt = time.Now()
-
-			mu.Lock()
-			approvals++
-			mu.Unlock()
-
-			if s.rl != nil {
-				s.rl.writeLine("harness", "gate_responder: sent approve (idle ≥ 8s after text)")
-			}
-		}
-	}()
-
-	return func() int {
-		mu.Lock()
-		defer mu.Unlock()
-
-		return approvals
-	}
 }

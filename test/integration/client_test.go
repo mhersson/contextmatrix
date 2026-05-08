@@ -126,33 +126,6 @@ func (c *cmClient) getCard(t *testing.T, project, cardID string) cardSnapshot {
 	return card
 }
 
-// listCardsResponse mirrors the envelope CM returns from
-// GET /api/projects/{project}/cards. Only Items is needed by callers
-// here — pagination cursor + total are ignored because the harness
-// canary scenarios fit comfortably under defaultCardPageLimit (500).
-type listCardsResponse struct {
-	Items []cardSnapshot `json:"items"`
-}
-
-// listCards fetches cards for a project, optionally filtered by parent ID.
-func (c *cmClient) listCards(t *testing.T, project, parent string) []cardSnapshot {
-	t.Helper()
-
-	path := fmt.Sprintf("/api/projects/%s/cards", project)
-	if parent != "" {
-		path += "?parent=" + parent
-	}
-
-	var resp listCardsResponse
-
-	status := c.get(t, path, &resp)
-	if status != http.StatusOK {
-		t.Fatalf("listCards %s parent=%s: HTTP %d", project, parent, status)
-	}
-
-	return resp.Items
-}
-
 // pollUntil retries fn until it returns true or the deadline expires.
 func pollUntil(ctx context.Context, t *testing.T, label string, fn func() bool) {
 	t.Helper()

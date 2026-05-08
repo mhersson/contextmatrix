@@ -165,9 +165,7 @@ Full details with examples: `docs/data-model.md`.
 make build                  # builds binary with embedded frontend
 make run                    # runs on :8080
 make test                   # runs all Go tests
-make test-integration       # real-binary harness (stub worker, ~80s, requires Docker)
-make test-integration-real  # opt-in: also runs SYSINFO-CANARY scenarios with real Claude
-                            # (requires CM_REAL_CLAUDE=1 + Anthropic creds)
+make test-integration       # real-binary harness (stub worker, ~70s, requires Docker)
 
 # Frontend dev (hot reload, proxies API to :8080)
 cd web && npm run dev

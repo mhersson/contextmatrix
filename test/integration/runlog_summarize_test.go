@@ -106,7 +106,7 @@ func TestRenderActivityLogSection(t *testing.T) {
 	cardsJSON := []byte(`[
 		{"id":"INT-001","title":"P","state":"done","assigned_agent":"",
 		 "activity_log":[
-			{"agent":"orch","ts":"2026-05-04T10:00:00Z","action":"skill_engaged","skill":"harness-canary-skill"},
+			{"agent":"orch","ts":"2026-05-04T10:00:00Z","action":"skill_engaged","skill":"test-skill"},
 			{"agent":"orch","ts":"2026-05-04T10:05:00Z","action":"pushed","message":"feat/x"}
 		 ]}
 	]`)
@@ -116,7 +116,7 @@ func TestRenderActivityLogSection(t *testing.T) {
 	renderActivityLogSection(&b, cardsJSON)
 
 	out := b.String()
-	for _, want := range []string{"skill_engaged", "skill=harness-canary-skill", "pushed", "feat/x"} {
+	for _, want := range []string{"skill_engaged", "skill=test-skill", "pushed", "feat/x"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n%s", want, out)
 		}
