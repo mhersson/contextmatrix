@@ -117,18 +117,22 @@ export function ProjectShell() {
       setCreatePanelOpen(false);
       // Optionally fire the runner immediately (Create & Run flow). Update
       // the local card record on success so the board reflects the new
-      // runner_status / assigned_agent without waiting for SSE.
+      // runner_status / assigned_agent without waiting for SSE, then open
+      // the card panel so the user sees the running card immediately.
       if (opts?.run) {
         try {
           const updated = await api.runCard(card.project, card.id, { interactive: opts.interactive });
+          const updatedCard = { ...card, runner_status: updated.runner_status, assigned_agent: updated.assigned_agent };
           updateCardLocally(card.id, {
             runner_status: updated.runner_status,
             assigned_agent: updated.assigned_agent,
           });
+          setSelectedCard(updatedCard);
           showToast('Task queued for runner', 'success');
         } catch (err) {
           showToast(isAPIError(err) ? err.error : 'Failed to trigger runner', 'error');
         }
+        return;
       }
       setFlashCardId(card.id);
       flashTimerRef.current = setTimeout(() => setFlashCardId(null), 2500);
