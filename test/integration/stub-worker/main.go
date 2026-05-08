@@ -120,7 +120,7 @@ func runAutonomous(stdout io.Writer, mcp *mcpClient, project string, args runArg
 		time.Sleep(24 * time.Hour)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := emitText(stdout, fmt.Sprintf("working… (step %d)", i+1)); err != nil {
 			return err
 		}

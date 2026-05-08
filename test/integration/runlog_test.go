@@ -4,12 +4,13 @@ package integration_test
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 )
@@ -273,12 +274,16 @@ func renderCardsSection(b *bytes.Buffer, cardsJSON []byte) {
 	}
 
 	// Sort: parents before subtasks, alphabetical within each group.
-	sort.SliceStable(cards, func(i, j int) bool {
-		if (cards[i].Parent == "") != (cards[j].Parent == "") {
-			return cards[i].Parent == ""
+	slices.SortStableFunc(cards, func(a, b runlogCard) int {
+		if (a.Parent == "") != (b.Parent == "") {
+			if a.Parent == "" {
+				return -1
+			}
+
+			return 1
 		}
 
-		return cards[i].ID < cards[j].ID
+		return cmp.Compare(a.ID, b.ID)
 	})
 
 	for _, c := range cards {
@@ -339,7 +344,7 @@ func renderActivityLogSection(b *bytes.Buffer, cardsJSON []byte) {
 		}
 	}
 
-	sort.SliceStable(all, func(i, j int) bool { return all[i].ts < all[j].ts })
+	slices.SortStableFunc(all, func(a, b entry) int { return cmp.Compare(a.ts, b.ts) })
 
 	if len(all) == 0 {
 		fmt.Fprintln(b, "_no activity log entries_")
@@ -371,7 +376,7 @@ func summarizeWorkerStream(raw []byte) (map[string]int, map[string]int) {
 	types := map[string]int{}
 	tools := map[string]int{}
 
-	for _, line := range bytes.Split(raw, []byte{'\n'}) {
+	for line := range bytes.SplitSeq(raw, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -414,7 +419,7 @@ func summarizeWorkerStream(raw []byte) (map[string]int, map[string]int) {
 func summarizeTranscript(raw []byte) map[string]int {
 	types := map[string]int{}
 
-	for _, line := range bytes.Split(raw, []byte{'\n'}) {
+	for line := range bytes.SplitSeq(raw, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -441,7 +446,7 @@ func sortedKeys(m map[string]int) []string {
 		out = append(out, k)
 	}
 
-	sort.Strings(out)
+	slices.Sort(out)
 
 	return out
 }

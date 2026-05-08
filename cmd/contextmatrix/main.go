@@ -67,8 +67,7 @@ func main() {
 	flag.Parse()
 
 	if *configPath == "" {
-		resolved := config.FindConfigPath()
-		configPath = &resolved
+		configPath = new(config.FindConfigPath())
 	}
 
 	cfg, err := config.Load(*configPath)
@@ -424,24 +423,16 @@ func main() {
 	)
 
 	if adminServer != nil {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			if err := adminServer.Shutdown(shutdownCtx); err != nil {
 				slog.Error("admin server shutdown error", "error", err)
 			}
-		}()
+		})
 	}
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		mainShutdownErr = server.Shutdown(shutdownCtx)
-	}()
+	})
 
 	wg.Wait()
 

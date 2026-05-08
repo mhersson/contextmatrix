@@ -1784,11 +1784,11 @@ github:
 }
 
 func TestLoad_BoardsHasNoAuthMode(t *testing.T) {
-	cfg := defaults()
+	_ = defaults()
 
-	v := reflect.TypeOf(cfg.Boards)
-	for i := 0; i < v.NumField(); i++ {
-		assert.NotEqual(t, "GitAuthMode", v.Field(i).Name,
+	v := reflect.TypeFor[BoardsConfig]()
+	for field := range v.Fields() {
+		assert.NotEqual(t, "GitAuthMode", field.Name,
 			"BoardsConfig.GitAuthMode must be removed")
 	}
 }

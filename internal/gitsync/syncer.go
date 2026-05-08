@@ -119,25 +119,17 @@ func (s *Syncer) PullOnStartup(ctx context.Context) error {
 // Both goroutines respect context cancellation for clean shutdown.
 func (s *Syncer) Start(ctx context.Context) {
 	if s.autoPull {
-		s.wg.Add(1)
-
-		go func() {
-			defer s.wg.Done()
-
+		s.wg.Go(func() {
 			s.periodicPull(ctx)
-		}()
+		})
 
 		slog.Info("git sync: periodic pull started", "interval", s.interval)
 	}
 
 	if s.autoPush {
-		s.wg.Add(1)
-
-		go func() {
-			defer s.wg.Done()
-
+		s.wg.Go(func() {
 			s.pushListener(ctx)
-		}()
+		})
 
 		slog.Info("git sync: push listener started")
 	}

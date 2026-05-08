@@ -2979,7 +2979,7 @@ func TestListCards_Pagination(t *testing.T) {
 	defer server.Close()
 
 	// Create 5 cards; limit=2 should yield 3 pages (2 + 2 + 1).
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 			Title:    fmt.Sprintf("Card %d", i),
 			Type:     "task",

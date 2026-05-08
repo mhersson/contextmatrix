@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,7 +113,7 @@ func TestListCardsPage_WalkAllPages(t *testing.T) {
 
 	const total = 50
 
-	for i := 0; i < total; i++ {
+	for i := range total {
 		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    fmt.Sprintf("Card %d", i),
 			Type:     "task",
@@ -159,8 +159,8 @@ func TestListCardsPage_WalkAllPages(t *testing.T) {
 	assert.Len(t, seen, total)
 
 	// Ordering should be ID-ascending, stable across pages.
-	sorted := append([]string(nil), seen...)
-	sort.Strings(sorted)
+	sorted := slices.Clone(seen)
+	slices.Sort(sorted)
 	assert.Equal(t, sorted, seen, "paginated walk must be ID-ascending")
 }
 
@@ -206,7 +206,7 @@ func TestListCardsPage_CursorEncoding(t *testing.T) {
 
 	ctx := context.Background()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    fmt.Sprintf("Card %d", i),
 			Type:     "task",
@@ -235,7 +235,7 @@ func TestListCardsPage_FilterDoesNotAffectTotal(t *testing.T) {
 	ctx := context.Background()
 
 	// 2 tasks + 1 bug = 3 total.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    fmt.Sprintf("Task %d", i),
 			Type:     "task",

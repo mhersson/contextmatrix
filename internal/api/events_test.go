@@ -106,13 +106,10 @@ func TestStreamEvents_ReceivesPublishedEvent(t *testing.T) {
 
 	// Run handler in goroutine
 	var wg sync.WaitGroup
-	wg.Add(1)
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		eh.streamEvents(rec, req)
-	}()
+	})
 
 	// Wait deterministically for the handler to register its subscription.
 	<-subCh
@@ -185,13 +182,10 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 	rec := newFlushRecorder()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		eh.streamEvents(rec, req)
-	}()
+	})
 
 	<-subCh
 
@@ -224,8 +218,8 @@ func TestStreamEvents_FiltersByProject(t *testing.T) {
 	var receivedEvents []events.Event
 
 	for _, line := range lines {
-		if strings.HasPrefix(line, "data: ") {
-			jsonData := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			jsonData := after
 
 			var ev events.Event
 			if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
@@ -255,13 +249,10 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 	rec := newFlushRecorder()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		eh.streamEvents(rec, req)
-	}()
+	})
 
 	<-subCh
 
@@ -292,8 +283,8 @@ func TestStreamEvents_NoFilterReceivesAll(t *testing.T) {
 	var receivedProjects []string
 
 	for _, line := range lines {
-		if strings.HasPrefix(line, "data: ") {
-			jsonData := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			jsonData := after
 
 			var ev events.Event
 			if err := json.Unmarshal([]byte(jsonData), &ev); err == nil {
@@ -318,13 +309,10 @@ func TestStreamEvents_Keepalive(t *testing.T) {
 	rec := newFlushRecorder()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		eh.streamEvents(rec, req)
-	}()
+	})
 
 	// Poll for the keepalive line rather than sleeping a fixed duration.
 	require.True(t, waitForLine(rec, ": keepalive\n", 2*time.Second),
@@ -479,13 +467,9 @@ func TestStreamEvents_MetricsTracked(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		eh.streamEvents(rec, req)
-	}()
+	})
 
 	require.Eventually(t, func() bool {
 		return testutil.ToFloat64(metrics.SSEActiveConnections) >= baseline+1

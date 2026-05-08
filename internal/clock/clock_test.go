@@ -190,7 +190,7 @@ func TestFake_MultipleAfterConcurrent(t *testing.T) {
 	var fired atomic.Int32
 
 	const n = 20
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 
 		d := time.Duration(i+1) * 10 * time.Millisecond

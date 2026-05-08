@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -447,13 +448,9 @@ func (m *Manager) hasRemote() bool {
 		return false
 	}
 
-	for _, r := range remotes {
-		if r.Config().Name == "origin" {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(remotes, func(r *git.Remote) bool {
+		return r.Config().Name == "origin"
+	})
 }
 
 // RepoPath returns the absolute path to the repository root.

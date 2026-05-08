@@ -39,11 +39,7 @@ func newFailFastManager(t *testing.T, extra ...Option) (*Manager, func()) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -56,7 +52,7 @@ func newFailFastManager(t *testing.T, extra ...Option) (*Manager, func()) {
 				fake.Advance(5 * time.Second)
 			}
 		}
-	}()
+	})
 
 	cleanup := func() {
 		close(stop)

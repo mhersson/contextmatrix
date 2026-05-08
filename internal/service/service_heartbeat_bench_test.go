@@ -41,7 +41,7 @@ func BenchmarkHeartbeat_Sequential(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1"); err != nil {
 			b.Fatalf("heartbeat: %v", err)
 		}
@@ -62,7 +62,7 @@ func BenchmarkHeartbeat_ConcurrentDistinctCards(b *testing.B) {
 
 	cardIDs := make([]string, numCards)
 
-	for i := 0; i < numCards; i++ {
+	for i := range numCards {
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    fmt.Sprintf("HB %d", i),
 			Type:     "task",
@@ -81,10 +81,10 @@ func BenchmarkHeartbeat_ConcurrentDistinctCards(b *testing.B) {
 
 	b.ResetTimer()
 
-	for iter := 0; iter < b.N; iter++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numCards; i++ {
+		for i := range numCards {
 			wg.Add(1)
 
 			go func(i int) {
@@ -134,7 +134,7 @@ func BenchmarkHeartbeat_ConcurrentAcrossProjects(b *testing.B) {
 
 	claims := make([]claim, numProjects)
 
-	for i := 0; i < numProjects; i++ {
+	for i := range numProjects {
 		proj := fmt.Sprintf("proj-%d", i)
 
 		card, err := svc.CreateCard(ctx, proj, CreateCardInput{
@@ -157,10 +157,10 @@ func BenchmarkHeartbeat_ConcurrentAcrossProjects(b *testing.B) {
 
 	b.ResetTimer()
 
-	for iter := 0; iter < b.N; iter++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 
-		for i := 0; i < numProjects; i++ {
+		for i := range numProjects {
 			wg.Add(1)
 
 			go func(c claim) {
@@ -185,7 +185,7 @@ func newMultiProjectService(b *testing.B, numProjects int) *CardService {
 	boardsDir := filepath.Join(tmpDir, "boards")
 	require.NoError(b, os.MkdirAll(boardsDir, 0o755))
 
-	for i := 0; i < numProjects; i++ {
+	for i := range numProjects {
 		proj := fmt.Sprintf("proj-%d", i)
 
 		projectDir := filepath.Join(boardsDir, proj)

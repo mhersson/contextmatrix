@@ -94,7 +94,7 @@ func TestAsyncCommit_HeartbeatFanoutAcrossCards(t *testing.T) {
 
 	cardIDs := make([]string, numCards)
 
-	for i := 0; i < numCards; i++ {
+	for i := range numCards {
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    fmt.Sprintf("Heartbeat Card %d", i),
 			Type:     "task",
@@ -119,7 +119,7 @@ func TestAsyncCommit_HeartbeatFanoutAcrossCards(t *testing.T) {
 
 	start := time.Now()
 
-	for i := 0; i < numCards; i++ {
+	for i := range numCards {
 		wg.Add(1)
 
 		go func(i int) {

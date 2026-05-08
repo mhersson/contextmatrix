@@ -20,8 +20,7 @@ import (
 // must kill it, regardless of the card's runner_status field (which we no
 // longer consult — that was the source of the old silent-skip bug).
 func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-001": {
@@ -61,8 +60,7 @@ func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 // means the agent is legitimately running; the sweep has no business
 // interrupting it.
 func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-010": {ID: "C-010", State: "in_progress"},
@@ -90,8 +88,7 @@ func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
 // bypassed the normal cleanup path. Without this rule, such a container
 // would leak to the runner's 2h timeout.
 func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{}}
 	fc := &fakeClient{
@@ -120,8 +117,7 @@ func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
 // never transitions to terminal (pathological case — stuck state machine,
 // UI bug, whatever) still gets killed once it exceeds ContainerMaxAge.
 func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	origMax := runner.ContainerMaxAge
 	runner.ContainerMaxAge = 10 * time.Millisecond
@@ -153,8 +149,7 @@ func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 // operators who don't want the sweep running (local dev, tight-loop tests)
 // can set reconcile_interval=0 and get a guaranteed no-op.
 func TestReconciliationSweep_ZeroIntervalDisabled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-001": {ID: "C-001", State: "done"},
@@ -177,8 +172,7 @@ func TestReconciliationSweep_ZeroIntervalDisabled(t *testing.T) {
 // between CM shutdown and startup must be cleaned up at startup, not a
 // minute later.
 func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
 		"proj/C-001": {ID: "C-001", State: "done"},
@@ -201,8 +195,7 @@ func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
 // an empty list as "kill nothing this tick and move on" — the actual
 // failure is a skip, not a false-negative kill.
 func TestReconciliationSweep_RunnerListFailureSkipsTick(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{cards: map[string]*board.Card{}}
 	fc := &fakeClient{listErr: errors.New("runner unreachable")}
@@ -218,8 +211,7 @@ func TestReconciliationSweep_RunnerListFailureSkipsTick(t *testing.T) {
 // path: main.go wiring must not crash the process if the runner client was
 // not constructed (runner disabled in config).
 func TestReconciliationSweep_MissingClient_NoPanic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &fakeCardGetter{}
 
@@ -232,8 +224,7 @@ func TestReconciliationSweep_MissingClient_NoPanic(t *testing.T) {
 // "card not found" signal. If the backing store is briefly unreachable, the
 // sweep must not panic-kill every container it sees.
 func TestReconciliationSweep_TransientCardErrorLeavesContainerAlone(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// fakeCardGetterWithErr returns a non-"not found" error so the sweep's
 	// isCardNotFound classifier leaves the container alone.
@@ -262,8 +253,7 @@ func (e *erroringCardGetter) GetCard(_ context.Context, _, _ string) (*board.Car
 // so errors.Is would return false and the "missing card" rule would never
 // fire for real missing cards from the service layer.
 func TestReconciliationSweep_StorageNotFoundErrorIsKill(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &erroringCardGetter{err: storage.ErrCardNotFound}
 	fc := &fakeClient{
@@ -283,8 +273,7 @@ func TestReconciliationSweep_StorageNotFoundErrorIsKill(t *testing.T) {
 // wrap of storage.ErrCardNotFound in service.GetCard would silently break
 // the missing-card rule.
 func TestReconciliationSweep_WrappedStorageNotFoundErrorIsKill(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cg := &erroringCardGetter{err: fmt.Errorf("get card: %w", storage.ErrCardNotFound)}
 	fc := &fakeClient{

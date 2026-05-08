@@ -186,13 +186,9 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 
 	m.activeSessions[cardID] = sess
 
-	m.pumpWG.Add(1)
-
-	go func() {
-		defer m.pumpWG.Done()
-
+	m.pumpWG.Go(func() {
 		m.runPump(pumpCtx, cardID, project, sess)
-	}()
+	})
 
 	return nil
 }
@@ -648,13 +644,9 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 
 	m.activeSessions[key] = sess
 
-	m.pumpWG.Add(1)
-
-	go func() {
-		defer m.pumpWG.Done()
-
+	m.pumpWG.Go(func() {
 		m.runProjectPump(pumpCtx, project, key, sess)
-	}()
+	})
 
 	return nil
 }

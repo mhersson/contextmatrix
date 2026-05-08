@@ -97,8 +97,8 @@ func connectSSEClient(t *testing.T, url string) (<-chan string, context.CancelFu
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if strings.HasPrefix(line, "data:") {
-				raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if after, ok := strings.CutPrefix(line, "data:"); ok {
+				raw := strings.TrimSpace(after)
 				if raw != "" {
 					select {
 					case ch <- raw:

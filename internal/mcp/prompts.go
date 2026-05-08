@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -457,10 +458,8 @@ func classifyComplexity(card *board.Card, subtasks []*board.Card, subtaskErr err
 		return "standard"
 	}
 
-	for _, l := range card.Labels {
-		if l == "simple" {
-			return "simple"
-		}
+	if slices.Contains(card.Labels, "simple") {
+		return "simple"
 	}
 
 	return "standard"

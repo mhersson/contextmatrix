@@ -614,13 +614,9 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 
 	syncer.interval = 10 * time.Millisecond
 
-	syncer.wg.Add(1)
-
-	go func() {
-		defer syncer.wg.Done()
-
+	syncer.wg.Go(func() {
 		syncer.periodicPull(ctx)
-	}()
+	})
 
 	// Wait until periodicPull has registered its ticker with the fake clock.
 	require.Eventually(t, func() bool {
@@ -686,13 +682,9 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	syncer.wg.Add(1)
-
-	go func() {
-		defer syncer.wg.Done()
-
+	syncer.wg.Go(func() {
 		syncer.pushListener(ctx)
-	}()
+	})
 
 	// Send the first notification (will panic on the hook).
 	syncer.NotifyCommit()

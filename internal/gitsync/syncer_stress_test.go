@@ -67,11 +67,8 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 
 	// Ticker goroutine: push every pushInterval for the full test window.
 	var pushWg sync.WaitGroup
-	pushWg.Add(1)
 
-	go func() {
-		defer pushWg.Done()
-
+	pushWg.Go(func() {
 		ticker := time.NewTicker(pushInterval)
 		defer ticker.Stop()
 
@@ -91,7 +88,7 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 				pushMu.Unlock()
 			}
 		}
-	}()
+	})
 
 	// 100 goroutines each do 10 heartbeats against their assigned card.
 	var hbWg sync.WaitGroup

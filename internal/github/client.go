@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -157,7 +157,7 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 		if rateLimited {
 			// This page was the last one before the rate limit is hit.
 			// Return what we have so far plus the sentinel error.
-			sort.Strings(allNames)
+			slices.Sort(allNames)
 
 			return allNames, ErrRateLimited
 		}
@@ -165,7 +165,7 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 		nextURL = next
 	}
 
-	sort.Strings(allNames)
+	slices.Sort(allNames)
 
 	return allNames, nil
 }

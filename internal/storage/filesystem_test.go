@@ -419,8 +419,6 @@ func TestFilesystemStore_ListCards_FilterByExternalID(t *testing.T) {
 	assert.Equal(t, "JIRA-123", cards[0].Source.ExternalID)
 }
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 	dir := t.TempDir()
 	setupTestProject(t, dir, "test-project", "TEST")
@@ -440,7 +438,7 @@ func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 	require.NoError(t, store.CreateCard(context.Background(), "test-project", card3))
 
 	t.Run("filter by Vetted=true returns only vetted cards", func(t *testing.T) {
-		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: boolPtr(true)})
+		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: new(true)})
 		require.NoError(t, err)
 		assert.Len(t, cards, 2)
 
@@ -450,7 +448,7 @@ func TestFilesystemStore_ListCards_FilterByVetted(t *testing.T) {
 	})
 
 	t.Run("filter by Vetted=false returns only unvetted cards", func(t *testing.T) {
-		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: boolPtr(false)})
+		cards, err := store.ListCards(context.Background(), "test-project", CardFilter{Vetted: new(false)})
 		require.NoError(t, err)
 		assert.Len(t, cards, 1)
 		assert.False(t, cards[0].Vetted)
@@ -521,13 +519,13 @@ func TestFilesystemStore_ConcurrentCreateAndRead(t *testing.T) {
 
 	ctx := context.Background()
 
-	for w := 0; w < numWriters; w++ {
+	for w := range numWriters {
 		wg.Add(1)
 
 		go func(writerID int) {
 			defer wg.Done()
 
-			for i := 0; i < cardsPerWriter; i++ {
+			for i := range cardsPerWriter {
 				cardID := "TEST-" + string(rune('A'+writerID)) + "-" + string(rune('0'+i%10)) + string(rune('0'+i/10))
 				card := testCard(cardID, "todo")
 				_ = store.CreateCard(ctx, "test-project", card)
@@ -535,16 +533,12 @@ func TestFilesystemStore_ConcurrentCreateAndRead(t *testing.T) {
 		}(w)
 	}
 
-	for r := 0; r < numReaders; r++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			for i := 0; i < 50; i++ {
+	for range numReaders {
+		wg.Go(func() {
+			for range 50 {
 				_, _ = store.ListCards(ctx, "test-project", CardFilter{})
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -1283,7 +1277,7 @@ func BenchmarkListCards_500Cards(b *testing.B) {
 
 	b.ResetTimer()
 
-	for range b.N {
+	for b.Loop() {
 		cards, err := store.ListCards(ctx, "bench-project", CardFilter{})
 		if err != nil {
 			b.Fatal(err)

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -154,9 +155,7 @@ func copyCard(c *board.Card) *board.Card {
 
 	if c.Custom != nil {
 		cp.Custom = make(map[string]any, len(c.Custom))
-		for k, v := range c.Custom {
-			cp.Custom[k] = v
-		}
+		maps.Copy(cp.Custom, c.Custom)
 	}
 
 	if c.TokenUsage != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -647,9 +648,7 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 
 	if cfg.Templates != nil {
 		cp.Templates = make(map[string]string, len(cfg.Templates))
-		for k, v := range cfg.Templates {
-			cp.Templates[k] = v
-		}
+		maps.Copy(cp.Templates, cfg.Templates)
 	}
 
 	if cfg.DefaultSkills != nil {

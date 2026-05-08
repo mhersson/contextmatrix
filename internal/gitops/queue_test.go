@@ -256,7 +256,7 @@ func TestAwaitIdle_CtxCancelDoesNotLeak(t *testing.T) {
 
 	const iterations = 50
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -435,7 +435,7 @@ func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 	)
 
 	// Seed project directories + files so every commit has something to stage.
-	for p := 0; p < numProjects; p++ {
+	for p := range numProjects {
 		proj := fmt.Sprintf("proj-%d", p)
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, proj, "tasks"), 0o755))
 	}
@@ -446,7 +446,7 @@ func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 		errorsFound atomic.Int32
 	)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 
 		go func(i int) {
@@ -456,7 +456,7 @@ func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 			rel := filepath.Join(proj, "tasks", fmt.Sprintf("card-%02d.md", i))
 			full := filepath.Join(tmpDir, rel)
 
-			if err := os.WriteFile(full, []byte(fmt.Sprintf("body %d", i)), 0o644); err != nil {
+			if err := os.WriteFile(full, fmt.Appendf(nil, "body %d", i), 0o644); err != nil {
 				errorsFound.Add(1)
 				t.Errorf("write file: %v", err)
 

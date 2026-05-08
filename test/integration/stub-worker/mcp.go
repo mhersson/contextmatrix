@@ -125,12 +125,12 @@ func extractMCPPayload(contentType string, body []byte) []byte {
 	if !strings.HasPrefix(contentType, "text/event-stream") {
 		return body
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if strings.HasPrefix(line, "data: ") {
-			return []byte(strings.TrimPrefix(line, "data: "))
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			return []byte(after)
 		}
-		if strings.HasPrefix(line, "data:") {
-			return []byte(strings.TrimPrefix(line, "data:"))
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			return []byte(after)
 		}
 	}
 	return body

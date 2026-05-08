@@ -166,7 +166,7 @@ func TestPublishNonBlocking(t *testing.T) {
 	defer unsub()
 
 	// Fill the buffer (64 events)
-	for i := 0; i < subscriberBufferSize; i++ {
+	for range subscriberBufferSize {
 		bus.Publish(Event{
 			Type:      CardUpdated,
 			Project:   "test-project",
@@ -179,7 +179,7 @@ func TestPublishNonBlocking(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			bus.Publish(Event{
 				Type:      CardUpdated,
 				Project:   "test-project",
@@ -214,7 +214,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	unsubscribers := make([]func(), numSubscribers)
 
 	// Start subscribers
-	for i := 0; i < numSubscribers; i++ {
+	for i := range numSubscribers {
 		ch, unsub := bus.Subscribe()
 		unsubscribers[i] = unsub
 
@@ -231,13 +231,9 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 
 	// Start publishers
 	var pubWg sync.WaitGroup
-	for i := 0; i < numPublishers; i++ {
-		pubWg.Add(1)
-
-		go func() {
-			defer pubWg.Done()
-
-			for j := 0; j < numEvents; j++ {
+	for range numPublishers {
+		pubWg.Go(func() {
+			for range numEvents {
 				bus.Publish(Event{
 					Type:      CardUpdated,
 					Project:   "test-project",
@@ -245,7 +241,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 					Timestamp: time.Now(),
 				})
 			}
-		}()
+		})
 	}
 
 	// Wait for all publishes
@@ -362,7 +358,7 @@ func BenchmarkPublish(b *testing.B) {
 	bus := NewBus()
 
 	// Add some subscribers
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ch, unsub := bus.Subscribe()
 		defer unsub()
 
@@ -382,7 +378,7 @@ func BenchmarkPublish(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		bus.Publish(event)
 	}
 }
@@ -392,7 +388,7 @@ func BenchmarkSubscribeUnsubscribe(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, unsub := bus.Subscribe()
 		unsub()
 	}
@@ -451,7 +447,7 @@ func TestPublish_DroppedEventsIncrementMetric(t *testing.T) {
 	defer unsub()
 
 	// Fill the buffer completely.
-	for i := 0; i < subscriberBufferSize; i++ {
+	for range subscriberBufferSize {
 		bus.Publish(Event{
 			Type:      CardUpdated,
 			Project:   "test-project",
@@ -463,7 +459,7 @@ func TestPublish_DroppedEventsIncrementMetric(t *testing.T) {
 	// These publishes must be dropped (buffer already full).
 	const extraDrops = 5
 
-	for i := 0; i < extraDrops; i++ {
+	for range extraDrops {
 		bus.Publish(Event{
 			Type:      CardUpdated,
 			Project:   "test-project",

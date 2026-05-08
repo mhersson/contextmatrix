@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1825,11 +1826,11 @@ func TestCaptureHandler_ConcurrentHandle(t *testing.T) {
 
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 
-			for j := 0; j < perGoroutine; j++ {
+			for j := range perGoroutine {
 				logger.Warn("concurrent log", "i", j)
 			}
 		}()
@@ -2363,9 +2364,7 @@ func TestUpdateProject_FrontendNormalization(t *testing.T) {
 
 	// Simulate frontend normalization: add empty arrays for states without transitions
 	normalizedTransitions := make(map[string][]string)
-	for k, v := range cfg.Transitions {
-		normalizedTransitions[k] = v
-	}
+	maps.Copy(normalizedTransitions, cfg.Transitions)
 
 	for _, s := range cfg.States {
 		if _, ok := normalizedTransitions[s]; !ok {
@@ -3096,7 +3095,7 @@ func TestReportUsageLargeNumbers(t *testing.T) {
 	// Each call adds just over 2^30 tokens — after 3 calls we exceed 2^31.
 	const chunkSize = int64(1<<30 + 1) // 1,073,741,825
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 			AgentID:          "agent-1",
 			Model:            "claude-sonnet-4-6",
@@ -3138,7 +3137,7 @@ func TestReportUsageFloatPrecision(t *testing.T) {
 
 	const rate = 0.000003 // claude-sonnet-4-6 prompt rate
 
-	for i := 0; i < calls; i++ {
+	for range calls {
 		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 			AgentID:          "agent-1",
 			Model:            "claude-sonnet-4-6",
@@ -4473,7 +4472,7 @@ func TestIncrementReviewAttempts_Capped(t *testing.T) {
 	require.NoError(t, err)
 
 	// Increment to the cap (5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
 		require.NoError(t, err, "increment %d should succeed", i+1)
 	}
@@ -5994,8 +5993,7 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, fake)
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// tickCh receives a value each time stalledFn is called successfully.
 	tickCh := make(chan struct{}, 10)

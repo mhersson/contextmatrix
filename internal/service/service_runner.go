@@ -572,8 +572,8 @@ func skillNameOf(e board.ActivityEntry) string {
 	}
 
 	const prefix = "engaged "
-	if strings.HasPrefix(e.Message, prefix) {
-		return strings.TrimPrefix(e.Message, prefix)
+	if after, ok := strings.CutPrefix(e.Message, prefix); ok {
+		return after
 	}
 
 	return ""

@@ -33,10 +33,10 @@ func descNames(c prometheus.Collector) []string {
 
 		const prefix = `fqName: "`
 
-		if i := strings.Index(s, prefix); i >= 0 {
-			rest := s[i+len(prefix):]
-			if j := strings.Index(rest, `"`); j >= 0 {
-				names = append(names, rest[:j])
+		if _, after, ok := strings.Cut(s, prefix); ok {
+			rest := after
+			if before, _, ok := strings.Cut(rest, `"`); ok {
+				names = append(names, before)
 			}
 		}
 	}

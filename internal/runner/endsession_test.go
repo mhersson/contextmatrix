@@ -157,8 +157,7 @@ func assertNoCall(t *testing.T, fc *fakeClient) {
 }
 
 func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -190,8 +189,7 @@ func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
 }
 
 func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -219,8 +217,7 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 // is a 200 no-op, and the class of silent-skip bug around runner_status
 // drift is eliminated at the source.
 func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -244,8 +241,7 @@ func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(
 }
 
 func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -272,8 +268,7 @@ func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T)
 }
 
 func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -294,8 +289,7 @@ func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
 }
 
 func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -318,8 +312,7 @@ func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
 }
 
 func TestEndSessionSubscriber_UnrelatedEvent_NoCall(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -339,8 +332,7 @@ func TestEndSessionSubscriber_UnrelatedEvent_NoCall(t *testing.T) {
 }
 
 func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
@@ -368,8 +360,7 @@ func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
 // runs that reach a terminal state: there's no interactive stdin to close,
 // but the container must still be terminated.
 func TestEndSessionSubscriber_EndSession409_KillStillFires(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus := events.NewBus()
 	cg := &fakeCardGetter{cards: map[string]*board.Card{
