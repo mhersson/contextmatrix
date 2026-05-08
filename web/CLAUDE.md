@@ -306,6 +306,18 @@ navigating. Props added to `AppHeaderProps`:
 Keyboard shortcut: `c` (registered in `useKeyboardShortcuts`; only fires when
 no panel is open and `remote_execution.enabled` is true).
 
+### Create & Run auto-open
+
+When a user submits a new card via the **Create & Run HITL** or **Create & Run Auto** button, `ProjectShell` automatically opens the `CardPanel` for the newly created card. The create form closes as usual, and the user is taken directly to the card detail view.
+
+This is handled in the `onCreateCard` callback (`ProjectShell.tsx`): when `opts?.run` is true, `api.runCard` is called after card creation, and on success `setSelectedCard(updatedCard)` opens the panel with the card's updated `runner_status` / `assigned_agent`. The board flash (`setFlashCardId`) is skipped for the run path — it fires only for plain "Just create" submissions.
+
+| Action | Result |
+|---|---|
+| Just create | Create form closes, board flashes the new card. No panel opens. |
+| Create & Run HITL | Create form closes, `CardPanel` opens. User sees chat immediately. |
+| Create & Run Auto | Create form closes, `CardPanel` opens. User sees runner status immediately. |
+
 ### ProjectShell layout
 
 `ProjectShell` owns the console state and the log data. Its `<main>` is a
