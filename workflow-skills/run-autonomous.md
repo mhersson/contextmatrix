@@ -69,6 +69,26 @@ exists).
 
 Otherwise skip this step.
 
+## Step 2: Load context (unconditional)
+
+Call `get_knowledge_base` with `project=<this card's project>` before
+determining the starting phase. This runs on every execution — fresh start or
+resume — so that KB context is available regardless of which phase begins.
+
+If docs are returned, hold them in your reasoning context: use
+`code-structure.md` to choose file paths, `architecture.md` to honour component
+boundaries, `api-documentation.md` to avoid breaking public surfaces, and
+`glossary.md` to use the project's vocabulary correctly. If empty, proceed
+without — the plan will be drafted from card body and `context_files` only.
+
+Immediately after the KB call, log the outcome:
+
+```
+add_log(card_id=<card_id>, agent_id=<your_agent_id>,
+        action='kb_loaded',
+        message='loaded N docs' OR 'no KB built yet')
+```
+
 ## Determine Starting Point
 
 Based on the card's current state and body content:
@@ -85,7 +105,8 @@ Based on the card's current state and body content:
 ## Phase 1: Plan Drafting (always inline)
 
 1. Call `get_skill(skill_name='create-plan', card_id='<card_id>',
-   caller_model='<your_model>')`.
+   caller_model='<your_model>')`. KB context from Step 2 is already in
+   your reasoning context — pass it to create-plan inline.
 2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
    returned content.
 3. Execute inline. Produce `PLAN_DRAFTED` output.

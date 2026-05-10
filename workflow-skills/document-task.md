@@ -65,52 +65,33 @@ review agent verifies accuracy in the next phase.
 
 ## Step 4: Commit documentation changes
 
-After writing documentation, commit your changes following the git workflow
-based on the card context injected above.
+**You never push and never create a PR.** Push and PR creation are the
+orchestrator's job (Phase 6 in run-autonomous, Phase 9 in create-plan)
+— always, without exception, regardless of card flags.
 
-### Feature Branch Mode
+Your only commit responsibility is the doc files you wrote in Step 3.
 
-If the card context shows a **Branch** (e.g., `feat/some-feature`):
+### Decision
 
-1. Switch to the feature branch: `git checkout <branch_name>`. The branch
-   already exists — execute-task agents created it during the execution phase.
-2. Stage only the documentation files you wrote or updated.
-3. Commit with a documentation-specific conventional commit message:
-   `docs(scope): summary` + blank line + bullet-point list of files changed.
-   **No card IDs in commit messages** — they are internal to ContextMatrix.
-4. **NEVER push to main or master.** If you find yourself on main, switch to
-   the feature branch before committing.
+1. **Was I spawned by an orchestrator (Agent tool) or invoked directly by a human?**
+   - **Orchestrator:** stop after committing the doc. The orchestrator handles push/PR.
+   - **Direct human:** continue to step 2.
 
-### Autonomous Mode
+2. **(Direct human only) Is there a Branch field on the card?**
+   - **Branch present:** switch to it (`git checkout <branch_name>`), stage only
+     the doc files you wrote/updated, and commit with a `docs(scope): summary`
+     conventional message + blank line + bullet-point list of files changed. No
+     card IDs in commit messages.
+   - **No Branch field:** the doc lives in the boards repo only; commit and stop.
 
-If the card context shows **Autonomous: true**:
+In all cases this skill never pushes and never creates a PR.
 
-- Commit and push to the feature branch automatically.
-- Call `report_push(card_id=<card_id>, branch=<branch_name>, pr_url=<url>)`
-  after pushing. Use the parent card ID from your card context.
-- **NEVER push to main or master.** This is non-negotiable.
+### Forbidden
 
-### HITL Mode (No Autonomous)
-
-If the card context does not show **Autonomous: true**:
-
-- **If you are a sub-agent** (spawned via the `Agent` tool by an orchestrator):
-  do NOT commit. Leave your documentation changes in the working tree. The
-  orchestrator handles committing after documentation is complete, so the user
-  sees all changes (code + docs) before any commits are made.
-- **If invoked directly** (the user ran the skill themselves in their
-  conversation): ask "Want me to commit these documentation changes?" before
-  committing. If on a feature branch, follow up with: "Want me to push?"
-  Never push without explicit human approval in HITL mode.
-
-### No Feature Branch
-
-If no **Branch** is shown in the card context:
-
-- **If you are a sub-agent**: do NOT commit. Leave changes in the working tree.
-- **If invoked directly**: commit your documentation changes on the current
-  branch.
-- Do NOT push.
+- `git push` — never. The orchestrator pushes.
+- `gh pr create` (or any PR creation) — never. The orchestrator opens PRs.
+- Committing to `main` or `master` — never. Switch to the feature branch
+  first if you find yourself on main.
 
 ## Step 5: Release the card
 

@@ -170,10 +170,27 @@ Hold this claim through Phase 5.
 
 ## Step 1: Understand the task
 
-Review the card details provided above. If the card body already contains a
-`## Plan` section, use it as a starting point — do not discard previous planning
-work. Only call `get_task_context` if you need to verify the absolute latest
-state.
+1. **Load project knowledge base.** Call `get_knowledge_base` with
+   `project=<this card's project>`. Immediately after, log the outcome:
+
+   ```
+   add_log(card_id=<card_id>, agent_id=<your_agent_id>,
+           action='kb_loaded',
+           message='loaded N docs' OR 'no KB built yet')
+   ```
+
+   If docs are returned, treat them as authoritative architectural
+   context: use `code-structure.md` to choose file paths,
+   `architecture.md` to honour component boundaries,
+   `api-documentation.md` to avoid breaking public surfaces, and
+   `glossary.md` to use the project's vocabulary correctly. If empty,
+   proceed without — the plan will be drafted from card body and
+   `context_files` only.
+
+2. **Review card details.** Read the card details provided above. If
+   the card body already contains a `## Plan` section, use it as a
+   starting point — do not discard previous planning work. Only call
+   `get_task_context` if you need to verify the absolute latest state.
 
 ## Step 2: Draft the plan
 
@@ -564,10 +581,11 @@ Do both of these before branching:
    Claude Code session has none of them. Run:
 
    ```bash
-   [ -n "${CM_CARD_ID:-}" ] && echo runner || echo local
+   printenv CM_CARD_ID
    ```
 
-   Always outputs exactly one line — `runner` or `local`.
+   If the command prints a value (and exits 0), the mode is `runner`.
+   If it prints nothing (and exits non-zero), the mode is `local`.
 
 Select exactly one mode from the table — the two inputs fully determine it:
 

@@ -81,36 +81,53 @@ If the body has no design section, proceed with the full process below.
 
 You MUST complete each of these in order:
 
-1. **Explore project context** — read files referenced in the card,
-   recent commits, the project's architecture docs.
-2. **Ask clarifying questions** — one at a time, understand purpose,
+1. **Load project knowledge base** — call `get_knowledge_base` with
+   `project=<this card's project>`. Immediately after the call returns, log
+   the outcome:
+
+   ```
+   add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
+           action='kb_loaded',
+           message='loaded N docs' OR 'no KB built yet')
+   ```
+
+   If docs are returned, treat them as authoritative for component
+   map, where new code goes, public API surfaces, and project
+   vocabulary; reference them when discussing architecture,
+   decomposition, or naming. If empty, note that to the user when
+   relevant and proceed.
+2. **Explore project context** — read files referenced in the card and
+   anything the KB doesn't cover (recent commits, files mentioned in
+   the body). Don't re-derive what the KB already states.
+3. **Ask clarifying questions** — one at a time, understand purpose,
    constraints, success criteria.
-3. **Propose 2–3 approaches** — with trade-offs and your recommendation.
-4. **Present design** — in sections scaled to their complexity, get
+4. **Propose 2–3 approaches** — with trade-offs and your recommendation.
+5. **Present design** — in sections scaled to their complexity, get
    user approval after each section.
-5. **Update card body** — via `update_card`, add or replace a
+6. **Update card body** — via `update_card`, add or replace a
    `## Design` section with the agreed design.
-6. **Description self-review** — quick inline check for placeholders,
+7. **Description self-review** — quick inline check for placeholders,
    contradictions, ambiguity, scope (see below); fix and re-update.
-7. **User confirms updated body** — last gate before returning.
-8. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
+8. **User confirms updated body** — last gate before returning.
+9. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
 
 ## Process Flow
 
 ```
-Read card body (get_card)
-  → Design already complete?
-       yes → summarize, ask user "walk through or proceed?"
-              → "proceed" → return
-              → "walk through" → focused review, optional update_card, return
-       no  → Ask clarifying questions (one at a time)
-              → Propose 2-3 approaches
-                → Present design sections (get approval per section)
-                  → Update card body via update_card (add/replace ## Design)
-                    → Self-review (fix inline)
-                      → User confirms updated body
-                        → If changes requested → re-update
-                        → If approved → return
+Load project knowledge base (get_knowledge_base)
+  → Read card body (get_card)
+    → Design already complete?
+         yes → summarize, ask user "walk through or proceed?"
+                → "proceed" → return
+                → "walk through" → focused review, optional update_card, return
+         no  → Ask clarifying questions (one at a time)
+                → Propose 2-3 approaches
+                  → Present design sections (get approval per section)
+                    → Update card body via update_card (add/replace ## Design)
+                      → Self-review (fix inline)
+                        → User confirms updated body
+                          → If changes requested → re-update
+                          → If approved → return
 ```
 
 ## The Process
