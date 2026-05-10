@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import type { KnowledgeBaseSummary } from '../../types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { KnowledgeBaseSummary, RefreshJobStatus } from '../../types';
 
 interface SidebarProps {
   summary: KnowledgeBaseSummary;
   selected: { repo: string; doc: string } | null;
   onSelect: (sel: { repo: string; doc: string }) => void;
+  onRefreshClick?: (repo: string) => void;
+  refreshStatusByRepo?: Record<string, RefreshJobStatus>;
 }
 
 interface FlatDoc {
@@ -13,15 +15,29 @@ interface FlatDoc {
   human_edited: boolean;
 }
 
-export function KnowledgeBaseSidebar({ summary, selected, onSelect }: SidebarProps) {
-  const flatDocs: FlatDoc[] = summary.repos.flatMap((repo) =>
-    repo.docs.map((d) => ({ repo: repo.name, doc: d.name, human_edited: d.human_edited })),
+export function KnowledgeBaseSidebar({ summary, selected, onSelect, onRefreshClick, refreshStatusByRepo }: SidebarProps) {
+  const flatDocs: FlatDoc[] = useMemo(
+    () =>
+      summary.repos.flatMap((repo) =>
+        repo.docs.map((d) => ({ repo: repo.name, doc: d.name, human_edited: d.human_edited })),
+      ),
+    [summary],
+  );
+
+  // Map (repo, doc) -> linear index in flatDocs. Repo names are derived from
+  // git URL last-segments and doc names are canonical (closed list); neither
+  // contains '/'. Used at render time so we don't mutate a counter inside
+  // .map() — that pattern double-counts under React 19 StrictMode dev double-
+  // invocation.
+  const idxMap = useMemo(
+    () => new Map(flatDocs.map((d, i) => [`${d.repo}/${d.doc}`, i])),
+    [flatDocs],
   );
 
   const initialFocusIndex = (() => {
     if (!selected) return 0;
-    const idx = flatDocs.findIndex((d) => d.repo === selected.repo && d.doc === selected.doc);
-    return idx >= 0 ? idx : 0;
+    const idx = idxMap.get(`${selected.repo}/${selected.doc}`);
+    return idx ?? 0;
   })();
 
   const [focusedIdx, setFocusedIdx] = useState(initialFocusIndex);
@@ -50,24 +66,49 @@ export function KnowledgeBaseSidebar({ summary, selected, onSelect }: SidebarPro
     buttonsRef.current[next]?.focus();
   };
 
-  let flatIdx = 0;
   return (
     <nav
       className="w-64 overflow-auto"
       style={{ borderRight: '1px solid var(--bg3)' }}
       onKeyDown={onKeyDown}
     >
-      {summary.repos.map((repo) => (
+      {summary.repos.map((repo) => {
+        const status = refreshStatusByRepo?.[repo.name];
+        const isRefreshing = status && (status.state === 'planning' || status.state === 'running');
+        return (
         <div key={repo.name} className="py-2">
-          <h3
-            className="px-3 py-1 text-xs font-semibold uppercase"
-            style={{ color: 'var(--grey1)', margin: 0 }}
-          >
-            {repo.name}
-          </h3>
+          <div className="flex items-center justify-between px-3 py-1">
+            <h3
+              className="text-xs font-semibold uppercase"
+              style={{ color: 'var(--grey1)', margin: 0 }}
+            >
+              {repo.name}
+            </h3>
+            {isRefreshing ? (
+              <span
+                className="text-xs"
+                style={{ color: 'var(--aqua)' }}
+                aria-label={`Refreshing ${repo.name}`}
+              >
+                ⟳ {status?.docs_done ?? 0}/{status?.docs_total ?? '?'}
+              </span>
+            ) : (
+              onRefreshClick && (
+                <button
+                  type="button"
+                  onClick={() => onRefreshClick(repo.name)}
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ color: 'var(--aqua)' }}
+                  aria-label={`Refresh ${repo.name}`}
+                >
+                  Refresh
+                </button>
+              )
+            )}
+          </div>
           <ul>
             {repo.docs.map((doc) => {
-              const myIdx = flatIdx++;
+              const myIdx = idxMap.get(`${repo.name}/${doc.name}`) ?? -1;
               const isSelected = selected?.repo === repo.name && selected.doc === doc.name;
               return (
                 <li key={doc.name}>
@@ -109,7 +150,8 @@ export function KnowledgeBaseSidebar({ summary, selected, onSelect }: SidebarPro
             })}
           </ul>
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

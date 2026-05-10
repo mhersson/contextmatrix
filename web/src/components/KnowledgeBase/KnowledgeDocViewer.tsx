@@ -13,9 +13,10 @@ interface ViewerProps {
   response: KnowledgeDocResponse;
   onSaved: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  refreshing?: boolean;
 }
 
-export function KnowledgeDocViewer({ project, repo, doc, response, onSaved, onDirtyChange }: ViewerProps) {
+export function KnowledgeDocViewer({ project, repo, doc, response, onSaved, onDirtyChange, refreshing }: ViewerProps) {
   const [editing, setEditing] = useState(false);
   const { theme } = useTheme();
 
@@ -27,9 +28,11 @@ export function KnowledgeDocViewer({ project, repo, doc, response, onSaved, onDi
           onDirtyChange?.(false);
           setEditing(false);
         }}
-        onSave={async (content) => {
-          await api.putKnowledgeDoc(project, repo, doc, content);
+        onSave={async (content, signal) => {
+          await api.putKnowledgeDoc(project, repo, doc, content, { signal });
+          if (signal.aborted) return;
           await onSaved();
+          if (signal.aborted) return;
           onDirtyChange?.(false);
           setEditing(false);
         }}
@@ -47,16 +50,30 @@ export function KnowledgeDocViewer({ project, repo, doc, response, onSaved, onDi
         <button
           type="button"
           onClick={() => setEditing(true)}
+          disabled={refreshing}
+          title={refreshing ? 'Edit disabled while refresh in progress' : undefined}
           className="px-3 py-1 text-sm rounded"
           style={{
             border: '1px solid var(--bg3)',
-            color: 'var(--fg)',
+            color: refreshing ? 'var(--grey1)' : 'var(--fg)',
             backgroundColor: 'transparent',
+            cursor: refreshing ? 'not-allowed' : 'pointer',
+            opacity: refreshing ? 0.6 : 1,
           }}
         >
           Edit
         </button>
       </div>
+      {refreshing && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-4 px-3 py-2 text-sm rounded"
+          style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}
+        >
+          This doc is being rebuilt; content will reload when done.
+        </div>
+      )}
       {response.meta.human_edited && (
         <div
           role="status"

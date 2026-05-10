@@ -258,6 +258,18 @@ describe('api knowledge base', () => {
     expect(init.body).toContain('# new');
   });
 
+  it('putKnowledgeDoc forwards an AbortSignal to fetch when supplied', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ files_written: ['architecture.md'] })
+    );
+
+    const ac = new AbortController();
+    await api.putKnowledgeDoc('p', 'core', 'architecture.md', '# new', { signal: ac.signal });
+
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBe(ac.signal);
+  });
+
   it('getKnowledgeDoc surfaces 404 as APIError with KNOWLEDGE_DOC_NOT_FOUND code', async () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       makeErrorResponse('KNOWLEDGE_DOC_NOT_FOUND', 'knowledge doc not found', 404),
@@ -268,4 +280,59 @@ describe('api knowledge base', () => {
     );
   });
 
+});
+
+describe('knowledge refresh API', () => {
+  it('getKnowledgeRefreshPlan GETs the plan endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], head_commit: 'abc' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await api.getKnowledgeRefreshPlan('p', 'r');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/p/knowledge/r/refresh-plan',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('startKnowledgeRefresh POSTs the trigger', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ state: 'planning' }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await api.startKnowledgeRefresh('p', 'r', ['api-documentation.md']);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/p/knowledge/r/refresh',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.body).toBe(JSON.stringify({ overwrite_docs: ['api-documentation.md'] }));
+  });
+
+  it('getKnowledgeRefreshStatus GETs the project-scoped status endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ repos: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await api.getKnowledgeRefreshStatus('p');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/p/knowledge/refresh-status',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
 });

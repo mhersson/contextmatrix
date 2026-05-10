@@ -16,6 +16,9 @@ import type {
   TaskSkillSummary,
   KnowledgeBaseSummary,
   KnowledgeDocResponse,
+  RefreshPlan,
+  RefreshJobStatus,
+  RefreshStatusResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -332,11 +335,40 @@ class APIClient {
     project: string,
     repo: string,
     doc: string,
-    content: string
+    content: string,
+    opts?: { signal?: AbortSignal },
   ): Promise<void> {
     await this.request<void>(
       `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/${encodeURIComponent(doc)}`,
-      { method: 'PUT', body: JSON.stringify({ content }) }
+      { method: 'PUT', body: JSON.stringify({ content }), signal: opts?.signal }
+    );
+  }
+
+  async getKnowledgeRefreshPlan(project: string, repo: string): Promise<RefreshPlan> {
+    return this.request<RefreshPlan>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/refresh-plan`,
+      { method: 'GET' },
+    );
+  }
+
+  async startKnowledgeRefresh(
+    project: string,
+    repo: string,
+    overwriteDocs: string[],
+  ): Promise<RefreshJobStatus> {
+    return this.request<RefreshJobStatus>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/refresh`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ overwrite_docs: overwriteDocs }),
+      },
+    );
+  }
+
+  async getKnowledgeRefreshStatus(project: string): Promise<RefreshStatusResponse> {
+    return this.request<RefreshStatusResponse>(
+      `/projects/${encodeURIComponent(project)}/knowledge/refresh-status`,
+      { method: 'GET' },
     );
   }
 }

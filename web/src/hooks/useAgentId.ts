@@ -20,13 +20,33 @@ function generateAgentId(): string {
   return `human:web-${suffix}`;
 }
 
+// Safari Private Browsing, quota exhaustion, and disabled storage all throw
+// on localStorage.getItem / setItem. Wrap both so a throw does not unmount
+// ProjectShell — fall back to a per-session in-memory id, which is
+// functionally identical for this single-tenant tool (the only loss is id
+// continuity across page reloads, but the CSRF/UI-origin signal is unaffected).
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore — caller already has the in-memory id
+  }
+}
+
 export function useAgentId() {
   const [agentId] = useState<string>(() => {
-    const existing = localStorage.getItem(STORAGE_KEY);
+    const existing = safeGet(STORAGE_KEY);
     if (existing) return existing;
 
     const fresh = generateAgentId();
-    localStorage.setItem(STORAGE_KEY, fresh);
+    safeSet(STORAGE_KEY, fresh);
     return fresh;
   });
 

@@ -309,6 +309,41 @@ export interface KnowledgeDocResponse {
   meta: KnowledgeDocMeta;
 }
 
+export type RefreshState =
+  | 'idle'
+  | 'planning'
+  | 'running'
+  | 'succeeded'
+  | 'failed';
+
+export interface RefreshPlanItem {
+  doc: string;
+  reason: string;
+  human_edited: boolean;
+  estimated_cost_usd: number;
+}
+
+export interface RefreshPlan {
+  items: RefreshPlanItem[];
+  head_commit: string;
+}
+
+export interface RefreshJobStatus {
+  state: RefreshState;
+  agent_id?: string;
+  started_at?: string;
+  finished_at?: string | null;
+  docs_total?: number;
+  docs_done?: number;
+  current_doc?: string;
+  error?: string | null;
+  commit_sha?: string | null;
+}
+
+export interface RefreshStatusResponse {
+  repos: Record<string, RefreshJobStatus>;
+}
+
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
   queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },

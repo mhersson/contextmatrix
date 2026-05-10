@@ -12,6 +12,7 @@ interface KnowledgeBaseData {
   setDocContent: (doc: KnowledgeDocResponse | null) => void;
   setDocError: (err: string | null) => void;
   setSummary: (s: KnowledgeBaseSummary | null) => void;
+  setSummaryError: (err: string | null) => void;
 }
 
 export function useKnowledgeBaseData(
@@ -91,5 +92,6 @@ export function useKnowledgeBaseData(
     setDocContent,
     setDocError,
     setSummary,
+    setSummaryError,
   };
 }
