@@ -55,11 +55,11 @@ describe('RefreshPlanModal', () => {
     expect(onConfirm).toHaveBeenCalledWith(['api-documentation.md']);
   });
 
-  it('shows total estimated cost', () => {
+  it('does not surface estimated cost amounts', () => {
     render(
       <RefreshPlanModal plan={samplePlan} repo="core" onConfirm={() => {}} onCancel={() => {}} />,
     );
-    expect(screen.getByText(/\$0\.80/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
   });
 
   it('cancel button calls onCancel', () => {

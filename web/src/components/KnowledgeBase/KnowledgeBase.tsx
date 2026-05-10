@@ -151,7 +151,7 @@ export function KnowledgeBase({ project }: { project: string }) {
 
   return (
     <div className="flex h-full">
-      <div className="flex flex-col">
+      <div className="flex flex-col h-full min-h-0">
         {summaryError && (
           <div
             className="px-3 py-2 text-xs"
@@ -169,7 +169,7 @@ export function KnowledgeBase({ project }: { project: string }) {
           refreshStatusByRepo={refreshStatus.repos}
         />
       </div>
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
         {docError ? (
           <div className="p-6">
             <p className="text-sm" style={{ color: 'var(--red)' }}>
@@ -187,8 +187,10 @@ export function KnowledgeBase({ project }: { project: string }) {
             repo={selected.repo}
             doc={selected.doc}
             response={docContent}
+            repoSummary={summary?.repos.find((r) => r.name === selected.repo)}
             onSaved={reload}
             onDirtyChange={setDirty}
+            onRefreshClick={handleRefreshClick}
             refreshing={
               refreshStatus.repos[selected.repo]?.state === 'planning' ||
               refreshStatus.repos[selected.repo]?.state === 'running'
