@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -12,12 +13,15 @@ type knowledgeHandlers struct {
 	svc *service.CardService
 }
 
-// listForProject returns the KB summary (repos + docs) for one project,
-// or an empty shell when the project has no KB built yet.
+// listForProject returns the KB summary (repos + docs) for one project.
+// Repos configured in .board.yaml that have no KB content yet are included
+// as stub entries (no docs, no built timestamp) so the UI sidebar can render
+// a Refresh button for every configured repo from the very first visit.
 func (h *knowledgeHandlers) listForProject(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 
-	if _, err := h.svc.GetProject(r.Context(), project); err != nil {
+	cfg, err := h.svc.GetProject(r.Context(), project)
+	if err != nil {
 		handleServiceError(w, r, err)
 
 		return
@@ -30,13 +34,30 @@ func (h *knowledgeHandlers) listForProject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if len(bases) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"project": project, "repos": []any{}})
-
-		return
+	summary := service.KnowledgeBaseSummary{Project: project, Repos: []service.KnowledgeRepoSummary{}}
+	if len(bases) > 0 {
+		summary = bases[0]
 	}
 
-	writeJSON(w, http.StatusOK, bases[0])
+	have := make(map[string]struct{}, len(summary.Repos))
+	for _, rs := range summary.Repos {
+		have[rs.Name] = struct{}{}
+	}
+
+	for _, repo := range cfg.EffectiveRepos() {
+		if _, ok := have[repo.Name]; ok {
+			continue
+		}
+
+		summary.Repos = append(summary.Repos, service.KnowledgeRepoSummary{
+			Name: repo.Name,
+			Docs: []service.KnowledgeDocSummary{},
+		})
+	}
+
+	sort.Slice(summary.Repos, func(i, j int) bool { return summary.Repos[i].Name < summary.Repos[j].Name })
+
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // getDoc returns the markdown content and meta for a single doc.

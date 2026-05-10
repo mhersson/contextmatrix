@@ -198,6 +198,121 @@ func TestKnowledgeAPI_PutRequiresCSRFHeader(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
+// configureProjectRepo PUTs an updated project config that sets the singular
+// Repo field. EffectiveRepos() then surfaces a one-entry list with Name
+// derived from the URL (the suffix after the last "/" or ":", with ".git"
+// stripped). Used by tests that need a configured repo on the project.
+func configureProjectRepo(t *testing.T, baseURL, project, repoURL string) {
+	t.Helper()
+
+	body, err := json.Marshal(updateProjectRequest{
+		Repo:       repoURL,
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+	})
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut,
+		baseURL+"/api/projects/"+project, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestKnowledgeAPI_ListIncludesConfiguredRepos covers the empty-state UX bug:
+// a freshly-deployed project with a repo in .board.yaml but no KB built yet
+// must surface that repo as a stub entry so the web UI can show a Refresh
+// button. Without this, the sidebar is hidden entirely and the user has no
+// way to trigger the first refresh.
+func TestKnowledgeAPI_ListIncludesConfiguredRepos(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	defer server.Close()
+
+	configureProjectRepo(t, server.URL, "test-project", "git@github.com:o/core.git")
+
+	resp, err := http.Get(server.URL + "/api/projects/test-project/knowledge")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var got service.KnowledgeBaseSummary
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+
+	assert.Equal(t, "test-project", got.Project)
+	require.Len(t, got.Repos, 1, "configured repo must appear even with no docs built")
+	assert.Equal(t, "core", got.Repos[0].Name)
+	assert.Empty(t, got.Repos[0].Docs, "stub repo must have empty docs list")
+	assert.Empty(t, got.Repos[0].LastBuiltCommit, "stub repo must have no built commit")
+	assert.Nil(t, got.Repos[0].LastBuiltAt, "stub repo must omit last_built_at")
+}
+
+// TestKnowledgeAPI_ListMergesBuiltAndConfigured: when one repo has docs and a
+// second repo is configured but unbuilt, both must appear in the response with
+// their respective populated/stub state, sorted alphabetically.
+func TestKnowledgeAPI_ListMergesBuiltAndConfigured(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	defer server.Close()
+
+	configureProjectRepo(t, server.URL, "test-project", "git@github.com:o/core.git")
+
+	_, err := svc.WriteKnowledgeDocs(context.Background(), service.WriteKnowledgeDocsInput{
+		Project:    "test-project",
+		Repo:       "edge",
+		Docs:       map[string]string{"architecture.md": "# A\n"},
+		Source:     service.KnowledgeWriteSourceRefresh,
+		HeadCommit: "abc",
+		AgentID:    "human:t",
+	})
+	require.NoError(t, err)
+
+	resp, err := http.Get(server.URL + "/api/projects/test-project/knowledge")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var got service.KnowledgeBaseSummary
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+
+	require.Len(t, got.Repos, 2)
+
+	core := got.Repos[0]
+	edge := got.Repos[1]
+
+	assert.Equal(t, "core", core.Name)
+	assert.Empty(t, core.Docs)
+	assert.Nil(t, core.LastBuiltAt)
+
+	assert.Equal(t, "edge", edge.Name)
+	require.Len(t, edge.Docs, 1)
+	assert.Equal(t, "architecture.md", edge.Docs[0].Name)
+	require.NotNil(t, edge.LastBuiltAt)
+	assert.False(t, edge.LastBuiltAt.IsZero())
+}
+
 func TestKnowledgeAPI_ListReturns404ForUnknownProject(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()

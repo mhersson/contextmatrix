@@ -137,13 +137,11 @@ export function KnowledgeBase({ project }: { project: string }) {
   if (!summary || summary.repos.length === 0) {
     return (
       <div className="p-6" style={{ color: 'var(--grey1)' }}>
-        <p>No knowledge base yet for this project.</p>
+        <p>No repos configured for this project.</p>
         <p className="mt-2 text-sm">
-          Click the Refresh button next to a repo above to build the KB. Alternatively run{' '}
-          <code className="px-1 rounded" style={{ backgroundColor: 'var(--bg1)', color: 'var(--fg)' }}>
-            /contextmatrix:refresh-knowledge --project {project}
-          </code>{' '}
-          in your Claude Code session.
+          Add a <code style={{ color: 'var(--fg)' }}>repos:</code> entry to the project's{' '}
+          <code style={{ color: 'var(--fg)' }}>.board.yaml</code> to enable knowledge base
+          generation.
         </p>
       </div>
     );
@@ -196,6 +194,21 @@ export function KnowledgeBase({ project }: { project: string }) {
               refreshStatus.repos[selected.repo]?.state === 'running'
             }
           />
+        ) : summary.repos.every((r) => r.docs.length === 0) ? (
+          <div className="p-6" style={{ color: 'var(--grey1)' }}>
+            <p>No knowledge base docs yet for this project.</p>
+            <p className="mt-2 text-sm">
+              Click the Refresh button next to a repo on the left to build the KB. Alternatively
+              run{' '}
+              <code
+                className="px-1 rounded"
+                style={{ backgroundColor: 'var(--bg1)', color: 'var(--fg)' }}
+              >
+                /contextmatrix:refresh-knowledge --project {project}
+              </code>{' '}
+              in your Claude Code session.
+            </p>
+          </div>
         ) : (
           <div className="p-6" style={{ color: 'var(--grey1)' }}>
             Select a doc.

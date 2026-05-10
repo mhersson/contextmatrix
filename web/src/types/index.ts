@@ -289,7 +289,7 @@ export interface KnowledgeDocSummary {
 
 export interface KnowledgeRepoSummary {
   name: string;
-  last_built_at: string;
+  last_built_at?: string;
   last_built_commit: string;
   docs: KnowledgeDocSummary[];
 }

@@ -323,7 +323,7 @@ describe('KnowledgeBase — sidebar already-selected guard', () => {
 });
 
 describe('KnowledgeBase — summary fetch error', () => {
-  it('renders the error UI instead of "No knowledge base yet" on summary failure', async () => {
+  it('renders the error UI instead of the empty state on summary failure', async () => {
     mockGetKnowledgeBase.mockRejectedValue(new Error('network failure'));
 
     renderWithRouter();
@@ -331,7 +331,7 @@ describe('KnowledgeBase — summary fetch error', () => {
     await waitFor(() =>
       expect(screen.getByText(/Failed to load knowledge base/i)).toBeInTheDocument(),
     );
-    expect(screen.queryByText(/No knowledge base yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No repos configured/i)).not.toBeInTheDocument();
   });
 });
 

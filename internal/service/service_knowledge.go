@@ -256,9 +256,12 @@ type KnowledgeBaseSummary struct {
 }
 
 // KnowledgeRepoSummary is one repo's summary within a KnowledgeBaseSummary.
+// LastBuiltAt is a pointer so unbuilt-but-configured repos can omit the field
+// rather than emitting Go's zero-time sentinel ("0001-01-01T00:00:00Z"), which
+// the frontend would otherwise format as a centuries-old "built" time.
 type KnowledgeRepoSummary struct {
 	Name            string                `json:"name"`
-	LastBuiltAt     time.Time             `json:"last_built_at"`
+	LastBuiltAt     *time.Time            `json:"last_built_at,omitempty"`
 	LastBuiltCommit string                `json:"last_built_commit"`
 	Docs            []KnowledgeDocSummary `json:"docs"`
 }
@@ -513,10 +516,18 @@ func (s *CardService) ListKnowledgeBases(ctx context.Context, projectFilter stri
 		}
 
 		summary := KnowledgeBaseSummary{Project: p.Name}
+
 		for repoName, repoMeta := range meta.Repos {
+			var lastBuiltAt *time.Time
+
+			if !repoMeta.LastBuiltAt.IsZero() {
+				t := repoMeta.LastBuiltAt
+				lastBuiltAt = &t
+			}
+
 			rs := KnowledgeRepoSummary{
 				Name:            repoName,
-				LastBuiltAt:     repoMeta.LastBuiltAt,
+				LastBuiltAt:     lastBuiltAt,
 				LastBuiltCommit: repoMeta.LastBuiltCommit,
 			}
 			for docName, docMeta := range repoMeta.Docs {
