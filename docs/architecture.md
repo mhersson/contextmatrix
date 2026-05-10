@@ -1,5 +1,78 @@
 # Architecture
 
+## Trust model
+
+ContextMatrix is **single-tenant and unauthenticated by design**. There are
+no user accounts, no logins, no per-user permissions, no session tokens.
+Deployment assumes loopback or a trusted-network ACL (firewall, NetworkPolicy,
+service-mesh rule) — same posture as the admin/debug listener documented in
+`docs/api-reference.md`.
+
+The implications for code review:
+
+**Identity is not authentication.** The `X-Agent-ID` header tags writes for
+audit purposes — boards-repo commit author, activity-log entries,
+`assigned_agent` on cards. It is treated like `git config user.name` on a
+personal machine: useful for blame, trivial to spoof, and that's fine because
+there is no permission gradient to escalate into.
+
+**The web UI auto-generates a per-browser identity.**
+`web/src/hooks/useAgentId.ts` mints `human:web-<8 hex chars>` on first visit,
+persists it in localStorage, and wires it into every API request via
+`api.setAgentId`. We do **not** prompt users for usernames — there is nothing
+to authenticate them against, so a prompt is theatre. Per-browser uniqueness
+prevents two tabs/users from accidentally releasing each other's card claims;
+that is the only reason a unique-per-browser id is needed.
+
+**REST writes that require an identity but receive none fall back to a marker
+identity.** `internal/api/knowledge.go` falls back to `human:web` for KB PUT
+when `X-Agent-ID` is absent; `internal/api/runner.go` falls back to
+`human:api` for the human-only runner endpoints. These markers are honest
+("this came from the web UI / direct API call by an unspecified human") and
+they preserve write functionality without inventing fake usernames.
+
+**Where identity gates do exist, they enforce workflow contracts, not access
+control:**
+
+- **Card claim / heartbeat / release**: the supplied `X-Agent-ID` must match
+  `assigned_agent`. This stops two agents from accidentally clobbering each
+  other's claim — it does not stop a malicious caller (who can simply send the
+  matching value).
+- **MCP human-only tools** (`promote_to_autonomous`, `refresh_knowledge_base`,
+  `commit_knowledge_docs`): the `agent_id` argument must start with `human:`.
+  The check rejects callers that follow the agent convention of using a
+  non-human identifier (e.g. `agent-foo`); a malicious caller can pass
+  `human:anything` and the gate yields. The intent is to encode "this
+  operation is part of the human workflow," not to prevent forgery.
+- **Human-only fields on cards** (e.g. `automation`): the same `human:` prefix
+  check, same intent.
+
+**Where real authentication does exist:**
+
+- **MCP Bearer token** (`mcp_api_key` config) for clients connecting over the
+  network. Optional for loopback deployments.
+- **Runner webhook HMAC** (shared secret in config) for the
+  `contextmatrix-runner` callback into the server. The runner is on a
+  different host; the secret prevents arbitrary network callers from
+  injecting status updates.
+- **GitHub authentication** via the shared
+  `github.com/mhersson/contextmatrix-githubauth` module (App or PAT). Real
+  auth against an external system; do not weaken or bypass.
+
+**What to do during a code review:**
+
+- Treat any "missing X-Agent-ID is a security hole" or "fabricated human:web
+  is identity spoofing" finding as **out of scope** — it's the documented
+  trust model. If the deployment posture is wrong (CM exposed publicly without
+  a network gate), that's an ops concern, not a code-fix concern.
+- The MCP human-only checks are workflow gates; do not propose tightening them
+  to "real" auth without changing the trust model first.
+- The browser-generated agent ID is intentional. Do not propose adding a
+  username prompt, OAuth, session cookies, or per-user permissions; those
+  belong to a future multi-tenant CM, not this one.
+- `githubauth` is the one place where real authentication matters.
+  Token-handling code there should be reviewed strictly.
+
 ## Data flow
 
 Every card mutation follows the same pipeline through the service layer:
