@@ -77,8 +77,8 @@ If the project has at least one repo configured, offer to build the KB now:
 
 > Build a knowledge base for this project? It will analyze the repo(s) and
 > produce structural docs (architecture, code structure, API, glossary)
-> used by planning and brainstorming skills. Cost: ~$2 per repo, ~10-15
-> minutes per repo. (yes/no, default: no)
+> used by planning and brainstorming skills. Cost varies by repo size;
+> expect minutes-to-tens-of-minutes per repo. (yes/no, default: no)
 
 If yes: Tell the user to run `/contextmatrix:refresh-knowledge` for this project
 after init completes. (init-project does not invoke other slash commands; the

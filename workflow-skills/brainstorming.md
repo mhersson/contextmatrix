@@ -91,11 +91,13 @@ You MUST complete each of these in order:
            message='loaded N docs' OR 'no KB built yet')
    ```
 
-   If docs are returned, treat them as authoritative for component
-   map, where new code goes, public API surfaces, and project
-   vocabulary; reference them when discussing architecture,
-   decomposition, or naming. If empty, note that to the user when
-   relevant and proceed.
+   If docs are returned, treat them as authoritative architectural
+   context: use `code-structure.md` to choose file paths,
+   `architecture.md` to honour component boundaries,
+   `api-documentation.md` to avoid breaking public surfaces, and
+   `glossary.md` to use the project's vocabulary correctly. Reference
+   them when discussing architecture, decomposition, or naming. If
+   empty, note that to the user when relevant and proceed.
 2. **Explore project context** — read files referenced in the card and
    anything the KB doesn't cover (recent commits, files mentioned in
    the body). Don't re-derive what the KB already states.

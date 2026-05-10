@@ -63,11 +63,11 @@ Documentation IS needed when the change affects:
 Write directly to disk. Documentation is generated from completed code — the
 review agent verifies accuracy in the next phase.
 
-## Step 4: Commit documentation changes
+## Step 4: Commit documentation changes (no push, no PR)
 
-**You never push and never create a PR.** Push and PR creation are the
-orchestrator's job (Phase 6 in run-autonomous, Phase 9 in create-plan)
-— always, without exception, regardless of card flags.
+You commit on the feature branch only. Never push, never open a PR — the
+orchestrator handles those phases (Phase 6 in run-autonomous, Phase 9 in
+create-plan), always, without exception, regardless of card flags.
 
 Your only commit responsibility is the doc files you wrote in Step 3.
 

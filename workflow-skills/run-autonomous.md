@@ -78,8 +78,7 @@ resume — so that KB context is available regardless of which phase begins.
 If docs are returned, hold them in your reasoning context: use
 `code-structure.md` to choose file paths, `architecture.md` to honour component
 boundaries, `api-documentation.md` to avoid breaking public surfaces, and
-`glossary.md` to use the project's vocabulary correctly. If empty, proceed
-without — the plan will be drafted from card body and `context_files` only.
+`glossary.md` to use the project's vocabulary correctly. If empty, proceed.
 
 Immediately after the KB call, log the outcome:
 

@@ -24,11 +24,46 @@ and commits it atomically.
   multi-repo projects, or the only repo for single-repo projects.
 - `--plan`: dry-run; print the build plan and exit without producing docs.
 
+## Step 0: Detect runner mode
+
+If env vars `CM_PROJECT`, `CM_KB_REPO`, `CM_KB_OVERWRITE_DOCS`, `CM_AGENT_ID`
+are set, you are in runner mode. Use these values:
+
+- `project` = `$CM_PROJECT`
+- `repo` = `$CM_KB_REPO`
+- `agent_id` = `$CM_AGENT_ID`
+- confirmed `overwrite_docs` = comma-split `$CM_KB_OVERWRITE_DOCS`
+
+In runner mode:
+- Skip Step 2 (the human confirmation). The UI confirmed already.
+- In Step 3b, skip the clone (the repo is pre-mounted at
+  `/home/user/workspace`), but still capture HEAD from there:
+  `git -C /home/user/workspace rev-parse HEAD` — save as `head_commit`.
+- Continue with Step 1 (call `refresh_knowledge_base` for the plan), then
+  Step 3a (dedup), Step 3c (skip already-current docs), Step 4 (discovery
+  against `/home/user/workspace`), Step 5, Step 6.
+
+If those env vars are absent, proceed in local mode as today.
+
+**Runner-mode invariants**
+
+- The plan returned by `refresh_knowledge_base` will contain only entries
+  with `repo == $CM_KB_REPO`. If the plan contains any other repo, print a
+  one-line violation naming the offending repo and exit non-zero — the
+  non-zero exit drives the runner-status callback, which marks the registry
+  job `failed`. The runner cannot serve multi-repo refresh.
+- The cloned repo is mounted at `/home/user/workspace`. Do not attempt to
+  clone or path-resolve other repos in runner mode.
+
 ## Step 1: Get the build plan
 
 Call `refresh_knowledge_base` MCP tool with `project`, `repo` (if given),
-and `agent_id: <the human: identity for this session — same one you have been using on previous tool calls>`.
-If you do not have a human-prefixed identity for this session, ask the user once and use their answer.
+and `agent_id`:
+
+- In runner mode, use `$CM_AGENT_ID` (already injected and pinned in Step 0).
+- In local mode, use the human-prefixed identity from this session
+  (e.g. `human:alice`); ask the user once if you don't have one.
+
 Returns a plan listing each doc to rebuild, its reason, current `human_edited` flag, and cost estimate.
 
 If `--plan` was passed, print the plan and exit.
@@ -52,9 +87,12 @@ Build a deduplicated list of repos to clone:
 
     repos_to_clone = unique(item.repo for item in plan.items)
 
-For each repo in `repos_to_clone`, perform Steps 3b–3c (clone + capture HEAD)
+For each repo in `repos_to_clone`, perform Step 3b (clone + capture HEAD)
 once. In Step 5, spawn one sub-agent per (repo, doc) pair from the original
 plan.items.
+
+In runner mode `repos_to_clone` will always contain exactly one repo
+(`$CM_KB_REPO`); see the runner-mode invariants in Step 0.
 
 ## Step 3b: Locate or clone each repo
 
@@ -68,6 +106,26 @@ For each repo in `repos_to_clone`:
 3. Capture HEAD SHA: `git -C /tmp/cm-knowledge-<project>/<repo>/ rev-parse HEAD`.
    Save this as `head_commit` for the commit step.
 4. **Do not modify the target repo. Read-only.**
+
+## Step 3c: Skip docs already current at HEAD
+
+For each `(repo, doc)` in the rebuild set, call
+`read_knowledge_doc({project, repo, doc})` and read `meta.last_built_commit`.
+Drop the item from the rebuild set when both:
+
+- `meta.last_built_commit == head_commit` for that repo (same source, same
+  output — rebuild would produce byte-identical content).
+- `doc` is NOT in the confirmed `overwrite_docs` list (Step 0 / Step 2).
+
+If the rebuild set becomes empty after this filter, print
+`no rebuilds needed; all docs current at <head_commit>` and exit cleanly.
+Do NOT call `commit_knowledge_docs` and do NOT proceed to Step 4.
+
+A doc with empty `last_built_commit` (first-time build) is not current and
+must be rebuilt.
+
+If a repo has all its docs filtered out, skip Step 4 discovery for that repo
+— no sub-agents will run against it.
 
 ## Step 4: Discovery pass (run once per repo before generating any doc)
 
@@ -134,6 +192,37 @@ via the Task tool. Pass:
   replaces the file entirely.
 
 Collect each sub-agent's output as the new doc content.
+
+After each sub-agent returns, call `update_refresh_progress` so the UI
+shows progress:
+
+```
+update_refresh_progress({
+  project: "<project>",
+  repo: "<repo>",
+  agent_id: "<the human: identity>",
+  docs_total: <total docs in rebuild set>,
+  docs_done: <count completed so far, including this one>,
+  current_doc: "<doc filename just completed>"
+})
+```
+
+The call returns `{ ok: true, tracked: bool }`. `tracked: false` is expected
+in local mode (no UI-side job to update) — proceed regardless.
+
+**On partial failure**
+
+- If any sub-agent returns empty, malformed, or error output, abort the
+  repo. Do NOT call `commit_knowledge_docs` with a partial doc map.
+- Print a one-line failure naming the doc that failed and exit non-zero.
+  In runner mode the non-zero exit drives the runner-status callback,
+  which marks the registry job `failed`; in local mode it surfaces the
+  error to the user.
+- If `commit_knowledge_docs` returns an error, surface the error and the
+  list of un-persisted docs so the human can re-run.
+- If the runner times out mid-Step-5 (between sub-agents), the registry
+  janitor marks the job failed; on re-run, all docs regenerate from
+  scratch.
 
 ### 5.1 `architecture.md` template
 

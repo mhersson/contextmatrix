@@ -184,8 +184,7 @@ Hold this claim through Phase 5.
    `architecture.md` to honour component boundaries,
    `api-documentation.md` to avoid breaking public surfaces, and
    `glossary.md` to use the project's vocabulary correctly. If empty,
-   proceed without — the plan will be drafted from card body and
-   `context_files` only.
+   proceed.
 
 2. **Review card details.** Read the card details provided above. If
    the card body already contains a `## Plan` section, use it as a
