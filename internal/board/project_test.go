@@ -625,6 +625,182 @@ func TestProjectConfig_DefaultSkillsRoundtrip(t *testing.T) {
 	assert.Equal(t, []string{"go-development", "documentation"}, *loaded.DefaultSkills)
 }
 
+func TestEffectiveRepos_FromSingularRepo(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name: "p",
+		Repo: "git@github.com:owner/myrepo.git",
+	}
+	repos := cfg.EffectiveRepos()
+	require.Len(t, repos, 1)
+	assert.Equal(t, "myrepo", repos[0].Name)
+	assert.Equal(t, "git@github.com:owner/myrepo.git", repos[0].URL)
+	assert.True(t, repos[0].Primary)
+}
+
+func TestEffectiveRepos_FromReposList(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name: "p",
+		Repos: []Repo{
+			{Name: "core", URL: "git@github.com:o/core.git", Primary: true},
+			{Name: "runner", URL: "git@github.com:o/runner.git"},
+		},
+	}
+	repos := cfg.EffectiveRepos()
+	require.Len(t, repos, 2)
+	assert.Equal(t, "core", repos[0].Name)
+	assert.True(t, repos[0].Primary)
+	assert.False(t, repos[1].Primary)
+}
+
+func TestEffectiveRepos_Empty(t *testing.T) {
+	cfg := &ProjectConfig{Name: "p"}
+	assert.Empty(t, cfg.EffectiveRepos())
+}
+
+func TestEffectiveRepos_PrefersExplicitListOverSingular(t *testing.T) {
+	cfg := &ProjectConfig{
+		Repo: "git@github.com:o/old.git",
+		Repos: []Repo{
+			{Name: "new", URL: "git@github.com:o/new.git", Primary: true},
+		},
+	}
+	repos := cfg.EffectiveRepos()
+	require.Len(t, repos, 1)
+	assert.Equal(t, "new", repos[0].Name)
+}
+
+func TestRepos_YAMLRoundTrip(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name:       "p",
+		Prefix:     "P",
+		NextID:     1,
+		States:     []string{"todo", "stalled", "not_planned"},
+		Types:      []string{"task"},
+		Priorities: []string{"medium"},
+		Transitions: map[string][]string{
+			"todo":        {},
+			"stalled":     {"todo"},
+			"not_planned": {"todo"},
+		},
+		Repos: []Repo{{Name: "core", URL: "git@github.com:o/core.git", Primary: true}},
+	}
+	dir := t.TempDir()
+	require.NoError(t, SaveProjectConfig(dir, cfg))
+	loaded, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+	require.Len(t, loaded.Repos, 1)
+	assert.Equal(t, "core", loaded.Repos[0].Name)
+}
+
+func TestDeriveRepoName(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "ssh git", url: "git@github.com:owner/myrepo.git", want: "myrepo"},
+		{name: "https with .git", url: "https://github.com/owner/myrepo.git", want: "myrepo"},
+		{name: "https no .git", url: "https://github.com/owner/myrepo", want: "myrepo"},
+		{name: "trailing slash", url: "https://github.com/owner/myrepo/", want: "myrepo"},
+		{name: "bare name", url: "myrepo", want: "myrepo"},
+		{name: "empty", url: "", want: ""},
+		{name: "leading whitespace", url: "  git@github.com:o/r.git  ", want: "r"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, deriveRepoName(tc.url))
+		})
+	}
+}
+
+func TestValidateProjectConfig_RejectsMultiplePrimaryRepos(t *testing.T) {
+	cfg := validProjectConfig()
+	cfg.Repos = []Repo{
+		{Name: "a", URL: "git@github.com:o/a.git", Primary: true},
+		{Name: "b", URL: "git@github.com:o/b.git", Primary: true},
+	}
+
+	err := SaveProjectConfig(t.TempDir(), cfg)
+	require.Error(t, err)
+}
+
+func TestValidateProjectConfig_AcceptsZeroPrimary_AutoPromotesFirst(t *testing.T) {
+	cfg := validProjectConfig()
+	cfg.Repos = []Repo{
+		{Name: "a", URL: "git@github.com:o/a.git"},
+		{Name: "b", URL: "git@github.com:o/b.git"},
+	}
+
+	err := SaveProjectConfig(t.TempDir(), cfg)
+	require.NoError(t, err)
+
+	repos := cfg.EffectiveRepos()
+	require.Len(t, repos, 2)
+	assert.True(t, repos[0].Primary, "first repo should be auto-promoted to primary")
+	assert.False(t, repos[1].Primary)
+}
+
+func TestEffectiveRepos_DerivesNameFromURLWhenEmpty(t *testing.T) {
+	cfg := &ProjectConfig{
+		Repos: []Repo{
+			{URL: "https://github.com/owner/myrepo.git"},
+		},
+	}
+	repos := cfg.EffectiveRepos()
+	require.Len(t, repos, 1)
+	assert.Equal(t, "myrepo", repos[0].Name)
+	assert.True(t, repos[0].Primary)
+}
+
+func TestValidateProjectConfig_AcceptsExactlyOnePrimary(t *testing.T) {
+	cfg := validProjectConfig()
+	cfg.Repos = []Repo{
+		{Name: "a", URL: "git@github.com:o/a.git", Primary: true},
+	}
+
+	err := SaveProjectConfig(t.TempDir(), cfg)
+	require.NoError(t, err)
+}
+
+func TestValidateProjectConfig_AcceptsEmptyReposList(t *testing.T) {
+	cfg := validProjectConfig()
+	cfg.Repos = nil
+
+	err := SaveProjectConfig(t.TempDir(), cfg)
+	require.NoError(t, err)
+}
+
+func TestValidateProjectConfig_RejectsDuplicateRepoNames(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name:        "p",
+		Prefix:      "P",
+		States:      []string{"todo", "done", "stalled", "not_planned"},
+		Transitions: map[string][]string{"todo": {"done"}, "done": {}, "stalled": {"todo"}, "not_planned": {"todo"}},
+		NextID:      1,
+		Repos: []Repo{
+			{Name: "core", URL: "https://github.com/o/a.git", Primary: true},
+			{Name: "core", URL: "https://github.com/o/b.git"},
+		},
+	}
+	err := validateProjectConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate repo name")
+}
+
+func TestValidateProjectConfig_RejectsBlankRepoURL(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name:        "p",
+		Prefix:      "P",
+		States:      []string{"todo", "done", "stalled", "not_planned"},
+		Transitions: map[string][]string{"todo": {"done"}, "done": {}, "stalled": {"todo"}, "not_planned": {"todo"}},
+		NextID:      1,
+		Repos:       []Repo{{Name: "core", URL: "   "}},
+	}
+	err := validateProjectConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "url required")
+}
+
 func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &ProjectConfig{

@@ -171,6 +171,15 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, workflowSkill
 			{Name: "card_id", Description: "Card ID to start the workflow for (e.g. ALPHA-001)", Required: true},
 		},
 	}, startWorkflowPromptHandler(svc, workflowSkillsDir))
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "refresh-knowledge",
+		Description: "Refresh a project's knowledge base (architecture.md, code-structure.md, api-documentation.md, glossary.md per repo). Human-only; spawns Sonnet sub-agents to read the target repo and produce fresh docs, then commits atomically.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "project", Description: "Project name to refresh", Required: true},
+			{Name: "repo", Description: "Optional repo name (defaults to primary)"},
+		},
+	}, refreshKnowledgePromptHandler(svc, workflowSkillsDir))
 }
 
 // createTaskPromptHandler returns the handler for create-task prompt.
@@ -187,6 +196,26 @@ func createTaskPromptHandler(svc *service.CardService, workflowSkillsDir string)
 
 		return &mcp.GetPromptResult{
 			Description: "Create a new task on the board",
+			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
+		}, nil
+	}
+}
+
+// refreshKnowledgePromptHandler returns the handler for the refresh-knowledge prompt.
+func refreshKnowledgePromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
+	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "refresh-knowledge", skillArgs{
+			Project: req.Params.Arguments["project"],
+			Repo:    req.Params.Arguments["repo"],
+		}, true)
+		if err != nil {
+			return nil, err
+		}
+
+		text := stripAgentConfig(result.Content)
+
+		return &mcp.GetPromptResult{
+			Description: "Refresh a project's knowledge base",
 			Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: text}}},
 		}, nil
 	}
@@ -258,6 +287,8 @@ type skillArgs struct {
 	CardID      string
 	Description string
 	Name        string
+	Project     string
+	Repo        string
 }
 
 // validSkillNames lists all recognized skill names.
@@ -265,6 +296,7 @@ var validSkillNames = []string{
 	"create-task", "create-plan", "execute-task",
 	"review-task", "document-task", "init-project",
 	"run-autonomous", "brainstorming", "systematic-debugging",
+	"refresh-knowledge",
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -298,6 +330,8 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSk
 		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "brainstorming.md", args.CardID, false)
 	case "systematic-debugging":
 		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "systematic-debugging.md", args.CardID, false)
+	case "refresh-knowledge":
+		content, err = buildRefreshKnowledge(workflowSkillsDir, args.Project, args.Repo)
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
@@ -325,6 +359,31 @@ func buildCreateTask(workflowSkillsDir, description string) (string, error) {
 
 	if description != "" {
 		skill = "User description: " + description + "\n\n" + skill
+	}
+
+	return skill, nil
+}
+
+// buildRefreshKnowledge reads the refresh-knowledge skill file and prepends
+// the project and (optional) repo arguments so the agent has the values to
+// pass to refresh_knowledge_base and commit_knowledge_docs MCP tools.
+func buildRefreshKnowledge(workflowSkillsDir, project, repo string) (string, error) {
+	skill, err := readSkillFile(workflowSkillsDir, "refresh-knowledge.md")
+	if err != nil {
+		return "", err
+	}
+
+	var preamble string
+	if project != "" {
+		preamble = "Project to refresh: " + project + "\n"
+	}
+
+	if repo != "" {
+		preamble += "Repo to refresh: " + repo + "\n"
+	}
+
+	if preamble != "" {
+		skill = preamble + "\n" + skill
 	}
 
 	return skill, nil

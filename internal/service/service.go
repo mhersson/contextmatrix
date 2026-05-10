@@ -100,6 +100,10 @@ type CardService struct {
 	// Defaults to s.processStalled; overridable in tests to inject panics.
 	stalledFn func(ctx context.Context) error
 
+	// knowledgeCommitFn is the function called to commit knowledge doc writes.
+	// Defaults to s.git.CommitFiles; overridable in tests to inject commit failures.
+	knowledgeCommitFn func(ctx context.Context, paths []string, message string) error
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
@@ -161,6 +165,7 @@ func NewCardService(
 		templates:         make(map[string]map[string]string),
 	}
 	svc.stalledFn = svc.processStalled
+	svc.knowledgeCommitFn = svc.git.CommitFiles
 
 	return svc
 }

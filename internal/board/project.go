@@ -12,6 +12,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Repo describes one code repository belonging to a project.
+type Repo struct {
+	Name    string `yaml:"name" json:"name"`
+	URL     string `yaml:"url" json:"url"`
+	Primary bool   `yaml:"primary,omitempty" json:"primary,omitempty"`
+}
+
 // RemoteExecutionConfig controls per-project remote execution settings.
 type RemoteExecutionConfig struct {
 	Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
@@ -36,6 +43,7 @@ type ProjectConfig struct {
 	Prefix          string                 `yaml:"prefix" json:"prefix"`
 	NextID          int                    `yaml:"next_id" json:"next_id"`
 	Repo            string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Repos           []Repo                 `yaml:"repos,omitempty" json:"repos,omitempty"`
 	States          []string               `yaml:"states" json:"states"`
 	Types           []string               `yaml:"types" json:"types"`
 	Priorities      []string               `yaml:"priorities" json:"priorities"`
@@ -175,6 +183,37 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 		}
 	}
 
+	// Validate repo entries: at most one primary, no duplicate names, non-empty URL.
+	if len(cfg.Repos) > 0 {
+		primaries := 0
+		seenNames := make(map[string]struct{}, len(cfg.Repos))
+
+		for i, r := range cfg.Repos {
+			if strings.TrimSpace(r.URL) == "" {
+				return fmt.Errorf("%w: repos[%d]: url required", ErrInvalidProjectConfig, i)
+			}
+
+			if r.Primary {
+				primaries++
+			}
+
+			name := r.Name
+			if name == "" {
+				name = deriveRepoName(r.URL)
+			}
+
+			if _, dup := seenNames[name]; dup {
+				return fmt.Errorf("%w: duplicate repo name %q", ErrInvalidProjectConfig, name)
+			}
+
+			seenNames[name] = struct{}{}
+		}
+
+		if primaries > 1 {
+			return fmt.Errorf("%w: repos list has %d primary entries; at most one allowed", ErrInvalidProjectConfig, primaries)
+		}
+	}
+
 	return nil
 }
 
@@ -187,6 +226,62 @@ func GenerateCardID(cfg *ProjectConfig) string {
 	cfg.NextID++
 
 	return fmt.Sprintf("%s-%03d", cfg.Prefix, id)
+}
+
+// EffectiveRepos returns the canonical list of repos for this project.
+// If Repos is non-empty it is returned with two normalizations applied:
+//   - Each entry's Name is derived from URL when empty (matches the
+//     singular-Repo backwards-compat behavior).
+//   - If no entry is marked Primary, the first entry is auto-promoted.
+//
+// Otherwise, if the legacy singular Repo field is set, a single Repo is
+// synthesized with primary=true and Name derived from the URL.
+// Returns an empty slice for projects with neither field set.
+func (p *ProjectConfig) EffectiveRepos() []Repo {
+	if len(p.Repos) > 0 {
+		out := make([]Repo, len(p.Repos))
+		hasPrimary := false
+
+		for i, r := range p.Repos {
+			if r.Name == "" {
+				r.Name = deriveRepoName(r.URL)
+			}
+
+			if r.Primary {
+				hasPrimary = true
+			}
+
+			out[i] = r
+		}
+
+		if !hasPrimary && len(out) > 0 {
+			out[0].Primary = true
+		}
+
+		return out
+	}
+
+	if p.Repo == "" {
+		return nil
+	}
+
+	return []Repo{{Name: deriveRepoName(p.Repo), URL: p.Repo, Primary: true}}
+}
+
+func deriveRepoName(url string) string {
+	url = strings.TrimSpace(url)
+
+	url = strings.TrimRight(url, "/")
+	if idx := strings.LastIndexAny(url, "/:"); idx >= 0 {
+		url = url[idx+1:]
+	}
+
+	name := strings.TrimSuffix(url, ".git")
+	if name == "" {
+		return url
+	}
+
+	return name
 }
 
 // LoadTemplates reads all .md files from the project's templates directory.

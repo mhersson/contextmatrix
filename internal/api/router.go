@@ -46,6 +46,7 @@ const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 const (
 	ErrCodeProjectNotFound      = "PROJECT_NOT_FOUND"
 	ErrCodeCardNotFound         = "CARD_NOT_FOUND"
+	ErrCodeKnowledgeDocNotFound = "KNOWLEDGE_DOC_NOT_FOUND"
 	ErrCodeParentNotFound       = "PARENT_NOT_FOUND"
 	ErrCodeCardExists           = "CARD_EXISTS"
 	ErrCodeInvalidTransition    = "INVALID_TRANSITION"
@@ -108,6 +109,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
+	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
@@ -157,6 +159,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
 	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
+
+	// Knowledge base
+	mux.HandleFunc("GET /api/projects/{project}/knowledge", kh.listForProject)
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/{doc}", kh.getDoc)
+	mux.HandleFunc("PUT /api/projects/{project}/knowledge/{repo}/{doc}", kh.putDoc)
 
 	// Branch listing
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
@@ -494,6 +501,11 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
+	case errors.Is(err, storage.ErrKnowledgeDocNotFound):
+		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound, "knowledge doc not found", "")
+	case errors.Is(err, storage.ErrKnowledgeDocSymlink):
+		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound,
+			"knowledge doc not found", "rejected: symlink")
 	case errors.Is(err, board.ErrParentNotFound):
 		var ve *board.ValidationError
 
@@ -553,6 +565,10 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", sanitizeErrorDetails(err))
+	case errors.Is(err, storage.ErrInvalidKnowledgeDoc):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid knowledge doc name", sanitizeErrorDetails(err))
+	case errors.Is(err, storage.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 
 	// --- Validation sentinels (422) — mutation body shape/semantics ---
 	case errors.Is(err, board.ErrInvalidProjectConfig),

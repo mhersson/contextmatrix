@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"gopkg.in/yaml.v3"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a temporary
@@ -70,7 +72,7 @@ func atomicWriteFile(path string, data []byte) error {
 // traversal (e.g. "..", "/", or names containing path separators).
 func validatePathComponent(component string) error {
 	if component == "" || component == "." || component == ".." ||
-		strings.ContainsAny(component, "/\\") ||
+		strings.ContainsAny(component, "/\\\x00") ||
 		filepath.Clean(component) != component {
 		return fmt.Errorf("%w: %q", ErrInvalidPath, component)
 	}
@@ -664,4 +666,219 @@ func (s *FilesystemStore) DeleteCard(ctx context.Context, project, id string) er
 	s.updateCacheSizeMetric()
 
 	return nil
+}
+
+func (s *FilesystemStore) knowledgeDir(project string) string {
+	return filepath.Join(s.boardsDir, project, "knowledge")
+}
+
+func (s *FilesystemStore) knowledgeMetaPath(project string) string {
+	return filepath.Join(s.knowledgeDir(project), ".meta.yaml")
+}
+
+func (s *FilesystemStore) knowledgeDocPath(project, repo, doc string) string {
+	return filepath.Join(s.knowledgeDir(project), repo, doc)
+}
+
+func (s *FilesystemStore) ReadKnowledgeMeta(ctx context.Context, project string) (*board.KnowledgeMeta, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(s.knowledgeMetaPath(project))
+	if errors.Is(err, os.ErrNotExist) {
+		return &board.KnowledgeMeta{SchemaVersion: 1, Repos: map[string]board.KnowledgeRepoMeta{}}, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("read knowledge meta: %w", err)
+	}
+
+	var meta board.KnowledgeMeta
+	if err := yaml.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("parse knowledge meta: %w", err)
+	}
+
+	if meta.Repos == nil {
+		meta.Repos = map[string]board.KnowledgeRepoMeta{}
+	}
+
+	return &meta, nil
+}
+
+func (s *FilesystemStore) WriteKnowledgeMeta(ctx context.Context, project string, meta *board.KnowledgeMeta) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(s.knowledgeDir(project), 0o755); err != nil {
+		return fmt.Errorf("mkdir knowledge: %w", err)
+	}
+
+	data, err := yaml.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal knowledge meta: %w", err)
+	}
+
+	return atomicWriteFile(s.knowledgeMetaPath(project), data)
+}
+
+func (s *FilesystemStore) ReadKnowledgeDoc(ctx context.Context, project, repo, doc string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return nil, err
+	}
+
+	if err := validatePathComponent(repo); err != nil {
+		return nil, err
+	}
+
+	if !board.IsValidKnowledgeDoc(doc) {
+		return nil, ErrInvalidKnowledgeDoc
+	}
+
+	path := s.knowledgeDocPath(project, repo, doc)
+
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrKnowledgeDocNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("stat knowledge doc: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, ErrKnowledgeDocSymlink
+	}
+
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrKnowledgeDocNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("read knowledge doc: %w", err)
+	}
+
+	return data, nil
+}
+
+func (s *FilesystemStore) WriteKnowledgeDoc(ctx context.Context, project, repo, doc string, content []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return err
+	}
+
+	if err := validatePathComponent(repo); err != nil {
+		return err
+	}
+
+	if !board.IsValidKnowledgeDoc(doc) {
+		return ErrInvalidKnowledgeDoc
+	}
+
+	dir := filepath.Join(s.knowledgeDir(project), repo)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir knowledge repo: %w", err)
+	}
+
+	return atomicWriteFile(s.knowledgeDocPath(project, repo, doc), content)
+}
+
+func (s *FilesystemStore) DeleteKnowledgeDoc(ctx context.Context, project, repo, doc string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return err
+	}
+
+	if err := validatePathComponent(repo); err != nil {
+		return err
+	}
+
+	if !board.IsValidKnowledgeDoc(doc) {
+		return ErrInvalidKnowledgeDoc
+	}
+
+	err := os.Remove(s.knowledgeDocPath(project, repo, doc))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	return err
+}
+
+func (s *FilesystemStore) ListKnowledgeRepos(ctx context.Context, project string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(s.knowledgeDir(project))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("list knowledge repos: %w", err)
+	}
+
+	var names []string
+
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+
+	return names, nil
+}
+
+func (s *FilesystemStore) KnowledgeDocExists(ctx context.Context, project, repo, doc string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+
+	if err := validatePathComponent(project); err != nil {
+		return false, err
+	}
+
+	if err := validatePathComponent(repo); err != nil {
+		return false, err
+	}
+
+	if !board.IsValidKnowledgeDoc(doc) {
+		return false, ErrInvalidKnowledgeDoc
+	}
+
+	_, err := os.Stat(s.knowledgeDocPath(project, repo, doc))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
