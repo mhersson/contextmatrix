@@ -47,6 +47,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerListKnowledgeBases(server, svc)
 	registerRefreshKnowledgeBase(server, svc)
 	registerCommitKnowledgeDocs(server, svc)
+	registerUpdateRefreshProgress(server, svc)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
@@ -1301,8 +1302,8 @@ func registerRefreshKnowledgeBase(server *mcp.Server, svc *service.CardService) 
 		Name:        "refresh_knowledge_base",
 		Description: "Human-only. Returns a build plan describing which KB docs will be rebuilt, with cost estimates and human_edited flags. Does not run sub-agents — the refresh skill spawns those and calls commit_knowledge_docs.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in refreshKnowledgeBaseInput) (*mcp.CallToolResult, refreshKnowledgeBaseOutput, error) {
-		if !strings.HasPrefix(in.AgentID, "human:") {
-			return nil, refreshKnowledgeBaseOutput{}, fmt.Errorf("refresh_knowledge_base is human-only (agent_id must start with 'human:')")
+		if !board.IsHumanAgentID(in.AgentID) {
+			return nil, refreshKnowledgeBaseOutput{}, fmt.Errorf("refresh_knowledge_base is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
 		}
 
 		plan, err := svc.BuildRefreshPlan(ctx, in.Project, in.Repo)
@@ -1331,8 +1332,8 @@ func registerCommitKnowledgeDocs(server *mcp.Server, svc *service.CardService) {
 		Name:        "commit_knowledge_docs",
 		Description: "Human-only. Writes refresh-produced KB docs atomically and commits them with a single message. Clears human_edited flag on each written doc.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commitKnowledgeDocsInput) (*mcp.CallToolResult, commitKnowledgeDocsOutput, error) {
-		if !strings.HasPrefix(in.AgentID, "human:") {
-			return nil, commitKnowledgeDocsOutput{}, fmt.Errorf("commit_knowledge_docs is human-only")
+		if !board.IsHumanAgentID(in.AgentID) {
+			return nil, commitKnowledgeDocsOutput{}, fmt.Errorf("commit_knowledge_docs is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
 		}
 
 		res, err := svc.WriteKnowledgeDocs(ctx, service.WriteKnowledgeDocsInput{
@@ -1348,5 +1349,44 @@ func registerCommitKnowledgeDocs(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, commitKnowledgeDocsOutput{FilesWritten: res.FilesWritten}, nil
+	})
+}
+
+type updateRefreshProgressInput struct {
+	Project    string `json:"project"     jsonschema:"required"`
+	Repo       string `json:"repo"        jsonschema:"required"`
+	AgentID    string `json:"agent_id"    jsonschema:"required, must start with 'human:'"`
+	DocsTotal  int    `json:"docs_total"  jsonschema:"required"`
+	DocsDone   int    `json:"docs_done"   jsonschema:"required"`
+	CurrentDoc string `json:"current_doc" jsonschema:"required"`
+}
+
+type updateRefreshProgressOutput struct {
+	OK      bool `json:"ok"`
+	Tracked bool `json:"tracked"`
+}
+
+func registerUpdateRefreshProgress(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "update_refresh_progress",
+		Description: "Human-only. Reports per-doc progress from a refresh-knowledge skill " +
+			"running inside the runner container. Returns tracked=false when no in-flight " +
+			"job matches (project, repo) — local-mode skill calls are no-ops.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in updateRefreshProgressInput) (*mcp.CallToolResult, updateRefreshProgressOutput, error) {
+		if !board.IsHumanAgentID(in.AgentID) {
+			return nil, updateRefreshProgressOutput{}, fmt.Errorf("update_refresh_progress is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
+		}
+
+		reg := svc.RefreshRegistry()
+		if reg == nil {
+			return nil, updateRefreshProgressOutput{OK: true, Tracked: false}, nil
+		}
+
+		tracked, err := reg.UpdateProgress(in.Project, in.Repo, in.DocsTotal, in.DocsDone, in.CurrentDoc)
+		if err != nil {
+			return nil, updateRefreshProgressOutput{}, err
+		}
+
+		return nil, updateRefreshProgressOutput{OK: true, Tracked: tracked}, nil
 	})
 }

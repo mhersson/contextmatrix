@@ -207,6 +207,7 @@ func TestListTools(t *testing.T) {
 		"list_knowledge_bases",
 		"refresh_knowledge_base",
 		"commit_knowledge_docs",
+		"update_refresh_progress",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))

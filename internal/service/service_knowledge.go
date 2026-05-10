@@ -66,8 +66,8 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 			return nil, fmt.Errorf("agent_id required for refresh writes")
 		}
 
-		if !strings.HasPrefix(in.AgentID, "human:") {
-			return nil, fmt.Errorf("agent_id must start with \"human:\" - refresh is human-only")
+		if !board.IsHumanAgentID(in.AgentID) {
+			return nil, fmt.Errorf("agent_id must start with \"human:\" and have a non-empty suffix - refresh is human-only")
 		}
 
 		if in.HeadCommit == "" {
@@ -215,6 +215,22 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	}
 
 	s.notifyCommit()
+
+	// Notify the in-flight refresh registry on successful Refresh writes.
+	// Edit-source writes never touch the registry. Missing-job is a no-op
+	// (local-mode case where no UI-side acquire happened). Pass empty
+	// commit_sha — the boards-repo SHA is not currently surfaced by
+	// knowledgeCommitFn; runner-side callback (Task 13) reports its own
+	// commit_sha to the UI.
+	if in.Source == KnowledgeWriteSourceRefresh && s.refreshRegistry != nil {
+		if err := s.refreshRegistry.MarkCommitted(in.Project, in.Repo, ""); err != nil {
+			// Defensive: MarkCommitted is documented to no-op on missing
+			// jobs, so an error here is a bug. Log but do not fail the
+			// write — the docs already landed.
+			slog.Warn("registry.MarkCommitted failed",
+				"project", in.Project, "repo", in.Repo, "error", err)
+		}
+	}
 
 	return &WriteKnowledgeDocsResult{FilesWritten: written}, nil
 }
@@ -365,16 +381,16 @@ func (s *CardService) ReadKnowledgeDoc(ctx context.Context, project, repo, doc s
 // RefreshPlan describes which docs would be rebuilt by a refresh run,
 // with reason and cost estimates per item.
 type RefreshPlan struct {
-	Items []RefreshPlanItem
+	Items []RefreshPlanItem `json:"items"`
 }
 
 type RefreshPlanItem struct {
-	Repo             string
-	Doc              string
-	Reason           string // "missing" | "scheduled rebuild"
-	HumanEdited      bool
-	EstimatedCostUSD float64
-	EstimatedTokens  int
+	Repo             string  `json:"repo"`
+	Doc              string  `json:"doc"`
+	Reason           string  `json:"reason"` // "missing" | "scheduled rebuild"
+	HumanEdited      bool    `json:"human_edited"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	EstimatedTokens  int     `json:"estimated_tokens"`
 }
 
 // docCostEstimates is the v1 hardcoded cost table; refined later when

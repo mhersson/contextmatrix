@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -222,6 +223,46 @@ func TestRefreshKnowledgeBase_RejectsHumanWithoutColon(t *testing.T) {
 	require.True(t, resultIsError(result, err), "agent_id without colon should be rejected")
 }
 
+func TestRefreshKnowledgeBase_RejectsBareHumanPrefix(t *testing.T) {
+	env := setupMCP(t)
+
+	result, err := callToolRaw(t, env, "refresh_knowledge_base", map[string]any{
+		"project":  "test-project",
+		"agent_id": "human:",
+	})
+	require.True(t, resultIsError(result, err),
+		"bare \"human:\" agent_id must be rejected — auditing the literal prefix is meaningless")
+}
+
+func TestUpdateRefreshProgress_RejectsBareHumanPrefix(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "update_refresh_progress", map[string]any{
+		"project":     "test-project",
+		"repo":        "core",
+		"agent_id":    "human:",
+		"docs_total":  4,
+		"docs_done":   1,
+		"current_doc": "architecture.md",
+	})
+	assert.True(t, result.IsError,
+		"bare \"human:\" agent_id must be rejected — auditing the literal prefix is meaningless")
+}
+
+func TestCommitKnowledgeDocs_RejectsBareHumanPrefix(t *testing.T) {
+	env := setupMCP(t)
+
+	result, err := callToolRaw(t, env, "commit_knowledge_docs", map[string]any{
+		"project":     "test-project",
+		"repo":        "core",
+		"head_commit": "x",
+		"agent_id":    "human:",
+		"docs":        map[string]any{"architecture.md": "x"},
+	})
+	require.True(t, resultIsError(result, err),
+		"bare \"human:\" agent_id must be rejected — auditing the literal prefix is meaningless")
+}
+
 func TestRefreshKnowledgeBase_UnknownProject(t *testing.T) {
 	env := setupMCP(t)
 
@@ -294,4 +335,66 @@ func TestGetSkill_RefreshKnowledge(t *testing.T) {
 	assert.Equal(t, "refresh-knowledge", out.SkillName)
 	assert.Contains(t, out.Content, "test-project", "preamble should include project")
 	assert.Contains(t, out.Content, "core", "preamble should include repo")
+}
+
+func TestUpdateRefreshProgress_HumanOnly(t *testing.T) {
+	env := setupMCP(t)
+
+	result := callTool(t, env, "update_refresh_progress", map[string]any{
+		"project":     "test-project",
+		"repo":        "core",
+		"agent_id":    "agent-not-human",
+		"docs_total":  4,
+		"docs_done":   1,
+		"current_doc": "architecture.md",
+	})
+	assert.True(t, result.IsError, "non-human agent must be rejected")
+}
+
+func TestUpdateRefreshProgress_TrackedFalseWhenNoJob(t *testing.T) {
+	env := setupMCP(t)
+
+	// Wire an empty registry: tool should observe no in-flight job.
+	reg := refresh.NewRegistry()
+	env.svc.SetRefreshRegistry(reg)
+
+	result := callTool(t, env, "update_refresh_progress", map[string]any{
+		"project":     "test-project",
+		"repo":        "core",
+		"agent_id":    "human:test",
+		"docs_total":  4,
+		"docs_done":   1,
+		"current_doc": "architecture.md",
+	})
+	require.False(t, result.IsError)
+
+	var out updateRefreshProgressOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.OK)
+	assert.False(t, out.Tracked, "no job in registry => tracked=false")
+}
+
+func TestUpdateRefreshProgress_TrackedTrueUpdatesRegistry(t *testing.T) {
+	env := setupMCP(t)
+
+	reg := refresh.NewRegistry()
+	env.svc.SetRefreshRegistry(reg)
+
+	_, err := reg.Acquire("test-project", "core", "human:test")
+	require.NoError(t, err)
+	require.NoError(t, reg.MarkRunning("test-project", "core", 4))
+
+	result := callTool(t, env, "update_refresh_progress", map[string]any{
+		"project":     "test-project",
+		"repo":        "core",
+		"agent_id":    "human:test",
+		"docs_total":  4,
+		"docs_done":   2,
+		"current_doc": "code-structure.md",
+	})
+	require.False(t, result.IsError)
+
+	snap := reg.Snapshot("test-project")
+	assert.Equal(t, 2, snap["core"].DocsDone)
+	assert.Equal(t, "code-structure.md", snap["core"].CurrentDoc)
 }

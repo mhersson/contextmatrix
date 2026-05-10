@@ -76,6 +76,21 @@ type StopAllPayload struct {
 	Project string `json:"project,omitempty"`
 }
 
+// RefreshKnowledgePayload is sent to the runner to start a knowledge-base
+// refresh for (project, repo). No card_id — the (project, repo) pair is
+// the job key.
+type RefreshKnowledgePayload struct {
+	Project       string   `json:"project"`
+	Repo          string   `json:"repo"`
+	RepoURL       string   `json:"repo_url"`
+	BaseBranch    string   `json:"base_branch,omitempty"`
+	AgentID       string   `json:"agent_id"`
+	OverwriteDocs []string `json:"overwrite_docs,omitempty"`
+	MCPAPIKey     string   `json:"mcp_api_key,omitempty"`
+	RunnerImage   string   `json:"runner_image,omitempty"`
+	Model         string   `json:"model,omitempty"`
+}
+
 // ContainerInfo is a decoded entry from GET /containers. The runner sources
 // these from Docker directly (filtered on label contextmatrix.runner=true),
 // so a populated slice is the authoritative answer to "what containers are
@@ -140,6 +155,12 @@ func NewClient(baseURL, apiKey string) *Client {
 // Trigger sends a trigger webhook to start a task.
 func (c *Client) Trigger(ctx context.Context, p TriggerPayload) error {
 	return c.send(ctx, c.baseURL+"/trigger", p)
+}
+
+// RefreshKnowledge sends a refresh-knowledge webhook to start a KB refresh
+// for (project, repo) on the runner.
+func (c *Client) RefreshKnowledge(ctx context.Context, p RefreshKnowledgePayload) error {
+	return c.send(ctx, c.baseURL+"/refresh-knowledge", p)
 }
 
 // Kill sends a kill webhook to stop a specific task.

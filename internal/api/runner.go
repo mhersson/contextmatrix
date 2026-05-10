@@ -14,6 +14,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -41,6 +42,7 @@ type runnerHandlers struct {
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
+	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
 }
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
@@ -554,6 +556,108 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, card)
+}
+
+// knowledgeStatusRequest is the JSON body the runner posts to
+// POST /api/runner/knowledge-status when a refresh container exits.
+type knowledgeStatusRequest struct {
+	Project string `json:"project"`
+	Repo    string `json:"repo"`
+	State   string `json:"state"` // "succeeded" or "failed" as reported by runner
+	Error   string `json:"error,omitempty"`
+}
+
+// runnerKnowledgeStatus handles POST /api/runner/knowledge-status — the
+// runner's terminal callback for a KB refresh job. Reconciles the reported
+// exit state against the registry's Committed flag (set by the
+// commit_knowledge_docs MCP side effect):
+//   - runner-reported "succeeded" + committed → StateSucceeded
+//   - runner-reported "succeeded" + !committed → StateFailed("commit not observed")
+//   - any other state → StateFailed
+func (h *runnerHandlers) runnerKnowledgeStatus(w http.ResponseWriter, r *http.Request) {
+	if h.runnerCfg.APIKey == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
+
+		return
+	}
+
+	sigHeader := r.Header.Get("X-Signature-256")
+	tsHeader := r.Header.Get("X-Webhook-Timestamp")
+
+	if sigHeader == "" || tsHeader == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing signature headers", "")
+
+		return
+	}
+
+	if !strings.HasPrefix(sigHeader, "sha256=") {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header", "")
+
+		return
+	}
+
+	sig := strings.TrimPrefix(sigHeader, "sha256=")
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "failed to read request body", "")
+
+		return
+	}
+
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
+
+		return
+	}
+
+	var req knowledgeStatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
+
+		return
+	}
+
+	if h.refreshRegistry == nil {
+		ctxlog.Logger(r.Context()).Warn("knowledge-status callback received but registry is nil",
+			"project", req.Project, "repo", req.Repo)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": false})
+
+		return
+	}
+
+	snap := h.refreshRegistry.Snapshot(req.Project)
+
+	job, ok := snap[req.Repo]
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": false})
+
+		return
+	}
+
+	terminalState := refresh.StateFailed
+	terminalErr := req.Error
+
+	switch req.State {
+	case "succeeded":
+		if job.Committed {
+			terminalState = refresh.StateSucceeded
+			terminalErr = ""
+		} else if terminalErr == "" {
+			terminalErr = "commit not observed"
+		}
+	default:
+		if terminalErr == "" {
+			terminalErr = "runner reported state " + req.State
+		}
+	}
+
+	if err := h.refreshRegistry.MarkTerminal(req.Project, req.Repo, terminalState, terminalErr); err != nil {
+		ctxlog.Logger(r.Context()).Error("MarkTerminal failed",
+			"project", req.Project, "repo", req.Repo, "error", err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": true})
 }
 
 // cardAutonomousResponse is the minimal read-only shape returned to the

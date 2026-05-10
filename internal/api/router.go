@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -93,6 +94,7 @@ type RouterConfig struct {
 	Theme               string              // active color palette ("everforest" or "radix")
 	Version             string              // build version string for display
 	MCPHandler          http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
+	RefreshRegistry     *refresh.Registry   // optional; tracks in-flight KB refresh jobs
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -165,6 +167,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/{doc}", kh.getDoc)
 	mux.HandleFunc("PUT /api/projects/{project}/knowledge/{repo}/{doc}", kh.putDoc)
 
+	// Knowledge refresh (v2)
+	krh := &knowledgeRefreshHandlers{
+		svc:       cfg.Service,
+		registry:  cfg.RefreshRegistry,
+		runner:    cfg.Runner,
+		mcpAPIKey: cfg.MCPAPIKey,
+	}
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/refresh-plan", krh.getPlan)
+	mux.HandleFunc("POST /api/projects/{project}/knowledge/{repo}/refresh", krh.trigger)
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/refresh-status", krh.status)
+
 	// Branch listing
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
 
@@ -180,12 +193,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Runner routes
 	rh := &runnerHandlers{
-		svc:            cfg.Service,
-		runner:         cfg.Runner,
-		runnerCfg:      cfg.RunnerCfg,
-		mcpAPIKey:      cfg.MCPAPIKey,
-		port:           cfg.Port,
-		sessionManager: cfg.SessionManager,
+		svc:             cfg.Service,
+		runner:          cfg.Runner,
+		runnerCfg:       cfg.RunnerCfg,
+		mcpAPIKey:       cfg.MCPAPIKey,
+		port:            cfg.Port,
+		sessionManager:  cfg.SessionManager,
+		refreshRegistry: cfg.RefreshRegistry,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -195,6 +209,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("POST /api/runner/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)

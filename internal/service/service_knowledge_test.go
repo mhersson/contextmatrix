@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -383,6 +384,59 @@ func TestBuildRefreshPlan_EmptyReposList(t *testing.T) {
 	plan, err := svc.BuildRefreshPlan(context.Background(), "test-project", "")
 	require.NoError(t, err)
 	assert.Empty(t, plan.Items)
+}
+
+func TestWriteKnowledgeDocs_RefreshSourceCallsRegistryMarkCommitted(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	reg := refresh.NewRegistry()
+	svc.SetRefreshRegistry(reg)
+
+	// Acquire + run so the registry knows about the (project, repo).
+	_, err := reg.Acquire("test-project", "core", "human:test")
+	require.NoError(t, err)
+	require.NoError(t, reg.MarkRunning("test-project", "core", 1))
+
+	_, err = svc.WriteKnowledgeDocs(context.Background(), WriteKnowledgeDocsInput{
+		Project:    "test-project",
+		Repo:       "core",
+		Docs:       map[string]string{"architecture.md": "# Arch"},
+		HeadCommit: "abc1234",
+		Source:     KnowledgeWriteSourceRefresh,
+		AgentID:    "human:test",
+	})
+	require.NoError(t, err)
+
+	snap := reg.Snapshot("test-project")
+	job, ok := snap["core"]
+	require.True(t, ok)
+	assert.True(t, job.Committed, "Refresh write must set Committed=true on the registry")
+}
+
+func TestWriteKnowledgeDocs_EditSourceDoesNotCallRegistry(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	reg := refresh.NewRegistry()
+	svc.SetRefreshRegistry(reg)
+
+	// Acquire so we'd notice if Edit path leaked into the registry.
+	_, err := reg.Acquire("test-project", "core", "human:test")
+	require.NoError(t, err)
+
+	_, err = svc.WriteKnowledgeDocs(context.Background(), WriteKnowledgeDocsInput{
+		Project: "test-project",
+		Repo:    "core",
+		Docs:    map[string]string{"architecture.md": "# Arch"},
+		Source:  KnowledgeWriteSourceEdit,
+		AgentID: "human:test",
+	})
+	require.NoError(t, err)
+
+	snap := reg.Snapshot("test-project")
+	assert.False(t, snap["core"].Committed,
+		"Edit writes must not mark Committed on the registry")
 }
 
 func TestWriteKnowledgeDocs_RollsBackOnCommitFailure(t *testing.T) {

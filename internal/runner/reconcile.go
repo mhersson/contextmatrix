@@ -4,11 +4,21 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
+
+// kbRefreshCardIDPrefix is the synthetic card_id prefix the runner uses for
+// knowledge-base refresh containers (`kb-refresh:<repo>`). The reconcile
+// sweep skips these — refresh jobs have their own (project, repo)-keyed
+// staleness janitor in internal/refresh, and the runner's own
+// container_timeout is the last-resort cap. Killing them via the card
+// sweep would also fail at the wire (the runner's /end-session and /kill
+// validators reject non-card-shaped IDs).
+const kbRefreshCardIDPrefix = "kb-refresh:"
 
 // ContainerMaxAge caps how long a runner container is allowed to live before
 // the reconcile sweep kills it regardless of card state. The runner has its
@@ -169,9 +179,19 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 // time, passed through explicitly instead of re-read from the package var so
 // a concurrent test mutation cannot race the sweep's per-tick check.
 func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge time.Duration, logger *slog.Logger) (string, bool) {
-	// Rule 3 first: the age cap applies even when card lookup fails, so a
-	// card-store outage cannot extend a leaked container's lifetime
-	// indefinitely.
+	// KB-refresh containers use a synthetic card_id and are managed by the
+	// internal/refresh registry janitor, not by the card-state sweep — they
+	// also have the runner's own container_timeout as a last-resort cap. The
+	// prefix skip therefore comes BEFORE the age cap: an age-cap kill on a
+	// long-running refresh would be issued against a non-card-shaped ID that
+	// the runner's /end-session and /kill validators reject with HTTP 400,
+	// producing per-tick log spam without ever actually killing anything.
+	if strings.HasPrefix(c.CardID, kbRefreshCardIDPrefix) {
+		return "", false
+	}
+
+	// Age cap: applies even when card lookup fails, so a card-store outage
+	// cannot extend a leaked container's lifetime indefinitely.
 	if !c.StartedAt.IsZero() && time.Since(c.StartedAt) > maxAge {
 		return "age_cap", true
 	}
