@@ -366,9 +366,10 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 }
 
 // isHumanAgent returns true if the agent ID represents a human user.
-// Human agent IDs are prefixed with "human:" (e.g. "human:alice").
+// Human agent IDs are prefixed with "human:" with a non-empty suffix
+// (e.g. "human:alice"); see board.IsHumanAgentID.
 func isHumanAgent(agentID string) bool {
-	return strings.HasPrefix(agentID, "human:")
+	return board.IsHumanAgentID(agentID)
 }
 
 // validateAgentIDFormat checks that an agent ID is within length limits.

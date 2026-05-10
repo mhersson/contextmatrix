@@ -14,6 +14,11 @@ import type {
   SyncStatus,
   StopAllResponse,
   TaskSkillSummary,
+  KnowledgeBaseSummary,
+  KnowledgeDocResponse,
+  RefreshPlan,
+  RefreshJobStatus,
+  RefreshStatusResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -307,10 +312,77 @@ class APIClient {
   async fetchBranches(project: string): Promise<string[]> {
     return this.request<string[]>(`/projects/${project}/branches`);
   }
+
+  // Knowledge base
+
+  async getKnowledgeBase(project: string): Promise<KnowledgeBaseSummary> {
+    return this.request<KnowledgeBaseSummary>(
+      `/projects/${encodeURIComponent(project)}/knowledge`
+    );
+  }
+
+  async getKnowledgeDoc(
+    project: string,
+    repo: string,
+    doc: string
+  ): Promise<KnowledgeDocResponse> {
+    return this.request<KnowledgeDocResponse>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/${encodeURIComponent(doc)}`
+    );
+  }
+
+  async putKnowledgeDoc(
+    project: string,
+    repo: string,
+    doc: string,
+    content: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void> {
+    await this.request<void>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/${encodeURIComponent(doc)}`,
+      { method: 'PUT', body: JSON.stringify({ content }), signal: opts?.signal }
+    );
+  }
+
+  async getKnowledgeRefreshPlan(project: string, repo: string): Promise<RefreshPlan> {
+    return this.request<RefreshPlan>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/refresh-plan`,
+      { method: 'GET' },
+    );
+  }
+
+  async startKnowledgeRefresh(
+    project: string,
+    repo: string,
+    overwriteDocs: string[],
+  ): Promise<RefreshJobStatus> {
+    return this.request<RefreshJobStatus>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/refresh`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ overwrite_docs: overwriteDocs }),
+      },
+    );
+  }
+
+  async getKnowledgeRefreshStatus(project: string): Promise<RefreshStatusResponse> {
+    return this.request<RefreshStatusResponse>(
+      `/projects/${encodeURIComponent(project)}/knowledge/refresh-status`,
+      { method: 'GET' },
+    );
+  }
 }
 
 export const api = new APIClient();
 
 export function isAPIError(err: unknown): err is { error: string; code?: string; details?: string } {
   return err != null && typeof err === 'object' && 'error' in err;
+}
+
+export function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'error' in err) {
+    return String((err as { error: unknown }).error);
+  }
+  if (err instanceof Error) return err.message;
+  return 'Unknown error';
 }

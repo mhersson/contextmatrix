@@ -885,6 +885,19 @@ port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
 }
 ```
 
+## Acknowledgments
+
+- The structural prompts and output templates in
+  `workflow-skills/refresh-knowledge.md` are adapted from the
+  [AIDLC Reverse Engineering workflow](https://github.com/aws/aws-aidlc-rules)
+  by AWS, trimmed and reshaped to fit ContextMatrix's per-project knowledge
+  base (4 docs per repo, no per-stage approval ceremony).
+- `workflow-skills/brainstorming.md` and
+  `workflow-skills/systematic-debugging.md` are adopted from the
+  [superpowers](https://github.com/obra/superpowers) plugin for Claude Code
+  by Jesse Vincent, adapted to run inline inside the create-plan
+  orchestrator and to use ContextMatrix MCP tools for card updates.
+
 ## License
 
 MIT

@@ -27,6 +27,9 @@ const Dashboard = lazy(() =>
 const ProjectSettings = lazy(() =>
   import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
+const KnowledgeBase = lazy(() =>
+  import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
+);
 
 function RouteFallback() {
   return (
@@ -41,7 +44,7 @@ export function ProjectShell() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { showToast } = useToast();
-  const { agentId, promptForAgentId } = useAgentId();
+  const { agentId } = useAgentId();
   const [, setLastProject] = useLastProject();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
@@ -189,6 +192,7 @@ export function ProjectShell() {
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
         { key: 'd', handler: () => { if (!panelOpen) navigate(`/projects/${project}/dashboard`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
+        { key: 'k', handler: () => { if (!panelOpen) navigate(`/projects/${project}/knowledge`); } },
         { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) setConsoleOpen((prev) => !prev); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
@@ -247,6 +251,7 @@ export function ProjectShell() {
                   />
                 }
               />
+              <Route path="knowledge/*" element={<KnowledgeBase project={project || ''} />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
@@ -289,7 +294,6 @@ export function ProjectShell() {
             onDelete={handleCardDelete}
             onClaim={handleClaim} onRelease={handleRelease}
             onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
-            onPromptAgentId={promptForAgentId}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
           />
         </ErrorBoundary>

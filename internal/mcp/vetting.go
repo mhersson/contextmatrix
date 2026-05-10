@@ -1,8 +1,6 @@
 package mcp
 
 import (
-	"strings"
-
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
@@ -20,15 +18,16 @@ const unvettedPlaceholderTitle = "[unvetted — title redacted]"
 
 // shouldRedact returns true if a non-human caller is reading an unvetted card.
 // A card counts as unvetted only when both Vetted=false AND the caller is not
-// a human agent (agentID not prefixed with "human:"). An empty agentID is
-// treated as "non-human" because MCP prompt handlers do not have identity
-// information available — see redactCardForPrompt.
+// a human agent (agentID does not match board.IsHumanAgentID). An empty
+// agentID — and a bare "human:" with no suffix — both count as "non-human"
+// because MCP prompt handlers do not have identity information available —
+// see redactCardForPrompt.
 func shouldRedact(card *board.Card, agentID string) bool {
 	if card == nil {
 		return false
 	}
 
-	return !card.Vetted && !strings.HasPrefix(agentID, "human:")
+	return !card.Vetted && !board.IsHumanAgentID(agentID)
 }
 
 // redactUnvettedBody returns the card body as-is for humans or for vetted

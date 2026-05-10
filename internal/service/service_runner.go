@@ -376,9 +376,10 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 
 	s.writeMu.Lock()
 
-	// Guard: only human agents (agent_id prefixed with "human:") may promote a card.
-	// Checked before the store load so a rejected call has no side effects.
-	if agentID == "" || !strings.HasPrefix(agentID, "human:") {
+	// Guard: only human agents (agent_id matching board.IsHumanAgentID) may
+	// promote a card. Checked before the store load so a rejected call has no
+	// side effects.
+	if !board.IsHumanAgentID(agentID) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrPromoteRequiresHuman)

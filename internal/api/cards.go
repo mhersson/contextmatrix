@@ -133,10 +133,11 @@ func (h *cardHandlers) validateCardSkills(r *http.Request, projectName string, s
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
+// A bare "human:" header is treated as non-human — see board.IsHumanAgentID.
 func isNonHumanAgent(r *http.Request) bool {
 	agentID := r.Header.Get("X-Agent-ID")
 
-	return agentID != "" && !strings.HasPrefix(agentID, "human:")
+	return agentID != "" && !board.IsHumanAgentID(agentID)
 }
 
 // validateAgentOwnership checks if the requesting agent can mutate a claimed card.

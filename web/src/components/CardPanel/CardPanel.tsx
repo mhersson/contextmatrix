@@ -21,8 +21,7 @@ interface CardPanelProps {
   onClaim: (agentId: string) => Promise<void>;
   onRelease: (agentId: string) => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
-  currentAgentId: string | null;
-  onPromptAgentId: () => string | null;
+  currentAgentId: string;
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
@@ -50,7 +49,7 @@ interface CardPanelProps {
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
-    onSubtaskClick, currentAgentId, onPromptAgentId, onRunCard, onStopCard } = props;
+    onSubtaskClick, currentAgentId, onRunCard, onStopCard } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [editedCard, setEditedCard] = useState(card);
@@ -112,14 +111,13 @@ export function CardPanel(props: CardPanelProps) {
   }, [isDirty, isSaving, editedCard, card, onSave]);
 
   const handleClaim = useCallback(async () => {
-    const agentId = currentAgentId || onPromptAgentId();
-    if (agentId) await onClaim(agentId);
-  }, [currentAgentId, onPromptAgentId, onClaim]);
+    await onClaim(currentAgentId);
+  }, [currentAgentId, onClaim]);
 
   const handleRelease = useCallback(async () => {
-    if (!currentAgentId || !card.assigned_agent) return;
+    if (!card.assigned_agent) return;
     await onRelease(card.assigned_agent);
-  }, [currentAgentId, card.assigned_agent, onRelease]);
+  }, [card.assigned_agent, onRelease]);
 
   const canDelete =
     (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;

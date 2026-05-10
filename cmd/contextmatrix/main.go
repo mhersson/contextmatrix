@@ -24,6 +24,7 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
@@ -32,6 +33,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -195,6 +197,14 @@ func main() {
 	svc.SetCommitQueue(commitQueue)
 	slog.Info("commit queue initialized")
 
+	// Initialize the in-flight refresh registry (KB v2). Held in-memory only;
+	// CM restart loses tracking but in-flight runner containers complete via
+	// MCP regardless. The janitor goroutine started below promotes stale jobs
+	// to Failed and garbage-collects expired terminal records.
+	refreshRegistry := refresh.NewRegistry()
+	svc.SetRefreshRegistry(refreshRegistry)
+	slog.Info("refresh registry initialized")
+
 	// Create context for background tasks
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -216,6 +226,9 @@ func main() {
 	}
 
 	svc.StartTimeoutChecker(ctx, stalledTick)
+
+	// Start the refresh-registry janitor on the same shutdown context.
+	go refresh.StartJanitor(ctx, refreshRegistry, clock.Real(), refresh.JanitorConfig{}, slog.Default().With("component", "refresh-janitor"))
 
 	// Initialize git sync
 	var syncer *gitsync.Syncer
@@ -312,6 +325,7 @@ func main() {
 		Syncer:              apiSyncer,
 		Runner:              runnerClient,
 		RunnerCfg:           cfg.Runner,
+		RefreshRegistry:     refreshRegistry,
 		MCPAPIKey:           cfg.MCPAPIKey,
 		Port:                cfg.Port,
 		GitHubTokenProvider: tokenProvider,

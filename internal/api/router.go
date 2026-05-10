@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -46,6 +47,7 @@ const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 const (
 	ErrCodeProjectNotFound      = "PROJECT_NOT_FOUND"
 	ErrCodeCardNotFound         = "CARD_NOT_FOUND"
+	ErrCodeKnowledgeDocNotFound = "KNOWLEDGE_DOC_NOT_FOUND"
 	ErrCodeParentNotFound       = "PARENT_NOT_FOUND"
 	ErrCodeCardExists           = "CARD_EXISTS"
 	ErrCodeInvalidTransition    = "INVALID_TRANSITION"
@@ -92,6 +94,7 @@ type RouterConfig struct {
 	Theme               string              // active color palette ("everforest" or "radix")
 	Version             string              // build version string for display
 	MCPHandler          http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
+	RefreshRegistry     *refresh.Registry   // optional; tracks in-flight KB refresh jobs
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -108,6 +111,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
+	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
@@ -158,6 +162,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
 
+	// Knowledge base
+	mux.HandleFunc("GET /api/projects/{project}/knowledge", kh.listForProject)
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/{doc}", kh.getDoc)
+	mux.HandleFunc("PUT /api/projects/{project}/knowledge/{repo}/{doc}", kh.putDoc)
+
+	// Knowledge refresh (v2)
+	krh := &knowledgeRefreshHandlers{
+		svc:       cfg.Service,
+		registry:  cfg.RefreshRegistry,
+		runner:    cfg.Runner,
+		mcpAPIKey: cfg.MCPAPIKey,
+	}
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/refresh-plan", krh.getPlan)
+	mux.HandleFunc("POST /api/projects/{project}/knowledge/{repo}/refresh", krh.trigger)
+	mux.HandleFunc("GET /api/projects/{project}/knowledge/refresh-status", krh.status)
+
 	// Branch listing
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
 
@@ -173,12 +193,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Runner routes
 	rh := &runnerHandlers{
-		svc:            cfg.Service,
-		runner:         cfg.Runner,
-		runnerCfg:      cfg.RunnerCfg,
-		mcpAPIKey:      cfg.MCPAPIKey,
-		port:           cfg.Port,
-		sessionManager: cfg.SessionManager,
+		svc:             cfg.Service,
+		runner:          cfg.Runner,
+		runnerCfg:       cfg.RunnerCfg,
+		mcpAPIKey:       cfg.MCPAPIKey,
+		port:            cfg.Port,
+		sessionManager:  cfg.SessionManager,
+		refreshRegistry: cfg.RefreshRegistry,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -188,6 +209,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Only register runner-side endpoints when the runner is enabled.
 	if cfg.Runner != nil {
 		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("POST /api/runner/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
@@ -494,6 +516,11 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
+	case errors.Is(err, storage.ErrKnowledgeDocNotFound):
+		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound, "knowledge doc not found", "")
+	case errors.Is(err, storage.ErrKnowledgeDocSymlink):
+		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound,
+			"knowledge doc not found", "rejected: symlink")
 	case errors.Is(err, board.ErrParentNotFound):
 		var ve *board.ValidationError
 
@@ -553,6 +580,10 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", sanitizeErrorDetails(err))
+	case errors.Is(err, storage.ErrInvalidKnowledgeDoc):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid knowledge doc name", sanitizeErrorDetails(err))
+	case errors.Is(err, storage.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 
 	// --- Validation sentinels (422) — mutation body shape/semantics ---
 	case errors.Is(err, board.ErrInvalidProjectConfig),

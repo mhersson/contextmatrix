@@ -92,6 +92,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"run-autonomous.md":       "claude-sonnet-4-6",
 		"brainstorming.md":        "claude-sonnet-4-6",
 		"systematic-debugging.md": "claude-sonnet-4-6",
+		"refresh-knowledge.md":    "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -201,6 +202,12 @@ func TestListTools(t *testing.T) {
 		"report_push",
 		"increment_review_attempts",
 		"promote_to_autonomous",
+		"get_knowledge_base",
+		"read_knowledge_doc",
+		"list_knowledge_bases",
+		"refresh_knowledge_base",
+		"commit_knowledge_docs",
+		"update_refresh_progress",
 	}
 
 	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
@@ -1206,6 +1213,7 @@ func TestListPrompts(t *testing.T) {
 		"create-task",
 		"init-project",
 		"start-workflow",
+		"refresh-knowledge",
 	}
 
 	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))
