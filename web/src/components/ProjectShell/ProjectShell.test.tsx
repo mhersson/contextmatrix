@@ -42,10 +42,7 @@ vi.mock('../../hooks/useSync', () => ({
 
 vi.mock('../../hooks/useAgentId', () => ({
   useAgentId: vi.fn(() => ({
-    agentId: null,
-    setAgentId: vi.fn(),
-    clearAgentId: vi.fn(),
-    promptForAgentId: vi.fn(),
+    agentId: 'human:web-test1234',
   })),
 }));
 

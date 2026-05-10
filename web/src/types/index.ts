@@ -282,6 +282,33 @@ export interface AppConfig {
   version: string;
 }
 
+export interface KnowledgeDocSummary {
+  name: string;
+  human_edited: boolean;
+}
+
+export interface KnowledgeRepoSummary {
+  name: string;
+  last_built_at: string;
+  last_built_commit: string;
+  docs: KnowledgeDocSummary[];
+}
+
+export interface KnowledgeBaseSummary {
+  project: string;
+  repos: KnowledgeRepoSummary[];
+}
+
+export interface KnowledgeDocMeta {
+  last_built_commit: string;
+  human_edited: boolean;
+}
+
+export interface KnowledgeDocResponse {
+  content: string;
+  meta: KnowledgeDocMeta;
+}
+
 export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
   queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },

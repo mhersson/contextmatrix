@@ -199,3 +199,73 @@ describe('api.promoteCardToAutonomous', () => {
     expect((caught as APIError).code).toBe('RUNNER_DISABLED');
   });
 });
+
+describe('api knowledge base', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('getKnowledgeBase fetches the project KB summary', async () => {
+    const summary = {
+      project: 'p',
+      repos: [
+        {
+          name: 'core',
+          last_built_at: '2026-05-09T00:00:00Z',
+          last_built_commit: 'abc',
+          docs: [{ name: 'architecture.md', human_edited: false }],
+        },
+      ],
+    };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(summary));
+
+    const got = await api.getKnowledgeBase('p');
+
+    expect(got.project).toBe('p');
+    expect(got.repos[0].name).toBe('core');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toBe('/api/projects/p/knowledge');
+  });
+
+  it('getKnowledgeDoc fetches a single doc', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ content: '# A', meta: { last_built_commit: 'abc', human_edited: false } })
+    );
+
+    const got = await api.getKnowledgeDoc('p', 'core', 'architecture.md');
+
+    expect(got.content).toBe('# A');
+    expect(got.meta.human_edited).toBe(false);
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toBe('/api/projects/p/knowledge/core/architecture.md');
+  });
+
+  it('putKnowledgeDoc PUTs the doc content', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ files_written: ['architecture.md'] })
+    );
+
+    await api.putKnowledgeDoc('p', 'core', 'architecture.md', '# new');
+
+    const callArgs = fetchSpy.mock.calls[0];
+    const url = callArgs[0] as string;
+    const init = callArgs[1] as RequestInit;
+    expect(url).toBe('/api/projects/p/knowledge/core/architecture.md');
+    expect(init.method).toBe('PUT');
+    expect(init.body).toContain('# new');
+  });
+
+  it('getKnowledgeDoc surfaces 404 as APIError with KNOWLEDGE_DOC_NOT_FOUND code', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeErrorResponse('KNOWLEDGE_DOC_NOT_FOUND', 'knowledge doc not found', 404),
+    );
+
+    await expect(api.getKnowledgeDoc('p', 'core', 'missing.md')).rejects.toSatisfy(
+      (err: unknown) => isAPIError(err) && (err as { code?: string }).code === 'KNOWLEDGE_DOC_NOT_FOUND',
+    );
+  });
+
+});

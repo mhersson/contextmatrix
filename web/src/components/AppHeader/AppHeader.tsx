@@ -22,6 +22,7 @@ interface AppHeaderProps {
 const VIEWS = [
   { label: 'Board', to: '' },
   { label: 'Dashboard', to: '/dashboard' },
+  { label: 'Knowledge', to: '/knowledge' },
   { label: 'Settings', to: '/settings' },
 ] as const;
 

@@ -14,6 +14,8 @@ import type {
   SyncStatus,
   StopAllResponse,
   TaskSkillSummary,
+  KnowledgeBaseSummary,
+  KnowledgeDocResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -307,10 +309,48 @@ class APIClient {
   async fetchBranches(project: string): Promise<string[]> {
     return this.request<string[]>(`/projects/${project}/branches`);
   }
+
+  // Knowledge base
+
+  async getKnowledgeBase(project: string): Promise<KnowledgeBaseSummary> {
+    return this.request<KnowledgeBaseSummary>(
+      `/projects/${encodeURIComponent(project)}/knowledge`
+    );
+  }
+
+  async getKnowledgeDoc(
+    project: string,
+    repo: string,
+    doc: string
+  ): Promise<KnowledgeDocResponse> {
+    return this.request<KnowledgeDocResponse>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/${encodeURIComponent(doc)}`
+    );
+  }
+
+  async putKnowledgeDoc(
+    project: string,
+    repo: string,
+    doc: string,
+    content: string
+  ): Promise<void> {
+    await this.request<void>(
+      `/projects/${encodeURIComponent(project)}/knowledge/${encodeURIComponent(repo)}/${encodeURIComponent(doc)}`,
+      { method: 'PUT', body: JSON.stringify({ content }) }
+    );
+  }
 }
 
 export const api = new APIClient();
 
 export function isAPIError(err: unknown): err is { error: string; code?: string; details?: string } {
   return err != null && typeof err === 'object' && 'error' in err;
+}
+
+export function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'error' in err) {
+    return String((err as { error: unknown }).error);
+  }
+  if (err instanceof Error) return err.message;
+  return 'Unknown error';
 }
