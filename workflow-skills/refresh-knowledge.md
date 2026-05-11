@@ -166,7 +166,8 @@ working memory; pass them to each sub-agent below.
 
 - Third-party SDK imports.
 - Outbound HTTP clients with notable host hints.
-- Auth mechanisms (OAuth, API keys, JWT).
+- Auth mechanisms by type only (OAuth, API key, JWT, Basic, mTLS) — record
+  the mechanism, never the credential values.
 
 ### 4.6 Convention discovery
 
@@ -248,6 +249,10 @@ implementation details.]
 
 - **Purpose**: [What it owns; the question it answers.]
 - **Responsibilities**: [Bulleted list of concrete responsibilities.]
+- **Add code here when**: [Task patterns that belong in this package — e.g.,
+  "adding a new REST endpoint", "introducing a new card field".]
+- **Do NOT add here**: [Patterns that look like they fit but belong
+  elsewhere — name the right home and the file/package to use instead.]
 - **Dependencies**: [Other internal packages it relies on.]
 - **Public surface**: [Exported types/functions a consumer can rely on.]
 - **Type**: [Application | Library | Infrastructure | Client | Test]
@@ -267,11 +272,12 @@ packages, not within a package. Use the vertical-flow style from the
 - **Databases / data stores**: [Each with purpose and ownership.]
 - **Message queues, webhooks, third-party services**: [Each with purpose.]
 
-## Notable design decisions
+## Invariants
 
-[Short bulleted list: choices that would surprise a new contributor or
-constrain future changes. Reference the file/package where the decision
-is enforced.]
+[Bulleted list of rules an agent must respect when modifying this codebase.
+Phrase as imperatives ("never X", "always Y", "X must Z before Y"), not as
+historical justification. For each invariant, reference the file/package
+where it is enforced so the agent can verify before changing nearby code.]
 ```
 
 ### 5.2 `code-structure.md` template
@@ -283,8 +289,8 @@ is enforced.]
 
 - **Type**: [go modules / npm / pyproject / cargo / make-driven / etc.]
 - **Key files**: [`go.mod`, `Makefile`, `package.json`, etc.]
-- **Common commands**: [The 3-5 commands a contributor will actually run:
-  build, test, lint, run.]
+- **Common commands**: [The 3-5 commands an agent will run during a task:
+  build, test, lint, run. Include the exact invocation.]
 
 ## Module / package hierarchy
 
@@ -304,10 +310,13 @@ This is the doc that prevents agents from creating files in wrong places.]
 
 ### [Pattern name — e.g., "Service-layer mutex for write serialization"]
 
-- **Where**: [File path or package.]
-- **Why**: [The problem this solves in this codebase.]
-- **How**: [One-paragraph implementation summary; link to the canonical
-  example by file:line.]
+- **When you need to**: [Task trigger — the situation that should make an
+  agent reach for this pattern. E.g., "serialize concurrent writes to a
+  card", "add a new MCP tool that returns paginated results".]
+- **Do**: [The action — copy/follow the canonical example at
+  `path/to/file.go:NN`. Name the function/type to mirror.]
+- **Why it matters**: [The constraint or invariant this enforces; what
+  breaks if an agent skips it or rolls a different solution.]
 
 [Repeat for each established pattern: error handling style, dependency
 injection convention, testing pattern, concurrency model, etc.]
@@ -347,7 +356,8 @@ each is registered in the codebase.]
 ### `[METHOD] /path/{param}`
 
 - **Purpose**: [What it does; who calls it.]
-- **Auth**: [How authentication is enforced; required headers.]
+- **Auth**: [How authentication is enforced; required header names only —
+  never include token, key, or password values.]
 - **Request body**: [Shape; required fields; example.]
 - **Response**: [Status codes; body shape; example.]
 - **Errors**: [Notable error codes/conditions.]
@@ -450,6 +460,12 @@ user in your final summary if useful, but do not call `report_usage`.
 ## Constraints
 
 - Never modify the target code repo.
+- Never include secrets in any doc: no passwords (including defaults like
+  `admin/admin`), API keys, tokens, private keys, certificates, or connection
+  strings with embedded credentials. Describe auth mechanisms by type only
+  (Basic, OAuth2, JWT, API key, mTLS, etc.) — never copy values from config
+  files, env vars, scripts, examples, or README install instructions, even
+  when those values are marked "default" or "example".
 - Never write to disk outside `/tmp/cm-knowledge-*/` and the boards repo
   (mediated by MCP).
 - ASCII diagrams only — no mermaid. See "Diagrams" below for the style.
