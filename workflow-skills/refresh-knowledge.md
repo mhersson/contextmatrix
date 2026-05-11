@@ -17,6 +17,13 @@ markdown docs per repo (`architecture.md`, `code-structure.md`,
 `<project>/knowledge/<repo>/`. Refresh produces fresh AI-generated content
 and commits it atomically.
 
+## Source of truth
+
+- KB content MUST be derived from reading source code (`.go`, `.ts`, `.tsx`, `.py`, configs, schemas, route definitions, type definitions).
+- Existing project documentation in the target repo (`README`, `CLAUDE.md`, `AGENTS.md`, `docs/`, package descriptions, prose comments claiming behavior) is permitted ONLY as a navigation aid to locate code — never as a content source.
+- When existing docs disagree with source code, source code wins. Do not paraphrase doc claims into the KB.
+- When source code is ambiguous in a given area, write the KB section based on what the code demonstrably does; flag genuine uncertainty briefly rather than borrowing from existing docs.
+
 ## Inputs
 
 - `project` (required): project name.
@@ -173,8 +180,7 @@ working memory; pass them to each sub-agent below.
 
 - Linter / formatter configs (`.golangci.yml`, `.eslintrc`, `pyproject.toml [tool.ruff]`).
 - Test framework (`testing` + `testify`, `vitest`, `pytest`).
-- Documentation in `CLAUDE.md`, `AGENTS.md`, `docs/`, `README.md` — read the
-  index of `docs/` if present.
+- `CLAUDE.md`, `AGENTS.md`, `docs/`, `README.md` — read ONLY to discover where significant code lives (e.g., "docs/architecture.md exists" tells you architecture is significant; its contents are not copied into the KB). Do NOT use these files as content sources for any KB field.
 
 Record this discovery once and reuse it across the per-doc sub-agents.
 Do NOT re-walk the codebase from each sub-agent.
@@ -186,11 +192,16 @@ via the Task tool. Pass:
 
 - The discovery findings from Step 4.
 - The current doc content (read via `read_knowledge_doc`) for continuity if
-  any exists.
+  any exists. This is the previously-generated KB doc only — never a source-repo
+  doc such as `README.md`, `CLAUDE.md`, or anything from `docs/`.
 - The path to the cloned repo and read-only access.
 - The target output template (below) — instruct the sub-agent to produce
   content matching that template *as a whole markdown file*. The server
   replaces the file entirely.
+- The rule: fill every template field from source code only (`.go`, `.ts`,
+  `.tsx`, `.py`, configs, schemas, route definitions, type definitions). Do NOT
+  use source-repo documentation (`README`, `CLAUDE.md`, `AGENTS.md`, `docs/`)
+  as a content source for any KB field.
 
 Collect each sub-agent's output as the new doc content.
 
@@ -460,6 +471,9 @@ user in your final summary if useful, but do not call `report_usage`.
 ## Constraints
 
 - Never modify the target code repo.
+- Fill every KB field from source code only; source-repo documentation
+  (`README`, `CLAUDE.md`, `AGENTS.md`, `docs/`) is a navigation aid, never a
+  content source.
 - Never include secrets in any doc: no passwords (including defaults like
   `admin/admin`), API keys, tokens, private keys, certificates, or connection
   strings with embedded credentials. Describe auth mechanisms by type only
