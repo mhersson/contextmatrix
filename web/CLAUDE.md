@@ -518,9 +518,10 @@ the doc-title row. Desktop layout is unchanged.
 | File | Role |
 |---|---|
 | `web/src/components/KnowledgeBase/MobileDocSheet.tsx` | Backdrop overlay + right-side slide-in panel (reuses `card-panel` and `animate-panel-slide-in` CSS classes). Renders `KnowledgeBaseSidebar` inside. Accepts all sidebar props plus `onClose: () => void`. Calls `onClose` after a doc is selected (intercepts `onSelect`). |
-| `web/src/components/KnowledgeBase/KnowledgeBase.tsx` | Owns `isSheetOpen: boolean` state. Applies `hidden md:flex` to the sidebar wrapper. Renders `<MobileDocSheet>` when `isSheetOpen` is true. Passes `onOpenSelector={() => setIsSheetOpen(true)}` to `KnowledgeDocViewer`. |
-| `web/src/components/KnowledgeBase/KnowledgeDocViewer.tsx` | Accepts `onOpenSelector?: () => void`. Renders a `md:hidden` trigger button at the top of the component showing the current doc name + chevron. Clicking it calls `onOpenSelector?.()`. Also forwards `onOpenSelector` to `KnowledgeDocEditor` when editing. |
-| `web/src/components/KnowledgeBase/KnowledgeDocEditor.tsx` | Accepts `onOpenSelector?: () => void`. Renders the same `md:hidden` trigger button at the top. When no doc is provided, shows "Choose a document ›" as the prompt. |
+| `web/src/components/KnowledgeBase/MobileDocTrigger.tsx` | Shared `md:hidden` trigger row: open-book icon + doc name (or "Choose a document" in `--grey1` when undefined) + chevron-right. Props: `docName?: string; onClick: () => void`. Used by `KnowledgeBase.tsx` fallback branches and by `KnowledgeDocViewer`/`KnowledgeDocEditor`. |
+| `web/src/components/KnowledgeBase/KnowledgeBase.tsx` | Owns `isSheetOpen: boolean` state. Applies `hidden md:flex` to the sidebar wrapper. Renders `<MobileDocSheet>` when `isSheetOpen` is true. Passes `onOpenSelector={() => setIsSheetOpen(true)}` to `KnowledgeDocViewer`. Also renders `<MobileDocTrigger>` in the "No KB docs yet" and "Select a doc." fallback branches so mobile users always have a way to open the sheet. |
+| `web/src/components/KnowledgeBase/KnowledgeDocViewer.tsx` | Accepts `onOpenSelector?: () => void`. Renders `<MobileDocTrigger docName={doc}>` at the top when `onOpenSelector` is set. Forwards `onOpenSelector` to `KnowledgeDocEditor` when editing. |
+| `web/src/components/KnowledgeBase/KnowledgeDocEditor.tsx` | Accepts `onOpenSelector?: () => void`. Renders `<MobileDocTrigger docName={doc}>` at the top when `onOpenSelector` is set. |
 
 ### Behaviour
 
@@ -528,8 +529,10 @@ the doc-title row. Desktop layout is unchanged.
   left (`w-72`). Trigger row hidden (`md:hidden`).
 - **Mobile (< `md`):** Viewer/editor takes full width. Sidebar hidden
   (`hidden md:flex`). Trigger row visible at the top showing current doc name +
-  chevron, or "Choose a document ›" when no doc is selected. Tapping the trigger
-  sets `isSheetOpen = true`.
+  chevron, or "Choose a document" when no doc is selected. Tapping the trigger
+  sets `isSheetOpen = true`. The trigger is also rendered in the "No KB docs
+  yet" and "Select a doc." fallback branches, so mobile users always have a way
+  to open the sheet regardless of selection state.
 
 ### Closing the sheet
 

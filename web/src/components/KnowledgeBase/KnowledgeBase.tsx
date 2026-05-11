@@ -4,6 +4,7 @@ import { api, errorMessage } from '../../api/client';
 import { KnowledgeBaseSidebar } from './KnowledgeBaseSidebar';
 import { KnowledgeDocViewer } from './KnowledgeDocViewer';
 import { MobileDocSheet } from './MobileDocSheet';
+import { MobileDocTrigger } from './MobileDocTrigger';
 import { useUnsavedGuard } from './useUnsavedGuard';
 import { useKnowledgeBaseData } from './useKnowledgeBaseData';
 import { useKnowledgeRefreshStatus } from './useKnowledgeRefreshStatus';
@@ -198,23 +199,29 @@ export function KnowledgeBase({ project }: { project: string }) {
             }
           />
         ) : summary.repos.every((r) => r.docs.length === 0) ? (
-          <div className="p-6" style={{ color: 'var(--grey1)' }}>
-            <p>No knowledge base docs yet for this project.</p>
-            <p className="mt-2 text-sm">
-              Click the Refresh button next to a repo on the left to build the KB. Alternatively
-              run{' '}
-              <code
-                className="px-1 rounded"
-                style={{ backgroundColor: 'var(--bg1)', color: 'var(--fg)' }}
-              >
-                /contextmatrix:refresh-knowledge --project {project}
-              </code>{' '}
-              in your Claude Code session.
-            </p>
+          <div className="flex flex-col h-full">
+            <MobileDocTrigger onClick={() => setIsSheetOpen(true)} />
+            <div className="p-6" style={{ color: 'var(--grey1)' }}>
+              <p>No knowledge base docs yet for this project.</p>
+              <p className="mt-2 text-sm">
+                Click the Refresh button next to a repo on the left to build the KB. Alternatively
+                run{' '}
+                <code
+                  className="px-1 rounded"
+                  style={{ backgroundColor: 'var(--bg1)', color: 'var(--fg)' }}
+                >
+                  /contextmatrix:refresh-knowledge --project {project}
+                </code>{' '}
+                in your Claude Code session.
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="p-6" style={{ color: 'var(--grey1)' }}>
-            Select a doc.
+          <div className="flex flex-col h-full">
+            <MobileDocTrigger onClick={() => setIsSheetOpen(true)} />
+            <div className="p-6" style={{ color: 'var(--grey1)' }}>
+              Select a doc.
+            </div>
           </div>
         )}
       </div>
