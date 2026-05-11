@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, errorMessage } from '../../api/client';
 import { KnowledgeBaseSidebar } from './KnowledgeBaseSidebar';
 import { KnowledgeDocViewer } from './KnowledgeDocViewer';
+import { MobileDocSheet } from './MobileDocSheet';
 import { useUnsavedGuard } from './useUnsavedGuard';
 import { useKnowledgeBaseData } from './useKnowledgeBaseData';
 import { useKnowledgeRefreshStatus } from './useKnowledgeRefreshStatus';
@@ -47,6 +48,7 @@ export function KnowledgeBase({ project }: { project: string }) {
 
   const refreshStatus = useKnowledgeRefreshStatus(project);
   const [planModal, setPlanModal] = useState<{ repo: string; plan: RefreshPlan } | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   const reload = useCallback(async () => {
     if (selected) {
@@ -149,7 +151,7 @@ export function KnowledgeBase({ project }: { project: string }) {
 
   return (
     <div className="flex h-full">
-      <div className="flex flex-col h-full min-h-0">
+      <div className="hidden md:flex flex-col h-full min-h-0">
         {summaryError && (
           <div
             className="px-3 py-2 text-xs"
@@ -189,6 +191,7 @@ export function KnowledgeBase({ project }: { project: string }) {
             onSaved={reload}
             onDirtyChange={setDirty}
             onRefreshClick={handleRefreshClick}
+            onOpenSelector={() => setIsSheetOpen(true)}
             refreshing={
               refreshStatus.repos[selected.repo]?.state === 'planning' ||
               refreshStatus.repos[selected.repo]?.state === 'running'
@@ -216,6 +219,16 @@ export function KnowledgeBase({ project }: { project: string }) {
         )}
       </div>
       {modal}
+      {isSheetOpen && (
+        <MobileDocSheet
+          summary={summary}
+          selected={selected}
+          onSelect={guard}
+          onRefreshClick={handleRefreshClick}
+          refreshStatusByRepo={refreshStatus.repos}
+          onClose={() => setIsSheetOpen(false)}
+        />
+      )}
       {planModal && (
         <RefreshPlanModal
           plan={planModal.plan}

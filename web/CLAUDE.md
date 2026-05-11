@@ -507,6 +507,45 @@ modal covers the screen anyway, but this can be improved in a future pass
   file, which triggers the `react-refresh/only-export-components` lint warning.
   This is consistent with the pre-existing `useProjects.tsx` pattern.
 
+## Mobile Knowledge Base
+
+On viewports narrower than `768px` (Tailwind `md` breakpoint) the Knowledge
+Base tab replaces the always-visible sidebar with a slide-in sheet triggered by
+the doc-title row. Desktop layout is unchanged.
+
+### Architecture
+
+| File | Role |
+|---|---|
+| `web/src/components/KnowledgeBase/MobileDocSheet.tsx` | Backdrop overlay + right-side slide-in panel (reuses `card-panel` and `animate-panel-slide-in` CSS classes). Renders `KnowledgeBaseSidebar` inside. Accepts all sidebar props plus `onClose: () => void`. Calls `onClose` after a doc is selected (intercepts `onSelect`). |
+| `web/src/components/KnowledgeBase/KnowledgeBase.tsx` | Owns `isSheetOpen: boolean` state. Applies `hidden md:flex` to the sidebar wrapper. Renders `<MobileDocSheet>` when `isSheetOpen` is true. Passes `onOpenSelector={() => setIsSheetOpen(true)}` to `KnowledgeDocViewer`. |
+| `web/src/components/KnowledgeBase/KnowledgeDocViewer.tsx` | Accepts `onOpenSelector?: () => void`. Renders a `md:hidden` trigger button at the top of the component showing the current doc name + chevron. Clicking it calls `onOpenSelector?.()`. Also forwards `onOpenSelector` to `KnowledgeDocEditor` when editing. |
+| `web/src/components/KnowledgeBase/KnowledgeDocEditor.tsx` | Accepts `onOpenSelector?: () => void`. Renders the same `md:hidden` trigger button at the top. When no doc is provided, shows "Choose a document ›" as the prompt. |
+
+### Behaviour
+
+- **Desktop (≥ `md`):** Two-column flex layout. Sidebar always visible on the
+  left (`w-72`). Trigger row hidden (`md:hidden`).
+- **Mobile (< `md`):** Viewer/editor takes full width. Sidebar hidden
+  (`hidden md:flex`). Trigger row visible at the top showing current doc name +
+  chevron, or "Choose a document ›" when no doc is selected. Tapping the trigger
+  sets `isSheetOpen = true`.
+
+### Closing the sheet
+
+The sheet closes on either of:
+- Tap the dark backdrop (`onClick` on the `bg-black/50` overlay)
+- Select any document (intercepted by `MobileDocSheet.handleSelect`)
+
+### CSS conventions
+
+`MobileDocSheet` uses `card-panel` and `animate-panel-slide-in` — the same
+classes used by `CardPanel` — so z-index and animation stay consistent with
+the rest of the app. No new CSS was added.
+
+The trigger button uses `style` props (CSS custom properties) rather than
+Tailwind color classes, consistent with the project-wide convention.
+
 ## Subtask parent navigation
 
 Subtask cards display their parent card ID as a clickable badge. Clicking it
