@@ -1020,20 +1020,19 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 
 		content := stripAgentConfig(result.Content)
 
-		callerFamily := normalizeModelFamily(input.CallerModel)
-		canInline := callerFamily != "" &&
-			strings.EqualFold(callerFamily, result.Model) &&
-			isInlineEligible("review-task")
-
-		if canInline {
-			content = buildInlineExecutionPrompt(content, input.CardID, "review-task")
-		}
+		// review-task always runs inline regardless of caller_model. The
+		// review skill spawns three specialist sub-agents in parallel via
+		// the Agent tool, which is only available to the top-level (calling)
+		// session. Running review-task as a spawned sub-agent silently
+		// degrades to a single-perspective review because spawned sub-agents
+		// lack Agent. Keep this gate-free — do not reintroduce model match.
+		content = buildInlineExecutionPrompt(content, input.CardID, "review-task")
 
 		return nil, getSkillOutput{
 			SkillName: "review-task",
 			Model:     result.Model,
 			Content:   content,
-			Inline:    canInline,
+			Inline:    true,
 		}, nil
 	})
 }

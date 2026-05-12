@@ -517,22 +517,23 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 # Phase 7: Review
 
 Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
+The response always has `inline: true` — `review-task` is forced to inline
+execution because the review skill spawns three specialist sub-agents in
+parallel via the `Agent` tool, which is only available to your top-level
+session (sub-agents spawned via `Agent` do not get the `Agent` tool
+themselves).
 
-- **`inline: true`** — execute the returned `content` directly. Keep your claim.
-  Do NOT release and re-claim.
-- **`inline: false`** — release the claim first:
-  `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`. Spawn a review
-  sub-agent via `Agent` with `model`,
-  `description: "review-task for <parent_id>"`, and `prompt` from the response.
+Execute the returned `content` directly in this session. Keep your claim
+throughout — do NOT release before, during, or after the inline run.
+Inside the inline run, the skill: runs Pass 1 (test/lint gate); if Pass 1
+passes, spawns three opus specialist agents in parallel for Correctness,
+Design & Maintainability, and Security & Performance; synthesizes their
+reports; writes the `## Review Findings` section to the parent card; and
+prints `REVIEW_FINDINGS`.
 
-Wait for `REVIEW_FINDINGS` structured output. Call `heartbeat` every 5 minutes
-while waiting. After each heartbeat, call `report_usage`.
-
-After `REVIEW_FINDINGS` is received: reclaim the parent card:
-`claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
-
-Call `get_card(card_id=<parent_id>)` to read the `## Review Findings` section
-from the card body.
+When the inline run ends and `REVIEW_FINDINGS` has been printed, call
+`get_card(card_id=<parent_id>)` to re-read the parent body if you need
+the synthesized findings text, then proceed to Phase 8.
 
 ---
 

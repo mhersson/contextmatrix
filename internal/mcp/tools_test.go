@@ -362,6 +362,40 @@ func TestStartReview_HappyPath(t *testing.T) {
 	assert.Equal(t, "review", card.State, "card must be transitioned to review")
 }
 
+// TestStartReview_AlwaysInlineRegardlessOfCallerModel pins the behavior that
+// start_review returns inline=true for review-task even when the caller's
+// model does not match the skill's model. The review skill must run inline
+// in the orchestrator's session so its Agent tool is available to spawn
+// the three parallel specialist sub-agents — sub-agents spawned via Agent
+// lack the Agent tool themselves. Regressing this gate would silently
+// degrade the review to a single-perspective walkthrough.
+func TestStartReview_AlwaysInlineRegardlessOfCallerModel(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Review inline regardless of model", "feature", "high")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
+	})
+
+	result, err := callToolRaw(t, env, "start_review", map[string]any{
+		"project":      "test-project",
+		"card_id":      "TEST-001",
+		"agent_id":     "agent-A",
+		"caller_model": "sonnet", // mismatched against review-task's opus
+	})
+
+	require.False(t, resultIsError(result, err), "start_review should succeed: %s", errorText(result, err))
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.True(t, out.Inline, "review-task must inline regardless of caller_model")
+	assert.Contains(t, out.Content, "INLINE EXECUTION", "inline response must include the lifecycle envelope")
+	assert.Equal(t, "opus", out.Model, "skill model must still be reported as opus for specialist spawning")
+}
+
 // TestStartReview_ForbiddenTransition verifies that start_review rejects a
 // transition that the project's state machine forbids and does not load the
 // skill or change state. Uses blocked -> review (forbidden in the test fixture).

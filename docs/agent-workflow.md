@@ -24,13 +24,24 @@ Human ↔ CC (main agent, Opus)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
-           └── Agent → review agent (review-task, Opus inline)
+           └── inline: review-task (synthesizer = Opus, your session)
+                  ├── Agent → specialist (correctness, Opus 4-7)
+                  ├── Agent → specialist (design,      Opus 4-7)
+                  └── Agent → specialist (security,    Opus 4-7)
 
 Runner container → CC (orchestrator, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
-           └── Agent → sub-agent (review-task, Opus)
+           └── inline: review-task (synthesizer = Sonnet, your session)
+                  ├── Agent → specialist (correctness, Opus 4-7)
+                  ├── Agent → specialist (design,      Opus 4-7)
+                  └── Agent → specialist (security,    Opus 4-7)
 ```
+
+The review skill runs inline in the orchestrator's session (so the
+`Agent` tool is available to spawn the three parallel specialists);
+specialists run on `claude-opus-4-7` regardless of the orchestrator's
+own model.
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 
@@ -87,17 +98,33 @@ as sub-agents. Delegating an interview skill to a sub-agent would break the
 multi-turn flow because sub-agents cannot relay back-and-forth user messages
 through the `Agent` tool.
 
-**Server-side inline execution for model-matched skills:** `review-task` and
-`create-plan` support **inline execution** when the orchestrator's model matches
-the skill's required model. This is controlled by the `get_skill` tool: when the
-orchestrator passes its model family as `caller_model` and it matches the skill
-model, `get_skill` returns the content wrapped in a lifecycle-enforcing inline
-preamble and sets `inline: true` in the response. The delegation wrapper
-instructs the orchestrator to execute inline when `inline` is true, or delegate
-as usual when false. This saves the overhead of spawning a sub-agent on the same
-model the orchestrator is already running. When `caller_model` is absent,
-`inline` is always false and behavior is identical to the standard delegation
-flow.
+**Server-side inline execution.** Two skills run inline, with different
+gating rules:
+
+- **`create-plan` and `brainstorming`** (model-matched inline): when the
+  orchestrator passes its model family as `caller_model` to `get_skill`
+  and it matches the skill's required model, the server returns the
+  content wrapped in a lifecycle-enforcing inline preamble and sets
+  `inline: true`. When the caller model doesn't match (or
+  `caller_model` is absent), `inline` is `false` and behavior falls
+  through to standard delegation (spawn a sub-agent on the required
+  model). This saves the overhead of spawning a sub-agent on the same
+  model the orchestrator is already running.
+
+- **`review-task`** (always inline via `start_review`): the
+  `start_review` MCP tool unconditionally returns `inline: true` for
+  `review-task`, regardless of `caller_model`. The review skill spawns
+  three specialist sub-agents in parallel via the `Agent` tool — and
+  only the top-level (calling) session has the `Agent` tool;
+  sub-agents spawned via `Agent` do not get `Agent` themselves. If the
+  review ran in a spawned sub-agent it would silently degrade to a
+  single-perspective walkthrough because the parallel spawn would not
+  happen. The synthesizer runs on the orchestrator's own model (often
+  Sonnet); the three specialists each run on `claude-opus-4-7`. Do
+  not reintroduce the model-match gate on `start_review` — it would
+  reproduce the regression. (`get_skill('review-task')` still uses
+  the model-match logic for any out-of-band callers; the workflow
+  always goes through `start_review`.)
 
 ```
 workflow-skills/
@@ -304,21 +331,47 @@ The parent card remains in `in_progress` during this phase.
 The orchestrator calls `start_review(card_id, agent_id, caller_model)`, which
 atomically transitions the parent to `review` AND returns the `review-task`
 skill in one call — there is no path to load the review skill without committing
-the transition. Uses a two-phase flow to avoid sub-agent death during
-user-approval waits:
+the transition. The response always has `inline: true`; the orchestrator
+runs the skill in its own session (see "Server-side inline execution" above for
+why). The flow:
 
-- **Phase 1 — Review sub-agent**: CC spawns a short-lived review sub-agent that
-  evaluates both the code and any documentation written in step 4, writes a
-  `## Review Findings` section to the parent card body via `update_card`,
-  releases its claim, and prints `REVIEW_FINDINGS` immediately — without asking
-  the user or waiting for a decision.
-- **User decision (CC handles directly)**: CC reads the card body, presents the
-  `## Review Findings` section to the user, and asks for approve/reject. CC is
-  always alive for this — no sub-agent needed.
-- Based on the user's response, CC (the orchestrator) prints one of:
-  - `REVIEW_APPROVED` — main agent proceeds to finalization (transitions parent
+- **Pass 1 — Spec compliance and test gate (synthesizer = orchestrator):**
+  the orchestrator runs the project test suite and lint, plus a spec /
+  scope check against the plan and acceptance criteria. If Pass 1 fails,
+  it skips Pass 2 entirely, writes findings with `recommendation: revise`,
+  and prints `REVIEW_FINDINGS`. No specialists are spawned.
+- **Pass 2 — Three parallel specialists:** if Pass 1 succeeds, the
+  orchestrator spawns three `Agent` calls in a single message
+  (`model: claude-opus-4-7`, `subagent_type: general-purpose`):
+  Correctness (bugs, edges, errors, races, test quality), Design &
+  Maintainability (architecture, naming, complexity, docs), and Security
+  & Performance (input validation, secrets, CVEs, complexity, leaks).
+  Each specialist prompt carries the synthesizer's `agent_id` because
+  `report_usage` and `add_log` enforce `agent_id == AssignedAgent` —
+  specialists act on the synthesizer's behalf for board writes. Before
+  returning, each specialist calls `report_usage` against the parent
+  card with its own token consumption (model
+  `claude-opus-4-7`); this is what makes the specialists' cost visible
+  on the card. Specialists do not claim, transition, or write findings
+  to the card body — they return a structured Markdown report with
+  severity-tiered findings.
+- **Synthesis (synthesizer = orchestrator):** the orchestrator dedupes
+  overlapping findings, applies the strictest-defensible severity, and
+  decides the overall recommendation (any Critical → `revise`;
+  Important without Critical → typically `revise` unless purely
+  cosmetic; only Minor / none → `approve` or `approve_with_notes`). It
+  writes the synthesized `## Review Findings` section to the parent
+  card body via `update_card`, calls `report_usage` for the synthesizer
+  work, and prints `REVIEW_FINDINGS`. The orchestrator does NOT release
+  the claim — it keeps ownership for the next phase.
+- **User decision (CC handles directly)**: CC reads the card body,
+  presents the `## Review Findings` section to the user, and asks for
+  approve/reject. No sub-agent — the orchestrator already holds the
+  claim and is alive.
+- Based on the user's response, the orchestrator prints one of:
+  - `REVIEW_APPROVED` — proceeds to finalization (transitions parent
     to `done`).
-  - `REVIEW_REJECTED` — main agent handles the rejection loop:
+  - `REVIEW_REJECTED` — the rejection loop:
     1. Calls `transition_card` to move parent from `review` back to
        `in_progress`.
     2. Leaves existing `done` subtasks untouched — their work is preserved.
@@ -350,7 +403,7 @@ Phase 3:  Subtask Creation       → inline; dedupe then create_card for each su
 Phase 4:  Execution Gate         → get_card autonomous check; HITL asks to start, autonomous skips
 Phase 5:  Execution              → checkout feature branch (branch_name); claim parent; get_ready_tasks; spawn execute-task sub-agents in parallel; aggregate worktree branches onto feature branch when worktree isolation used
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
-Phase 7:  Review                 → transition to review, inline or sub-agent per inline field
+Phase 7:  Review                 → transition to review, run review-task inline (always); orchestrator spawns 3 opus specialists in parallel and synthesizes findings
 Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
 Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or remote HITL (CM_INTERACTIVE=1) auto-commits/pushes/PR; local HITL asks
 Phase 10: Finalization           → reclaim, report_usage, transition to done, release_card (mandatory)
@@ -366,7 +419,7 @@ Phase 1: Plan Drafting         → inline, calls create-plan skill
 Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
 Phase 4: Documentation         → spawns document-task sub-agent (parent in in_progress)
-Phase 5: Review                → orchestrator transitions parent to review, follows inline field
+Phase 5: Review                → orchestrator transitions parent to review, runs review-task inline; spawns 3 opus specialists in parallel and synthesizes findings
 Phase 6: Finalization          → transitions parent to done
 ```
 

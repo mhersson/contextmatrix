@@ -208,16 +208,20 @@ Based on the card's current state and body content:
     sub-agent with the returned `model`, wait for `DOCS_WRITTEN`, then
     reclaim (`claim_card`).
 
-## Phase 5: Review (follow inline field)
+## Phase 5: Review (inline)
 
 15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>,
-    caller_model='<your_model>')`.
-16. If `inline: true`, execute directly. Otherwise, release the parent card
-    claim (`release_card`), then spawn a review sub-agent with the returned
-    `model`.
-17. Wait for `REVIEW_FINDINGS` structured output. Reclaim the parent card
-    (`claim_card`) — the review always releases the claim when done.
-18. Parse the `recommendation`:
+    caller_model='<your_model>')`. The response always has `inline: true`
+    — review-task is forced to inline because it spawns three specialist
+    sub-agents in parallel via the `Agent` tool, which only the top-level
+    (your) session has.
+16. Execute the returned `content` inline. Do NOT release your claim.
+    The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
+    opus specialist agents in parallel (Correctness, Design &
+    Maintainability, Security & Performance); synthesizes their reports;
+    writes findings to the parent card body; and prints
+    `REVIEW_FINDINGS`.
+17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**: Increment `review_attempts` by updating the card.
@@ -236,8 +240,8 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-19. Call `report_usage` one final time with your remaining token consumption.
-20. If the card has a `branch_name`:
+18. Call `report_usage` one final time with your remaining token consumption.
+19. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
        referencing the card title and summarizing the work. If the card has a
@@ -245,12 +249,12 @@ Based on the card's current state and body content:
        the PR targets the correct branch.
     c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
-21. Transition the card to `done`:
+20. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-22. Release the card claim:
+21. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
-23. Print structured output:
+22. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
