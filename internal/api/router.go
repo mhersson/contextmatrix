@@ -313,8 +313,10 @@ func observe(next http.Handler) http.Handler {
 		// the JSON-RPC body. We hold the pointer here so we can read it back
 		// after ServeHTTP returns to append mcp_method/mcp_tool to the log line.
 		var mcpCall *ctxlog.MCPCall
+
 		if r.URL.Path == "/mcp" {
 			var ctx context.Context
+
 			ctx, mcpCall = ctxlog.WithMCPCall(r.Context())
 			r = r.WithContext(ctx)
 		}
@@ -338,6 +340,7 @@ func observe(next http.Handler) http.Handler {
 				attrs = append(attrs, "mcp_tool", mcpCall.Tool)
 			}
 		}
+
 		ctxlog.Logger(r.Context()).Info("request", attrs...)
 
 		// SSE streams would pollute the REST latency histogram and the

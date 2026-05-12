@@ -19,12 +19,12 @@ import (
 // MCPCall stored in context, while always restoring the body for downstream handlers.
 func TestMCPRequestInfoMiddleware(t *testing.T) {
 	tests := []struct {
-		name           string
-		httpMethod     string
-		body           string
-		wantMethod     string
-		wantTool       string
-		bodyInContext  bool // whether to inject MCPCall into the context
+		name          string
+		httpMethod    string
+		body          string
+		wantMethod    string
+		wantTool      string
+		bodyInContext bool // whether to inject MCPCall into the context
 	}{
 		{
 			name:          "tools/call body populates method and tool",
@@ -76,7 +76,7 @@ func TestMCPRequestInfoMiddleware(t *testing.T) {
 			downstream := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				if r.Body != nil {
 					got, err := io.ReadAll(r.Body)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 					assert.Equal(t, originalBody, string(got),
 						"downstream should see the original body bytes")
 				}
@@ -108,8 +108,8 @@ func TestMCPRequestInfoMiddleware_nilContext(t *testing.T) {
 		called = true
 
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		assert.Equal(t, `{"method":"tools/call"}`, string(body))
+		assert.NoError(t, err)
+		assert.JSONEq(t, `{"method":"tools/call"}`, string(body))
 	})
 
 	handler := mcpRequestInfoMiddleware(downstream)
