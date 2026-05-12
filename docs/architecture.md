@@ -181,7 +181,11 @@ and commit completion. The service layer closes that gap on failure:
   `internal/storage/`, and `internal/runner/` retrieve the logger via
   `ctxlog.Logger(ctx)` so every log line emitted during a request carries the
   same correlation ID. Falls back to `slog.Default()` for background contexts
-  that bypass the middleware (e.g. stall scanner goroutine).
+  that bypass the middleware (e.g. stall scanner goroutine). Also stores a
+  `*MCPCall` in the context (via `ctxlog.WithMCPCall`) for `/mcp` requests;
+  `mcpRequestInfoMiddleware` in `internal/mcp/server.go` populates it with
+  the JSON-RPC `method` and tool `name`, which the `observe` middleware then
+  appends as `mcp_method` / `mcp_tool` fields on the per-request log line.
 - **Metrics** (`metrics`): declares all Prometheus metric vars and exposes a
   `Register(prometheus.Registerer)` function called once at startup in
   `main.go`. Metrics are served at `GET /metrics` on the **admin listener** only

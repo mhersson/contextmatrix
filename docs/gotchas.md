@@ -116,6 +116,18 @@
   not carry the correlation ID. Background goroutines (stall scanner, git-pull
   ticker) do not go through the middleware; `ctxlog.Logger(ctx)` falls back to
   `slog.Default()` safely in those paths.
+- **MCP tool name in the request log line:** for `POST /mcp` requests the
+  `observe` middleware emits two extra fields alongside the standard `method`,
+  `path`, `status`, `duration_ms`, and `request_id` fields:
+  `mcp_method` (JSON-RPC method, e.g. `tools/call`) and `mcp_tool` (tool name,
+  e.g. `claim_card` or `report_usage`). Both fields are omitted for non-MCP
+  routes and for MCP methods other than `tools/call` (e.g. `initialize`) where
+  there is no tool name. The extraction is best-effort — a body-peeking
+  middleware (`mcpRequestInfoMiddleware` in `internal/mcp/server.go`) reads the
+  request body, parses the JSON-RPC envelope, restores the body, and writes the
+  results into a `*ctxlog.MCPCall` stashed in the context by `observe`. Errors
+  during extraction are swallowed; the log line is still emitted with whatever
+  fields were successfully extracted.
 - **`/metrics` and pprof live on the admin port:** Prometheus scraping
   (`GET /metrics`) and `/debug/pprof/*` are served only on the admin listener
   (`admin_port`), which defaults to `127.0.0.1` (`admin_bind_addr`). The main

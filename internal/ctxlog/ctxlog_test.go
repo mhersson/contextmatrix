@@ -54,6 +54,27 @@ func TestLogger_fallback(t *testing.T) {
 		"Logger on empty context should return slog.Default()")
 }
 
+func TestWithMCPCall_roundtrip(t *testing.T) {
+	ctx, call := ctxlog.WithMCPCall(context.Background())
+	require.NotNil(t, call)
+
+	// Mutate via the returned pointer.
+	call.Method = "tools/call"
+	call.Tool = "claim_card"
+
+	// Retrieving via context should return the same pointer, not a copy.
+	got := ctxlog.MCPCallFromContext(ctx)
+	require.NotNil(t, got)
+	assert.Same(t, call, got, "MCPCallFromContext should return the same pointer")
+	assert.Equal(t, "tools/call", got.Method)
+	assert.Equal(t, "claim_card", got.Tool)
+}
+
+func TestMCPCallFromContext_missing(t *testing.T) {
+	got := ctxlog.MCPCallFromContext(context.Background())
+	assert.Nil(t, got, "MCPCallFromContext on a bare context should return nil")
+}
+
 func TestWithRequestID_differentIDs(t *testing.T) {
 	restoreSlogDefault(t)
 
