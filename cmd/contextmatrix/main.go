@@ -12,6 +12,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,6 +144,10 @@ func main() {
 		taskSkillsCloneURL = cfg.TaskSkills.GitRemoteURL
 	}
 
+	// Capture whether the task-skills dir already has a .git before NewManager
+	// runs PlainInit on an empty directory.
+	taskSkillsHadGit := dirHasGit(cfg.TaskSkills.Dir)
+
 	taskSkillsGit, err := gitops.NewManager(
 		cfg.TaskSkills.Dir,
 		taskSkillsCloneURL,
@@ -155,6 +160,8 @@ func main() {
 	}
 
 	slog.Info("task-skills git manager initialized", "repo_path", cfg.TaskSkills.Dir)
+
+	startupPullTaskSkills(taskSkillsHadGit, cfg.TaskSkills.GitRemoteURL, taskSkillsGit)
 
 	// Initialize storage
 	store, err := storage.NewFilesystemStore(cfg.Boards.Dir)
@@ -521,6 +528,39 @@ func main() {
 		slog.Error("server shutdown error", "error", mainShutdownErr)
 		os.Exit(1)
 	}
+}
+
+// dirHasGit reports whether <dir>/.git exists (as a file or directory).
+// Returns false for an empty dir string.
+func dirHasGit(dir string) bool {
+	if dir == "" {
+		return false
+	}
+
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+
+	return err == nil
+}
+
+// startupPullTaskSkills performs a fast-forward pull of the task-skills repo
+// at server startup. It is a best-effort operation: pull failures are logged
+// as warnings but do not prevent the server from starting.
+func startupPullTaskSkills(hadGit bool, remoteURL string, mgr *gitops.Manager) {
+	if !hadGit || remoteURL == "" || mgr == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := mgr.PullFastForward(ctx); err != nil {
+		slog.Warn("task-skills startup pull failed; serving cached copy",
+			"dir", mgr.RepoPath(), "error", err)
+
+		return
+	}
+
+	slog.Info("task-skills startup pull: ok", "dir", mgr.RepoPath())
 }
 
 // waitSyncer wraps a blocking Wait() call with a context deadline. It runs
