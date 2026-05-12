@@ -204,6 +204,21 @@ Before constructing the container config, the runner runs `git pull --ff-only`
 on `task_skills_dir`. On failure, the runner logs and continues with the
 existing local clone — the trigger never aborts because of a sync issue.
 
+### Server startup pull
+
+The ContextMatrix server mirrors this behaviour on startup. If `task_skills.dir`
+already contains a `.git` directory **and** `task_skills.git_remote_url` is
+non-empty, the server runs `git pull --ff-only` (60-second timeout) immediately
+after initialising the task-skills git manager and before opening any network
+listeners. Failures are logged as warnings and do not prevent startup — the
+cached on-disk copy is used as-is. A non-fast-forward situation (divergent local
+history) also surfaces as a warning; the working tree is not modified.
+
+The `task-skills startup pull: ok` log line confirms a successful pull; absence
+of the line means either the preconditions were not met (no `.git`, no remote
+URL) or the pull was skipped/failed (see `task-skills startup pull failed` warn
+log).
+
 ### Required tool
 
 The container's `--allowed-tools` allowlist must include `Skill` for Claude

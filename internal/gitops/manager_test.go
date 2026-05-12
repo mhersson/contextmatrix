@@ -329,6 +329,127 @@ func TestPull_AutoReloadsGoGit(t *testing.T) {
 	assert.Equal(t, "post-pull commit", strings.TrimSpace(msg))
 }
 
+// TestPullFastForward_NoRemote verifies that PullFastForward returns nil
+// immediately when no origin remote is configured.
+func TestPullFastForward_NoRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found, skipping")
+	}
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	err = mgr.PullFastForward(context.Background())
+	assert.NoError(t, err)
+}
+
+// TestPullFastForward_FetchesNewCommits verifies that PullFastForward brings
+// in new commits from the remote and reloads the go-git in-memory state.
+func TestPullFastForward_FetchesNewCommits(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found, skipping")
+	}
+
+	ctx := context.Background()
+
+	// Create a bare remote and two working copies.
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
+	require.NoError(t, mgr.CommitFile(ctx, "init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote(ctx, "origin", "file://"+bareDir))
+	require.NoError(t, mgr.Push(ctx))
+
+	// Clone and push a new commit from a second working copy.
+	cloneDir := t.TempDir()
+	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{URL: "file://" + bareDir})
+	require.NoError(t, err)
+	cloneMgr, err := NewManager(cloneDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	cloneMgr.SetAuthor("Clone User", "clone@example.com")
+	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "new.txt"), []byte("new content"), 0o644))
+	require.NoError(t, cloneMgr.CommitFile(ctx, "new.txt", "remote commit"))
+	require.NoError(t, cloneMgr.Push(ctx))
+
+	// PullFastForward in the original repo should bring in the new commit.
+	require.NoError(t, mgr.PullFastForward(ctx))
+
+	// new.txt should exist in the original worktree.
+	_, err = os.Stat(filepath.Join(workDir, "new.txt"))
+	require.NoError(t, err, "new.txt should exist after PullFastForward")
+
+	// go-git in-memory state should reflect the new commit (reloadRepo ran).
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "remote commit", strings.TrimSpace(msg),
+		"go-git should see remote commit after PullFastForward auto-reload")
+}
+
+// TestPullFastForward_NonFastForwardReturnsError verifies that a divergent
+// history causes PullFastForward to return a non-nil error without modifying
+// the original working tree.
+func TestPullFastForward_NonFastForwardReturnsError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found, skipping")
+	}
+
+	ctx := context.Background()
+
+	// Create a bare remote and two working copies.
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	mgr.SetAuthor("Test User", "test@example.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
+	require.NoError(t, mgr.CommitFile(ctx, "init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote(ctx, "origin", "file://"+bareDir))
+	require.NoError(t, mgr.Push(ctx))
+
+	// Original makes a local commit (diverges from remote).
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "local.txt"), []byte("local"), 0o644))
+	require.NoError(t, mgr.CommitFile(ctx, "local.txt", "local-side commit"))
+
+	// Clone and force-push a different commit on top of the shared base,
+	// making the remote head diverge from the original's local head.
+	cloneDir := t.TempDir()
+	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{URL: "file://" + bareDir})
+	require.NoError(t, err)
+	cloneMgr, err := NewManager(cloneDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	cloneMgr.SetAuthor("Clone User", "clone@example.com")
+	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "remote.txt"), []byte("remote"), 0o644))
+	require.NoError(t, cloneMgr.CommitFile(ctx, "remote.txt", "remote-side commit"))
+
+	// Force-push so the remote head is now a different commit than what the
+	// original has locally — a true divergence.
+	cmd := exec.Command("git", "push", "--force", "origin", "HEAD")
+	cmd.Dir = cloneDir
+	require.NoError(t, cmd.Run())
+
+	// PullFastForward should fail because the histories have diverged.
+	err = mgr.PullFastForward(ctx)
+	require.Error(t, err, "PullFastForward must fail on divergent history")
+
+	// The original's HEAD must still be the local-side commit.
+	msg, getMsgErr := mgr.GetLastCommitMessage()
+	require.NoError(t, getMsgErr)
+	assert.Equal(t, "local-side commit", strings.TrimSpace(msg),
+		"original HEAD must be unchanged after failed PullFastForward")
+}
+
 // TestPush_AutoReloadsGoGit verifies that after Push, go-git's in-memory
 // state is refreshed so subsequent go-git operations see correct refs.
 func TestPush_AutoReloadsGoGit(t *testing.T) {

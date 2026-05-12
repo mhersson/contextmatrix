@@ -302,6 +302,29 @@ func (m *Manager) Pull(ctx context.Context) error {
 	return nil
 }
 
+// PullFastForward fetches and fast-forwards from the origin remote using
+// shell git. Returns nil immediately if no remote is configured.
+// Non-fast-forward situations (divergent history) return a non-nil error
+// so the caller can log and continue without modifying the working tree.
+func (m *Manager) PullFastForward(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.hasRemote() {
+		return nil
+	}
+
+	if err := m.runGit(ctx, "pull", "--ff-only", "origin"); err != nil {
+		return fmt.Errorf("pull --ff-only: %w", err)
+	}
+
+	if err := m.reloadRepo(); err != nil {
+		return fmt.Errorf("reload after pull: %w", err)
+	}
+
+	return nil
+}
+
 // Push pushes commits to the origin remote using shell git.
 // Uses "git push --set-upstream origin HEAD" so it works whether or not
 // the current branch already has a tracking upstream configured.
