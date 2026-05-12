@@ -123,3 +123,47 @@ func TestMCPRequestInfoMiddleware_nilContext(t *testing.T) {
 
 	assert.True(t, called, "downstream should be called even when MCPCall is absent from context")
 }
+
+// TestMCPRequestInfoMiddleware_truncatesLongFields verifies that an
+// authenticated client cannot use a multi-megabyte JSON-RPC method or tool name
+// to amplify the per-request slog line. Both fields are capped at maxLogFieldLen.
+func TestMCPRequestInfoMiddleware_truncatesLongFields(t *testing.T) {
+	longMethod := strings.Repeat("M", maxLogFieldLen*4)
+	longTool := strings.Repeat("T", maxLogFieldLen*4)
+
+	// Build a body where method == "tools/call" so the tool branch fires, but
+	// also include an oversize method via a separate body that uses the long
+	// method literally.
+	bodyToolsCall := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"` + longTool + `"}}`
+	bodyLongMethod := `{"jsonrpc":"2.0","method":"` + longMethod + `","params":{}}`
+
+	t.Run("tools/call with long tool name", func(t *testing.T) {
+		ctx, call := ctxlog.WithMCPCall(t.Context())
+		downstream := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
+		handler := mcpRequestInfoMiddleware(downstream)
+
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(bodyToolsCall))
+		req = req.WithContext(ctx)
+
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		assert.Equal(t, "tools/call", call.Method)
+		assert.LessOrEqual(t, len(call.Tool), maxLogFieldLen+len("…"),
+			"Tool should be truncated to at most maxLogFieldLen + ellipsis")
+	})
+
+	t.Run("long method name", func(t *testing.T) {
+		ctx, call := ctxlog.WithMCPCall(t.Context())
+		downstream := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
+		handler := mcpRequestInfoMiddleware(downstream)
+
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(bodyLongMethod))
+		req = req.WithContext(ctx)
+
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		assert.LessOrEqual(t, len(call.Method), maxLogFieldLen+len("…"),
+			"Method should be truncated to at most maxLogFieldLen + ellipsis")
+		assert.Empty(t, call.Tool, "Tool should be empty for non-tools/call methods")
+	})
+}

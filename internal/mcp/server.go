@@ -101,9 +101,16 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 					} `json:"params"`
 				}
 				if json.Unmarshal(buf, &msg) == nil {
-					call.Method = msg.Method
+					// Cap field lengths so a malicious client cannot amplify
+					// each log line with a multi-megabyte method or tool name
+					// (the outer bodyLimit caps the body at 5 MB, but the
+					// extracted strings would otherwise be logged verbatim).
+					// Real MCP method names are <40 chars; 64 is a comfortable
+					// upper bound that matches the request_id ceiling used
+					// elsewhere in router.go.
+					call.Method = truncateLogField(msg.Method)
 					if msg.Method == "tools/call" {
-						call.Tool = msg.Params.Name
+						call.Tool = truncateLogField(msg.Params.Name)
 					}
 				}
 			}
@@ -111,6 +118,22 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxLogFieldLen bounds the mcp_method / mcp_tool values written to the request
+// log line. Real MCP method names and tool names are <40 chars; 64 leaves room
+// for future growth without giving an authenticated client a log-amplification
+// primitive via a multi-megabyte JSON-RPC payload.
+const maxLogFieldLen = 64
+
+// truncateLogField clips s to maxLogFieldLen runes. Truncation suffix is added
+// only when truncation actually happened so short values are unchanged.
+func truncateLogField(s string) string {
+	if len(s) <= maxLogFieldLen {
+		return s
+	}
+
+	return s[:maxLogFieldLen] + "…"
 }
 
 // clearWriteDeadlineForStreaming wraps an http.Handler and disables the write
