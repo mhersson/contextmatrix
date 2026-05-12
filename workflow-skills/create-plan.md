@@ -3,13 +3,10 @@
 ## Agent Configuration
 
 - **Model:** claude-sonnet-4-6 — Planning runs inline on the orchestrator.
-  Sonnet is sufficient; the orchestrator (Opus for HITL/local, Sonnet for
-  runner) retains plan context for subtask creation.
 
 ---
 
-You are the planning and execution orchestrator for a ContextMatrix card. Drive
-the card from drafting through finalization in a single top-to-bottom flow.
+You are the planning and execution orchestrator for a ContextMatrix card.
 
 ## Heartbeat
 
@@ -25,12 +22,6 @@ the card from drafting through finalization in a single top-to-bottom flow.
 
 # Phase 0: Pre-planning Gate
 
-Before drafting the plan, route the card through one of three branches:
-brainstorming (creative work, HITL only), systematic-debugging (bug-like
-work, both modes), or skip (pure maintenance). This catches under-specified
-cards and produces a `## Design` or `## Diagnosis` section on the card body
-*before* you commit to a plan structure that may need to be torn up.
-
 ## Step 0: Ensure the card is claimed
 
 If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
@@ -41,11 +32,8 @@ Hold this claim through Phase 5.
 Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
 is the ONLY source of truth for mode.
 
-- **If `autonomous: true`:** the brainstorming branch (Branch C below)
-  is skipped — it requires user dialogue not available in autonomous
-  runs. The systematic-debugging branch (Branch B) still runs in
-  autonomous mode; the maintenance-skip branch (Branch A) still applies.
-  Phase 1 Step 2.5 is the fallback for vague designs in autonomous
+- **If `autonomous: true`:** the brainstorming branch (Branch C below) is
+  skipped; Branches A and B still apply. Phase 1 Step 2.5 is the fallback for vague designs in autonomous
   creative cards.
 - **If `autonomous: false` (HITL):** all three branches are available.
 
@@ -63,10 +51,7 @@ Skip Phase 0 entirely (proceed to Phase 1) when ALL of the following hold:
 - Title clearly describes a mechanical action ("Bump...", "Update <dep>...",
   "Rename...", "Move...", "Pin...").
 
-The maintenance label wins over bug indicators: a card with `type=bug`
-and label `simple` skips Phase 0. The `simple` label triggers the fast
-path defined in `run-autonomous` — no diagnosis or design ceremony
-needed.
+If `type=bug` and a maintenance label both apply, the maintenance label wins.
 
 ### Branch B — Bug-like, run systematic-debugging (both modes)
 
@@ -108,12 +93,7 @@ card to `blocked` with the reason and stop.
 
 ### Branch C — Creative work, run brainstorming (HITL only)
 
-When none of the above match, the card describes creative work — new
-features, new components, new functionality, or behavior changes — that
-warrants up-front design discussion.
-
-**In autonomous mode, this branch is skipped** (no user channel for
-dialogue). Proceed directly to Phase 1; Phase 1 Step 2.5 catches vague
+**In autonomous mode, this branch is skipped.** Proceed directly to Phase 1; Phase 1 Step 2.5 catches vague
 designs in autonomous creative cards.
 
 **In HITL mode**, call:
@@ -123,41 +103,17 @@ get_skill(skill_name='brainstorming', card_id=<parent_id>,
           caller_model='<your_model>')
 ```
 
-The response will include `inline: true` (brainstorming is on the
-inline-eligible whitelist; create-plan and brainstorming both run on
-Sonnet). Run the returned `content` directly in this same session.
+The response will include `inline: true`. Run the returned `content` directly in this same session.
 
 **Do NOT spawn a sub-agent for brainstorming.** Sub-agents have no chat
 channel back to the user; dialogue requires running inline.
-
-The brainstorming skill will:
-
-- Read the card body and detect whether it already has a `## Design`
-  section (short-circuit path).
-- For under-specified cards: dialogue with the user (clarifying
-  questions one at a time, 2–3 approach proposals, design presentation
-  in sections), then update the card body via `update_card` with the
-  agreed `## Design` section.
-- Return when the user confirms the updated body.
 
 Heartbeat before each prompt to the user. Heartbeat on resume. See the
 Heartbeat section.
 
 ### Disambiguation
 
-Cards that straddle bug + feature ("the form throws on submit — also add
-a remember-me checkbox") prefer Branch B for the bug portion; the
-diagnosis sub-agent flags the feature work as a sibling-card split in
-its `### Risk / scope notes`. If neither A nor B fits cleanly and the
-card is autonomous, default to skipping Phase 0 — Phase 1 Step 2.5 is
-the safety net.
-
-## Step 2: Proceed to Phase 1
-
-When the chosen branch returns (or is skipped), proceed to Phase 1
-below. Phase 1 will re-read the card body (now containing the agreed
-`## Design` or `## Diagnosis`, if Branch B or C ran) and use it as input
-for plan drafting.
+Cards that straddle bug + feature: prefer Branch B; the diagnosis sub-agent flags feature work for sibling-card split. If neither A nor B fits and the card is autonomous, skip Phase 0.
 
 ---
 
@@ -235,29 +191,15 @@ Break the work into subtasks following these rules:
 Before writing the plan to the card body, look at it with fresh eyes and
 check each item:
 
-**Placeholder scan.** Any "TBD", "TODO", incomplete sections, or vague
-requirements? Fix them now. If you can't fix something because the
-underlying design is unclear, that's a spec issue. In HITL, this should
-be rare — Phase 0 brainstorming should have caught it; if it didn't,
-re-engage by calling `get_skill('brainstorming', ...)` again to clarify
-the missing piece. In autonomous, transition the card back to drafting
-or `not_planned` so a human can refine the spec.
+**Placeholder scan.** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix inline; if the design is unclear, re-engage brainstorming (HITL) or transition back to drafting or `not_planned` (autonomous).
 
-**Spec coverage.** Re-read the parent card body. Does every requirement
-map to at least one subtask? Are there acceptance criteria that no
-subtask addresses? List gaps explicitly.
+**Spec coverage.** Does every requirement in the parent card body map to at least one subtask? List gaps explicitly.
 
-**Internal consistency.** Do any subtasks contradict each other? Does the
-data model assumed in subtask N match the data model built in subtask M
-(where N depends on M)?
+**Internal consistency.** Do any subtasks contradict each other or assume incompatible data models?
 
 **Files touched.** Are file paths consistent across dependent subtasks?
-Subtask N modifies `internal/api/cards.go`; does subtask M (which depends
-on N) reference the same path?
 
-**Scope check.** Is the plan focused on the parent card's requirements,
-or has it grown beyond? If it has, trim — extra scope belongs in sibling
-cards, not bloated subtasks.
+**Scope check.** Has the plan grown beyond the parent card's requirements? Trim excess to sibling cards.
 
 Fix any issues inline by revising the draft. No need to re-review the
 same items twice — just fix and proceed.
@@ -314,9 +256,7 @@ Proceed immediately to Phase 2 — do NOT stop here.
 # Phase 2: Plan Approval Gate
 
 Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
-top-level `autonomous` field is the ONLY source of truth for mode. If
-`autonomous: false`, the card is HITL — regardless of any `promoted` entry
-in `activity_log`.
+top-level `autonomous` field is the ONLY source of truth for mode.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 3.
 
@@ -360,8 +300,7 @@ Proceed immediately to Phase 4.
 # Phase 4: Execution Gate
 
 Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
-top-level `autonomous` field is the ONLY source of truth for mode. Ignore
-`activity_log` entirely for mode determination.
+top-level `autonomous` field is the ONLY source of truth for mode.
 
 **If `autonomous: true`:** skip this phase entirely and proceed to Phase 5.
 
@@ -517,11 +456,7 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 # Phase 7: Review
 
 Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
-The response always has `inline: true` — `review-task` is forced to inline
-execution because the review skill spawns three specialist sub-agents in
-parallel via the `Agent` tool, which is only available to your top-level
-session (sub-agents spawned via `Agent` do not get the `Agent` tool
-themselves).
+The response always has `inline: true` — `review-task` is forced to inline execution.
 
 Execute the returned `content` directly in this session. Keep your claim
 throughout — do NOT release before, during, or after the inline run.
@@ -540,8 +475,7 @@ the synthesized findings text, then proceed to Phase 8.
 # Phase 8: Review Decision Gate
 
 Call `get_card(card_id=<parent_id>)` to re-read the current card state. The
-top-level `autonomous` field is the ONLY source of truth for mode. Ignore
-`activity_log` entirely for mode determination.
+top-level `autonomous` field is the ONLY source of truth for mode.
 
 **If `autonomous: true`:** branch on the `recommendation` field in
 `REVIEW_FINDINGS`:
@@ -684,14 +618,6 @@ Triggered from Phase 8 when the review recommends revision. Do NOT call
    additional requirements. Create new fix subtasks scoped only to the
    identified issues.
 4. Resume from **Phase 2** (plan approval gate — check autonomous again).
-5. This loop (Phase 1 redraft → Phase 2 approval → Phase 3 create fix subtasks →
-   Phase 4 execution gate → Phase 5 execute → Phase 6 docs → Phase 7 review →
-   Phase 8 decision) repeats until approved.
+5. This loop repeats until approved.
 
-The parent card's full lifecycle is:
-`todo → in_progress → (docs) → review → (if rejected) in_progress → (docs) → review → … → (if approved) done`
-
-Each phase MUST lead to the next. **Abandoning the workflow mid-stream is never
-acceptable.** If you cannot continue (e.g., the user asks to pause), clearly
-communicate where in the pipeline you stopped and what must happen next to
-resume.
+**Abandoning the workflow mid-stream is never acceptable.** If you cannot continue, clearly communicate where you stopped and what must happen next to resume.

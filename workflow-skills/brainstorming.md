@@ -3,28 +3,20 @@
 ## Agent Configuration
 
 - **Model:** claude-sonnet-4-6 — runs inline inside the create-plan
-  orchestrator session. Sonnet matches create-plan's model so
-  `get_skill('brainstorming', ...)` returns content with inline-execution
-  wrapping when called from create-plan.
+  orchestrator session.
 
 ---
 
-You run inside the create-plan orchestrator session. Your job is to turn
-the card's stated intent into a fully-formed design through collaborative
-dialogue with the user, then update the card body with the agreed design
-and return control to create-plan.
-
-You do NOT transition the card. You do NOT invoke other skills. You do
-NOT spawn sub-agents (sub-agents have no chat channel back to the user
-— dialogue requires running inline). When you're done, control returns
-to create-plan, which proceeds with Phase 1 plan drafting.
+Run inline within the create-plan orchestrator session. Turn the card's
+stated intent into a fully-formed design through dialogue with the user,
+then update the card body with the agreed `## Design`. Do NOT transition
+the card. Do NOT invoke other skills. Do NOT spawn sub-agents — sub-agents
+have no chat channel back to the user. When done, control returns to
+create-plan.
 
 ## Safety check
 
-If for any reason there is no user channel available (autonomous run
-that somehow reached this skill), return immediately. The orchestrator
-should have skipped Phase 0 entirely in autonomous mode; this is a
-belt-and-suspenders fallback.
+If no user channel is available, return immediately.
 
 ## Log engagement (first action)
 
@@ -119,25 +111,6 @@ You MUST complete each of these in order:
 8. **User confirms updated body** — last gate before returning.
 9. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
 
-## Process Flow
-
-```
-Load project knowledge base (get_knowledge_base)
-  → Read card body (get_card)
-    → Design already complete?
-         yes → summarize, ask user "walk through or proceed?"
-                → "proceed" → return
-                → "walk through" → focused review, optional update_card, return
-         no  → Ask clarifying questions (one at a time)
-                → Propose 2-3 approaches
-                  → Present design sections (get approval per section)
-                    → Update card body via update_card (add/replace ## Design)
-                      → Self-review (fix inline)
-                        → User confirms updated body
-                          → If changes requested → re-update
-                          → If approved → return
-```
-
 ## The Process
 
 **Understanding the idea:**
@@ -205,9 +178,6 @@ Load project knowledge base (get_knowledge_base)
   replace a `## Design` section in the card body. Keep all existing
   content (title, description, prior sections); only the design portion
   is new or refreshed.
-- The card body is the durable spec — `create-plan` Phase 1 Step 2 will
-  read it next when drafting subtasks.
-- Do NOT write the design to a separate file. The card IS the spec.
 
 **Description Self-Review:**
 
@@ -239,10 +209,8 @@ re-confirm. Only return once the user approves.
 
 **Return:**
 
-When the user confirms, simply stop talking and let create-plan take
-over. Do NOT print a structured handoff message; create-plan's next
-step (Phase 1 Step 1) re-reads the card and proceeds. Do NOT transition
-the card state — that's create-plan's responsibility.
+When the user confirms, stop talking. Do NOT print a structured handoff message.
+Do NOT transition the card.
 
 ## Key Principles
 
