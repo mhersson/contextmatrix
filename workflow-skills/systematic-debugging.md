@@ -79,6 +79,11 @@ You MUST complete each phase before proceeding to the next.
      - Translate user-facing names to internal names (`glossary.md`).
    - If empty, proceed without — fall back to grepping for symbols and
      reading `CLAUDE.md`.
+   - If `summaries` is non-empty, use each doc's summary to judge
+     relevance to the current bug before loading its full content from
+     `docs`. Retain in active context only the docs whose summary
+     indicates relevance. If `summaries` is empty or a doc has no
+     entry, load all docs.
 
 2. **Read the card body carefully.**
    - Quote any stack traces, error messages, error codes, or log lines the

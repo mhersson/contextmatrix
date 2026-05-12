@@ -237,10 +237,43 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 
 // KnowledgeBaseRead is returned by ReadKnowledgeBase.
 type KnowledgeBaseRead struct {
-	Project string                  `json:"project"`
-	Repo    string                  `json:"repo"`
-	Docs    map[string]string       `json:"docs"`
-	Meta    board.KnowledgeRepoMeta `json:"meta"`
+	Project   string                  `json:"project"`
+	Repo      string                  `json:"repo"`
+	Docs      map[string]string       `json:"docs"`
+	Summaries map[string]string       `json:"summaries"`
+	Meta      board.KnowledgeRepoMeta `json:"meta"`
+}
+
+// extractSummary returns the text content of the first ## Summary section in
+// the given markdown content. It scans for the first line that is exactly
+// "## Summary", collects all following lines until the next ##-level heading
+// or EOF, then returns the trimmed result. Returns an empty string if no
+// ## Summary section is found.
+func extractSummary(content string) string {
+	lines := strings.Split(content, "\n")
+
+	inSummary := false
+
+	var summaryLines []string
+
+	for _, line := range lines {
+		if !inSummary {
+			if line == "## Summary" {
+				inSummary = true
+			}
+
+			continue
+		}
+
+		// Stop at the next ##-level heading.
+		if strings.HasPrefix(line, "## ") {
+			break
+		}
+
+		summaryLines = append(summaryLines, line)
+	}
+
+	return strings.TrimSpace(strings.Join(summaryLines, "\n"))
 }
 
 // KnowledgeDocRead is returned by ReadKnowledgeDoc.
@@ -319,7 +352,7 @@ func (s *CardService) ReadKnowledgeBase(ctx context.Context, project, repo strin
 		// primary, store I/O) must propagate so callers see the real
 		// failure.
 		if errors.Is(err, errNoReposConfigured) {
-			return &KnowledgeBaseRead{Project: project, Docs: map[string]string{}}, nil
+			return &KnowledgeBaseRead{Project: project, Docs: map[string]string{}, Summaries: map[string]string{}}, nil
 		}
 
 		return nil, err
@@ -331,6 +364,7 @@ func (s *CardService) ReadKnowledgeBase(ctx context.Context, project, repo strin
 	}
 
 	docs := map[string]string{}
+	summaries := map[string]string{}
 
 	for _, name := range board.KnowledgeDocNames {
 		exists, err := s.store.KnowledgeDocExists(ctx, project, resolvedRepo, name)
@@ -348,13 +382,15 @@ func (s *CardService) ReadKnowledgeBase(ctx context.Context, project, repo strin
 		}
 
 		docs[name] = string(data)
+		summaries[name] = extractSummary(string(data))
 	}
 
 	return &KnowledgeBaseRead{
-		Project: project,
-		Repo:    resolvedRepo,
-		Docs:    docs,
-		Meta:    meta.Repos[resolvedRepo],
+		Project:   project,
+		Repo:      resolvedRepo,
+		Docs:      docs,
+		Summaries: summaries,
+		Meta:      meta.Repos[resolvedRepo],
 	}, nil
 }
 

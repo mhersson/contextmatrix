@@ -205,6 +205,8 @@ via the Task tool. Pass:
 
 Collect each sub-agent's output as the new doc content.
 
+Every generated doc MUST begin with `## Summary` as its first level-2 heading (150–300 tokens, prose describing the doc's purpose and major sections).
+
 After each sub-agent returns, call `update_refresh_progress` so the UI
 shows progress:
 
@@ -240,6 +242,10 @@ in local mode (no UI-side job to update) — proceed regardless.
 
 ```markdown
 # System Architecture
+
+## Summary
+
+[150–300 token prose paragraph: what this doc covers, what questions it answers, and the major sections inside — written for an agent deciding which full docs to load into context.]
 
 ## System Overview
 
@@ -295,6 +301,10 @@ where it is enforced so the agent can verify before changing nearby code.]
 
 ```markdown
 # Code Structure
+
+## Summary
+
+[150–300 token prose paragraph: what this doc covers, what questions it answers, and the major sections inside — written for an agent deciding which full docs to load into context.]
 
 ## Build System
 
@@ -357,6 +367,10 @@ without REST/MCP/CLI). Note the skip in your output to the user.
 ```markdown
 # API Documentation
 
+## Summary
+
+[150–300 token prose paragraph: what this doc covers, what questions it answers, and the major sections inside — written for an agent deciding which full docs to load into context.]
+
 ## Overview
 
 [Which surfaces this repo exposes: REST, MCP, CLI, gRPC, webhooks. Where
@@ -411,6 +425,10 @@ each is registered in the codebase.]
 
 ```markdown
 # Glossary
+
+## Summary
+
+[150–300 token prose paragraph: what this doc covers, what questions it answers, and the major sections inside — written for an agent deciding which full docs to load into context.]
 
 ## Domain terms
 

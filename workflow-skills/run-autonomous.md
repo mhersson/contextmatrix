@@ -80,6 +80,11 @@ If docs are returned, hold them in your reasoning context: use
 boundaries, `api-documentation.md` to avoid breaking public surfaces, and
 `glossary.md` to use the project's vocabulary correctly. If empty, proceed.
 
+If `summaries` is non-empty, use each doc's summary to judge relevance to the
+current task before loading its full content from `docs`. Retain in active
+context only the docs whose summary indicates relevance. If `summaries` is
+empty or a doc has no entry, load all docs.
+
 Immediately after the KB call, log the outcome:
 
 ```

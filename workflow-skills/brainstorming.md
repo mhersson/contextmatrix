@@ -98,6 +98,12 @@ You MUST complete each of these in order:
    `glossary.md` to use the project's vocabulary correctly. Reference
    them when discussing architecture, decomposition, or naming. If
    empty, note that to the user when relevant and proceed.
+
+   If `summaries` is non-empty, use each doc's summary to judge
+   relevance to the current task before loading its full content from
+   `docs`. Retain in active context only the docs whose summary
+   indicates relevance. If `summaries` is empty or a doc has no entry,
+   load all docs.
 2. **Explore project context** — read files referenced in the card and
    anything the KB doesn't cover (recent commits, files mentioned in
    the body). Don't re-derive what the KB already states.

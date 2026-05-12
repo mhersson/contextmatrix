@@ -645,3 +645,56 @@ If `Edit` or `Write` (or another tool an execution agent needs) is missing from
 the target project's allowlist, the agent will report `TASK_BLOCKED` with an
 actionable error message explaining what permissions are needed. The user must
 update the project's permissions config before retrying.
+
+## Knowledge Base Tools
+
+### `get_knowledge_base`
+
+Returns all knowledge-base docs for a project in a single call. Used by
+planning, brainstorming, and debugging skills to load architectural context.
+
+**Input:**
+
+| Field     | Required | Description                               |
+| --------- | -------- | ----------------------------------------- |
+| `project` | yes      | Project name                              |
+| `repo`    | no       | Repo name; defaults to the primary repo   |
+
+**Response:**
+
+```json
+{
+  "project": "my-project",
+  "repo": "primary",
+  "docs": {
+    "architecture.md": "...",
+    "code-structure.md": "...",
+    "api-documentation.md": "...",
+    "glossary.md": "..."
+  },
+  "summaries": {
+    "architecture.md": "Short summary extracted from the doc's ## Summary section.",
+    "code-structure.md": "Short summary...",
+    "api-documentation.md": "",
+    "glossary.md": "Short summary..."
+  },
+  "meta": { "...": "..." }
+}
+```
+
+**`summaries` field:** a map from doc name to the text of its first `## Summary`
+section. Empty string when a doc has no `## Summary` section. Always present
+(never `null`) — an empty object `{}` means no docs have summaries yet.
+
+**Usage pattern for agents:** when `summaries` is non-empty, read each doc's
+summary to judge relevance to the current task, then retain full content from
+`docs` only for the relevant docs. When `summaries` is empty or a doc has no
+entry, load all docs as before (current fallback behaviour).
+
+### `read_knowledge_doc`
+
+Read a single KB doc by name. Use when you need only one doc and want to avoid
+loading the full payload.
+
+**Input:** `project` (required), `repo` (optional), `doc` (required — one of
+`architecture.md`, `code-structure.md`, `api-documentation.md`, `glossary.md`).
