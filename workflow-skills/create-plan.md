@@ -186,6 +186,12 @@ Hold this claim through Phase 5.
    `glossary.md` to use the project's vocabulary correctly. If empty,
    proceed.
 
+   If `summaries` is non-empty, use each doc's summary to judge
+   relevance to the current task before loading its full content from
+   `docs`. Retain in active context only the docs whose summary
+   indicates relevance. If `summaries` is empty or a doc has no entry,
+   load all docs.
+
 2. **Review card details.** Read the card details provided above. If
    the card body already contains a `## Plan` section, use it as a
    starting point — do not discard previous planning work. Only call

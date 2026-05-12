@@ -568,6 +568,93 @@ func TestWriteKnowledgeDocs_InvalidDocNameReturnsSentinel(t *testing.T) {
 	assert.ErrorIs(t, err, storage.ErrInvalidKnowledgeDoc)
 }
 
+func TestExtractSummary(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected string
+	}{
+		{
+			name: "well-formed doc with summary section",
+			content: `# Architecture
+
+## Summary
+This document describes the system architecture.
+It covers components and data flow.
+
+## Components
+Details here.
+`,
+			expected: "This document describes the system architecture.\nIt covers components and data flow.",
+		},
+		{
+			name:     "doc missing summary section",
+			content:  "# No Summary Here\n\n## Components\nDetails.\n",
+			expected: "",
+		},
+		{
+			name: "summary followed by next section stops at heading",
+			content: `## Summary
+First summary line.
+Second summary line.
+## NextSection
+Should not be included.
+`,
+			expected: "First summary line.\nSecond summary line.",
+		},
+		{
+			name: "two summary headings returns first one only",
+			content: `## Summary
+First summary content.
+
+## Other
+## Summary
+Second summary content should be ignored.
+`,
+			expected: "First summary content.",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractSummary(tc.content)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestReadKnowledgeBase_PopulatesSummaries(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	content := "# Architecture\n\n## Summary\nBrief description of the architecture.\n\n## Details\nMore here.\n"
+
+	_, err := svc.WriteKnowledgeDocs(ctx, WriteKnowledgeDocsInput{
+		Project:    "test-project",
+		Repo:       "core",
+		Docs:       map[string]string{"architecture.md": content},
+		Source:     KnowledgeWriteSourceRefresh,
+		HeadCommit: "abc",
+		AgentID:    "human:t",
+	})
+	require.NoError(t, err)
+
+	out, err := svc.ReadKnowledgeBase(ctx, "test-project", "core")
+	require.NoError(t, err)
+	assert.NotNil(t, out.Summaries)
+	assert.Equal(t, "Brief description of the architecture.", out.Summaries["architecture.md"])
+}
+
+func TestReadKnowledgeBase_SummariesNonNilWhenEmpty(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	out, err := svc.ReadKnowledgeBase(context.Background(), "test-project", "")
+	require.NoError(t, err)
+	assert.NotNil(t, out.Summaries, "Summaries must be non-nil even when no docs exist")
+}
+
 func TestBuildRefreshPlan_ReasonsOnlyMissingOrScheduled(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

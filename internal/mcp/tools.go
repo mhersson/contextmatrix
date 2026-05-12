@@ -1206,10 +1206,11 @@ type getKnowledgeBaseInput struct {
 }
 
 type getKnowledgeBaseOutput struct {
-	Project string                  `json:"project"`
-	Repo    string                  `json:"repo"`
-	Docs    map[string]string       `json:"docs"`
-	Meta    board.KnowledgeRepoMeta `json:"meta"`
+	Project   string                  `json:"project"`
+	Repo      string                  `json:"repo"`
+	Docs      map[string]string       `json:"docs"`
+	Summaries map[string]string       `json:"summaries"`
+	Meta      board.KnowledgeRepoMeta `json:"meta"`
 }
 
 func registerGetKnowledgeBase(server *mcp.Server, svc *service.CardService) {
@@ -1227,15 +1228,20 @@ func registerGetKnowledgeBase(server *mcp.Server, svc *service.CardService) {
 			out.Docs = map[string]string{}
 		}
 
+		if out.Summaries == nil {
+			out.Summaries = map[string]string{}
+		}
+
 		if out.Meta.Docs == nil {
 			out.Meta.Docs = map[string]board.KnowledgeDocMeta{}
 		}
 
 		return nil, getKnowledgeBaseOutput{
-			Project: out.Project,
-			Repo:    out.Repo,
-			Docs:    out.Docs,
-			Meta:    out.Meta,
+			Project:   out.Project,
+			Repo:      out.Repo,
+			Docs:      out.Docs,
+			Summaries: out.Summaries,
+			Meta:      out.Meta,
 		}, nil
 	})
 }
