@@ -3,7 +3,10 @@
 package mcp
 
 import (
+	"bytes"
 	"crypto/subtle"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -33,6 +37,14 @@ func NewServer(svc *service.CardService, workflowSkillsDir string) *mcp.Server {
 // NewHandler returns an http.Handler for MCP Streamable HTTP transport.
 // If apiKey is non-empty, requests must include a matching Authorization: Bearer <key> header.
 // Register this on POST /mcp in the router.
+//
+// Middleware order (outermost → innermost):
+//
+//	mcpAuthMiddleware → clearWriteDeadlineForStreaming → mcpRequestInfoMiddleware → SDK handler
+//
+// Unauthenticated probes are rejected before body inspection. The write-deadline
+// tweak stays outermost to apply to all authenticated requests. Request info
+// extraction runs just before the SDK so it can read the body once.
 func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return server },
@@ -40,15 +52,65 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 		// headers (e.g. host.docker.internal) when running behind Docker Desktop.
 		&mcp.StreamableHTTPOptions{DisableLocalhostProtection: true},
 	)
-	// Wrap with write-deadline clearing for GET requests. The MCP Streamable HTTP
-	// transport uses a long-lived SSE stream on GET /mcp. Like the SSE endpoint,
-	// it must not be subject to the server's absolute WriteTimeout.
-	wrapped := clearWriteDeadlineForStreaming(handler)
+	// Innermost: SDK handler wrapped with request-info extraction.
+	infoWrapped := mcpRequestInfoMiddleware(handler)
+	// Middle: write-deadline clearing for long-lived GET SSE streams.
+	wrapped := clearWriteDeadlineForStreaming(infoWrapped)
 	if apiKey == "" {
 		return wrapped
 	}
 
 	return mcpAuthMiddleware(wrapped, apiKey)
+}
+
+// mcpRequestInfoMiddleware reads the JSON-RPC body to populate the MCPCall
+// stored in context by the outer observe middleware. It is best-effort: any
+// read or parse error is swallowed so logging never breaks MCP traffic.
+//
+// The body is fully restored before calling next so the SDK handler receives
+// the original bytes unchanged.
+func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only POST carries a JSON-RPC body; GET/DELETE are SSE/session housekeeping.
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		call := ctxlog.MCPCallFromContext(r.Context())
+		if call == nil {
+			// Defensive: observe only injects MCPCall for /mcp; if we somehow
+			// ended up mounted elsewhere, skip extraction rather than panic.
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		// Read and restore the body so the SDK handler sees the original bytes.
+		if r.Body != nil {
+			buf, err := io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(buf))
+
+			if err == nil {
+				// Minimal shape to extract method and (for tools/call) the tool name.
+				var msg struct {
+					Method string `json:"method"`
+					Params struct {
+						Name string `json:"name"`
+					} `json:"params"`
+				}
+				if json.Unmarshal(buf, &msg) == nil {
+					call.Method = msg.Method
+					if msg.Method == "tools/call" {
+						call.Tool = msg.Params.Name
+					}
+				}
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // clearWriteDeadlineForStreaming wraps an http.Handler and disables the write

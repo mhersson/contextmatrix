@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -307,6 +308,17 @@ func observe(next http.Handler) http.Handler {
 			return
 		}
 
+		// For MCP requests, stash an MCPCall pointer in context so that the
+		// inner mcpRequestInfoMiddleware can populate method/tool after parsing
+		// the JSON-RPC body. We hold the pointer here so we can read it back
+		// after ServeHTTP returns to append mcp_method/mcp_tool to the log line.
+		var mcpCall *ctxlog.MCPCall
+		if r.URL.Path == "/mcp" {
+			var ctx context.Context
+			ctx, mcpCall = ctxlog.WithMCPCall(r.Context())
+			r = r.WithContext(ctx)
+		}
+
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		start := time.Now()
 
@@ -314,12 +326,19 @@ func observe(next http.Handler) http.Handler {
 
 		dur := time.Since(start)
 
-		ctxlog.Logger(r.Context()).Info("request",
+		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rw.statusCode,
 			"duration_ms", dur.Milliseconds(),
-		)
+		}
+		if mcpCall != nil && mcpCall.Method != "" {
+			attrs = append(attrs, "mcp_method", mcpCall.Method)
+			if mcpCall.Tool != "" {
+				attrs = append(attrs, "mcp_tool", mcpCall.Tool)
+			}
+		}
+		ctxlog.Logger(r.Context()).Info("request", attrs...)
 
 		// SSE streams would pollute the REST latency histogram and the
 		// path label set — skip them entirely for metrics. MCP Streamable
