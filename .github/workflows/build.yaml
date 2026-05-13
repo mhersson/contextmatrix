@@ -75,9 +75,92 @@ jobs:
       - name: npm audit
         run: npm audit --audit-level=high
 
+  govulncheck:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Prepare web/dist placeholder for go:embed
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      # Fails only on findings with an upstream fix (fixed_version set).
+      # Findings without a fix are printed for visibility but don't block.
+      - name: Run govulncheck (fail only on fixable findings)
+        run: |
+          set -euo pipefail
+          govulncheck -format=json ./... > /tmp/vuln.json 2>&1 || true
+
+          FIXABLE=$(jq -s '[.[] | select(.finding != null
+                                          and .finding.fixed_version != null
+                                          and .finding.fixed_version != "")] | length' /tmp/vuln.json)
+
+          echo "fixable findings: ${FIXABLE}"
+
+          govulncheck ./... || true
+
+          if [ "${FIXABLE:-0}" -gt 0 ]; then
+            echo "::error::Fixable vulnerabilities detected. See output above."
+            exit 1
+          fi
+
+          echo "No fixable vulnerabilities. Remaining findings have no upstream fix available."
+
+  hadolint:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+
+  shellcheck:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: scripts
+
+  image-scan:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare web/dist placeholder for go:embed
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
+      - name: Build image for scan
+        run: docker build -t contextmatrix:scan .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: contextmatrix:scan
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln
+
+      - name: Clean up scan image
+        if: always()
+        run: docker rmi contextmatrix:scan || true
+
   build:
     runs-on: self-hosted
-    needs: [go-checks, frontend-checks]
+    needs: [go-checks, frontend-checks, govulncheck, hadolint, shellcheck, image-scan]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
