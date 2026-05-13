@@ -96,7 +96,7 @@ mkdir -p "${WORKFLOW_SKILLS_DST}"
 
 # Copy each skill file individually so we report per-file.
 while IFS= read -r -d '' skill_file; do
-    rel="${skill_file#${WORKFLOW_SKILLS_SRC}/}"
+    rel="${skill_file#"${WORKFLOW_SKILLS_SRC}"/}"
     dest="${WORKFLOW_SKILLS_DST}/${rel}"
     dest_dir="$(dirname "${dest}")"
     mkdir -p "${dest_dir}"

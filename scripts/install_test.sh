@@ -52,7 +52,7 @@ assert_not_exists() {
 assert_file_contains() {
     local path="$1"
     local pattern="$2"
-    local desc="${3:-contains '${pattern}'}"
+    local desc="${3:-contains "${pattern}"}"
     if grep -q "${pattern}" "${path}" 2>/dev/null; then
         pass "${desc}"
     else
@@ -63,7 +63,7 @@ assert_file_contains() {
 assert_file_not_contains() {
     local path="$1"
     local pattern="$2"
-    local desc="${3:-does not contain '${pattern}'}"
+    local desc="${3:-does not contain "${pattern}"}"
     if ! grep -q "${pattern}" "${path}" 2>/dev/null; then
         pass "${desc}"
     else
