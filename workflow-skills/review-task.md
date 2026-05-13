@@ -6,13 +6,13 @@
 
 ---
 
-You run the review phase inline. You hold the claim from earlier phases — do
-not release it.
+You run the review phase inline. You hold the claim from earlier phases — do not
+release it.
 
 ## Step 1: Confirm claim and load context
 
-`claim_card(card_id, agent_id)` is idempotent — call it to re-affirm. Reclaim
-if the heartbeat timed out.
+`claim_card(card_id, agent_id)` is idempotent — call it to re-affirm. Reclaim if
+the heartbeat timed out.
 
 Review the parent card body, all subtasks, and dependencies from the context
 above. Call `get_task_context` only if you need the latest state.
@@ -39,28 +39,25 @@ Spawn three `Agent` calls in a **single message**. Each:
 - `subagent_type: "general-purpose"`
 - `model: "claude-opus-4-7"`
 
-Do not pre-read files and embed content in the prompts — specialists read
-what they need.
+Do not pre-read files and embed content in the prompts — specialists read what
+they need.
 
 ### Common context (in every specialist prompt)
 
-- `card_id`, `project`, and **your `agent_id`** (specialists call
-  `report_usage` / `add_log` with your id; the server enforces
-  `agent_id == AssignedAgent`).
+- `card_id`, `project`, and **your `agent_id`** (specialists call `report_usage`
+  / `add_log` with your id; the server enforces `agent_id == AssignedAgent`).
 - Change-set computation:
-  1. `git diff <base>..HEAD --name-only` (base = card's `base_branch` if
-     set, else `main`).
+  1. `git diff <base>..HEAD --name-only` (base = card's `base_branch` if set,
+     else `main`).
   2. `git status --porcelain` for working-tree (`M`, `A`, `??`).
-  3. Union of 1+2 is the review surface. `Read` each file directly.
-     Untracked files are in scope.
+  3. Union of 1+2 is the review surface. `Read` each file directly. Untracked
+     files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
-- Engage relevant skills via the Skill tool (`go-development`,
-  `code-review`, etc.); log each with
-  `add_log(action="skill_engaged", message="engaged <skill-name>",
-  agent=<your agent_id>)`.
+- Engage relevant skills via the Skill tool (`go-development`, `code-review`,
+  etc.); log each with
+  `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
-  `report_usage(card_id=<parent>, agent_id=<your agent_id>,
-  model="claude-opus-4-7", prompt_tokens=..., completion_tokens=...)`.
+  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model="claude-opus-4-7", prompt_tokens=..., completion_tokens=...)`.
 - Return the output format below — nothing else.
 
 Specialist hard constraints:
@@ -74,28 +71,35 @@ Specialist hard constraints:
 ### Specialist A — Correctness
 
 - Bugs, logic errors, off-by-one, edge cases.
-- Error / exception handling completeness (silent failures, swallowed
-  errors).
-- Concurrency, races, lock ordering, goroutine leaks.
+- Error / exception handling completeness (silent failures, swallowed errors).
+- Concurrency, races, lock ordering, goroutine leaks, thread leaks,
+  unawaited promises/tasks.
+- Observability: structured logging, metric emission, debuggable error context.
 - Test coverage and quality — do tests exercise new behavior, or are they
-  vacuous (asserting on self-configured mocks)?
+  vacuous (asserting on self-configured mocks)? Flag flakiness, time coupling,
+  ordering dependencies, non-hermetic state.
 
 ### Specialist B — Design & Maintainability
 
 - Architecture, separation of concerns, cross-package coupling.
 - API / interface design at module boundaries.
+- Backward compatibility: public APIs, CLI flags, config formats, on-disk
+  schemas, IPC contracts. Flag breaking changes without migration.
 - Readability, naming, complexity, function length.
 - Duplication, dead code, unused exports.
-- Docs accuracy — do they reflect what shipped? Internal-only changes
-  typically need no external docs.
+- Docs accuracy — do they reflect what shipped? Internal-only changes typically
+  need no external docs.
+- If the diff touches UI: accessibility, semantics, keyboard navigation,
+  theming, framework hazards (effects, lifecycles).
 
 ### Specialist C — Security & Performance
 
 - Input validation; injection (SQL, command, path traversal, template).
-- AuthN/AuthZ deviations from the trust model documented in `CLAUDE.md`.
-  Do not flag the absence of auth when the project states it has none.
+- AuthN/AuthZ deviations from the trust model documented in `CLAUDE.md`. Do not
+  flag the absence of auth when the project states it has none.
 - Secrets handling.
-- Dependency CVEs on added/bumped packages.
+- Dependency hygiene on added/bumped packages: known CVEs, lockfile
+  correctness.
 - Algorithmic complexity, N+1, quadratic loops on user input.
 - Memory / resource leaks; hot-path allocations; caching effectiveness.
 
@@ -103,46 +107,52 @@ Specialist hard constraints:
 
 ```markdown
 ## Strengths
+
 - [Specific, file-anchored.]
 
 ## Concerns
 
 ### Critical (Must Fix)
+
 - **Where:** `file:line` — **What:** ... — **Why:** ... — **Fix:** ...
 
 ### Important (Should Fix)
+
 - **Where:** ... — **What:** ... — **Why:** ... — **Fix:** ...
 
 ### Minor (Nice to Have)
+
 - **Where:** ... — **What:** ... — **Why:** ... (Optional fix.)
 
 (Omit empty tiers.)
 
 ## Specialty summary
+
 One sentence: this specialty's overall verdict.
 ```
 
 Call `report_usage` **before** emitting the block. Nothing follows it.
 
-If a specialist returns nothing or malformed output, note it in Step 4
-and proceed with the other two.
+If a specialist returns nothing or malformed output, note it in Step 4 and
+proceed with the other two.
 
 ## Step 4: Synthesize
 
 - Merge Strengths; deduplicate.
 - Merge Concerns by severity. On overlap, keep the strictest defensible
   assessment; list each finding once under its most natural specialty.
+- Hunt cross-cutting issues no single specialist owned (e.g., new flag without
+  test, docs, or migration path).
 - Decide the recommendation:
   - Any Critical → `revise`.
   - Important without Critical → `revise` unless purely cosmetic →
     `approve_with_notes`.
   - Only Minor or none → `approve` or `approve_with_notes`.
 
-Cite specific files, subtasks, and decisions. Every concern must be
-actionable.
+Cite specific files, subtasks, and decisions. Every concern must be actionable.
 
-If Pass 1 failed: recommendation is `revise`, concerns are the failing
-test/lint output, no specialists were spawned.
+If Pass 1 failed: recommendation is `revise`, concerns are the failing test/lint
+output, no specialists were spawned.
 
 ## Step 5: Write findings, report, return
 
@@ -152,22 +162,27 @@ Append to the parent card body via `update_card`:
 ## Review Findings
 
 ### Strengths
+
 - [Specific, file/subtask-anchored.]
 
 ### Concerns/Issues
 
 #### Critical (Must Fix)
+
 - **[Where]:** [What] — [Why]. Fix: [How].
 
 #### Important (Should Fix)
+
 - **[Where]:** [What] — [Why]. Fix: [How].
 
 #### Minor (Nice to Have)
+
 - **[Where]:** [What] — [Why]. (Optional fix.)
 
 (Omit empty tiers.)
 
 ### Recommendation
+
 approve | approve_with_notes | revise — <one-line rationale>
 ```
 
@@ -176,9 +191,9 @@ Call `report_usage` for synthesis only:
 - `card_id`: parent card id
 - `agent_id`: your id
 - `model`: your own running model
-- `prompt_tokens` / `completion_tokens`: synthesizer-only consumption
-  (Pass 1, prompt construction, merging). Specialists already reported
-  their own — do not add them.
+- `prompt_tokens` / `completion_tokens`: synthesizer-only consumption (Pass 1,
+  prompt construction, merging). Specialists already reported their own — do not
+  add them.
 
 Print exactly:
 
@@ -198,7 +213,6 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - All three specialists in one message; sequential spawning is wrong.
 - Pass 1 failure short-circuits Pass 2.
 - MCP tools only — never curl, wget, or HTTP.
-- Categorize severity honestly. Critical = broken or unsafe. Not
-  everything is Critical.
-- Commit status is never a review issue. Pass this into every specialist
-  prompt.
+- Categorize severity honestly. Critical = broken or unsafe. Not everything is
+  Critical.
+- Commit status is never a review issue. Pass this into every specialist prompt.
