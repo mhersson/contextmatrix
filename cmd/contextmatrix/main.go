@@ -312,6 +312,11 @@ func main() {
 
 	chatHub := chat.NewSSEHub(128)
 
+	primerPath := ""
+	if cfg.WorkflowSkillsDir != "" {
+		primerPath = filepath.Join(cfg.WorkflowSkillsDir, "chat-mode.md")
+	}
+
 	chatMgr := chat.NewManager(chat.Config{
 		Store:              chatStore,
 		Runner:             chatRunner,
@@ -322,6 +327,7 @@ func main() {
 		ResumeBudgetTokens: cfg.Chat.ResumeBudgetTokens,
 		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
 		DefaultModel:       cfg.Chat.DefaultModel,
+		PrimerPath:         primerPath,
 		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
