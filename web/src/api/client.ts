@@ -19,6 +19,10 @@ import type {
   RefreshPlan,
   RefreshJobStatus,
   RefreshStatusResponse,
+  ChatSession,
+  ChatStatus,
+  ChatMessage,
+  ChatModelList,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -369,6 +373,76 @@ class APIClient {
     return this.request<RefreshStatusResponse>(
       `/projects/${encodeURIComponent(project)}/knowledge/refresh-status`,
       { method: 'GET' },
+    );
+  }
+
+  // Chat
+  async listChats(filter: { project?: string; status?: ChatStatus } = {}): Promise<ChatSession[]> {
+    const q = new URLSearchParams();
+    if (filter.project) q.set('project', filter.project);
+    if (filter.status) q.set('status', filter.status);
+    const qs = q.toString();
+    return this.request<ChatSession[]>(`/chats${qs ? `?${qs}` : ''}`);
+  }
+
+  async createChat(body: { title?: string; project?: string; model?: string }): Promise<ChatSession> {
+    return this.request<ChatSession>('/chats', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async listChatModels(): Promise<ChatModelList> {
+    return this.request<ChatModelList>('/chats/models');
+  }
+
+  async getChat(id: string): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`);
+  }
+
+  async patchChat(id: string, body: { title?: string }): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteChat(id: string): Promise<void> {
+    return this.request<void>(`/chats/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  async openChat(id: string): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}/open`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async endChat(id: string): Promise<ChatSession> {
+    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}/end`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async sendChatMessage(id: string, content: string): Promise<{ ok: boolean; message_id: string }> {
+    return this.request<{ ok: boolean; message_id: string }>(`/chats/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async listChatMessages(
+    id: string,
+    sinceSeq: number,
+    limit: number,
+  ): Promise<{ messages: ChatMessage[] }> {
+    const qs = new URLSearchParams({
+      since_seq: String(sinceSeq),
+      limit: String(limit),
+    });
+    return this.request<{ messages: ChatMessage[] }>(
+      `/chats/${encodeURIComponent(id)}/messages?${qs.toString()}`,
     );
   }
 }

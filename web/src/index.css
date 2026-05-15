@@ -1206,3 +1206,547 @@ input, select, textarea {
 .animate-card-flash {
   animation: card-flash 0.6s ease-in-out 2;
 }
+
+/* ─── Multi-pane chat layout ──────────────────────────────────────────
+   Shell + per-pane styling for the global /chat route's tiled view.
+   Mirrors the CardPanel visual vocabulary (Everforest vars, .bf-rail-tab
+   typography, panel-slide-in animation). See web/CLAUDE.md § Global Chat —
+   multi-pane layout. */
+
+.chat-layout {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+.chat-layout--mobile {
+  padding: 0;
+}
+.chat-layout--empty {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.chat-layout-empty-card {
+  background: var(--bg0);
+  border: 1px dashed var(--bg3);
+  border-radius: 6px;
+  padding: 32px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--grey1);
+  max-width: 420px;
+  text-align: center;
+}
+.chat-layout-empty-icon {
+  font-size: 28px;
+  opacity: 0.5;
+  color: var(--grey0);
+}
+.chat-layout-empty-title {
+  color: var(--fg);
+  font-size: 14px;
+}
+.chat-layout-empty-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-layout-empty-link {
+  background: transparent;
+  border: 1px solid var(--bg3);
+  color: var(--aqua);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.chat-layout-empty-link:hover {
+  background: var(--bg1);
+  border-color: var(--bg4);
+}
+
+/* Pane container.
+   `flex: 1` lets the single-pane case fill .chat-layout (a flex container);
+   in the multi-pane case the pane sits inside react-resizable-panels' Panel
+   (a block-level <div> with computed width), where the flex props are inert
+   and block layout fills the Panel's width as usual. */
+.chat-pane {
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.15);
+  position: relative;
+  transition: border-color 0.12s, box-shadow 0.15s, flex-grow 0.15s ease-out, flex-basis 0.15s ease-out;
+}
+.chat-pane--focused {
+  border-color: color-mix(in oklab, var(--aqua) 55%, var(--bg3));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--aqua) 18%, transparent),
+    0 1px 0 0 rgba(0, 0, 0, 0.15);
+}
+
+/* Pane header */
+.chat-pane-header {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg3);
+  flex-shrink: 0;
+  transition: background 0.12s, box-shadow 0.15s;
+}
+.chat-pane--focused .chat-pane-header {
+  background: color-mix(in oklab, var(--bg1) 75%, var(--bg-blue));
+  box-shadow: inset 0 -1px 0 0 color-mix(in oklab, var(--aqua) 40%, transparent);
+}
+
+.chat-pane-stripe {
+  width: 2px;
+  align-self: stretch;
+  flex-shrink: 0;
+  transition: width 0.15s;
+}
+.chat-pane--focused .chat-pane-stripe { width: 3px; }
+
+.chat-pane-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  letter-spacing: 0.01em;
+}
+.chat-pane:not(.chat-pane--focused) .chat-pane-title .chat-pane-name {
+  color: var(--grey2);
+}
+.chat-pane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-pane-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 6px;
+  flex-shrink: 0;
+}
+.chat-pane-model-pill {
+  background: var(--bg-blue);
+  color: var(--aqua);
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-pane-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.chat-pane-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chat-pane-actions {
+  display: flex;
+  gap: 1px;
+  padding: 0 6px 0 4px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* Kebab menu for the End / Reopen / Delete chat actions */
+.chat-pane-menu-wrap { position: relative; }
+.chat-pane-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 20;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  border-radius: 5px;
+  min-width: 160px;
+  padding: 4px 0;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+.chat-pane-menu-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.12s, color 0.12s;
+}
+.chat-pane-menu-item:hover { background: var(--bg3); }
+.chat-pane-menu-item:focus-visible {
+  outline: 1px solid color-mix(in oklab, var(--aqua) 55%, var(--bg3));
+  outline-offset: -2px;
+}
+.chat-pane-menu-item--danger { color: var(--red); }
+.chat-pane-menu-item--danger:hover { background: var(--bg-red); }
+.chat-pane-menu-separator {
+  height: 1px;
+  background: var(--bg3);
+  margin: 4px 0;
+}
+.chat-pane-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--grey1);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.chat-pane-btn:hover { background: var(--bg2); color: var(--fg); }
+.chat-pane-btn--close:hover { background: var(--bg-red); color: var(--red); }
+
+.chat-pane-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  transition: background 0.15s;
+}
+
+/* Drop target — STATIC GLOW variant (no pulse) per the captured playground
+   build prompt. */
+.chat-pane--drop-target {
+  border-color: var(--aqua);
+  box-shadow:
+    0 0 0 2px color-mix(in oklab, var(--aqua) 55%, transparent),
+    0 0 32px color-mix(in oklab, var(--aqua) 30%, transparent);
+}
+.chat-pane--drop-target .chat-pane-body {
+  background: color-mix(in oklab, var(--bg-blue) 32%, var(--bg0));
+}
+.chat-pane-drop-overlay {
+  position: absolute;
+  inset: 36px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 2;
+}
+.chat-pane-drop-icon {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--aqua);
+  line-height: 1;
+}
+.chat-pane-drop-copy {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  background: color-mix(in oklab, var(--bg-dim) 80%, transparent);
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in oklab, var(--aqua) 30%, var(--bg3));
+}
+.chat-pane-drop-copy strong { color: var(--aqua); font-weight: 500; }
+
+/* Empty-pane "Pick a chat" picker */
+.chat-pane-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px;
+  gap: 14px;
+  overflow: auto;
+  outline: none;
+}
+.chat-pane-empty-title {
+  color: var(--fg);
+  font-size: 14px;
+  text-align: center;
+}
+.chat-pane-empty-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+  text-align: center;
+}
+.chat-pane-empty-hint kbd {
+  background: var(--bg-dim);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey2);
+}
+.chat-pane-empty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 380px;
+  margin: 4px auto 0;
+  width: 100%;
+}
+.chat-pane-empty-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--grey2);
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.chat-pane-empty-row:hover {
+  background: var(--bg1);
+  color: var(--fg);
+  border-color: var(--bg3);
+}
+.chat-pane-empty-row--first {
+  background: color-mix(in oklab, var(--bg1) 70%, var(--bg-blue));
+  color: var(--fg);
+  border-color: color-mix(in oklab, var(--aqua) 35%, var(--bg3));
+}
+.chat-pane-empty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.chat-pane-empty-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-pane-empty-key {
+  color: var(--grey0);
+  font-size: 11px;
+}
+.chat-pane-empty-none {
+  text-align: center;
+  color: var(--grey1);
+  font-size: 12px;
+  padding: 16px 0;
+}
+.chat-pane-empty-actions {
+  max-width: 380px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.chat-pane-empty-btn {
+  background: var(--bg-green);
+  color: var(--green);
+  border: 1px solid color-mix(in oklab, var(--green) 30%, var(--bg3));
+  padding: 7px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.chat-pane-empty-btn:hover { background: color-mix(in oklab, var(--bg-green) 70%, var(--green)); }
+.chat-pane-empty-btn--ghost {
+  background: transparent;
+  color: var(--grey1);
+  border-color: var(--bg3);
+}
+.chat-pane-empty-btn--ghost:hover { color: var(--fg); border-color: var(--bg4); }
+.chat-pane-empty-link {
+  margin-left: 8px;
+  background: transparent;
+  border: 1px solid var(--bg3);
+  color: var(--aqua);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-pane-empty-link:hover { background: var(--bg1); }
+
+/* Resize handles — driven by react-resizable-panels PanelResizeHandle.
+   The library adds [data-resize-handle-active] during drag, so we use it
+   alongside :hover to drive the lit state. */
+.chat-pane-handle {
+  flex-shrink: 0;
+  position: relative;
+  background: transparent;
+}
+.chat-pane-handle--col {
+  width: 6px;
+  cursor: col-resize;
+}
+.chat-pane-handle--row {
+  height: 6px;
+  cursor: row-resize;
+}
+.chat-pane-handle::before {
+  content: "";
+  position: absolute;
+  background: var(--bg3);
+  opacity: 0.45;
+  transition: background 0.12s, opacity 0.12s;
+}
+.chat-pane-handle--col::before {
+  top: 0; bottom: 0; left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+.chat-pane-handle--row::before {
+  left: 0; right: 0; top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.chat-pane-handle:hover::before,
+.chat-pane-handle[data-resize-handle-active]::before {
+  background: var(--aqua);
+  opacity: 1;
+}
+.chat-pane-handle::after {
+  content: "";
+  position: absolute;
+  background: color-mix(in oklab, var(--aqua) 22%, transparent);
+  opacity: 0;
+  border-radius: 4px;
+  transition: opacity 0.12s;
+}
+.chat-pane-handle--col::after {
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 28px;
+}
+.chat-pane-handle--row::after {
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 8px;
+}
+.chat-pane-handle:hover::after,
+.chat-pane-handle[data-resize-handle-active]::after {
+  opacity: 1;
+}
+
+/* LRU-eviction toast (bottom-center, 6s auto-dismiss, undo affordance) */
+.chat-evict-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 100;
+  background: var(--bg2);
+  border: 1px solid var(--bg4);
+  border-radius: 6px;
+  padding: 10px 14px 10px 16px;
+  color: var(--fg);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  min-width: 320px;
+  max-width: 520px;
+  animation: chat-evict-toast-in 0.18s ease-out;
+}
+.chat-evict-toast-text { flex: 1; }
+.chat-evict-toast-text strong {
+  color: var(--aqua);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.chat-evict-toast-btn {
+  background: transparent;
+  border: none;
+  color: var(--aqua);
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: background 0.12s;
+}
+.chat-evict-toast-btn:hover { background: var(--bg-blue); }
+.chat-evict-toast-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--grey1);
+  cursor: pointer;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+.chat-evict-toast-close:hover { background: var(--bg3); color: var(--fg); }
+@keyframes chat-evict-toast-in {
+  from { transform: translate(-50%, 8px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}

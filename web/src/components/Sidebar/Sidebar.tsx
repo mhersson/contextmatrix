@@ -6,14 +6,16 @@ import { useTheme } from '../../hooks/useTheme';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { ProjectCard } from './ProjectCard';
+import { ChatSection } from './ChatSection';
 
 interface SidebarProps {
   onNewProject: () => void;
+  onNewChat: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
 
-export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects, connected } = useProjects();
   const { version } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
@@ -107,6 +109,8 @@ export function Sidebar({ onNewProject, mobileOpen = false, onMobileClose }: Sid
       </div>
 
       <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+        <ChatSection onNewChat={onNewChat} />
+        <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
         <NavLink to="/all" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
           {({ isActive }) => (
             <div

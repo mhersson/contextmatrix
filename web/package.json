@@ -37,6 +37,7 @@
     "@uiw/react-md-editor": "^4.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-resizable-panels": "^3.0.6",
     "react-router-dom": "^7.15.0",
     "tailwindcss": "^4.2.2"
   },
