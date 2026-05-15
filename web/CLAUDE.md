@@ -305,8 +305,7 @@ that expect a single "current chat" pointer.
 `/chat` renders a tiled layout of up to 4 simultaneously open chats. The
 shell is `ChatLayout` (`web/src/components/ChatLayout/`), composed with
 `react-resizable-panels` `PanelGroup`s for the column + row splits. State
-lives in `useChatLayout` (`web/src/hooks/useChatLayout.ts`) and is exposed
-to descendants via `ChatLayoutContext`.
+lives in `useChatLayout` (`web/src/hooks/useChatLayout.ts`) and is threaded to descendants via props (`ChatLayoutContext` is exported for future composition but currently has no consumers).
 
 ### Layout model
 

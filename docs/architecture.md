@@ -163,6 +163,52 @@ and commit completion. The service layer closes that gap on failure:
   live events. Started by `CardService.UpdateRunnerStatus` on `→running`,
   stopped (fire-and-forget) on terminal statuses. See `docs/remote-execution.md`
   § Session Log Manager for full details.
+- **chat.Manager** (`chat.Manager`): orchestrates the global chat surface
+  (project-agnostic chat sessions that share the runner's worker image but use
+  long-lived containers instead of card-scoped one-shots). Owns session
+  lifecycle (`cold` → `active` → `warm-idle` → `ending`), persists the
+  transcript through `chat.Store`, delegates container management to a
+  `RunnerClient` (HMAC-signed calls to the runner's `/chat/start` and
+  `/chat/end`), and bridges the runner's `/logs?session_id=` SSE feed back
+  into the transcript by appending each entry through `AppendMessage`. Holds
+  `m.mu` across the seq-assignment + store insert so disk insertion order
+  matches seq order regardless of writer concurrency. On cold-reopen,
+  `chat.transcript.Build` produces the resume payload shipped to the runner;
+  while `RehydrationActive` is true on the session row, `AppendMessage`
+  stamps incoming entries with `rehydration_phase=TRUE` so the next reopen
+  can filter them out. The MCP tool `chat_rehydration_complete` flips the
+  flag back to false and persists the agent's summary as the first visible
+  message. The `chat_rehydration_complete` MCP tool is gated by the calling
+  container's `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`): a caller
+  can only flip its own session's rehydration flag.
+- **chat.Transcript** (`chat/transcript`): pure transcript-shaping
+  function — no I/O, no state. `Build(messages, opts)` filters out
+  `rehydration_phase=TRUE` entries, drops non-conversation roles (stderr,
+  tool results), pins the first user turn and the last 20 turns, and
+  truncates middle turns to fit `chat.resume_budget_tokens` (default 40k).
+  Returns the kept rows plus a `Meta` describing whether the budget clipped
+  older content. Called only on `/api/chats/{id}/open` when the session has
+  prior messages.
+- **chat.Store** (`chat.Store`, default impl `chat/sqlite.Store`): SQLite-backed
+  persistence for `chat_sessions` and `chat_messages`. Versioned migrations
+  via the `schema_migrations` table; WAL mode with `MaxOpenConns=5` so
+  concurrent readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the
+  single-writer gate that `chat.Manager.mu` enforces above the pool. Unique
+  index on `(session_id, seq)` is the safety net behind the in-memory seq
+  cache.
+- **chat.SSEHub** (`chat.SSEHub`): per-session SSE fan-out. Each `sessionHub`
+  has a 128-entry ring buffer of recent events and a subscriber set; replays
+  the ring on `Subscribe(sinceSeq)` so reconnects within the ring window are
+  gapless. `Manager.DeleteSession` calls `Hub.Drop(sessionID)` to release the
+  per-session hub so memory does not grow with session churn. Two event
+  kinds share the hub: `message` (a new transcript row, with seq + role +
+  content) and `session_updated` (a metadata change — `context_tokens`,
+  `rehydration_active`, model — with no transcript content). The browser's
+  `useChatStream` hook routes `session_updated` events into the header
+  state, separate from the message ring buffer.
+- **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older
+  than `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated
+  shutdown calls don't panic.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
   `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
