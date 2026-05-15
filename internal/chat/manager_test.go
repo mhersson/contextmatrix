@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1710,4 +1711,131 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 
 	close(release)
 	wg.Wait()
+}
+
+// --- chat-mode primer tests ---
+
+func writeTempPrimer(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "chat-mode.md")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	return path
+}
+
+func newManagerWithPrimerPath(t *testing.T, primerPath string) (*chat.Manager, *stubRunner, chat.Store) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:      store,
+		Runner:     runner,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		PrimerPath: primerPath,
+	})
+
+	return mgr, runner, store
+}
+
+func TestManager_OpenCold_PassesPrimerToRunner_Fresh(t *testing.T) {
+	primerPath := writeTempPrimer(t, "ORIENT")
+	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Equal(t, "ORIENT", runner.lastOpts.Primer,
+		"fresh cold-open must pass primer content to StartChat")
+	assert.Nil(t, runner.lastOpts.Resume, "fresh session has no resume")
+}
+
+func TestManager_OpenCold_PassesPrimerToRunner_Resume(t *testing.T) {
+	primerPath := writeTempPrimer(t, "ORIENT")
+	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Seed a prior transcript so buildResume returns non-nil. AppendMessage
+	// does not change session status; the session stays cold and OpenSession
+	// takes the cold path.
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "earlier turn")
+	require.NoError(t, err)
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "earlier reply")
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Equal(t, "ORIENT", runner.lastOpts.Primer,
+		"resume cold-open must also pass primer content")
+	assert.NotNil(t, runner.lastOpts.Resume, "resume payload must be present")
+}
+
+func TestManager_OpenCold_PrimerFileMissing(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "does-not-exist.md")
+	mgr, runner, _ := newManagerWithPrimerPath(t, missingPath)
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Must NOT return an error — fail-open posture.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err, "missing primer file must not block session open")
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Empty(t, runner.lastOpts.Primer,
+		"missing primer file must result in empty Primer, not garbage")
+}
+
+func TestManager_OpenCold_PrimerReadOnEachOpen(t *testing.T) {
+	primerPath := writeTempPrimer(t, "VERSION-1")
+	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+
+	ctx := context.Background()
+
+	// First cold open with VERSION-1.
+	sess1, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "a", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess1.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	first := runner.lastOpts.Primer
+	runner.mu.Unlock()
+	assert.Equal(t, "VERSION-1", first)
+
+	// Edit the primer file between opens.
+	require.NoError(t, os.WriteFile(primerPath, []byte("VERSION-2"), 0o644))
+
+	// Second cold open (different session) must see the new content —
+	// confirms read-on-each-cold-open rather than boot-cache.
+	sess2, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "b", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess2.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Equal(t, "VERSION-2", runner.lastOpts.Primer,
+		"second cold-open must read the updated primer (hot-reload)")
 }
