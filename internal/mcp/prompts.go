@@ -296,7 +296,7 @@ var validSkillNames = []string{
 	"create-task", "create-plan", "execute-task",
 	"review-task", "document-task", "init-project",
 	"run-autonomous", "brainstorming", "systematic-debugging",
-	"refresh-knowledge",
+	"refresh-knowledge", "chat-mode",
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -332,6 +332,20 @@ func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSk
 		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "systematic-debugging.md", args.CardID, false)
 	case "refresh-knowledge":
 		content, err = buildRefreshKnowledge(workflowSkillsDir, args.Project, args.Repo)
+	case "chat-mode":
+		// chat-mode is content shipped to a free-form chat agent's stdin,
+		// not a card-lifecycle skill. It takes no card context and must
+		// not be prefixed with workflowPreamble — short-circuit here so
+		// includePreamble has no effect for this skill.
+		content, err = readSkillFile(workflowSkillsDir, "chat-mode.md")
+		if err != nil {
+			return skillResult{}, err
+		}
+
+		return skillResult{
+			Content: content,
+			Model:   parseSkillModel(content),
+		}, nil
 	default:
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
