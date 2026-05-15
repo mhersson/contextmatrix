@@ -522,13 +522,21 @@ Start a chat container for a session. HMAC-signed.
       "role": "assistant_text",
       "content": "It owns session lifecycle…"
     }
-  ]
+  ],
+  "primer": "<contents of workflow-skills/chat-mode.md>"
 }
 ```
 
 `project` and `repo_url` are both optional — omit for a cross-project chat.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
 mode); the container then merges an MCP entry with no `Authorization` header.
+
+`primer` is optional. When non-empty, it carries the chat-mode orientation text
+read from `workflow-skills/chat-mode.md` on every cold open. The runner writes
+it as a stream-json user envelope to stdin **before** any rehydration priming
+so the agent learns the MCP tool surface and CM concepts before being asked to
+re-establish workspace state. Empty / absent = no envelope written (full
+backward compatibility with older CM builds that don't ship the field).
 
 `model` selects the orchestrator model; the runner sets it as
 `CM_ORCHESTRATOR_MODEL` in the container env so the entrypoint passes it as the
@@ -563,7 +571,14 @@ The runner:
    attached.
 4. Attaches the container stdin via `tracker.SetStdin` so subsequent `/message`
    calls can write user turns.
-5. **When `resume` is non-nil, writes the rehydration priming envelope to
+5. **When `primer` is non-empty, writes the chat-mode orientation envelope to
+   stdin.** This is a stream-json `user`-typed message built by
+   `streammsg.BuildUserMessage` carrying the raw primer text. Written
+   **before** any rehydration priming so the agent has MCP tool awareness and
+   CM concepts before workspace re-establishment. Build / write failures are
+   logged at WARN and do not abort the start — fail-open posture, container is
+   left running.
+6. **When `resume` is non-nil, writes the rehydration priming envelope to
    stdin.** This is a stream-json `user`-typed message built by
    `streammsg.BuildUserMessage`, not the `-p` positional prompt:
    `claude -p PROMPT --input-format stream-json` treats `-p` as system context
@@ -575,8 +590,10 @@ The runner:
    done. Priming text is **not** persisted to the CM transcript; only the
    agent's response is recorded. Build / write failures are logged at WARN and
    do not abort the start — the container is left running with an empty stdin,
-   and the user can type a fresh message.
-6. Spawns `StreamChatLogs`: a goroutine that demultiplexes container
+   and the user can type a fresh message. When both `primer` and `resume` are
+   set, the two stream-json user envelopes arrive in order on the same stdin
+   (primer first, then rehydration).
+7. Spawns `StreamChatLogs`: a goroutine that demultiplexes container
    stdout/stderr, runs the same `logparser.ProcessStream` used by card mode, and
    publishes parsed entries on the broadcaster with `SessionID` and `Project`
    set (no `CardID`).
