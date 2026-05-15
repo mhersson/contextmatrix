@@ -218,6 +218,51 @@ runner:
   # Env: CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL
   reconcile_interval: "60s"
 
+# Chat (global chat panel)
+chat:
+  # SQLite database for chat sessions and transcripts.
+  # CONTEXTMATRIX_CHAT_DB_PATH overrides this.
+  # Default: $XDG_STATE_HOME/contextmatrix/chats.db
+  # db_path: /var/lib/contextmatrix/chats.db
+
+  # How long a chat container survives after browser disconnects.
+  # CONTEXTMATRIX_CHAT_IDLE_TTL overrides this.
+  idle_ttl: 1h
+
+  # Maximum concurrent chat containers. Default is 8 — enough headroom for
+  # the multi-pane chat UI's 4 user-facing panes plus 2-4 agent-owned
+  # background sessions.
+  # CONTEXTMATRIX_CHAT_MAX_CONCURRENT overrides this.
+  max_concurrent: 8
+
+  # Claude model used when a chat is created without an explicit
+  # selection in the New Chat dialog. Must be a key in chat.models.
+  default_model: claude-sonnet-4-6
+
+  # Rough token budget for the rehydration payload sent to the runner on
+  # cold-reopen. Older transcript turns are dropped (first user turn and
+  # last 20 turns are always preserved) until the estimate fits.
+  resume_budget_tokens: 40000
+
+  # Force the rehydration phase off after this duration even if the
+  # agent never called chat_rehydration_complete. The first user message
+  # also ends the phase, so this is a belt-and-suspenders cap.
+  rehydration_timeout: 10m
+
+  # Allowlist of selectable models for new chats. The label is shown in
+  # the picker; max_tokens drives the context-window denominator in the
+  # ChatThread header indicator. Adding a new model is a single edit.
+  models:
+    claude-sonnet-4-6:
+      label: "Sonnet 4.6"
+      max_tokens: 1000000
+    claude-opus-4-7:
+      label: "Opus 4.7"
+      max_tokens: 1000000
+    claude-haiku-4-5-20251001:
+      label: "Haiku 4.5"
+      max_tokens: 200000
+
 # GitHub authentication and integration.
 # Used for boards git, task-skills git, issue importing, and branch listing.
 github:

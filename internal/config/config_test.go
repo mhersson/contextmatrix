@@ -422,6 +422,55 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 	}
 }
 
+func TestValidate_RejectsNegativeChatIdleTTL(t *testing.T) {
+	cfg := &Config{
+		Boards:           BoardsConfig{Dir: "/some/path"},
+		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+		Chat:             ChatConfig{IdleTTL: -time.Minute, MaxConcurrent: 5},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chat.idle_ttl")
+}
+
+func TestValidate_AcceptsZeroChatIdleTTL(t *testing.T) {
+	// Zero IdleTTL means "use the default" — applyChatDefaults bumps it
+	// inside Validate so callers that bypass Load still get the default.
+	cfg := &Config{
+		Boards:           BoardsConfig{Dir: "/some/path"},
+		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+		Chat:             ChatConfig{IdleTTL: 0, MaxConcurrent: 5},
+	}
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL, "Validate must apply the default IdleTTL")
+}
+
+func TestValidate_RejectsNegativeChatMaxConcurrent(t *testing.T) {
+	cfg := &Config{
+		Boards:           BoardsConfig{Dir: "/some/path"},
+		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+		Chat:             ChatConfig{IdleTTL: time.Hour, MaxConcurrent: -1},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chat.max_concurrent")
+}
+
+func TestValidate_AcceptsZeroChatMaxConcurrent(t *testing.T) {
+	// MaxConcurrent=0 means "unlimited" per the existing applyChatDefaults
+	// semantics; only negative values are rejected.
+	cfg := &Config{
+		Boards:           BoardsConfig{Dir: "/some/path"},
+		HeartbeatTimeout: "30m",
+		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+		Chat:             ChatConfig{IdleTTL: time.Hour, MaxConcurrent: 0},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
@@ -2149,4 +2198,108 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 	assert.Equal(t, "/var/skills", cfg.TaskSkills.Dir)
 	assert.Equal(t, "https://github.com/x/y.git", cfg.TaskSkills.GitRemoteURL)
 	assert.True(t, cfg.TaskSkills.GitCloneOnEmpty)
+}
+
+// ---------- Chat config tests ----------
+
+func TestLoadConfig_ChatDefaults(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("boards:\n  dir: /tmp/boards\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n"), 0o644))
+
+	cfg, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL, "default idle TTL should be 1h")
+	assert.Equal(t, 8, cfg.Chat.MaxConcurrent, "default max concurrent should be 8 (multi-pane headroom)")
+	assert.NotEmpty(t, cfg.Chat.DBPath, "default db path should be derived")
+}
+
+func TestLoadConfig_ChatEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	t.Setenv("CONTEXTMATRIX_CHAT_DB_PATH", "/var/lib/contextmatrix/chats.db")
+	t.Setenv("CONTEXTMATRIX_CHAT_IDLE_TTL", "30m")
+	t.Setenv("CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "10")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/var/lib/contextmatrix/chats.db", cfg.Chat.DBPath)
+	assert.Equal(t, 30*time.Minute, cfg.Chat.IdleTTL)
+	assert.Equal(t, 10, cfg.Chat.MaxConcurrent)
+}
+
+func TestLoadConfig_ChatInvalidIdleTTL_Ignored(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	t.Setenv("CONTEXTMATRIX_CHAT_IDLE_TTL", "notaduration")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	// Should retain the default value since the env override was invalid.
+	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL)
+}
+
+func TestLoadConfig_ChatInvalidMaxConcurrent_Ignored(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	t.Setenv("CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "abc")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	// Should retain the default value since the env override was invalid.
+	assert.Equal(t, 8, cfg.Chat.MaxConcurrent)
+}
+
+func TestLoadConfig_ChatYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+chat:
+  db_path: /custom/chats.db
+  idle_ttl: 2h
+  max_concurrent: 3
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/custom/chats.db", cfg.Chat.DBPath)
+	assert.Equal(t, 2*time.Hour, cfg.Chat.IdleTTL)
+	assert.Equal(t, 3, cfg.Chat.MaxConcurrent)
+}
+
+func TestLoadConfig_ChatDBPath_XDGStateHome(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	stateDir := filepath.Join(dir, "state")
+	t.Setenv("XDG_STATE_HOME", stateDir)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "chats.db"), cfg.Chat.DBPath)
 }
