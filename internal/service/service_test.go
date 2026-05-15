@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -6593,6 +6594,188 @@ func TestReportUsageFullLifecycle(t *testing.T) {
 	assert.Equal(t, int64(18000), persisted.TokenUsage.PromptTokens)
 	assert.Equal(t, int64(2300), persisted.TokenUsage.CompletionTokens)
 	assert.InDelta(t, 0.0965, persisted.TokenUsage.EstimatedCostUSD, 0.0001)
+}
+
+// gatingCommitter wraps an inner gitops.Committer and blocks every commit
+// call on a release channel until the test closes it. Used to assert that
+// service-layer write paths release writeMu before awaiting the commit:
+// with the bug, only one caller is ever parked inside CommitFile at a time;
+// with the fix, two cross-project mutations can both reach the worker
+// concurrently and inflight reaches 2.
+type gatingCommitter struct {
+	inner    gitops.Committer
+	release  chan struct{}
+	inflight atomic.Int32
+}
+
+func newGatingCommitter(inner gitops.Committer) *gatingCommitter {
+	return &gatingCommitter{
+		inner:   inner,
+		release: make(chan struct{}),
+	}
+}
+
+func (g *gatingCommitter) Inflight() int32 { return g.inflight.Load() }
+
+func (g *gatingCommitter) Release() { close(g.release) }
+
+func (g *gatingCommitter) wait() {
+	g.inflight.Add(1)
+	defer g.inflight.Add(-1)
+
+	<-g.release
+}
+
+func (g *gatingCommitter) CommitFile(ctx context.Context, path, message string) error {
+	g.wait()
+
+	return g.inner.CommitFile(ctx, path, message)
+}
+
+func (g *gatingCommitter) CommitFiles(ctx context.Context, paths []string, message string) error {
+	g.wait()
+
+	return g.inner.CommitFiles(ctx, paths, message)
+}
+
+func (g *gatingCommitter) CommitFilesShell(ctx context.Context, paths []string, message string) error {
+	g.wait()
+
+	return g.inner.CommitFilesShell(ctx, paths, message)
+}
+
+func (g *gatingCommitter) CommitAll(ctx context.Context, message string) error {
+	g.wait()
+
+	return g.inner.CommitAll(ctx, message)
+}
+
+func (g *gatingCommitter) ReloadRepo(ctx context.Context) error {
+	return g.inner.ReloadRepo(ctx)
+}
+
+// newTwoProjectServiceWithGate provisions a CardService with two projects
+// and swaps in a commit queue whose committer blocks until the returned
+// gatingCommitter's Release is called. Used by tests that need to observe
+// two concurrent commits in flight without serialising on the per-project
+// worker (one worker per project, so two projects = two concurrent calls).
+func newTwoProjectServiceWithGate(
+	t *testing.T,
+	projectA, projectB string,
+) (*CardService, *gatingCommitter, func()) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	mkProject := func(name, prefix string) {
+		pd := filepath.Join(boardsDir, name)
+		require.NoError(t, os.MkdirAll(filepath.Join(pd, "tasks"), 0o755))
+
+		cfg := testProject()
+		cfg.Name = name
+		cfg.Prefix = prefix
+
+		require.NoError(t, board.SaveProjectConfig(pd, cfg))
+	}
+
+	mkProject(projectA, "ALPHA")
+	mkProject(projectB, "BETA")
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
+	// Use a real queue for setup writes (CreateCard, ClaimCard) so they land
+	// without blocking the test.
+	setupQueue := gitops.NewCommitQueue(gitMgr, 0)
+	svc.SetCommitQueue(setupQueue)
+
+	cleanup := func() {
+		_ = setupQueue.Close(context.Background())
+	}
+
+	gate := newGatingCommitter(newRealCommitter(gitMgr))
+
+	return svc, gate, cleanup
+}
+
+// TestTransitionTo_DoesNotHoldWriteMuAcrossCommit asserts that two
+// concurrent TransitionTo calls in different projects can both be parked
+// inside the commit committer at the same time. If TransitionTo held
+// writeMu across the commit await, only one call would ever reach the
+// committer; the second would block on writeMu and inflight would never
+// reach 2.
+func TestTransitionTo_DoesNotHoldWriteMuAcrossCommit(t *testing.T) {
+	svc, gate, cleanup := newTwoProjectServiceWithGate(t, "alpha", "beta")
+	defer cleanup()
+
+	ctx := context.Background()
+
+	c1, err := svc.CreateCard(ctx, "alpha", CreateCardInput{
+		Title: "Alpha 1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	c2, err := svc.CreateCard(ctx, "beta", CreateCardInput{
+		Title: "Beta 1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Swap in the gating queue now that setup writes are done.
+	gateQueue := gitops.NewCommitQueueWithCommitter(gate, 0)
+
+	t.Cleanup(func() {
+		// Make sure the gate is open so Close can drain any leftover jobs.
+		select {
+		case <-gate.release:
+		default:
+			gate.Release()
+		}
+
+		_ = gateQueue.Close(context.Background())
+	})
+	svc.SetCommitQueue(gateQueue)
+
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+
+	go func() {
+		_, err := svc.TransitionTo(ctx, "alpha", c1.ID, board.StateInProgress)
+		first <- err
+	}()
+
+	go func() {
+		_, err := svc.TransitionTo(ctx, "beta", c2.ID, board.StateInProgress)
+		second <- err
+	}()
+
+	require.Eventually(t, func() bool { return gate.Inflight() == 2 },
+		2*time.Second, 5*time.Millisecond,
+		"both TransitionTo calls must reach the commit committer concurrently")
+
+	gate.Release()
+
+	select {
+	case err := <-first:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("first TransitionTo did not return after release")
+	}
+
+	select {
+	case err := <-second:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("second TransitionTo did not return after release")
+	}
 }
 
 func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {

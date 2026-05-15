@@ -316,6 +316,22 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	card.LastHeartbeat = nil
 	card.Updated = time.Now()
 
+	// Validate the post-mutation card so card-level invariants (state-enum,
+	// agent/heartbeat consistency) hold even though the stall path bypasses
+	// the per-project transition map.
+	cfg, cfgErr := s.getConfig(ctx, sc.Project)
+	if cfgErr != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("get project config: %w", cfgErr)
+	}
+
+	if err := s.validateStalledCardFn(cfg, card); err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("validate stalled card: %w", err)
+	}
+
 	// Persist
 	if err := s.store.UpdateCard(ctx, sc.Project, card); err != nil {
 		s.writeMu.Unlock()

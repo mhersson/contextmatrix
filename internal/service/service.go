@@ -101,6 +101,12 @@ type CardService struct {
 	// Defaults to s.processStalled; overridable in tests to inject panics.
 	stalledFn func(ctx context.Context) error
 
+	// validateStalledCardFn validates the post-mutation card on the stall
+	// path. Defaults to s.validator.ValidateCard(cfg, card); overridable in
+	// tests to inject stricter card-level invariants (e.g. assigned_agent
+	// must be empty when state==stalled).
+	validateStalledCardFn func(cfg *board.ProjectConfig, card *board.Card) error
+
 	// knowledgeCommitFn is the function called to commit knowledge doc writes.
 	// Defaults to s.git.CommitFiles; overridable in tests to inject commit failures.
 	knowledgeCommitFn func(ctx context.Context, paths []string, message string) error
@@ -172,6 +178,7 @@ func NewCardService(
 		templates:         make(map[string]map[string]string),
 	}
 	svc.stalledFn = svc.processStalled
+	svc.validateStalledCardFn = svc.validator.ValidateCard
 	svc.knowledgeCommitFn = svc.git.CommitFiles
 
 	return svc
@@ -270,14 +277,23 @@ func (s *CardService) HeartbeatTimeout() time.Duration {
 }
 
 // TransitionTo walks the shortest path of state transitions to reach targetState.
-// Each step validates, persists, commits, and publishes an event atomically under
-// writeMu so no intermediate state is visible to concurrent operations.
+// Each step validates, persists, commits, and publishes an event. Validation,
+// the in-memory mutation, the store write, and the commit enqueue all happen
+// under writeMu; writeMu is then released before the commit is awaited so a
+// slow commit cannot block other concurrent writers. Per-project commit
+// ordering is preserved by the commit queue's per-project worker.
 // Returns the card in its final state, or an error if any step fails.
 func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetState string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	unlocked := false
+
+	defer func() {
+		if !unlocked {
+			s.writeMu.Unlock()
+		}
+	}()
 
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
@@ -302,7 +318,18 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		return nil, fmt.Errorf("find transition path: %w", err)
 	}
 
-	for _, state := range path {
+	for i, state := range path {
+		// Re-load the card at the start of every iteration after the
+		// first so concurrent writes that landed while writeMu was
+		// released for the previous step's commit await are not silently
+		// clobbered by our stale in-memory copy.
+		if i > 0 {
+			card, err = s.store.GetCard(ctx, project, cardID)
+			if err != nil {
+				return nil, fmt.Errorf("get card: %w", err)
+			}
+		}
+
 		oldState := card.State
 
 		if err := validator.ValidateTransition(cfg, oldState, state); err != nil {
@@ -340,12 +367,30 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 			return nil, fmt.Errorf("update card: %w", err)
 		}
 
-		if err := s.commitCardChange(ctx, project, cardID, "", "transitioned to "+state); err != nil {
-			return nil, s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
-		}
+		// Enqueue under writeMu so the per-project worker preserves order
+		// with any other write that is racing for the same project.
+		commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "", "transitioned to "+state)
 
-		// Flush deferred commits on not_planned/review.
+		// Flush deferred commits on not_planned/review under writeMu so
+		// the shared deferredPaths map stays serialized; the flush itself
+		// is enqueued through the queue so its execution is ordered after
+		// the main commit by the per-project worker.
 		s.applyStateChangeSideEffects(ctx, card, true)
+
+		// Release writeMu before awaiting so a slow commit does not stall
+		// other writers. Per-project worker ordering still guarantees the
+		// commit lands in enqueue order.
+		s.writeMu.Unlock()
+
+		unlocked = true
+
+		if err := s.awaitCommit(commitDone, notify); err != nil {
+			s.writeMu.Lock()
+			unlocked = false
+			rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
+
+			return nil, rollbackErr
+		}
 
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,
@@ -357,6 +402,12 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 				"new_state": state,
 			},
 		})
+
+		// Re-acquire writeMu for the next iteration (or the post-loop
+		// parent auto-transition + dependency enrichment, both of which
+		// need writeMu held).
+		s.writeMu.Lock()
+		unlocked = false
 	}
 
 	s.maybeTransitionParent(ctx, card)
