@@ -42,6 +42,11 @@ type StartChatOpts struct {
 	RepoURL   string
 	Model     string
 	Resume    *ResumeContext
+	// Primer is the chat-mode orientation text written to the container's
+	// stdin as a stream-json user envelope before any rehydration priming.
+	// Empty string means "no primer" — runner skips the write. Sourced
+	// from workflow-skills/chat-mode.md on each cold open.
+	Primer string
 }
 
 // Config carries Manager dependencies.
