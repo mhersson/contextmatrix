@@ -63,12 +63,19 @@ type CardLookup interface {
 
 // StartReconciliationSweep launches a ticker goroutine that periodically asks
 // the runner for every labeled container and decides, per container, whether
-// it should still be running. A container is killed if:
+// it should still be running. A card container is killed if:
 //
 //  1. CM has no card matching (project, card_id) — deleted or renamed out
 //     from under the container.
 //  2. The card's state is terminal (done / not_planned) — the work is over.
 //  3. The container is older than ContainerMaxAge — runaway cap.
+//
+// When chatMgr is non-nil the same tick also reconciles chat sessions: any
+// CM-side active or warm-idle session whose SessionID is missing from the
+// runner's container list is flipped to cold. Card and chat reconcile share
+// the single /containers fetch per tick — splitting them across two tickers
+// would produce two identically-signed HMAC GETs back to back and the runner's
+// replay cache would reject the second as a duplicate.
 //
 // Notably: the sweep does NOT consult the card's runner_status field. That
 // field is a CM-side bookkeeping convenience that has repeatedly drifted
@@ -80,7 +87,7 @@ type CardLookup interface {
 //
 // Blocks only until the goroutine is scheduled; returns immediately. An
 // interval of 0 disables the sweep entirely.
-func StartReconciliationSweep(ctx context.Context, svc CardLookup, client ReconcileClient, interval time.Duration, logger *slog.Logger) {
+func StartReconciliationSweep(ctx context.Context, svc CardLookup, chatMgr ChatReconciler, client ReconcileClient, interval time.Duration, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -109,7 +116,7 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 		// Run an initial sweep immediately so containers orphaned by a CM
 		// restart (events published while CM was down are never delivered)
 		// are cleaned up without having to wait a full interval.
-		runReconcileSweep(ctx, svc, client, maxAge, logger)
+		runReconcileSweep(ctx, svc, chatMgr, client, maxAge, logger)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -120,21 +127,21 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 				return
 
 			case <-ticker.C:
-				runReconcileSweep(ctx, svc, client, maxAge, logger)
+				runReconcileSweep(ctx, svc, chatMgr, client, maxAge, logger)
 			}
 		}
 	}()
 }
 
-// runReconcileSweep asks the runner for its current container list and kills
-// every container whose card says it should no longer be running. Safe to
-// call ad-hoc from tests.
+// runReconcileSweep asks the runner for its current container list once,
+// then runs both the card-kill loop and (if chatMgr != nil) the chat
+// orphan reconcile against that single list. Safe to call ad-hoc from
+// tests.
 //
 // Every tick logs scanned/killed — including 0/0 — so "is the sweep actually
-// running?" is answerable from a single grep. The old implementation only
-// logged when killed > 0, which made debugging a stuck container impossible
-// without adding ad-hoc instrumentation.
-func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClient, maxAge time.Duration, logger *slog.Logger) {
+// running?" is answerable from a single grep. The chat reconcile emits its
+// own tick log line when chatMgr is non-nil.
+func runReconcileSweep(ctx context.Context, svc CardLookup, chatMgr ChatReconciler, client ReconcileClient, maxAge time.Duration, logger *slog.Logger) {
 	containers, err := client.ListContainers(ctx)
 	if err != nil {
 		logger.Warn("reconcile sweep: runner list failed (skipping tick)", "error", err)
@@ -167,6 +174,10 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 		"scanned", len(containers),
 		"killed", killed,
 	)
+
+	if chatMgr != nil {
+		reconcileChatSessions(ctx, chatMgr, containers, logger)
+	}
 }
 
 // decideKill runs the three-rule authoritative check against a single
@@ -179,6 +190,16 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 // time, passed through explicitly instead of re-read from the package var so
 // a concurrent test mutation cannot race the sweep's per-tick check.
 func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge time.Duration, logger *slog.Logger) (string, bool) {
+	// Chat containers are reconciled by RunChatReconcileSweep against
+	// chat.Manager's session store — not by the card sweep. Routing them
+	// through decideKill would fire /end-session with an empty CardID,
+	// which the runner rejects with HTTP 400. The chat sweep's input is
+	// CM-authoritative (chat DB) cross-referenced with the same
+	// /containers list, so chat orphans are not the card sweep's problem.
+	if c.CardID == "" {
+		return "", false
+	}
+
 	// KB-refresh containers use a synthetic card_id and are managed by the
 	// internal/refresh registry janitor, not by the card-state sweep — they
 	// also have the runner's own container_timeout as a last-resort cap. The
@@ -253,4 +274,103 @@ func truncate(id string) string {
 	}
 
 	return id
+}
+
+// ChatSessionRef is the subset of chat.Session the reconcile sweep reads.
+// Keeping the type local to the runner package means reconcile.go does not
+// import the chat package — the wiring in main.go adapts chat.Manager to
+// the ChatReconciler interface.
+type ChatSessionRef struct {
+	ID     string
+	Status string
+}
+
+// ChatReconciler is the chat-manager surface the chat reconcile sweep needs:
+// enumerate non-cold sessions and flip orphans to cold. The interface keeps
+// reconcile.go decoupled from chat.Manager's full type surface and lets tests
+// inject a small fake.
+type ChatReconciler interface {
+	// ListActiveChatSessions returns every chat session whose CM-side
+	// status is active or warm-idle. Cold and ending sessions are excluded
+	// — cold has no runner container by definition, and ending is a
+	// transient transition the sweep should not race against.
+	ListActiveChatSessions(ctx context.Context) ([]ChatSessionRef, error)
+	// EndChatSession flips a session to cold and clears its container_id,
+	// matching the user-initiated End Session path. Idempotent on cold.
+	EndChatSession(ctx context.Context, id string) error
+}
+
+// RunChatReconcileSweep is the standalone chat-reconcile entrypoint kept for
+// unit tests that want to exercise the chat path without standing up a card
+// sweep. Production wiring goes through StartReconciliationSweep, which folds
+// the chat reconcile into the same tick that drives card reconcile so both
+// share one /containers fetch.
+//
+// A failed /containers call skips the tick — better to leave live sessions
+// alone than to flip every one to cold because the runner briefly couldn't
+// answer.
+func RunChatReconcileSweep(ctx context.Context, chatMgr ChatReconciler, client ContainerLister, logger *slog.Logger) {
+	if chatMgr == nil || client == nil {
+		return
+	}
+
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	containers, err := client.ListContainers(ctx)
+	if err != nil {
+		logger.Warn("chat reconcile sweep: runner list failed (skipping tick)", "error", err)
+
+		return
+	}
+
+	reconcileChatSessions(ctx, chatMgr, containers, logger)
+}
+
+// reconcileChatSessions cross-references CM's active/warm-idle chat sessions
+// with a pre-fetched runner container list. Any CM session whose SessionID is
+// missing from the list is treated as an orphan and flipped to cold via
+// EndChatSession. Silent on the happy path. Per-session EndChatSession
+// errors are logged but do not abort the rest of the sweep.
+func reconcileChatSessions(ctx context.Context, chatMgr ChatReconciler, containers []ContainerInfo, logger *slog.Logger) {
+	runnerHas := make(map[string]bool, len(containers))
+
+	for _, c := range containers {
+		if c.SessionID != "" {
+			runnerHas[c.SessionID] = true
+		}
+	}
+
+	sessions, err := chatMgr.ListActiveChatSessions(ctx)
+	if err != nil {
+		logger.Warn("chat reconcile sweep: list sessions failed (skipping tick)", "error", err)
+
+		return
+	}
+
+	var orphaned int
+
+	for _, s := range sessions {
+		if runnerHas[s.ID] {
+			continue
+		}
+
+		logger.Warn("chat reconcile sweep: orphan session, flipping to cold",
+			"session_id", s.ID, "from_status", s.Status)
+
+		if err := chatMgr.EndChatSession(ctx, s.ID); err != nil {
+			logger.Warn("chat reconcile sweep: EndChatSession failed",
+				"session_id", s.ID, "error", err)
+
+			continue
+		}
+
+		orphaned++
+	}
+
+	logger.Info("chat reconcile sweep tick",
+		"scanned", len(sessions),
+		"orphaned", orphaned,
+	)
 }

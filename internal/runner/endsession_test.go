@@ -55,6 +55,7 @@ type fakeClient struct {
 	killErr    error
 	listResult []runner.ContainerInfo
 	listErr    error
+	listCount  int
 }
 
 func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) error {
@@ -83,6 +84,8 @@ func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.listCount++
+
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -91,6 +94,17 @@ func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, 
 	copy(out, f.listResult)
 
 	return out, nil
+}
+
+// ListCount returns the number of ListContainers calls observed since the
+// fake was created. Used by tests that need to assert a single sweep tick
+// makes exactly one /containers round-trip to avoid hitting the runner's
+// HMAC replay cache.
+func (f *fakeClient) ListCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.listCount
 }
 
 func (f *fakeClient) Calls() []runner.EndSessionPayload {

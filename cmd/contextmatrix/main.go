@@ -25,6 +25,8 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/chat"
+	chatsqlite "github.com/mhersson/contextmatrix/internal/chat/sqlite"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -282,15 +284,142 @@ func main() {
 
 		runner.StartEndSessionSubscriber(ctx, bus, svc, runnerClient, slog.Default())
 		slog.Info("end-session subscriber started")
+	}
 
+	// Chat: SQLite store + manager + SSE hub + idle reaper + warm-idle grace timer.
+	chatStore, err := chatsqlite.Open(cfg.Chat.DBPath)
+	if err != nil {
+		slog.Error("failed to open chat store", "path", cfg.Chat.DBPath, "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+	defer chatStore.Close()
+
+	slog.Info("chat store opened", "path", cfg.Chat.DBPath)
+
+	var chatRunner chat.RunnerClient
+	if cfg.Runner.Enabled {
+		chatRunner = chat.NewRunnerClient(chat.RunnerClientConfig{
+			BaseURL:   cfg.Runner.URL,
+			HMACKey:   cfg.Runner.APIKey,
+			MCPAPIKey: cfg.MCPAPIKey,
+		})
+	} else {
+		// Nil runner causes nil-pointer panics at call sites. Use a no-op stub
+		// that returns an error on every operation — chat features require runner.
+		chatRunner = chatRunnerDisabled{}
+	}
+
+	chatHub := chat.NewSSEHub(128)
+
+	chatMgr := chat.NewManager(chat.Config{
+		Store:              chatStore,
+		Runner:             chatRunner,
+		Clock:              clock.Real(),
+		IdleTTL:            cfg.Chat.IdleTTL,
+		MaxConcurrent:      cfg.Chat.MaxConcurrent,
+		Hub:                chatHub,
+		ResumeBudgetTokens: cfg.Chat.ResumeBudgetTokens,
+		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
+		DefaultModel:       cfg.Chat.DefaultModel,
+		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
+			p, err := svc.GetProject(rctx, project)
+			if err != nil {
+				return "", err
+			}
+
+			if p.Repo != "" {
+				return p.Repo, nil
+			}
+
+			repos := p.EffectiveRepos()
+			if len(repos) > 0 {
+				return repos[0].URL, nil
+			}
+
+			return "", nil
+		},
+	})
+	go chat.NewIdleReaper(chatMgr, time.Minute).Run(ctx)
+
+	// 30s grace timer: last subscriber drop → flip session to warm-idle.
+	// A new subscriber within 30s cancels the flip.
+	var graceTimers sync.Map // sessionID → *time.Timer
+
+	chatHub.OnLastUnsubscribe = func(sessionID string) {
+		if existing, ok := graceTimers.LoadAndDelete(sessionID); ok {
+			existing.(*time.Timer).Stop()
+		}
+
+		timer := time.AfterFunc(30*time.Second, func() {
+			// If the entry is still in the map it means no new subscriber
+			// arrived during the grace window — proceed with warm-idle.
+			if _, loaded := graceTimers.LoadAndDelete(sessionID); !loaded {
+				return
+			}
+
+			if err := chatMgr.MarkWarmIdle(ctx, sessionID); err != nil {
+				slog.Warn("chat: warm-idle transition failed", "session_id", sessionID, "error", err)
+			}
+		})
+		graceTimers.Store(sessionID, timer)
+	}
+	chatHub.OnSubscribe = func(sessionID string) {
+		if t, ok := graceTimers.LoadAndDelete(sessionID); ok {
+			t.(*time.Timer).Stop()
+		}
+		// A browser subscriber is a strong "I want this chat" signal.
+		// Reattach the runner-log consumer if one isn't already bridging
+		// /logs for this session — covers the case where CM restarted
+		// while runner containers stayed alive, stranding their consumer
+		// goroutines. No-op on cold/ending sessions.
+		if err := chatMgr.Reattach(ctx, sessionID); err != nil {
+			slog.Warn("chat: reattach on subscribe failed",
+				"session_id", sessionID, "error", err)
+		}
+	}
+
+	slog.Info("chat manager initialized", "idle_ttl", cfg.Chat.IdleTTL, "max_concurrent", cfg.Chat.MaxConcurrent)
+
+	// Resume runner-log consumers for sessions that survived a CM restart.
+	// Without this, active/warm-idle sessions stay marked alive in the DB
+	// while their consumer goroutines are gone (in-memory state lost), so
+	// the UI can't see runner output even though the container is still
+	// up. Reattach is idempotent and tolerant of dead containers — the
+	// consumer exits on first /logs error and the reconcile sweep below
+	// will flip orphaned sessions to cold.
+	go func() {
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		for _, status := range []chat.Status{chat.StatusActive, chat.StatusWarmIdle} {
+			sessions, err := chatMgr.ListSessions(rctx, chat.SessionFilter{Status: status})
+			if err != nil {
+				slog.Warn("chat: startup reattach list failed",
+					"status", status, "error", err)
+
+				continue
+			}
+
+			for _, s := range sessions {
+				if err := chatMgr.Reattach(rctx, s.ID); err != nil {
+					slog.Warn("chat: startup reattach failed",
+						"session_id", s.ID, "error", err)
+				}
+			}
+		}
+	}()
+
+	// Card + chat reconcile sweep: a single ticker fetches /containers once
+	// per tick and feeds both reconcilers. Two separate tickers used to
+	// produce identically-signed HMAC GETs back to back; the runner's
+	// replay cache rejected the second as a duplicate. The chat reconciler
+	// flips active/warm-idle sessions whose runner container has
+	// disappeared (claude crash, runner restart, OOM, manual docker kill)
+	// to cold so the UI can reopen.
+	if cfg.Runner.Enabled {
 		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
-		// The sweep takes the CardService (CardLookup) and the runner client
-		// (ReconcileClient: ListContainers + EndSession + Kill). It uses the
-		// runner's Docker state as the authoritative "is this container
-		// running?" input and the card store as the authoritative "should it
-		// be?" — see internal/runner/reconcile.go for why we no longer gate
-		// on card.runner_status.
-		runner.StartReconciliationSweep(ctx, svc, runnerClient, reconcileInterval, slog.Default())
+		runner.StartReconciliationSweep(ctx, svc, chatReconcilerAdapter{mgr: chatMgr}, runnerClient, reconcileInterval, slog.Default())
 
 		if reconcileInterval > 0 {
 			slog.Info("runner reconciliation sweep started", "interval", reconcileInterval)
@@ -310,7 +439,7 @@ func main() {
 	slog.Info("session log manager initialized")
 
 	// Create MCP server
-	mcpSrv := mcpserver.NewServer(svc, cfg.WorkflowSkillsDir)
+	mcpSrv := mcpserver.NewServer(svc, cfg.WorkflowSkillsDir, chatMgr)
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
 	if cfg.MCPAPIKey != "" {
@@ -344,6 +473,9 @@ func main() {
 		Theme:               cfg.Theme,
 		Version:             buildVersion(),
 		MCPHandler:          mcpHandler,
+		ChatManager:         chatMgr,
+		ChatHub:             chatHub,
+		ChatConfig:          &cfg.Chat,
 	})
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")
@@ -464,6 +596,15 @@ func main() {
 
 	if err := sessionMgr.Close(shutdownCtx); err != nil {
 		slog.Error("session manager shutdown error", "error", err)
+	}
+
+	if chatMgr != nil {
+		chatCloseCtx, chatCloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := chatMgr.Close(chatCloseCtx); err != nil {
+			slog.Warn("chat manager close failed", "error", err)
+		}
+
+		chatCloseCancel()
 	}
 
 	// Phase 3: signal the rest of the app (timeout checker, syncers'
@@ -641,4 +782,61 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// chatRunnerDisabled is a no-op RunnerClient used when the runner integration
+// is disabled. Every operation returns an error so callers receive a clear
+// "runner not enabled" message rather than a nil-pointer panic.
+type chatRunnerDisabled struct{}
+
+func (chatRunnerDisabled) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+	return "", fmt.Errorf("chat: runner not enabled")
+}
+
+func (chatRunnerDisabled) EndChat(_ context.Context, _ string) error {
+	return fmt.Errorf("chat: runner not enabled")
+}
+
+func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
+	return fmt.Errorf("chat: runner not enabled")
+}
+
+func (chatRunnerDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+	<-ctx.Done()
+
+	return ctx.Err()
+}
+
+// chatReconcilerAdapter adapts *chat.Manager to the runner.ChatReconciler
+// surface. Keeps the chat package free of any runner-facing type while still
+// letting the reconcile sweep enumerate orphan sessions and flip them cold.
+type chatReconcilerAdapter struct {
+	mgr *chat.Manager
+}
+
+func (a chatReconcilerAdapter) ListActiveChatSessions(ctx context.Context) ([]runner.ChatSessionRef, error) {
+	active, err := a.mgr.ListSessions(ctx, chat.SessionFilter{Status: chat.StatusActive})
+	if err != nil {
+		return nil, fmt.Errorf("list active: %w", err)
+	}
+
+	warm, err := a.mgr.ListSessions(ctx, chat.SessionFilter{Status: chat.StatusWarmIdle})
+	if err != nil {
+		return nil, fmt.Errorf("list warm-idle: %w", err)
+	}
+
+	out := make([]runner.ChatSessionRef, 0, len(active)+len(warm))
+	for _, s := range active {
+		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: string(s.Status)})
+	}
+
+	for _, s := range warm {
+		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: string(s.Status)})
+	}
+
+	return out, nil
+}
+
+func (a chatReconcilerAdapter) EndChatSession(ctx context.Context, id string) error {
+	return a.mgr.EndSession(ctx, id)
 }
