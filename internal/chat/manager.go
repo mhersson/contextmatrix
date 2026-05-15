@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -42,6 +43,11 @@ type StartChatOpts struct {
 	RepoURL   string
 	Model     string
 	Resume    *ResumeContext
+	// Primer is the chat-mode orientation text written to the container's
+	// stdin as a stream-json user envelope before any rehydration priming.
+	// Empty string means "no primer" — runner skips the write. Sourced
+	// from workflow-skills/chat-mode.md on each cold open.
+	Primer string
 }
 
 // Config carries Manager dependencies.
@@ -78,6 +84,13 @@ type Config struct {
 	// (legacy rows, or callers that didn't pass a model on creation).
 	// Production wires this to chat.default_model from config.
 	DefaultModel string
+
+	// PrimerPath is the on-disk path to the chat-mode orientation primer
+	// file (typically <WorkflowSkillsDir>/chat-mode.md). Read on each cold
+	// open and shipped to the runner as StartChatOpts.Primer. Empty path
+	// or a missing/unreadable file is non-fatal: cold open proceeds with
+	// an empty primer and a WARN log.
+	PrimerPath string
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -94,6 +107,7 @@ type Manager struct {
 	resumeBudgetTokens int
 	rehydrationTimeout time.Duration
 	defaultModel       string
+	primerPath         string
 
 	mu        sync.Mutex
 	seqMap    map[string]int64           // sessionID → last assigned seq
@@ -153,6 +167,7 @@ func NewManager(cfg Config) *Manager {
 		resumeBudgetTokens: cfg.ResumeBudgetTokens,
 		rehydrationTimeout: cfg.RehydrationTimeout,
 		defaultModel:       cfg.DefaultModel,
+		primerPath:         cfg.PrimerPath,
 		seqMap:             make(map[string]int64),
 		titled:             make(map[string]bool),
 		consumers:          make(map[string]*consumerHandle),
@@ -448,6 +463,26 @@ func resumeTurnCount(r *ResumeContext) int {
 	return len(r.Turns)
 }
 
+// loadPrimer reads the chat-mode primer file from m.primerPath on each call.
+// Returns an empty string and logs a WARN on any failure (missing file,
+// permission error, unreadable bytes) — primer is a quality-of-life feature
+// and must never block a cold open.
+func (m *Manager) loadPrimer() string {
+	if m.primerPath == "" {
+		return ""
+	}
+
+	data, err := os.ReadFile(m.primerPath)
+	if err != nil {
+		m.logger.Warn("chat: primer load failed; cold open will start without primer",
+			"path", m.primerPath, "error", err)
+
+		return ""
+	}
+
+	return string(data)
+}
+
 // isRehydrationActive reports whether the session is currently in its
 // rehydration phase. Reads go through the in-memory cache first; misses
 // fall back to the store and populate. Errors fall back to false rather
@@ -649,6 +684,11 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	// never block the user from opening the chat.
 	resume := m.buildResume(ctx, sess.ID)
 
+	// Read the chat-mode primer on every cold open. Operators who edit
+	// workflow-skills/chat-mode.md get hot-reload for free on the next
+	// new container.
+	primer := m.loadPrimer()
+
 	model := sess.Model
 	if model == "" {
 		model = m.defaultModel
@@ -657,7 +697,8 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", repoURL,
 		"model", model, "has_resume", resume != nil,
-		"resume_turn_count", resumeTurnCount(resume))
+		"resume_turn_count", resumeTurnCount(resume),
+		"has_primer", primer != "")
 
 	containerID, err := m.runner.StartChat(ctx, StartChatOpts{
 		SessionID: sess.ID,
@@ -665,6 +706,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		RepoURL:   repoURL,
 		Model:     model,
 		Resume:    resume,
+		Primer:    primer,
 	})
 	if err != nil {
 		return Session{}, fmt.Errorf("chat: start container: %w", err)

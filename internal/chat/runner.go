@@ -50,6 +50,7 @@ type chatStartPayload struct {
 	MCPAPIKey string         `json:"mcp_api_key,omitempty"`
 	Model     string         `json:"model,omitempty"`
 	Resume    *ResumeContext `json:"resume,omitempty"`
+	Primer    string         `json:"primer,omitempty"`
 }
 
 type chatEndPayload struct {
@@ -70,6 +71,7 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 		MCPAPIKey: c.mcpAPIKey,
 		Model:     opts.Model,
 		Resume:    opts.Resume,
+		Primer:    opts.Primer,
 	})
 	if err != nil {
 		return "", fmt.Errorf("chat: runner: marshal StartChat payload: %w", err)

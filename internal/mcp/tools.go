@@ -1038,7 +1038,7 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 }
 
 type getSkillInput struct {
-	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project, brainstorming, systematic-debugging, refresh-knowledge"`
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project, run-autonomous, brainstorming, systematic-debugging, refresh-knowledge, chat-mode"`
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project, refresh-knowledge)"`
