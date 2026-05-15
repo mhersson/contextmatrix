@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NewChatDialog } from './NewChatDialog';
 import { ChatThread } from './ChatThread';
+import { MobileChatHeader } from './MobileChatHeader';
 import { ChatLayout, ChatLayoutProvider, type AvailableChat, type Slot } from '../../components/ChatLayout';
 import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from '../../hooks/useChatLayout';
 import { useChatSessions, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
@@ -171,28 +172,49 @@ export function ChatPage() {
     }
   }, [pendingDelete, layout]);
 
+  const focusedChatId = useMemo(
+    () => (layout.state.focused ? layout.state.panes[layout.state.focused]?.chatId ?? null : null),
+    [layout.state.focused, layout.state.panes],
+  );
+  const mobileTitle = useMemo(
+    () => (focusedChatId
+      ? availableChats.find((c) => c.id === focusedChatId)?.title ?? 'Chat'
+      : 'Chats'),
+    [focusedChatId, availableChats],
+  );
+
   return (
     <ChatLayoutProvider value={layout}>
-      <ChatLayout
-        panes={layout.state.panes}
-        focused={layout.state.focused}
-        sizes={layout.state.sizes}
-        availableChats={availableChats}
-        draggingChatId={layout.draggingChatId}
-        isMobile={isMobile}
-        onFocus={layout.focus}
-        onClose={layout.closePane}
-        onSplit={layout.splitFromPane}
-        onResize={handleResize}
-        onDropChatOnPane={handleDropChatOnPane}
-        onPickEmptyPane={layout.swapPaneChat}
-        onCancelEmpty={layout.cancelEmptyPane}
-        onNewChat={() => setDialogOpen(true)}
-        onEndSession={handleEndSession}
-        onReopenChat={handleReopenChat}
-        onDeleteChat={requestDeleteChat}
-        renderPaneBody={renderPaneBody}
-      />
+      <div className="flex flex-col h-full">
+        {isMobile && (
+          <MobileChatHeader
+            title={mobileTitle}
+            onNewChat={() => setDialogOpen(true)}
+          />
+        )}
+        <div className="flex-1 min-h-0">
+          <ChatLayout
+            panes={layout.state.panes}
+            focused={layout.state.focused}
+            sizes={layout.state.sizes}
+            availableChats={availableChats}
+            draggingChatId={layout.draggingChatId}
+            isMobile={isMobile}
+            onFocus={layout.focus}
+            onClose={layout.closePane}
+            onSplit={layout.splitFromPane}
+            onResize={handleResize}
+            onDropChatOnPane={handleDropChatOnPane}
+            onPickEmptyPane={layout.swapPaneChat}
+            onCancelEmpty={layout.cancelEmptyPane}
+            onNewChat={() => setDialogOpen(true)}
+            onEndSession={handleEndSession}
+            onReopenChat={handleReopenChat}
+            onDeleteChat={requestDeleteChat}
+            renderPaneBody={renderPaneBody}
+          />
+        </div>
+      </div>
       {evictToast && (
         <div className="chat-evict-toast" role="status" aria-live="polite">
           <span className="chat-evict-toast-text">

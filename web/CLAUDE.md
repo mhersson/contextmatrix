@@ -617,7 +617,10 @@ modal covers the screen anyway, but this can be improved in a future pass
 
 - The hamburger button is rendered inside `AppHeader`, which is only present
   within `ProjectShell`. The `/all` route has no hamburger. Low impact because
-  the All Projects dashboard itself lists all projects.
+  the All Projects dashboard itself lists all projects. The `/chat` route
+  renders its own `MobileChatHeader` (`web/src/pages/Chat/MobileChatHeader.tsx`)
+  with a hamburger that reuses `useMobileSidebar`, plus the focused chat title
+  and a "+ new chat" button.
 - The desktop collapsed sidebar (48 px strip, no `.sidebar` class) does not
   hide on mobile — pre-existing issue unrelated to this feature.
 - `MobileSidebarContext.tsx` exports both a component and a hook from the same
