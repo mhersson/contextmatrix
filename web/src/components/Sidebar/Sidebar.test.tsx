@@ -15,6 +15,10 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', toggleTheme: () => {} })),
 }));
 
+vi.mock('./ChatSection', () => ({
+  ChatSection: () => null,
+}));
+
 import { useProjects } from '../../hooks/useProjects';
 
 const mockUseProjects = vi.mocked(useProjects);
@@ -22,7 +26,7 @@ const mockUseProjects = vi.mocked(useProjects);
 function renderSidebar(props?: { mobileOpen?: boolean; onMobileClose?: () => void }) {
   return render(
     <MemoryRouter>
-      <Sidebar onNewProject={() => {}} {...props} />
+      <Sidebar onNewProject={() => {}} onNewChat={() => {}} {...props} />
     </MemoryRouter>
   );
 }

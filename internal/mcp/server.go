@@ -14,12 +14,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
-func NewServer(svc *service.CardService, workflowSkillsDir string) *mcp.Server {
+// chatMgr may be nil when chat is disabled; chat-specific tools register only
+// when it is non-nil.
+func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat.Manager) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "contextmatrix",
@@ -31,6 +35,10 @@ func NewServer(svc *service.CardService, workflowSkillsDir string) *mcp.Server {
 	registerTools(server, svc, workflowSkillsDir)
 	registerPrompts(server, svc, workflowSkillsDir)
 
+	if chatMgr != nil {
+		registerChatRehydrationComplete(server, chatMgr)
+	}
+
 	return server
 }
 
@@ -40,11 +48,13 @@ func NewServer(svc *service.CardService, workflowSkillsDir string) *mcp.Server {
 //
 // Middleware order (outermost → innermost):
 //
-//	mcpAuthMiddleware → clearWriteDeadlineForStreaming → mcpRequestInfoMiddleware → SDK handler
+//	mcpAuthMiddleware → clearWriteDeadlineForStreaming → chatSessionHeaderMiddleware → mcpRequestInfoMiddleware → SDK handler
 //
 // Unauthenticated probes are rejected before body inspection. The write-deadline
-// tweak stays outermost to apply to all authenticated requests. Request info
-// extraction runs just before the SDK so it can read the body once.
+// tweak stays outermost to apply to all authenticated requests. The chat-session
+// header is stashed into context after auth so only authenticated callers can
+// set it. Request info extraction runs just before the SDK so it can read the
+// body once.
 func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return server },
@@ -54,13 +64,35 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	)
 	// Innermost: SDK handler wrapped with request-info extraction.
 	infoWrapped := mcpRequestInfoMiddleware(handler)
+	// Above info: stash X-CM-Chat-Session into the request context so tool
+	// handlers can gate session-scoped operations to the calling chat
+	// container's own session.
+	sessionWrapped := chatSessionHeaderMiddleware(infoWrapped)
 	// Middle: write-deadline clearing for long-lived GET SSE streams.
-	wrapped := clearWriteDeadlineForStreaming(infoWrapped)
+	wrapped := clearWriteDeadlineForStreaming(sessionWrapped)
 	if apiKey == "" {
 		return wrapped
 	}
 
 	return mcpAuthMiddleware(wrapped, apiKey)
+}
+
+// chatSessionHeaderMiddleware reads the X-CM-Chat-Session header (forwarded by
+// chat-container entrypoints) and stashes the value into the request context
+// via mcpcontext.WithChatSession. Session-scoped MCP tools
+// (chat_rehydration_complete) compare this against the in-RPC session_id to
+// reject cross-session calls from a compromised or malicious caller.
+//
+// Empty header (card-mode worker, human curl) leaves the context untouched so
+// existing flows are unaffected.
+func chatSessionHeaderMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h := r.Header.Get("X-CM-Chat-Session"); h != "" {
+			r = r.WithContext(mcpcontext.WithChatSession(r.Context(), h))
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // mcpRequestInfoMiddleware reads the JSON-RPC body to populate the MCPCall

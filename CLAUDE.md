@@ -80,13 +80,18 @@ When in doubt: **"UI = human, case closed."**
 cmd/contextmatrix/main.go    → entrypoint, wires dependencies, starts server
 internal/board/              → domain types: Card, ProjectConfig, StateMachine
 internal/storage/            → Store interface + FilesystemStore implementation
-internal/gitops/             → GitManager (commit, pull, push via go-git)
+internal/gitops/             → GitManager (commit, pull, push via go-git) + async CommitQueue
+internal/gitsync/            → background board-repo sync
 internal/lock/               → agent claim/release/heartbeat + timeout checker
 internal/service/            → CardService: orchestrates store, git, lock, events, state machine
 internal/api/                → REST API handlers (stdlib http.ServeMux) + SSE endpoint
 internal/mcp/                → MCP server: tools + prompts
 internal/runner/             → webhook client for contextmatrix-runner
+internal/chat/               → SQLite-backed chat session manager, SSE hub, runner-log bridge
+internal/clock/              → injectable clock for service-layer time invariants
 internal/events/             → in-process pub/sub event bus
+internal/github/             → GitHub auth helpers shared across services
+internal/refresh/            → knowledge-base refresh orchestration
 internal/config/             → global config loading
 internal/ctxlog/             → request_id context logger (WithRequestID / Logger)
 internal/metrics/            → Prometheus metric vars + Register()

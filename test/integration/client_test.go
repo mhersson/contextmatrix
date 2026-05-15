@@ -126,6 +126,60 @@ func (c *cmClient) getCard(t *testing.T, project, cardID string) cardSnapshot {
 	return card
 }
 
+func (c *cmClient) patch(t *testing.T, path string, body any, into any) (int, string) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("patch encode %s: %v", path, err)
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, c.baseURL+path, &buf)
+	if err != nil {
+		t.Fatalf("patch req %s: %v", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "human:harness")
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		t.Fatalf("patch do %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
+		if err := json.Unmarshal(raw, into); err != nil {
+			t.Fatalf("patch decode %s: %v body=%s", path, err, raw)
+		}
+	}
+
+	return resp.StatusCode, string(raw)
+}
+
+func (c *cmClient) deleteReq(t *testing.T, path string) int {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		t.Fatalf("delete req %s: %v", path, err)
+	}
+	req.Header.Set("X-Agent-ID", "human:harness")
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		t.Fatalf("delete do %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	return resp.StatusCode
+}
+
 // pollUntil retries fn until it returns true or the deadline expires.
 func pollUntil(ctx context.Context, t *testing.T, label string, fn func() bool) {
 	t.Helper()

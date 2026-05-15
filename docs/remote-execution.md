@@ -311,6 +311,8 @@ Sent when a user clicks "Stop All" in the header.
 Sent when a user submits a chat message while a container is running in
 interactive mode. HMAC-signed identically to trigger/kill.
 
+Card-bound HITL payload:
+
 ```json
 {
   "card_id": "PROJ-042",
@@ -319,6 +321,21 @@ interactive mode. HMAC-signed identically to trigger/kill.
   "content": "Please focus on the authentication module first."
 }
 ```
+
+Chat-session payload (global chat surface — see § Chat-mode endpoints below):
+
+```json
+{
+  "session_id": "01J5...",
+  "message_id": "msg-uuid-1234",
+  "content": "Show me the diff between v1 and v2."
+}
+```
+
+The handler dispatches on `session_id`: when set, it writes to the chat
+tracker's stdin and rejects `card_id` / `project` in the same payload
+(mutually exclusive). Card-mode and chat-mode share the same `/message`
+endpoint, validation rules, and 8-KiB content cap.
 
 The runner:
 
@@ -449,6 +466,119 @@ The runner emits a `system` `LogEntry` with content
 | 404    | No container tracked for this card   |
 | 409    | Container is not in interactive mode |
 
+### Chat-mode endpoints
+
+The chat endpoints back the global chat surface (`/api/chats/*` on CM, see
+`docs/api-reference.md` § Chat Endpoints). Chat containers run the same
+worker image as card-mode containers but stay long-lived (no per-task
+cleanup) and dispatch on the `CM_CHAT_SESSION` env var. Tracker entries
+carry `LabelSessionID` instead of `LabelCardID`; `ListManaged` /
+`CleanupOrphans` / `ForceRemoveByLabels` treat both kinds as managed.
+
+#### POST {runner_url}/chat/start
+
+Start a chat container for a session. HMAC-signed.
+
+```json
+{
+  "session_id": "01J5...",
+  "project": "contextmatrix",
+  "repo_url": "https://github.com/mhersson/contextmatrix.git",
+  "mcp_api_key": "<forwarded as CM_MCP_API_KEY>",
+  "model": "claude-opus-4-7",
+  "resume": [
+    {"seq": 2, "role": "user",           "content": "explain the chat manager"},
+    {"seq": 3, "role": "assistant_text", "content": "It owns session lifecycle…"}
+  ]
+}
+```
+
+`project` and `repo_url` are both optional — omit for a cross-project chat.
+`mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
+mode); the container then merges an MCP entry with no `Authorization`
+header.
+
+`model` selects the orchestrator model; the runner sets it as
+`CM_ORCHESTRATOR_MODEL` in the container env so the entrypoint passes it as
+the `--model` argument to Claude. Required for chat starts (CM always
+populates it from the session row, falling back to `chat.default_model`).
+
+`resume` is optional. When present, it carries the truncated transcript built
+by `chat.transcript.Build` (one JSON object per turn, `seq` + `role` +
+`content`). The runner writes it to a host-side temporary directory and
+bind-mounts the directory at `/run/cm-chat/` inside the container — read-only,
+so the agent cannot tamper with its own resume payload:
+
+| File                          | Contents                                                                |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `/run/cm-chat/resume.jsonl`   | One JSON object per turn, chronological. Drops `rehydration_phase=TRUE` entries from prior reopens.        |
+| `/run/cm-chat/resume.meta.json` | `{session_id, project, original_count, included_count, clipped}` — `clipped:true` when the budget truncated older turns. |
+
+The runner:
+
+1. Reserves a tracker slot via `AddChatIfUnderLimit` (returns `429` when the
+   chat concurrency cap is exhausted).
+2. Materialises `resume.jsonl` + `resume.meta.json` into a per-container host
+   directory and adds the bind mount. Failure here is non-fatal — the runner
+   logs `StartChat: rehydration file prep failed; starting fresh agent` and
+   omits the `CM_CHAT_RESUME=1` env var. The container starts; the agent
+   finds no resume file and continues without restoration.
+3. Starts the worker container with `CM_CHAT_SESSION=<session_id>`,
+   `CM_ORCHESTRATOR_MODEL=<model>`, and (when resume succeeded)
+   `CM_CHAT_RESUME=1`. The entrypoint clones `repo_url` into
+   `/home/user/workspace/<project>` when both are provided, then runs
+   `claude --input-format stream-json --output-format stream-json` with
+   stdin attached.
+4. Attaches the container stdin via `tracker.SetStdin` so subsequent
+   `/message` calls can write user turns.
+5. **When `resume` is non-nil, writes the rehydration priming envelope to
+   stdin.** This is a stream-json `user`-typed message built by
+   `streammsg.BuildUserMessage`, not the `-p` positional prompt: `claude -p
+   PROMPT --input-format stream-json` treats `-p` as system context and does
+   **not** auto-execute it. The priming must arrive as a stream-json user
+   envelope to actually run. The priming text instructs the agent to read
+   `/run/cm-chat/resume.jsonl`, verify workspace state with `ls`, re-clone
+   any missing repos, and call
+   `mcp__contextmatrix__chat_rehydration_complete(session_id, summary)` when
+   done. Priming text is **not** persisted to the CM transcript; only the
+   agent's response is recorded. Build / write failures are logged at WARN
+   and do not abort the start — the container is left running with an empty
+   stdin, and the user can type a fresh message.
+6. Spawns `StreamChatLogs`: a goroutine that demultiplexes container
+   stdout/stderr, runs the same `logparser.ProcessStream` used by card mode,
+   and publishes parsed entries on the broadcaster with `SessionID` and
+   `Project` set (no `CardID`).
+
+Response (`202 Accepted`):
+
+```json
+{"ok": true, "container_id": "ctr-abc123"}
+```
+
+**Error responses:**
+
+| Status | Condition                                        |
+| ------ | ------------------------------------------------ |
+| 400    | Invalid payload (`session_id` regex, repo URL)   |
+| 409    | Session already has a container tracked          |
+| 429    | Chat concurrency cap reached                     |
+
+#### POST {runner_url}/chat/end
+
+End a tracked chat container. HMAC-signed.
+
+```json
+{"session_id": "01J5..."}
+```
+
+The runner closes the container's stdin, calls `Manager.Stop` (SIGTERM +
+grace + SIGKILL), and removes the tracker entry. Closing stdin alone is not
+sufficient because `claude -p --input-format stream-json` does not always
+unblock on EOF.
+
+Response (`200 OK`): empty body. A second call returns `404` because the
+tracker entry is gone.
+
 ### Runner → ContextMatrix: SSE Log Stream
 
 #### GET {runner_url}/logs
@@ -466,8 +596,17 @@ X-Signature-256: sha256=<hex>
 X-Webhook-Timestamp: <unix-timestamp>
 ```
 
-**Query parameter:** `?project=<name>` — filters entries to a single project.
-Omit to receive entries from all projects.
+**Query parameters:**
+
+| Param        | Effect                                                          |
+| ------------ | --------------------------------------------------------------- |
+| `project`    | Filter entries to a single project. Omit to receive all.        |
+| `session_id` | Filter entries to one chat session (chat-mode bridge).          |
+
+`project` and `session_id` are mutually exclusive in practice: CM's chat
+log-bridge consumer (`chat.Manager.startConsumer`) signs a GET with
+`session_id` only, while card-mode and the project-scoped session manager
+use `project`.
 
 **Response:** `Content-Type: text/event-stream`. Each event is a JSON-encoded
 `LogEntry`:
@@ -482,6 +621,11 @@ Omit to receive entries from all projects.
 }
 ```
 
+Chat-mode entries set `session_id` instead of `card_id`. CM's
+`chat.runnerClient.StreamLogs` parses the SSE `data:` lines and forwards each
+entry through `chat.Manager.AppendMessage`, which persists it to SQLite and
+publishes a corresponding event on the per-session SSE hub.
+
 `type` values:
 
 <a name="logentry-types"></a>
@@ -494,6 +638,7 @@ Omit to receive entries from all projects.
 | `stderr`    | Container stderr   | Raw stderr line from the container                                    |
 | `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled)     |
 | `user`      | Chat input         | User message submitted via the chat input                             |
+| `usage`     | Claude Code stdout | Stream-json usage block. `content` is empty; `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`; `model` carries the responding model ID. CM's chat manager consumes this to update `Session.ContextTokens` and emit a `session_updated` SSE event. Never persisted as a transcript row. |
 
 **Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
 prevent proxy and browser timeouts.

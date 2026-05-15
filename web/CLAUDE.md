@@ -20,8 +20,9 @@
   `docs/gotchas.md`).
 - `vite.config.ts` must proxy `/api` → `http://localhost:8080` for dev mode.
 - No `localStorage` usage except: theme preference, palette preference
-  (`palette` key), human agent ID, last selected project, collapsed
-  column/card state.
+  (`palette` key), human agent ID, last selected project, last chat id
+  (`last_chat_id`), chat section collapse (`sidebar.chat_section_collapsed`),
+  multi-pane chat layout (`chat_layout`), collapsed column/card state.
 - Theme state is managed via `ThemeProvider` (in `web/src/hooks/useTheme.ts`)
   wrapping the app root. Components consume it with `useTheme()`. The markdown
   editor (`@uiw/react-md-editor`) receives `data-color-mode={theme}` so it
@@ -277,6 +278,122 @@ rule, which forbids reading or writing refs during render.
 
 Mounting into an already-HITL card lands on the `chat` tab and starts with the
 rail expanded via the initial `useState(isHITLRunning)` — no transition needed.
+
+## Global Chat tab
+
+The Chat tab (`/chat`, `/chat/:id`) hosts long-lived chat sessions distinct
+from card-scoped HITL chats. `useChatStream(sessionID)` owns transcript
+state for the active session via `useRingBuffer(2000)`. The hook pairs the
+SSE `/api/chats/{id}/stream` subscription with a REST bootstrap from
+`GET /api/chats/{id}/messages?since_seq=0&limit=1000`:
+
+1. On mount or `sessionID` change, the buffer is cleared and the REST
+   bootstrap is fetched first.
+2. The last bootstrap `seq` is recorded; the SSE subscription opens with
+   `since_seq=<last>` so it only delivers strictly newer events.
+3. Replay overlap (SSE events whose `seq` falls inside the REST window) is
+   deduped on the client — the seam is gapless without double messages.
+
+`last_chat_id` localStorage key tracks the focused pane's chat. In the
+multi-pane layout (see next section), `useChatLayout` writes the key
+whenever focus moves; `ChatThread` only writes it in non-embedded (mobile
+single-pane) mode. This preserves backward compat with external readers
+that expect a single "current chat" pointer.
+
+## Multi-pane chat layout
+
+`/chat` renders a tiled layout of up to 4 simultaneously open chats. The
+shell is `ChatLayout` (`web/src/components/ChatLayout/`), composed with
+`react-resizable-panels` `PanelGroup`s for the column + row splits. State
+lives in `useChatLayout` (`web/src/hooks/useChatLayout.ts`) and is threaded to descendants via props (`ChatLayoutContext` is exported for future composition but currently has no consumers).
+
+### Layout model
+
+Panes are addressed by `Slot` ('TL' | 'BL' | 'TR' | 'BR'). The hook
+normalizes the layout so:
+
+- 1 pane → only `TL` is occupied (full-width).
+- 2 panes → `TL` + `TR` (vertical split).
+- 3 panes → either left or right column has a horizontal split (whichever
+  column held the focused pane when the 3rd pane was opened).
+- 4 panes → 2×2 grid.
+
+Closing a pane runs `normalize()` to collapse the layout (e.g. closing
+`TL` promotes `BL → TL`). Column- and row-percentages persist as
+`{ col, leftRow, rightRow }` and are clamped 20–80% by the resizable-
+panels library.
+
+### Mutations
+
+- `openInNewPane(id)` / `openInFocused(id)` — same implementation in v1:
+  sidebar clicks always auto-tile into a new pane (per the captured build
+  prompt — no `Cmd`-click distinction). If the chat is already open in
+  another pane, focus that pane instead of opening a duplicate.
+- `swapPaneChat(slot, id)` — drop semantics. If the dropped chat is
+  already in another pane, the two panes' contents **swap** (same-chat-
+  twice = swap). If not, the target pane's contents are replaced.
+- `splitFromPane(slot)` / `cancelEmptyPane(slot)` — manual "+ split"
+  button creates an empty pane with a "Pick a chat" picker; Esc cancels.
+- `closePane(slot)` — removes the pane (the chat session itself is **not**
+  deleted; the End / Reopen / Delete actions live on `ChatThread`'s
+  non-embedded header and are reachable on mobile or by closing other
+  panes down to one).
+- `focus(slot)` — stamps `lastFocusedAt[slot] = Date.now()` for LRU.
+
+### 5th-chat policy: LRU eviction with undo
+
+When `openInNewPane` is called and 4 panes are open, the hook evicts the
+pane with the smallest `lastFocusedAt` stamp, calls `onLRUEvict({
+victimSlot, victimChatId, incomingChatId, snapshot })`, and `ChatPage`
+shows a `chat-evict-toast` (bottom-center, 6s) with an Undo button. Undo
+calls `restoreSnapshot(snapshot)` to atomically revert.
+
+### Persistence
+
+- `localStorage.chat_layout`: `{ panes, focused, sizes, lastFocusedAt }`,
+  debounced 300ms. On mount, `loadPersisted()` filters persisted chat IDs
+  against the current `availableChats` list (dropping stale ids).
+- `localStorage.last_chat_id`: written by `useChatLayout` whenever focus
+  moves (focused pane's chat id only).
+- Server-side deletes are reconciled via an effect that watches
+  `availableChats`: ids no longer in the list are removed from panes.
+
+### Drag-and-drop from the sidebar
+
+`ChatSection` lives outside `ChatLayoutProvider`'s subtree (the sidebar
+renders above the route outlet). To let pane drop-overlays show the
+incoming chat name, `ChatSection` dispatches `cm:chat-drag-start` /
+`cm:chat-drag-end` custom events; `ChatPage` listens and forwards to
+`layout.setDragging(...)`. Touch devices skip `draggable=true` to avoid
+hijacking scroll gestures (`!isTouchDevice()` guard).
+
+### Routing
+
+- `/chat` — hydrates the layout from `chat_layout`, renders `ChatLayout`.
+- `/chat/:id` — **additive** deep link. The id is opened as a new pane on
+  top of the hydrated layout (LRU evicts the 5th), then `ChatPage`
+  redirects to `/chat` so refresh doesn't re-trigger. Uses the in-render
+  state-marker pattern (`prevDeepLinkId !== deepLinkId`) — not `useEffect`
+  — so the navigate happens synchronously with the prop change.
+- `/chat?new=1` — opens `NewChatDialog`.
+
+### Mobile (`< 768px`)
+
+`useMediaQuery('(min-width: 768px)')` toggles single-pane mode. The hook's
+state persists across resizes; only one pane (the focused one) is
+rendered. Sidebar drag is disabled on touch devices. The full
+`ChatThread` (with its End / Reopen / Delete header) is rendered
+*non-embedded* on mobile so all chat actions stay reachable.
+
+### Visual tokens
+
+All chat-pane CSS lives at the end of `web/src/index.css` under the
+"Multi-pane chat layout" header. Mirrors CardPanel: 36px header, mono
+font, `.bf-rail-tab` typography, `--bg0` body, `--bg1` header bg,
+`--bg3` borders, `--aqua` focused-state glow + resize-handle hover.
+Per-chat 2px accent stripe colored by `idColor(chatId)` from
+`web/src/utils/colorHash.ts` (shared with RunnerConsole). Drop target
+uses the **static glow** variant (no pulse animation).
 
 ## Runner Console
 

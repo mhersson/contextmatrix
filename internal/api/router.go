@@ -17,6 +17,7 @@ import (
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -96,6 +97,9 @@ type RouterConfig struct {
 	Version             string              // build version string for display
 	MCPHandler          http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
 	RefreshRegistry     *refresh.Registry   // optional; tracks in-flight KB refresh jobs
+	ChatManager         *chat.Manager       // optional; enables /api/chats routes
+	ChatHub             *chat.SSEHub        // optional; required when ChatManager is set
+	ChatConfig          *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -214,6 +218,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
+	}
+
+	// Chat routes — registered only when both the manager and hub are wired.
+	if cfg.ChatManager != nil && cfg.ChatHub != nil {
+		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatConfig)
+		mux.HandleFunc("GET /api/chats", chh.listChats)
+		mux.HandleFunc("POST /api/chats", chh.createChat)
+		mux.HandleFunc("GET /api/chats/{id}", chh.getChat)
+		mux.HandleFunc("PATCH /api/chats/{id}", chh.patchChat)
+		mux.HandleFunc("DELETE /api/chats/{id}", chh.deleteChat)
+		mux.HandleFunc("POST /api/chats/{id}/open", chh.openChat)
+		mux.HandleFunc("POST /api/chats/{id}/end", chh.endChat)
+		mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
+		mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
+		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
+		mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	}
 
 	// MCP server routes — registered on the inner mux so they share the
@@ -346,8 +366,11 @@ func observe(next http.Handler) http.Handler {
 		// SSE streams would pollute the REST latency histogram and the
 		// path label set — skip them entirely for metrics. MCP Streamable
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
+		// Chat session SSE streams (/api/chats/{id}/stream) follow the same
+		// pattern — match by suffix since the id is variable.
 		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" ||
-			(r.Method == http.MethodGet && r.URL.Path == "/mcp") {
+			(r.Method == http.MethodGet && r.URL.Path == "/mcp") ||
+			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/chats/") && strings.HasSuffix(r.URL.Path, "/stream")) {
 			return
 		}
 

@@ -15,6 +15,9 @@ import type { ProjectConfig } from './types';
 const ProjectShell = lazy(() =>
   import('./components/ProjectShell').then((m) => ({ default: m.ProjectShell }))
 );
+const ChatPage = lazy(() =>
+  import('./pages/Chat/ChatPage').then((m) => ({ default: m.ChatPage }))
+);
 const AllProjectsDashboard = lazy(() =>
   import('./components/AllProjectsDashboard').then((m) => ({ default: m.AllProjectsDashboard }))
 );
@@ -56,6 +59,7 @@ function AppInner() {
           <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
             <Sidebar
               onNewProject={() => setNewProjectOpen(true)}
+              onNewChat={() => navigate('/chat?new=1')}
               mobileOpen={mobileOpen}
               onMobileClose={onMobileClose}
             />
@@ -67,6 +71,8 @@ function AppInner() {
                     <Route index element={<RedirectToLastProject />} />
                     <Route path="projects/:project/*" element={<ProjectShell />} />
                     <Route path="all" element={<AllProjectsDashboard />} />
+                    <Route path="chat" element={<ChatPage />} />
+                    <Route path="chat/:id" element={<ChatPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Suspense>

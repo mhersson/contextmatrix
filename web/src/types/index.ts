@@ -275,6 +275,8 @@ export interface LogEntry {
   content: string;
   /** Sequence number from server, used for gap detection. */
   seq?: number;
+  /** True when this message was produced during a chat-mode rehydration phase. */
+  rehydration_phase?: boolean;
 }
 
 export interface AppConfig {
@@ -350,3 +352,49 @@ export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string
   failed: { bg: 'var(--bg-red)', text: 'var(--red)', label: 'Runner failed' },
   killed: { bg: 'var(--bg4)', text: 'var(--grey1)', label: 'Runner killed' },
 };
+
+export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  project?: string;
+  status: ChatStatus;
+  created_at: string;
+  last_active: string;
+  created_by: string;
+  container_id?: string;
+  workspace?: string[];
+  model?: string;
+  context_tokens?: number;
+  context_tokens_updated_at?: string;
+  rehydration_active?: boolean;
+}
+
+export interface ChatMessage {
+  id: number;
+  session_id: string;
+  seq: number;
+  role: string;
+  content: string;
+  created_at: string;
+  rehydration_phase?: boolean;
+}
+
+export interface ChatModel {
+  id: string;
+  label: string;
+  max_tokens: number;
+}
+
+export interface ChatModelList {
+  models: ChatModel[];
+  default: string;
+}
+
+export interface ChatSessionUpdate {
+  context_tokens?: number;
+  context_tokens_updated_at?: string;
+  model?: string;
+  rehydration_active?: boolean;
+}

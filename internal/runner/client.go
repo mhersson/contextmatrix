@@ -105,6 +105,7 @@ type ContainerInfo struct {
 	ContainerID   string
 	ContainerName string
 	CardID        string
+	SessionID     string
 	Project       string
 	State         string
 	StartedAt     time.Time
@@ -118,6 +119,7 @@ type containerInfoWire struct {
 	ContainerID   string `json:"container_id"`
 	ContainerName string `json:"container_name,omitempty"`
 	CardID        string `json:"card_id"`
+	SessionID     string `json:"session_id,omitempty"`
 	Project       string `json:"project"`
 	State         string `json:"state"`
 	StartedAt     string `json:"started_at"`
@@ -227,6 +229,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 			ContainerID:   c.ContainerID,
 			ContainerName: c.ContainerName,
 			CardID:        c.CardID,
+			SessionID:     c.SessionID,
 			Project:       c.Project,
 			State:         c.State,
 			StartedAt:     started,

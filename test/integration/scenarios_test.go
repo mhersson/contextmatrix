@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -16,6 +17,7 @@ func TestIntegrationHarness(t *testing.T) {
 	t.Run("HeartbeatTimeout", testHeartbeatTimeoutStub)
 	t.Run("PromoteHITLToAuto", testPromoteHITLToAutoStub)
 	t.Run("IdleWatchdog", testIdleWatchdogStub)
+	t.Run("Chat", testChatStub)
 }
 
 func testAutonomousStub(t *testing.T) {
@@ -184,4 +186,90 @@ func testIdleWatchdogStub(t *testing.T) {
 	pollUntil(ctx, t, "worker container removed", func() bool {
 		return len(dockerListByScenario(scenarioID)) == 0
 	})
+}
+
+// testChatStub validates the global-chat REST API end-to-end (create, get,
+// list, patch, delete) against a real CM binary with a live SQLite store.
+//
+// What this covers: router wiring, handler logic, SQLite persistence, and
+// correct HTTP status codes for all five chat lifecycle operations.
+//
+// What this defers (follow-up work):
+//   - Sending a message and receiving SSE events — requires the stub-worker to
+//     accept /chat/start and the SSE bridge to pump events through.
+//   - Reopen flow (cold → active → cold) — same dependency on the runner stub.
+func testChatStub(t *testing.T) {
+	scenarioID := "chat"
+	project := "harness"
+
+	s := bootScenario(t, scenarioID, project)
+
+	// Create chat — no project field means cross-project / no container clone.
+	var created struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}
+	status, body := s.client.postRaw(t, "/api/chats", map[string]any{"title": "smoke"}, &created)
+	if status != http.StatusCreated {
+		t.Fatalf("create chat: HTTP %d body=%s", status, body)
+	}
+	if created.ID == "" || created.Status != "cold" {
+		t.Fatalf("create chat returned unexpected payload: %+v", created)
+	}
+
+	// Get chat by ID.
+	var got struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		Title  string `json:"title"`
+	}
+	statusGet := s.client.get(t, "/api/chats/"+created.ID, &got)
+	if statusGet != http.StatusOK {
+		t.Fatalf("get chat: HTTP %d", statusGet)
+	}
+	if got.ID != created.ID {
+		t.Fatalf("get chat id mismatch: %s vs %s", got.ID, created.ID)
+	}
+
+	// List chats — the newly created one must appear.
+	var list []map[string]any
+	statusList := s.client.get(t, "/api/chats", &list)
+	if statusList != http.StatusOK {
+		t.Fatalf("list chats: HTTP %d", statusList)
+	}
+	found := false
+	for _, c := range list {
+		if c["id"] == created.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("list chats: created id %s not in list", created.ID)
+	}
+
+	// PATCH title.
+	var patched struct {
+		Title string `json:"title"`
+	}
+	statusPatch, patchBody := s.client.patch(t, "/api/chats/"+created.ID, map[string]any{"title": "renamed"}, &patched)
+	if statusPatch != http.StatusOK {
+		t.Fatalf("patch chat: HTTP %d body=%s", statusPatch, patchBody)
+	}
+	if patched.Title != "renamed" {
+		t.Fatalf("patch chat: title not updated: %q", patched.Title)
+	}
+
+	// DELETE chat.
+	statusDel := s.client.deleteReq(t, "/api/chats/"+created.ID)
+	if statusDel != http.StatusNoContent {
+		t.Fatalf("delete chat: HTTP %d", statusDel)
+	}
+
+	// GET after delete must return 404.
+	statusGone := s.client.get(t, "/api/chats/"+created.ID, nil)
+	if statusGone != http.StatusNotFound {
+		t.Fatalf("get deleted chat: expected 404 got %d", statusGone)
+	}
 }

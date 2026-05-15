@@ -125,6 +125,52 @@ type TaskSkillsConfig struct {
 	GitRemoteURL    string `yaml:"git_remote_url"`
 }
 
+// ChatConfig configures the global chat panel feature.
+type ChatConfig struct {
+	// DBPath is the SQLite file path for chat sessions and transcripts.
+	// Defaults to <XDG_STATE_HOME>/contextmatrix/chats.db, falling back to
+	// ~/.local/state/contextmatrix/chats.db.
+	DBPath string `yaml:"db_path"`
+
+	// IdleTTL is how long a chat container survives after the browser
+	// disconnects. Default: 1h.
+	IdleTTL time.Duration `yaml:"idle_ttl"`
+
+	// MaxConcurrent caps the number of simultaneously-running chat
+	// containers. Default: 5.
+	MaxConcurrent int `yaml:"max_concurrent"`
+
+	// DefaultModel is the Claude model ID used when a chat is created
+	// without an explicit selection. Must be a key in Models. Default:
+	// "claude-sonnet-4-6".
+	DefaultModel string `yaml:"default_model"`
+
+	// Models is the allowlist of selectable models for new chats, keyed
+	// by model ID. The values carry the human label shown in the picker
+	// and the context-window denominator used by the UI usage indicator.
+	Models map[string]ChatModelConfig `yaml:"models"`
+
+	// ResumeBudgetTokens caps the rough token estimate the transcript
+	// builder will fit into the rehydration payload on cold-reopen.
+	// Default: 40000.
+	ResumeBudgetTokens int `yaml:"resume_budget_tokens"`
+
+	// RehydrationTimeout forces the per-session rehydration phase off
+	// after this duration, even if the agent never called
+	// chat_rehydration_complete and the user never typed. Default: 10m.
+	RehydrationTimeout time.Duration `yaml:"rehydration_timeout"`
+}
+
+// ChatModelConfig is one entry in ChatConfig.Models.
+type ChatModelConfig struct {
+	// Label is the human-readable name shown in the picker, e.g. "Sonnet 4.6".
+	Label string `yaml:"label"`
+
+	// MaxTokens is the context-window denominator used by the UI usage
+	// indicator. The picker also surfaces it (e.g. "(200k context)").
+	MaxTokens int64 `yaml:"max_tokens"`
+}
+
 // Config holds the application configuration.
 type Config struct {
 	Port             int          `yaml:"port"`
@@ -149,6 +195,7 @@ type Config struct {
 	LogLevel             string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
 	AdminPort            int                  `yaml:"admin_port"`      // 0 = disabled
 	AdminBindAddr        string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat                 ChatConfig           `yaml:"chat"`
 }
 
 // defaults returns a Config with default values.
@@ -337,6 +384,48 @@ func (c *Config) Validate() error {
 		c.AdminBindAddr = "127.0.0.1"
 	}
 
+	// Chat: applyChatDefaults turns zero values into safe defaults during
+	// Load. Run it again here so callers that bypass Load (tests, embedded
+	// uses) still get defaults applied; the function is idempotent. Then
+	// reject negatives — a negative IdleTTL would have the reaper end every
+	// session immediately and a negative MaxConcurrent would reject every
+	// open.
+	applyChatDefaults(c)
+
+	if c.Chat.IdleTTL <= 0 {
+		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
+	}
+
+	if c.Chat.MaxConcurrent < 0 {
+		return fmt.Errorf("chat.max_concurrent must be >= 0 (got %d)", c.Chat.MaxConcurrent)
+	}
+
+	if c.Chat.ResumeBudgetTokens < 0 {
+		return fmt.Errorf("chat.resume_budget_tokens must be >= 0 (got %d)", c.Chat.ResumeBudgetTokens)
+	}
+
+	if c.Chat.RehydrationTimeout <= 0 {
+		return fmt.Errorf("chat.rehydration_timeout must be positive (got %s)", c.Chat.RehydrationTimeout)
+	}
+
+	if c.Chat.DefaultModel == "" {
+		return fmt.Errorf("chat.default_model is required")
+	}
+
+	if _, ok := c.Chat.Models[c.Chat.DefaultModel]; !ok {
+		return fmt.Errorf("chat.default_model %q is not in chat.models", c.Chat.DefaultModel)
+	}
+
+	for id, m := range c.Chat.Models {
+		if m.Label == "" {
+			return fmt.Errorf("chat.models[%q].label is required", id)
+		}
+
+		if m.MaxTokens <= 0 {
+			return fmt.Errorf("chat.models[%q].max_tokens must be positive (got %d)", id, m.MaxTokens)
+		}
+	}
+
 	return nil
 }
 
@@ -374,6 +463,7 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			applyChatDefaults(cfg)
 			applyEnvOverrides(cfg)
 
 			if err := resolvePaths(cfg, path); err != nil {
@@ -394,6 +484,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	applyChatDefaults(cfg)
 	applyEnvOverrides(cfg)
 
 	if err := resolvePaths(cfg, path); err != nil {
@@ -439,6 +530,47 @@ func resolvePaths(cfg *Config, configPath string) error {
 	}
 
 	return nil
+}
+
+// applyChatDefaults sets Chat fields that were not supplied by YAML.
+func applyChatDefaults(cfg *Config) {
+	if cfg.Chat.IdleTTL == 0 {
+		cfg.Chat.IdleTTL = time.Hour
+	}
+
+	if cfg.Chat.MaxConcurrent == 0 {
+		cfg.Chat.MaxConcurrent = 8
+	}
+
+	if cfg.Chat.DBPath == "" {
+		state := os.Getenv("XDG_STATE_HOME")
+		if state == "" {
+			home, _ := os.UserHomeDir()
+			state = filepath.Join(home, ".local", "state")
+		}
+
+		cfg.Chat.DBPath = filepath.Join(state, "contextmatrix", "chats.db")
+	}
+
+	if cfg.Chat.ResumeBudgetTokens == 0 {
+		cfg.Chat.ResumeBudgetTokens = 40000
+	}
+
+	if cfg.Chat.RehydrationTimeout == 0 {
+		cfg.Chat.RehydrationTimeout = 10 * time.Minute
+	}
+
+	if len(cfg.Chat.Models) == 0 {
+		cfg.Chat.Models = map[string]ChatModelConfig{
+			"claude-sonnet-4-6":         {Label: "Sonnet 4.6", MaxTokens: 1000000},
+			"claude-opus-4-7":           {Label: "Opus 4.7", MaxTokens: 1000000},
+			"claude-haiku-4-5-20251001": {Label: "Haiku 4.5", MaxTokens: 200000},
+		}
+	}
+
+	if cfg.Chat.DefaultModel == "" {
+		cfg.Chat.DefaultModel = "claude-sonnet-4-6"
+	}
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
@@ -601,6 +733,26 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_ADMIN_BIND_ADDR"); v != "" {
 		cfg.AdminBindAddr = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CHAT_DB_PATH"); v != "" {
+		cfg.Chat.DBPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CHAT_IDLE_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Chat.IdleTTL = d
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_CHAT_IDLE_TTL", "value", v, "error", err)
+		}
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CHAT_MAX_CONCURRENT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Chat.MaxConcurrent = n
+		} else {
+			slog.Warn("ignoring invalid CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "value", v, "error", err)
+		}
 	}
 }
 

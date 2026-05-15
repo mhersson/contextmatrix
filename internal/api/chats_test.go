@@ -1,0 +1,494 @@
+package api
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/chat/sqlite"
+	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+)
+
+type chatStubRunner struct{}
+
+func (chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
+	return "container-" + opts.SessionID, nil
+}
+
+func (chatStubRunner) EndChat(_ context.Context, _ string) error               { return nil }
+func (chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+	<-ctx.Done()
+
+	return ctx.Err()
+}
+
+type fixtureOpts struct {
+	chatConfig config.ChatConfig
+}
+
+func defaultFixtureOpts() fixtureOpts {
+	return fixtureOpts{
+		chatConfig: config.ChatConfig{
+			DefaultModel: "claude-sonnet-4-6",
+			Models: map[string]config.ChatModelConfig{
+				"claude-sonnet-4-6": {Label: "Sonnet 4.6", MaxTokens: 1000000},
+			},
+		},
+	}
+}
+
+func jsonReq(t *testing.T, method, path, body string) *http.Request {
+	t.Helper()
+
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	req.Header.Set("X-Agent-ID", "human:web-x")
+	req.Header.Set("Content-Type", "application/json")
+
+	return req
+}
+
+func newChatFixture(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager) {
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	chatCfg := opts.chatConfig
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       chatStubRunner{},
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		DefaultModel: chatCfg.DefaultModel,
+	})
+	hub := chat.NewSSEHub(64)
+	mux := http.NewServeMux()
+	chh := newChatHandlers(mgr, hub, &chatCfg)
+	mux.HandleFunc("GET /api/chats/models", chh.listModels)
+	mux.HandleFunc("GET /api/chats", chh.listChats)
+	mux.HandleFunc("POST /api/chats", chh.createChat)
+	mux.HandleFunc("GET /api/chats/{id}", chh.getChat)
+	mux.HandleFunc("DELETE /api/chats/{id}", chh.deleteChat)
+	mux.HandleFunc("PATCH /api/chats/{id}", chh.patchChat)
+	mux.HandleFunc("POST /api/chats/{id}/open", chh.openChat)
+	mux.HandleFunc("POST /api/chats/{id}/end", chh.endChat)
+	mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
+	mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
+	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
+
+	return mux, mgr
+}
+
+func TestCreateChat_Success(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	req := httptest.NewRequest(http.MethodPost, "/api/chats",
+		bytes.NewBufferString(`{"title":"t","project":"alpha"}`))
+	req.Header.Set("X-Agent-ID", "human:web-x")
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var sess chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&sess))
+	assert.Equal(t, "t", sess.Title)
+	assert.Equal(t, "alpha", sess.Project)
+	assert.Equal(t, chat.StatusCold, sess.Status)
+}
+
+func TestGetChat_NotFound(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/missing", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListChats_EmptyReturnsArray(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	req := httptest.NewRequest(http.MethodGet, "/api/chats", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "[]\n", w.Body.String())
+}
+
+func TestSendMessage_OpensColdSession(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/messages",
+		bytes.NewBufferString(`{"content":"hello"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+func TestDeleteChat_Success(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "to-del", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/chats/"+sess.ID, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+// TestEndChat_ReturnsColdSession verifies that POST /api/chats/{id}/end
+// returns 200 with the fresh (cold) session body. The frontend depends on
+// this body to update its local state without an extra getChat call; an
+// empty 2xx response would also have made the client's response.json()
+// call throw and surface as "Failed to end session" in the UI.
+func TestEndChat_ReturnsColdSession(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "to-end", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Drive the session active so EndSession has work to do.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/end", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var got chat.Session
+
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	assert.Equal(t, sess.ID, got.ID)
+	assert.Equal(t, chat.StatusCold, got.Status)
+	assert.Empty(t, got.ContainerID, "ended session must not carry a container_id")
+}
+
+func TestPatchChat_UpdatesTitle(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "old", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/chats/"+sess.ID,
+		bytes.NewBufferString(`{"title":"new"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	assert.Equal(t, "new", got.Title)
+}
+
+func TestListChats_InvalidStatusBadRequest(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	req := httptest.NewRequest(http.MethodGet, "/api/chats?status=bogus", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestStreamChat_ConnectedBeforeAnyEvent verifies that the SSE handler
+// flushes a ": connected\n\n" comment immediately on subscribe so browsers
+// (and proxies that buffer until first body byte) see onopen fire even
+// when no events are pending. Without this, the chat status dot stays grey
+// and the UI thinks the stream is disconnected.
+func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/chats/"+sess.ID+"/stream", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	done := make(chan string, 1)
+
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			done <- ""
+
+			return
+		}
+
+		done <- line
+	}()
+
+	select {
+	case line := <-done:
+		assert.True(t, strings.HasPrefix(line, ": connected"),
+			"expected first SSE line to be `: connected`, got %q", line)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("did not receive `: connected` within 500ms — handler is not flushing before blocking")
+	}
+}
+
+// TestStreamChat_UnknownSession_404 verifies that GET .../stream against a
+// session that does not exist returns 404 without creating a hub entry. The
+// SSE hub used to lazily create a per-session ring buffer on first reference,
+// so any GET against an unknown id would grow perSess permanently. The
+// handler must validate the session exists before subscribing.
+func TestStreamChat_UnknownSession_404(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+
+	// Bounded deadline so the test fails fast if the handler subscribes and
+	// blocks instead of returning 404 immediately.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/never-existed/stream", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code,
+		"streamChat must 404 on unknown session, not silently create a hub entry")
+}
+
+func TestListMessages_EmptyEnvelope(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/"+sess.ID+"/messages", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	assert.NotNil(t, body.Messages, "messages must be [] not null")
+	assert.Empty(t, body.Messages)
+}
+
+func TestListMessages_FiltersSinceSeqExclusively(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx,
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for i := range 5 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText,
+			`{"text":"m`+strconv.Itoa(i)+`"}`)
+		require.NoError(t, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/chats/"+sess.ID+"/messages?since_seq=2", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	require.Len(t, body.Messages, 3)
+	assert.Equal(t, int64(3), body.Messages[0].Seq)
+	assert.Equal(t, int64(5), body.Messages[2].Seq)
+}
+
+func TestListMessages_RespectsLimit(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx,
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for i := range 5 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText,
+			`{"text":"m`+strconv.Itoa(i)+`"}`)
+		require.NoError(t, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/chats/"+sess.ID+"/messages?limit=3", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	require.Len(t, body.Messages, 3)
+	assert.Equal(t, int64(1), body.Messages[0].Seq, "oldest-first ordering")
+	assert.Equal(t, int64(3), body.Messages[2].Seq)
+}
+
+func TestListMessages_ClampsLimitToMax(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx,
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for range 1001 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, `{"text":"m"}`)
+		require.NoError(t, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/chats/"+sess.ID+"/messages?limit=99999", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	assert.Len(t, body.Messages, 1000, "limit must be clamped to maxLimit")
+}
+
+func TestListMessages_UnknownSessionReturns404(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/no-such/messages", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestSendMessage_TooLong(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	long := make([]byte, 8193)
+	for i := range long {
+		long[i] = 'x'
+	}
+
+	body, _ := json.Marshal(map[string]string{"content": string(long)})
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/messages",
+		bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestListModels(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, fixtureOpts{chatConfig: config.ChatConfig{
+		DefaultModel: "claude-sonnet-4-6",
+		Models: map[string]config.ChatModelConfig{
+			"claude-haiku-4-5-20251001": {Label: "Haiku 4.5", MaxTokens: 200000},
+			"claude-opus-4-7":           {Label: "Opus 4.7", MaxTokens: 1000000},
+			"claude-sonnet-4-6":         {Label: "Sonnet 4.6", MaxTokens: 1000000},
+		},
+	}})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+	require.Equal(t, 200, rec.Code)
+
+	var body struct {
+		Models []struct {
+			ID, Label string
+			MaxTokens int64
+		} `json:"models"`
+		Default string `json:"default"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "claude-sonnet-4-6", body.Default)
+	require.Len(t, body.Models, 3)
+	// Sorted by ID.
+	require.Equal(t, "claude-haiku-4-5-20251001", body.Models[0].ID)
+	require.Equal(t, "claude-opus-4-7", body.Models[1].ID)
+	require.Equal(t, "claude-sonnet-4-6", body.Models[2].ID)
+}
+
+func TestCreateChat_Model_RoundTrip(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	body := `{"title":"x","project":"p","model":"claude-sonnet-4-6"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+	require.Equal(t, 201, rec.Code)
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	require.Equal(t, "claude-sonnet-4-6", sess.Model)
+}
+
+func TestCreateChat_InvalidModel(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	body := `{"title":"x","project":"p","model":"gpt-5"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+	require.Equal(t, 400, rec.Code)
+	require.Contains(t, rec.Body.String(), "INVALID_MODEL")
+}
+
+func TestListModels_NilConfig(t *testing.T) {
+	t.Parallel()
+	// Create a fixture with nil chat config by manually building without the chatConfig.
+	t.Helper()
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       chatStubRunner{},
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		DefaultModel: "claude-sonnet-4-6",
+	})
+	hub := chat.NewSSEHub(64)
+	mux := http.NewServeMux()
+	chh := newChatHandlers(mgr, hub, nil)
+	mux.HandleFunc("GET /api/chats/models", chh.listModels)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+	require.Equal(t, 200, rec.Code)
+	require.Contains(t, rec.Body.String(), `"models":[]`)
+	require.Contains(t, rec.Body.String(), `"default":""`)
+}

@@ -106,7 +106,9 @@ func (s *CardService) maybeTransitionParent(ctx context.Context, child *board.Ca
 
 // transitionParentDirect transitions a parent card to the target state,
 // persists it, commits to git, and publishes events. It walks the shortest
-// valid transition path. Called while writeMu is held — does NOT re-acquire it.
+// valid transition path. Called while writeMu is held; per step it releases
+// writeMu before awaiting the commit and re-acquires it before the next
+// iteration. writeMu is held on entry and held on return.
 //
 // Commit failures are intentionally not returned: parent auto-transitions
 // are fire-and-forget from the child write path, so bubbling the error up
@@ -134,7 +136,19 @@ func (s *CardService) transitionParentDirect(
 		return fmt.Errorf("find transition path from %s to %s: %w", parent.State, targetState, err)
 	}
 
-	for _, state := range path {
+	for i, state := range path {
+		// Re-load the parent at the start of every iteration after the
+		// first so concurrent writes during the previous step's commit
+		// await are not silently clobbered.
+		if i > 0 {
+			refreshed, err := s.store.GetCard(ctx, parent.Project, parent.ID)
+			if err != nil {
+				return fmt.Errorf("refresh parent card: %w", err)
+			}
+
+			parent = refreshed
+		}
+
 		oldState := parent.State
 		parent.State = state
 		parent.Updated = time.Now()
@@ -147,19 +161,32 @@ func (s *CardService) transitionParentDirect(
 			return fmt.Errorf("persist parent card: %w", err)
 		}
 
-		if err := s.commitCardChange(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state); err != nil {
+		// Enqueue under writeMu so per-project ordering is preserved
+		// relative to the child's commit and any other in-flight writes.
+		commitDone, notify := s.enqueueCardCommit(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state)
+
+		// Flush deferred commits on not_planned/review under writeMu so
+		// deferredPaths stays serialized; the flush itself routes through
+		// the queue so per-project ordering covers it.
+		s.applyStateChangeSideEffects(ctx, parent, true)
+
+		// Release writeMu before awaiting the parent's commit so a slow
+		// commit does not stall other concurrent writers. Re-acquire
+		// before continuing so the caller's lock-held invariant holds.
+		s.writeMu.Unlock()
+		commitErr := s.awaitCommit(commitDone, notify)
+		s.writeMu.Lock()
+
+		if commitErr != nil {
 			metrics.ParentAutoTransitionErrors.Inc()
 			ctxlog.Logger(ctx).Warn("parent auto-transition commit failed",
 				"parent_id", parent.ID,
 				"child_id", childID,
 				"target_state", state,
 				"from_state", oldState,
-				"error", fmt.Errorf("git commit for parent auto-transition: %w", err),
+				"error", fmt.Errorf("git commit for parent auto-transition: %w", commitErr),
 			)
 		}
-
-		// Flush deferred commits on not_planned/review.
-		s.applyStateChangeSideEffects(ctx, parent, true)
 
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,

@@ -808,6 +808,186 @@ autonomous flag during `/promote` before writing the canned stdin message. Only
 registered when the runner is enabled. No other card fields are exposed on this
 path.
 
+## Chat Endpoints
+
+Project-agnostic chat sessions that share the runner's worker image but use
+long-lived containers instead of card-scoped one-shots. Identity follows the
+same `X-Agent-ID` tagging convention as the rest of the API (see § Trust
+model in `CLAUDE.md`); the web UI defaults to `human:web` when the header is
+absent.
+
+### POST /api/chats
+
+Create a new session row. Status starts at `cold`; no container is started yet.
+
+Request body:
+
+```json
+{
+  "title": "Investigate auth-flow regression",
+  "project": "contextmatrix",
+  "model": "claude-opus-4-7"
+}
+```
+
+All three fields are optional. An empty `title` is auto-filled from the first
+user message; `project` may be empty for cross-project chats. `model` selects
+the orchestrator model for this session; omit to use `chat.default_model`. The
+value must be a key from `chat.models` — unknown IDs return `400`
+(`INVALID_MODEL`). The choice is persisted on the session row and forwarded
+to the container as `CM_ORCHESTRATOR_MODEL` on every `/open`.
+
+Response (`201 Created`): the new `ChatSession` row.
+
+### GET /api/chats/models
+
+List the chat model allowlist and the configured default. Used by the New
+Chat dialog to populate the model picker.
+
+Response:
+
+```json
+{
+  "models": [
+    {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "max_tokens": 200000},
+    {"id": "claude-opus-4-7",           "label": "Opus 4.7",  "max_tokens": 1000000},
+    {"id": "claude-sonnet-4-6",         "label": "Sonnet 4.6","max_tokens": 1000000}
+  ],
+  "default": "claude-sonnet-4-6"
+}
+```
+
+Models are sorted by `id`. When chat is disabled in config the response is
+`{"models": [], "default": ""}`.
+
+### GET /api/chats
+
+List sessions, newest-first by `last_active`. Query parameters:
+
+| Param        | Effect                                                    |
+| ------------ | --------------------------------------------------------- |
+| `project`    | Filter by project name (omit for all)                     |
+| `status`     | Filter by `cold` / `active` / `warm-idle` / `ending`      |
+| `created_by` | Filter by agent ID (e.g. `human:web-1a2b3c4d`)            |
+
+Response: a JSON array of `ChatSession`. Always `[]`, never `null`.
+
+### GET /api/chats/{id}
+
+Returns the `ChatSession` row. `404` (`CHAT_NOT_FOUND`) if unknown.
+
+Response fields that the UI header consumes:
+
+| Field                       | Type    | Meaning                                                                                                       |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| `model`                     | string  | Orchestrator model ID. Set at creation; reused on every `/open`.                                              |
+| `context_tokens`            | int     | Last `input + cache_read + cache_create` reported by Claude. Updated on every assistant turn.                  |
+| `context_tokens_updated_at` | RFC3339 | Timestamp of the last `context_tokens` update. Zero (`0001-01-01T00:00:00Z`) until the first usage entry.    |
+| `rehydration_active`        | bool    | `true` between cold-reopen and the agent's `chat_rehydration_complete` call. Drives the "Restoring workspace…" banner. Omitted when false. |
+
+### PATCH /api/chats/{id}
+
+Update a session's title.
+
+```json
+{"title": "Renamed: auth-flow regression"}
+```
+
+Response: the updated `ChatSession`.
+
+### DELETE /api/chats/{id}
+
+Removes the session and its transcript (FK cascade on `chat_messages`). If
+the session is `active` or `warm-idle`, the runner container is ended first.
+
+### POST /api/chats/{id}/open
+
+Transition a cold session to active by starting the chat container. Idempotent
+for `active` sessions; reattaches to the existing container for `warm-idle`.
+Returns `429` (`TOO_MANY_CHATS`) when the configured `chat.max_concurrent` cap
+is reached.
+
+Response: the refreshed `ChatSession` (now with `status: active` and a
+`container_id`).
+
+### POST /api/chats/{id}/end
+
+End the session: closes the container's stdin and force-stops it. Status
+flips to `cold`; `container_id` is cleared.
+
+Response (`200 OK`): the refreshed `ChatSession` in the cold state.
+
+### POST /api/chats/{id}/messages
+
+Send a user message into the active chat container. The Manager appends the
+message to the transcript with a server-assigned seq, broadcasts a `user`
+event on the per-session SSE hub, then forwards the message to the runner.
+
+Request:
+
+```json
+{"content": "Show me the diff between v1 and v2 of the auth middleware."}
+```
+
+`content` is capped at 8 KiB (`413` on overflow).
+
+Response (`202 Accepted`):
+
+```json
+{"ok": true, "message_id": "msg-1234abcd"}
+```
+
+### GET /api/chats/{id}/messages
+
+Bootstrap endpoint that returns persisted transcript rows from SQLite, ordered
+oldest-first. Used by the browser on Chat tab mount (and on refresh) to
+backfill the in-memory ring buffer beyond what the SSE in-memory replay
+(128 entries) can cover.
+
+Query parameters:
+
+| Param       | Default | Max  | Effect                                       |
+| ----------- | ------- | ---- | -------------------------------------------- |
+| `since_seq` | `0`     | —    | Exclusive lower bound: returns `seq > N`.    |
+| `limit`     | `200`   | 1000 | Cap on rows returned. Values above clamp.    |
+
+Response:
+
+```json
+{
+  "messages": [
+    {"id": 1, "session_id": "01J...", "seq": 1, "role": "user",
+     "content": "{\"text\":\"hi\"}", "created_at": "2026-05-14T12:00:00Z"},
+    {"id": 2, "session_id": "01J...", "seq": 2, "role": "assistant_text",
+     "content": "{\"text\":\"hello\"}", "created_at": "2026-05-14T12:00:01Z"}
+  ]
+}
+```
+
+Empty transcripts return `{"messages": []}`. Invalid `since_seq` / `limit`
+return `400 BAD_REQUEST`. Unknown session returns `404 CHAT_NOT_FOUND`.
+
+The browser pairs this REST bootstrap with the SSE `/stream` endpoint: fetches
+all messages with `since_seq=0`, records the highest seq, then subscribes to
+`/stream?since_seq=<last>` so the seam is gapless. SSE events whose `seq`
+falls inside the REST window are deduped on the client.
+
+### GET /api/chats/{id}/stream
+
+Server-Sent Events stream of new transcript entries for one session. Each
+event payload:
+
+```json
+{"seq": 7, "role": "assistant_text", "content": "{\"text\":\"…\"}"}
+```
+
+Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
+server-side 128-entry ring buffer before tailing live events). The handler
+flushes a `: connected\n\n` comment immediately on subscribe so browsers see
+`onopen` fire before any event lands, and sends `: keepalive\n\n` every 15
+seconds. SSE write deadlines are cleared per-connection so the stream
+survives the server-wide `WriteTimeout`.
+
 ## MCP Endpoints
 
 The MCP (Model Context Protocol) server is mounted at `/mcp` when an MCP API key
@@ -816,3 +996,18 @@ is configured. The same handler is registered for `POST /mcp`, `GET /mcp`, and
 `Bearer <api-key>` `Authorization` header. The path is exempt from the CSRF
 guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
 catalogue.
+
+### `chat_rehydration_complete`
+
+Marks the active chat session's rehydration phase as complete and emits the
+final summary message. Called by a chat-mode worker after it has finished
+ingesting the rehydration prompt.
+
+**Identity gate:** the caller's `X-CM-Chat-Session` header must equal the
+`session_id` parameter; otherwise the call is rejected. The empty-caller
+case (no header) is allowed for card-mode and out-of-band callers, but the
+session_id must still resolve to an active chat session.
+
+**Parameters:**
+- `session_id` (string, required)
+- `summary` (string, required) — surfaced to the UI as an assistant message

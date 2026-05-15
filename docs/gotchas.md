@@ -144,3 +144,57 @@
   `task_skills.git_remote_url` are validated at startup and must start with
   `https://` regardless of `github.auth_mode`. SSH URLs are rejected
   unconditionally — there is no SSH transport fallback.
+- **Chat SQLite: WAL + MaxOpenConns + manager-level writer mutex:** the chat
+  store sets `MaxOpenConns=5` so concurrent readers (`ListMessages`,
+  `MaxSeq`, `GetSession`) do not queue behind a writer. SQLite remains a
+  single-writer engine regardless of pool size; the single-writer gate is
+  `chat.Manager.mu`, held across the entire seq-assignment + store insert in
+  `AppendMessage`. Do not move the store write outside the lock — disk
+  insertion order must match seq order, and the in-memory seq cache must
+  stay consistent with the on-disk `(session_id, seq)` UNIQUE index. The
+  pool size is a reader-concurrency knob; raising the writer concurrency
+  requires changing the manager's locking model, not the pool.
+- **Chat schema migrations are versioned:** `internal/chat/sqlite/migrations.go`
+  uses a `schema_migrations(version, applied_at)` table. Every migration is
+  idempotent (`IF EXISTS` / `IF NOT EXISTS`) so a pre-versioning DB picks up
+  unapplied versions on first open without a separate back-fill step. v2
+  drops the original non-unique `idx_chat_messages_session_seq` and creates
+  the unique index that supersedes it. When adding a v3+, append to the
+  `migrations` slice; do not edit shipped versions.
+- **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
+  `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap
+  via `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID
+  change, the hook fetches the persisted transcript first, records the
+  highest `seq`, then subscribes to the SSE stream with `since_seq=<last>`.
+  SSE events whose seq falls inside the bootstrap window are deduped on the
+  client. Reverting to SSE-only (no bootstrap) loses everything older than
+  the server-side 128-entry ring on refresh.
+- **Chat rehydration is best-effort and never blocks `/open`:** the runner's
+  `prepareChatResume` writes `resume.jsonl` + `resume.meta.json` into a
+  per-container host directory before starting the container. If the write
+  fails (host tmp not writable, disk full, etc.), `manager.go` logs
+  `StartChat: rehydration file prep failed; starting fresh agent`, omits
+  `CM_CHAT_RESUME=1`, and starts the container anyway. The stdin priming
+  envelope is still written (it is gated on the CM payload's `resume`, not
+  on the file-write outcome), so the agent receives the instructions, fails
+  to read `/run/cm-chat/resume.jsonl`, and calls
+  `chat_rehydration_complete` with a summary that says so. `/open` always
+  returns `200`; surface failures via the transcript, never by refusing to
+  open.
+- **`rehydration_phase` stamping prevents reopen pollution:** every message
+  appended while `Session.RehydrationActive=TRUE` gets stamped with
+  `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build`
+  drops those rows when assembling the next resume payload, so the resumed
+  agent never sees prior agents' `ls`/`Read`/`Bash` chatter — only real
+  conversation turns plus the prior `chat_rehydration_complete` summaries.
+  Without this filter, each reopen would compound the previous reopen's
+  rehydration noise into the next transcript.
+- **`claude -p PROMPT --input-format stream-json` does NOT auto-execute
+  `PROMPT`:** Claude treats `-p` as system context when stream-json input
+  is enabled, not as a user message. The rehydration priming therefore
+  has to arrive as a stream-json `user`-typed envelope written to stdin
+  *after* `AttachChatStdin` succeeds — see `webhook/chat.go` and
+  `streammsg.BuildUserMessage`. The same applies to any future "kick the
+  agent off with X" pattern in chat or HITL modes: use a stream-json user
+  envelope on stdin, not `-p`. Cost us several iterations during the chat
+  rehydration build.
