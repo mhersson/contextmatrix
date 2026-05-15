@@ -32,8 +32,6 @@ clones and scratch work.
 
 ## MCP tools you should know
 
-Group by intent; one-line "use when" hooks.
-
 **Discovery / reads (always free to call):**
 
 - `list_projects` — use when the user references a project by name, or you
@@ -47,10 +45,9 @@ Group by intent; one-line "use when" hooks.
 
 **Knowledge base:**
 
-- `get_knowledge_base` — use when the user asks "what do you know about X"
-  for a project; call this **first**, then read code as needed.
+- `get_knowledge_base` — use when the user asks about a project's domain
+  or architecture.
 - `read_knowledge_doc` — use when you need a specific KB doc by name.
-- `list_knowledge_bases` — use when comparing what KBs exist across projects.
 
 **Workflow entry:**
 
@@ -60,10 +57,7 @@ Group by intent; one-line "use when" hooks.
 - `chat_rehydration_complete` — use only when you have been told to rehydrate
   (see resume.jsonl). Do not call otherwise.
 
-**Mutations — only with explicit user request:**
-
-- `create_card`, `update_card`, `transition_card`, `claim_card`,
-  `release_card`, `add_log`, `promote_to_autonomous`.
+**Mutations** (`create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `promote_to_autonomous`) **— only with explicit user request.**
 
 ## Behavior expectations
 
