@@ -2,10 +2,10 @@
 
 ## Trust model
 
-ContextMatrix is **single-tenant and unauthenticated by design**. There are
-no user accounts, no logins, no per-user permissions, no session tokens.
-Deployment assumes loopback or a trusted-network ACL (firewall, NetworkPolicy,
-service-mesh rule) — same posture as the admin/debug listener documented in
+ContextMatrix is **single-tenant and unauthenticated by design**. There are no
+user accounts, no logins, no per-user permissions, no session tokens. Deployment
+assumes loopback or a trusted-network ACL (firewall, NetworkPolicy, service-mesh
+rule) — same posture as the admin/debug listener documented in
 `docs/api-reference.md`.
 
 The implications for code review:
@@ -19,17 +19,17 @@ there is no permission gradient to escalate into.
 **The web UI auto-generates a per-browser identity.**
 `web/src/hooks/useAgentId.ts` mints `human:web-<8 hex chars>` on first visit,
 persists it in localStorage, and wires it into every API request via
-`api.setAgentId`. We do **not** prompt users for usernames — there is nothing
-to authenticate them against, so a prompt is theatre. Per-browser uniqueness
+`api.setAgentId`. We do **not** prompt users for usernames — there is nothing to
+authenticate them against, so a prompt is theatre. Per-browser uniqueness
 prevents two tabs/users from accidentally releasing each other's card claims;
 that is the only reason a unique-per-browser id is needed.
 
 **REST writes that require an identity but receive none fall back to a marker
 identity.** `internal/api/knowledge.go` falls back to `human:web` for KB PUT
-when `X-Agent-ID` is absent; `internal/api/runner.go` falls back to
-`human:api` for the human-only runner endpoints. These markers are honest
-("this came from the web UI / direct API call by an unspecified human") and
-they preserve write functionality without inventing fake usernames.
+when `X-Agent-ID` is absent; `internal/api/runner.go` falls back to `human:api`
+for the human-only runner endpoints. These markers are honest ("this came from
+the web UI / direct API call by an unspecified human") and they preserve write
+functionality without inventing fake usernames.
 
 **Where identity gates do exist, they enforce workflow contracts, not access
 control:**
@@ -42,57 +42,83 @@ control:**
   `commit_knowledge_docs`): the `agent_id` argument must start with `human:`.
   The check rejects callers that follow the agent convention of using a
   non-human identifier (e.g. `agent-foo`); a malicious caller can pass
-  `human:anything` and the gate yields. The intent is to encode "this
-  operation is part of the human workflow," not to prevent forgery.
-- **Human-only fields on cards** (e.g. `automation`): the same `human:` prefix
-  check, same intent.
+  `human:anything` and the gate yields. The intent is to encode "this operation
+  is part of the human workflow," not to prevent forgery.
+- **Human-only operations on cards** (e.g. flipping `autonomous: true` via
+  `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
+  `human:` prefix check, same intent. The REST handler in
+  `internal/api/runner.go` falls back to `human:api` when `X-Agent-ID` is absent
+  so the service-layer gate still passes for direct API calls.
 
 **Where real authentication does exist:**
 
 - **MCP Bearer token** (`mcp_api_key` config) for clients connecting over the
   network. Optional for loopback deployments.
 - **Runner webhook HMAC** (shared secret in config) for the
-  `contextmatrix-runner` callback into the server. The runner is on a
-  different host; the secret prevents arbitrary network callers from
-  injecting status updates.
+  `contextmatrix-runner` callback into the server. The runner is on a different
+  host; the secret prevents arbitrary network callers from injecting status
+  updates.
 - **GitHub authentication** via the shared
-  `github.com/mhersson/contextmatrix-githubauth` module (App or PAT). Real
-  auth against an external system; do not weaken or bypass.
+  `github.com/mhersson/contextmatrix-githubauth` module (App or PAT). Real auth
+  against an external system; do not weaken or bypass.
 
 **What to do during a code review:**
 
-- Treat any "missing X-Agent-ID is a security hole" or "fabricated human:web
-  is identity spoofing" finding as **out of scope** — it's the documented
-  trust model. If the deployment posture is wrong (CM exposed publicly without
-  a network gate), that's an ops concern, not a code-fix concern.
+- Treat any "missing X-Agent-ID is a security hole" or "fabricated human:web is
+  identity spoofing" finding as **out of scope** — it's the documented trust
+  model. If the deployment posture is wrong (CM exposed publicly without a
+  network gate), that's an ops concern, not a code-fix concern.
 - The MCP human-only checks are workflow gates; do not propose tightening them
   to "real" auth without changing the trust model first.
 - The browser-generated agent ID is intentional. Do not propose adding a
-  username prompt, OAuth, session cookies, or per-user permissions; those
-  belong to a future multi-tenant CM, not this one.
+  username prompt, OAuth, session cookies, or per-user permissions; those belong
+  to a future multi-tenant CM, not this one.
 - `githubauth` is the one place where real authentication matters.
   Token-handling code there should be reviewed strictly.
 
 ## Data flow
 
-Every card mutation follows the same pipeline through the service layer:
+Every HTTP request walks the middleware chain defined in
+`internal/api/router.go`:
+
+```text
+recovery → securityHeaders → [cors] → requestID → observe → bodyLimit → csrfGuard → mux
+```
+
+`recovery` catches panics, `securityHeaders` sets the static security headers
+and CSP, `cors` (only registered when `cors_origin` is non-empty) emits the CORS
+preamble, `requestID` mints or accepts an `X-Request-ID` and stashes a
+request-scoped `*slog.Logger` in context via `ctxlog.WithRequestID`, `observe`
+records RED metrics + emits the per-request log line, `bodyLimit` caps inbound
+bodies at 5 MB, and `csrfGuard` rejects state-changing requests that lack
+`X-Requested-With: contextmatrix` (with narrow exemptions: GET/HEAD/OPTIONS,
+`/healthz`, `/readyz`, `/api/runner/*`, and `/mcp`).
+
+Card mutations follow the same pipeline through the service layer:
 
 ```text
 API handler (deserialize, validate)
-  → CardService
+  → CardService.<Mutation>
+    → writeMu.Lock()
     → Validator.ValidateCard()    — type, state, priority checks
-    → Store.CreateCard()          — write .md file, update in-memory index
-    → gitops.Manager.CommitFiles()/CommitFile()
-                                  — git add + commit (CreateCard commits
-                                    {cardPath, configPath} via CommitFiles;
-                                    single-card updates use CommitFile)
+    → Store.UpdateCard()/CreateCard()
+                                  — write .md file under storage's writeMu,
+                                    update in-memory index
+    → enqueueCardCommit(...)      — push gitops.CommitJob on the per-project
+                                    queue (or run inline when no queue is wired)
+    → writeMu.Unlock()
+    → awaitCommit(...)            — block on the queue result without holding
+                                    writeMu, so other writers don't stall
     → events.Bus.Publish()        — notify SSE subscribers
   ← return card
 ← serialize response
 ```
 
 The MCP server follows the same path — it calls `CardService` methods, never the
-store or git layer directly.
+store or git layer directly. The `/mcp` handler is registered on the same inner
+`http.ServeMux` as the REST API, so MCP traffic shares every middleware listed
+above plus an inner stack
+(`mcpAuthMiddleware → clearWriteDeadlineForStreaming → chatSessionHeaderMiddleware → mcpRequestInfoMiddleware → SDK handler`).
 
 ## Async-commit consistency
 
@@ -103,6 +129,15 @@ Card mutations take an eager-write, async-commit shape:
 2. The git commit is enqueued via `gitops.CommitQueue.Enqueue` (when a queue is
    wired; otherwise executed inline) and awaited **after** `writeMu` is released
    so slow go-git operations do not block concurrent writers.
+
+`gitops.CommitQueue` runs one worker goroutine per project; commits for the same
+project execute strictly in enqueue order, but different projects commit in
+parallel. Workers are spawned lazily on first enqueue, and (when constructed
+with `WithIdleTimeout`) tear themselves down after a configurable idle window —
+`main.go` wires the production queue with a 30-minute idle timeout so long-quiet
+projects free their goroutine. The queue exposes `Pause` / `AwaitIdle` so the
+gitsync layer can drain in-flight commits before running a shell rebase or push;
+`CardService.LockWrites` calls these in sequence.
 
 This means cache + disk can be ahead of git for the window between store write
 and commit completion. The service layer closes that gap on failure:
@@ -169,46 +204,44 @@ and commit completion. The service layer closes that gap on failure:
   lifecycle (`cold` → `active` → `warm-idle` → `ending`), persists the
   transcript through `chat.Store`, delegates container management to a
   `RunnerClient` (HMAC-signed calls to the runner's `/chat/start` and
-  `/chat/end`), and bridges the runner's `/logs?session_id=` SSE feed back
-  into the transcript by appending each entry through `AppendMessage`. Holds
-  `m.mu` across the seq-assignment + store insert so disk insertion order
-  matches seq order regardless of writer concurrency. On cold-reopen,
+  `/chat/end`), and bridges the runner's `/logs?session_id=` SSE feed back into
+  the transcript by appending each entry through `AppendMessage`. Holds `m.mu`
+  across the seq-assignment + store insert so disk insertion order matches seq
+  order regardless of writer concurrency. On cold-reopen,
   `chat.transcript.Build` produces the resume payload shipped to the runner;
-  while `RehydrationActive` is true on the session row, `AppendMessage`
-  stamps incoming entries with `rehydration_phase=TRUE` so the next reopen
-  can filter them out. The MCP tool `chat_rehydration_complete` flips the
-  flag back to false and persists the agent's summary as the first visible
-  message. The `chat_rehydration_complete` MCP tool is gated by the calling
-  container's `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`): a caller
-  can only flip its own session's rehydration flag.
-- **chat.Transcript** (`chat/transcript`): pure transcript-shaping
-  function — no I/O, no state. `Build(messages, opts)` filters out
-  `rehydration_phase=TRUE` entries, drops non-conversation roles (stderr,
-  tool results), pins the first user turn and the last 20 turns, and
-  truncates middle turns to fit `chat.resume_budget_tokens` (default 40k).
-  Returns the kept rows plus a `Meta` describing whether the budget clipped
-  older content. Called only on `/api/chats/{id}/open` when the session has
-  prior messages.
+  while `RehydrationActive` is true on the session row, `AppendMessage` stamps
+  incoming entries with `rehydration_phase=TRUE` so the next reopen can filter
+  them out. The MCP tool `chat_rehydration_complete` flips the flag back to
+  false and persists the agent's summary as the first visible message. The
+  `chat_rehydration_complete` MCP tool is gated by the calling container's
+  `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`): a caller can only flip
+  its own session's rehydration flag.
+- **chat.Transcript** (`chat/transcript`): pure transcript-shaping function — no
+  I/O, no state. `Build(messages, opts)` filters out `rehydration_phase=TRUE`
+  entries, drops non-conversation roles (stderr, tool results), pins the first
+  user turn and the last 20 turns, and truncates middle turns to fit
+  `chat.resume_budget_tokens` (default 40k). Returns the kept rows plus a `Meta`
+  describing whether the budget clipped older content. Called only on
+  `/api/chats/{id}/open` when the session has prior messages.
 - **chat.Store** (`chat.Store`, default impl `chat/sqlite.Store`): SQLite-backed
-  persistence for `chat_sessions` and `chat_messages`. Versioned migrations
-  via the `schema_migrations` table; WAL mode with `MaxOpenConns=5` so
-  concurrent readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the
-  single-writer gate that `chat.Manager.mu` enforces above the pool. Unique
-  index on `(session_id, seq)` is the safety net behind the in-memory seq
-  cache.
+  persistence for `chat_sessions` and `chat_messages`. Versioned migrations via
+  the `schema_migrations` table; WAL mode with `MaxOpenConns=5` so concurrent
+  readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the single-writer gate
+  that `chat.Manager.mu` enforces above the pool. Unique index on
+  `(session_id, seq)` is the safety net behind the in-memory seq cache.
 - **chat.SSEHub** (`chat.SSEHub`): per-session SSE fan-out. Each `sessionHub`
-  has a 128-entry ring buffer of recent events and a subscriber set; replays
-  the ring on `Subscribe(sinceSeq)` so reconnects within the ring window are
+  has a 128-entry ring buffer of recent events and a subscriber set; replays the
+  ring on `Subscribe(sinceSeq)` so reconnects within the ring window are
   gapless. `Manager.DeleteSession` calls `Hub.Drop(sessionID)` to release the
-  per-session hub so memory does not grow with session churn. Two event
-  kinds share the hub: `message` (a new transcript row, with seq + role +
-  content) and `session_updated` (a metadata change — `context_tokens`,
-  `rehydration_active`, model — with no transcript content). The browser's
-  `useChatStream` hook routes `session_updated` events into the header
-  state, separate from the message ring buffer.
-- **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older
-  than `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated
-  shutdown calls don't panic.
+  per-session hub so memory does not grow with session churn. Two event kinds
+  share the hub: `message` (a new transcript row, with seq + role + content) and
+  `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
+  model — with no transcript content). The browser's `useChatStream` hook routes
+  `session_updated` events into the header state, separate from the message ring
+  buffer.
+- **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
+  `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
+  calls don't panic.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
   `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
@@ -229,9 +262,41 @@ and commit completion. The service layer closes that gap on failure:
   same correlation ID. Falls back to `slog.Default()` for background contexts
   that bypass the middleware (e.g. stall scanner goroutine). Also stores a
   `*MCPCall` in the context (via `ctxlog.WithMCPCall`) for `/mcp` requests;
-  `mcpRequestInfoMiddleware` in `internal/mcp/server.go` populates it with
-  the JSON-RPC `method` and tool `name`, which the `observe` middleware then
-  appends as `mcp_method` / `mcp_tool` fields on the per-request log line.
+  `mcpRequestInfoMiddleware` in `internal/mcp/server.go` populates it with the
+  JSON-RPC `method` and tool `name`, which the `observe` middleware then appends
+  as `mcp_method` / `mcp_tool` fields on the per-request log line.
+- **Clock** (`clock`): tiny `clock.Clock` interface with `Real()` and a fake
+  implementation used by tests. `lock.Manager`, `CardService`, `chat.Manager`,
+  and `refresh.Registry` all read time through this interface so a single fake
+  drives every time-sensitive subsystem deterministically. The service layer
+  adopts the lock manager's clock so stall detection and the timeout-checker
+  ticker share one monotonic reading — wiring two different clocks across these
+  subsystems is a latent test-flake source.
+- **Refresh Registry** (`refresh.Registry`): in-memory tracker for in-flight
+  knowledge-base refresh jobs, keyed by `(project, repo)`. Holds the
+  acquire/running/terminal lifecycle plus progress fields populated by the MCP
+  `update_refresh_progress` tool. State is process-local; a restart loses
+  tracking but in-flight runner containers continue to call back through MCP.
+  `service.WriteKnowledgeDocs` calls `MarkCommitted` after a successful
+  Refresh-source commit; the registry's `Janitor` (started from `main.go`)
+  sweeps terminal entries on an interval.
+- **Event Bus** (`events.Bus`): in-process publish/subscribe. The bus has a drop
+  counter (`contextmatrix_event_bus_drops_total`) — subscribers that fall behind
+  the per-subscriber channel cap drop events rather than blocking the publisher.
+- **gitsync Syncer** (`gitsync.Syncer`): background loop that pulls the boards
+  remote (when `boards.auto_pull` is enabled) and pushes after each successful
+  commit (when `boards.auto_push` is enabled). Coordinates with the service
+  layer through `LockWrites`/`UnlockWrites` and with the commit queue through
+  `Pause`/`Resume`/`AwaitIdle` so rebases never race against in-flight go-git
+  commits.
+- **GitHub integration** (`github`): three pieces — `client.go` (HTTP client for
+  GitHub REST API used during issue import / branch listing), `parse.go` (issue
+  → card mapping rules), `syncer.go` (per-project import loop driven by
+  `github.import_issues`). Auth is delegated to the shared
+  `githubauth.TokenGenerator` provider; the package never reads tokens directly.
+- **Config** (`config`): typed YAML loader. Every field has a documented
+  `CONTEXTMATRIX_*` env override; `config.yaml.example` is the canonical
+  reference.
 - **Metrics** (`metrics`): declares all Prometheus metric vars and exposes a
   `Register(prometheus.Registerer)` function called once at startup in
   `main.go`. Metrics are served at `GET /metrics` on the **admin listener** only
@@ -283,35 +348,30 @@ path or a path like `~/boards/contextmatrix`, not `./boards`.
 ```text
 cmd/contextmatrix/main.go
 internal/
-  board/         # domain types
-  storage/       # FilesystemStore
-  gitops/        # gitops.Manager
-  lock/          # claim/release/heartbeat
-  service/       # CardService orchestration
-  api/           # REST handlers + SSE
-  mcp/           # MCP server
-  runner/        # webhook client
-  events/        # in-process pub/sub
-  config/        # config loading
-  ctxlog/        # request_id context logger
-  metrics/       # Prometheus metric vars + Register()
-  clock/         # injectable clock for tests
-  github/        # GitHub client + parser + syncer
-                 #   (client.go, parse.go, syncer.go)
-  gitsync/       # boards repo background sync (syncer.go)
-web/
-workflow-skills/
-  brainstorming.md
-  create-plan.md
-  create-task.md
-  document-task.md
-  execute-task.md
-  init-project.md
-  review-task.md
-  run-autonomous.md
-  systematic-debugging.md
+  board/             # domain types + Validator + state machine
+  storage/           # FilesystemStore + Store interface
+  gitops/            # gitops.Manager + CommitQueue (per-project workers)
+  lock/              # claim/release/heartbeat + stall scan
+  service/           # CardService orchestration (split across service_*.go)
+  api/               # REST handlers + SSE + middleware chain + CSRF gate
+  mcp/               # MCP server (Streamable HTTP /mcp) + mcpcontext/
+  runner/            # webhook client + HMAC + reconciler
+    sessionlog/      # per-card SSE buffer + fan-out hub
+  chat/              # chat.Manager + Store + SSEHub + IdleReaper + runner bridge
+    sqlite/          # SQLite-backed chat persistence + versioned migrations
+    transcript/      # pure transcript-shaping for cold-reopen resume payloads
+  refresh/           # in-flight knowledge-base refresh registry + janitor
+  github/            # GitHub client + issue parser + import syncer
+  gitsync/           # boards repo background pull/push syncer
+  events/            # in-process pub/sub (events.Bus)
+  config/            # typed YAML loader
+  ctxlog/            # request_id context logger + MCPCall context
+  metrics/           # Prometheus metric vars + Register()
+  clock/             # injectable clock (Real + fakes for tests)
+web/                 # React + Vite frontend (embedded via web/embed.go)
+workflow-skills/     # skill markdown files served via MCP prompts
 go.mod
-config.yaml
+config.yaml.example
 Makefile
 ```
 

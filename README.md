@@ -26,7 +26,7 @@ own repos, and report progress back through the board.
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 26 MCP tools and 3 slash commands give Claude Code
+- **MCP-first interface** — 32 MCP tools and 4 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
@@ -36,6 +36,12 @@ own repos, and report progress back through the board.
   sandboxed Docker container, or uncheck the checkbox and click **"Run HITL"**
   for a Human-in-the-Loop session: chat with the agent in real time via a
   per-card chat pane, then promote to fully autonomous with a single button.
+- **Global chat surface** — a `/chat` route hosts long-lived, multi-pane chat
+  sessions independent of any card. Up to 4 chats are tiled simultaneously in a
+  resizable layout, persisted across reloads.
+- **Per-project knowledge base** — architecture, code-structure, API, and
+  glossary docs per repo, refreshable via a human-only `refresh-knowledge`
+  workflow that spawns Sonnet sub-agents to read the target repo.
 - **GitHub issue import** — periodically fetches open issues from GitHub and
   creates cards automatically. Imported cards show a GitHub icon badge and
   trigger a toast notification in the web UI.
@@ -75,7 +81,16 @@ Open `http://localhost:8080` for the web UI.
   button on each card. Both collapsed column and collapsed card sets are
   persisted per-project in `localStorage`.
 - **Dashboard** — per-project or all state counts, active agents, and token cost
-  breakdown
+  breakdown.
+- **Knowledge** — per-project knowledge-base browser with viewer and editor for
+  architecture, code-structure, API documentation, and glossary docs.
+- **Chat** — global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
+  sessions in a resizable tile layout, persisted across reloads. Sidebar
+  drag-and-drop tiles a chat into a pane; the 5th open triggers LRU eviction
+  with an Undo toast.
+- **Runner Console** — when `runner.enabled` is true, a toggleable console (`>_`
+  button in the header, keyboard `c`) streams live logs from runner containers
+  below the board with a resizable divider.
 - **Theme toggle** — sun/moon icon in the header toggles between dark and light
   modes. The preference is persisted in `localStorage` and defaults to your
   system's `prefers-color-scheme` setting if no preference is stored.
@@ -218,11 +233,13 @@ block if `mcp_api_key` is empty.
 | `add_log`                   | Append an activity log entry                                            |
 | `check_agent_health`        | Check health of subtask agents for a parent card                        |
 | `claim_card`                | Claim exclusive ownership of a card                                     |
+| `commit_knowledge_docs`     | Commit refresh-produced knowledge-base docs atomically (human-only)     |
 | `complete_task`             | Atomically log + transition to done + release                           |
 | `create_card`               | Create a card (returns generated ID)                                    |
 | `create_project`            | Create a new project board                                              |
 | `delete_project`            | Delete a project (must have zero cards)                                 |
 | `get_card`                  | Get a single card                                                       |
+| `get_knowledge_base`        | Return all knowledge-base docs for a project/repo in one call           |
 | `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                      |
 | `get_skill`                 | Get a skill prompt with injected card/project context                   |
 | `get_subtask_summary`       | Get subtask counts by state for a parent card                           |
@@ -230,9 +247,12 @@ block if `mcp_api_key` is empty.
 | `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                          |
 | `increment_review_attempts` | Increment the review attempt counter on a card                          |
 | `list_cards`                | List cards with filters (state, type, label, agent, parent)             |
+| `list_knowledge_bases`      | Enumerate knowledge bases across all projects (or a single project)     |
 | `list_projects`             | List all projects with configs                                          |
 | `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                          |
+| `read_knowledge_doc`        | Read a single knowledge-base doc for a project/repo                     |
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
+| `refresh_knowledge_base`    | Build a refresh plan for a project's KB docs (human-only)               |
 | `release_card`              | Release a claim                                                         |
 | `report_push`               | Report a git push for a card                                            |
 | `report_usage`              | Report token usage and estimated cost                                   |
@@ -241,17 +261,19 @@ block if `mcp_api_key` is empty.
 | `transition_card`           | Change card state (validated against state machine)                     |
 | `update_card`               | Update card fields                                                      |
 | `update_project`            | Update project configuration                                            |
+| `update_refresh_progress`   | Report per-doc progress from a running refresh-knowledge skill          |
 
 ### Slash Commands
 
 Skill files in `workflow-skills/` are served as MCP prompts, available as Claude
 Code slash commands:
 
-| Command                         | Argument      | Description                                                                                 |
-| ------------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview                                                   |
-| `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                              |
-| `/contextmatrix:start-workflow` | `card_id`     | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
+| Command                            | Argument                     | Description                                                                                 |
+| ---------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `/contextmatrix:create-task`       | `description`                | Guided task creation with human interview                                                   |
+| `/contextmatrix:init-project`      | `name`                       | Initialize a new project board                                                              |
+| `/contextmatrix:start-workflow`    | `card_id`                    | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
+| `/contextmatrix:refresh-knowledge` | `project`, `repo` (optional) | Refresh a project's knowledge base — spawns Sonnet sub-agents to rebuild docs (human-only)  |
 
 Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
 `document-task`, `run-autonomous`, `brainstorming`, `systematic-debugging`) are
@@ -509,6 +531,12 @@ trigger an info toast notification on creation.
 All endpoints are under `/api`. Agent identity is sent via the `X-Agent-ID`
 header. Claimed cards can only be mutated by the owning agent.
 
+Non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) require the
+`X-Requested-With: contextmatrix` header as a CSRF guard. The web UI sets it
+automatically; CLI callers must add it explicitly. Exempt paths: `/healthz`,
+`/readyz`, `/mcp`, and `/api/runner/*` (which are HMAC-signed instead). The
+examples below omit it for brevity.
+
 ### Projects
 
 ```bash
@@ -630,6 +658,7 @@ curl -N "http://localhost:8080/api/events?project=my-project"
 Events: `card.created`, `card.updated`, `card.deleted`, `card.state_changed`,
 `card.claimed`, `card.released`, `card.stalled`, `card.log_added`,
 `card.usage_reported`, `project.created`, `project.updated`, `project.deleted`,
+`sync.started`, `sync.completed`, `sync.conflict`, `sync.error`,
 `runner.triggered`, `runner.started`, `runner.failed`, `runner.killed`.
 
 ### Remote Execution
@@ -687,46 +716,53 @@ format.
 
 ### config.yaml
 
-| Field                                  | Default                        | Description                                                                                                                                                                          |
-| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `port`                                 | `8080`                         | HTTP server port                                                                                                                                                                     |
-| `log_format`                           | `"text"`                       | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
-| `log_level`                            | `"info"`                       | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
-| `admin_port`                           | `0`                            | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
-| `admin_bind_addr`                      | `127.0.0.1`                    | Bind address for the admin server (loopback by default)                                                                                                                              |
-| `theme`                                | `"everforest"`                 | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
-| `heartbeat_timeout`                    | `"30m"`                        | Duration before a claimed card becomes stalled                                                                                                                                       |
-| `stalled_check_interval`               | `"1m"`                         | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
-| `cors_origin`                          | `http://localhost:5173`        | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
-| `workflow_skills_dir`                  | `<config-dir>/workflow-skills` | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
-| `task_skills.dir`                      | `<config-dir>/task-skills`     | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
-| `task_skills.git_clone_on_empty`       | `false`                        | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
-| `task_skills.git_remote_url`           | `""`                           | HTTPS URL used for clone-on-empty and for the startup `git pull --ff-only`                                                                                                           |
-| `token_costs`                          | ---                            | Per-model token cost rates (see example below)                                                                                                                                       |
-| `mcp_api_key`                          | `""`                           | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
-| `boards.dir`                           | ---                            | Path to boards git repo (required)                                                                                                                                                   |
-| `boards.git_auto_commit`               | `true`                         | Auto-commit card mutations to git                                                                                                                                                    |
-| `boards.git_deferred_commit`           | `false`                        | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
-| `boards.git_auto_push`                 | `false`                        | Auto-push after each commit                                                                                                                                                          |
-| `boards.git_auto_pull`                 | `false`                        | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
-| `boards.git_pull_interval`             | `"60s"`                        | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
-| `boards.git_remote_url`                | `""`                           | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
-| `boards.git_clone_on_empty`            | `false`                        | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
-| `runner.enabled`                       | `false`                        | Enable remote execution integration                                                                                                                                                  |
-| `runner.url`                           | `""`                           | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
-| `runner.api_key`                       | `""`                           | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
-| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`            | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
-| `runner.orchestrator_opus_model`       | `claude-opus-4-7`              | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
-| `runner.reconcile_interval`            | `"60s"`                        | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
-| `github.auth_mode`                     | (required)                     | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
-| `github.host`                          | `""`                           | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
-| `github.api_base_url`                  | `""`                           | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
-| `github.app.app_id`                    | `0`                            | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
-| `github.app.installation_id`           | `0`                            | App installation ID                                                                                                                                                                  |
-| `github.app.private_key_path`          | `""`                           | Path to PEM private key                                                                                                                                                              |
-| `github.pat.token`                     | `""`                           | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
-| `github.issue_importing.enabled`       | `false`                        | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
-| `github.issue_importing.sync_interval` | `"5m"`                         | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
+| Field                                  | Default                              | Description                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `port`                                 | `8080`                               | HTTP server port                                                                                                                                                                     |
+| `log_format`                           | `"text"`                             | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
+| `log_level`                            | `"info"`                             | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
+| `admin_port`                           | `0`                                  | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
+| `admin_bind_addr`                      | `127.0.0.1`                          | Bind address for the admin server (loopback by default)                                                                                                                              |
+| `theme`                                | `"everforest"`                       | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
+| `heartbeat_timeout`                    | `"30m"`                              | Duration before a claimed card becomes stalled                                                                                                                                       |
+| `stalled_check_interval`               | `"1m"`                               | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
+| `cors_origin`                          | `http://localhost:5173`              | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
+| `workflow_skills_dir`                  | `<config-dir>/workflow-skills`       | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
+| `task_skills.dir`                      | `<config-dir>/task-skills`           | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
+| `task_skills.git_clone_on_empty`       | `false`                              | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
+| `task_skills.git_remote_url`           | `""`                                 | HTTPS URL used for clone-on-empty and for the startup `git pull --ff-only`                                                                                                           |
+| `token_costs`                          | ---                                  | Per-model token cost rates (see example below)                                                                                                                                       |
+| `mcp_api_key`                          | `""`                                 | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
+| `boards.dir`                           | ---                                  | Path to boards git repo (required)                                                                                                                                                   |
+| `boards.git_auto_commit`               | `true`                               | Auto-commit card mutations to git                                                                                                                                                    |
+| `boards.git_deferred_commit`           | `false`                              | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
+| `boards.git_auto_push`                 | `false`                              | Auto-push after each commit                                                                                                                                                          |
+| `boards.git_auto_pull`                 | `false`                              | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
+| `boards.git_pull_interval`             | `"60s"`                              | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
+| `boards.git_remote_url`                | `""`                                 | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
+| `boards.git_clone_on_empty`            | `false`                              | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
+| `runner.enabled`                       | `false`                              | Enable remote execution integration                                                                                                                                                  |
+| `runner.url`                           | `""`                                 | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
+| `runner.api_key`                       | `""`                                 | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
+| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`                  | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
+| `runner.orchestrator_opus_model`       | `claude-opus-4-7`                    | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
+| `runner.reconcile_interval`            | `"60s"`                              | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
+| `chat.db_path`                         | `<XDG_STATE>/contextmatrix/chats.db` | SQLite database for chat sessions and transcripts                                                                                                                                    |
+| `chat.idle_ttl`                        | `"1h"`                               | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
+| `chat.max_concurrent`                  | `8`                                  | Maximum concurrent chat containers                                                                                                                                                   |
+| `chat.default_model`                   | (required)                           | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
+| `chat.resume_budget_tokens`            | `40000`                              | Rough token budget for the rehydration payload sent to the runner on cold-reopen                                                                                                     |
+| `chat.rehydration_timeout`             | `"10m"`                              | Hard cap on the rehydration phase if the agent never calls `chat_rehydration_complete`                                                                                               |
+| `chat.models`                          | (required)                           | Allowlist of selectable models keyed by model ID; each entry has `label` and `max_tokens`                                                                                            |
+| `github.auth_mode`                     | (required)                           | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
+| `github.host`                          | `""`                                 | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
+| `github.api_base_url`                  | `""`                                 | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
+| `github.app.app_id`                    | `0`                                  | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
+| `github.app.installation_id`           | `0`                                  | App installation ID                                                                                                                                                                  |
+| `github.app.private_key_path`          | `""`                                 | Path to PEM private key                                                                                                                                                              |
+| `github.pat.token`                     | `""`                                 | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
+| `github.issue_importing.enabled`       | `false`                              | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
+| `github.issue_importing.sync_interval` | `"5m"`                               | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
 
 Token cost configuration:
 
@@ -769,6 +805,9 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
 - `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL`
+- `CONTEXTMATRIX_CHAT_DB_PATH`
+- `CONTEXTMATRIX_CHAT_IDLE_TTL`
+- `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 - `CONTEXTMATRIX_GITHUB_AUTH_MODE`
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
@@ -890,13 +929,13 @@ port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
 - The structural prompts and output templates in
   `workflow-skills/refresh-knowledge.md` are adapted from the
   [AIDLC Reverse Engineering workflow](https://github.com/aws/aws-aidlc-rules)
-  by AWS, trimmed and reshaped to fit ContextMatrix's per-project knowledge
-  base (4 docs per repo, no per-stage approval ceremony).
+  by AWS, trimmed and reshaped to fit ContextMatrix's per-project knowledge base
+  (4 docs per repo, no per-stage approval ceremony).
 - `workflow-skills/brainstorming.md` and
   `workflow-skills/systematic-debugging.md` are adopted from the
-  [superpowers](https://github.com/obra/superpowers) plugin for Claude Code
-  by Jesse Vincent, adapted to run inline inside the create-plan
-  orchestrator and to use ContextMatrix MCP tools for card updates.
+  [superpowers](https://github.com/obra/superpowers) plugin for Claude Code by
+  Jesse Vincent, adapted to run inline inside the create-plan orchestrator and
+  to use ContextMatrix MCP tools for card updates.
 
 ## License
 

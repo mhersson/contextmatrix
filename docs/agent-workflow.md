@@ -38,10 +38,9 @@ Runner container → CC (orchestrator, Sonnet)
                   └── Agent → specialist (security,    Opus 4-7)
 ```
 
-The review skill runs inline in the orchestrator's session (so the
-`Agent` tool is available to spawn the three parallel specialists);
-specialists run on `claude-opus-4-7` regardless of the orchestrator's
-own model.
+The review skill runs inline in the orchestrator's session (so the `Agent` tool
+is available to spawn the three parallel specialists); specialists run on
+`claude-opus-4-7` regardless of the orchestrator's own model.
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 
@@ -98,38 +97,36 @@ as sub-agents. Delegating an interview skill to a sub-agent would break the
 multi-turn flow because sub-agents cannot relay back-and-forth user messages
 through the `Agent` tool.
 
-**Server-side inline execution.** Two skills run inline, with different
-gating rules:
+**Server-side inline execution.** Two skills run inline, with different gating
+rules:
 
 - **`create-plan` and `brainstorming`** (model-matched inline): when the
-  orchestrator passes its model family as `caller_model` to `get_skill`
-  and it matches the skill's required model, the server returns the
-  content wrapped in a lifecycle-enforcing inline preamble and sets
-  `inline: true`. When the caller model doesn't match (or
-  `caller_model` is absent), `inline` is `false` and behavior falls
-  through to standard delegation (spawn a sub-agent on the required
-  model). This saves the overhead of spawning a sub-agent on the same
+  orchestrator passes its model family as `caller_model` to `get_skill` and it
+  matches the skill's required model, the server returns the content wrapped in
+  a lifecycle-enforcing inline preamble and sets `inline: true`. When the caller
+  model doesn't match (or `caller_model` is absent), `inline` is `false` and
+  behavior falls through to standard delegation (spawn a sub-agent on the
+  required model). This saves the overhead of spawning a sub-agent on the same
   model the orchestrator is already running.
 
-- **`review-task`** (always inline via `start_review`): the
-  `start_review` MCP tool unconditionally returns `inline: true` for
-  `review-task`, regardless of `caller_model`. The review skill spawns
-  three specialist sub-agents in parallel via the `Agent` tool — and
-  only the top-level (calling) session has the `Agent` tool;
-  sub-agents spawned via `Agent` do not get `Agent` themselves. If the
-  review ran in a spawned sub-agent it would silently degrade to a
-  single-perspective walkthrough because the parallel spawn would not
-  happen. The synthesizer runs on the orchestrator's own model (often
-  Sonnet); the three specialists each run on `claude-opus-4-7`. Do
-  not reintroduce the model-match gate on `start_review` — it would
-  reproduce the regression. (`get_skill('review-task')` still uses
-  the model-match logic for any out-of-band callers; the workflow
-  always goes through `start_review`.)
+- **`review-task`** (always inline via `start_review`): the `start_review` MCP
+  tool unconditionally returns `inline: true` for `review-task`, regardless of
+  `caller_model`. The review skill spawns three specialist sub-agents in
+  parallel via the `Agent` tool — and only the top-level (calling) session has
+  the `Agent` tool; sub-agents spawned via `Agent` do not get `Agent`
+  themselves. If the review ran in a spawned sub-agent it would silently degrade
+  to a single-perspective walkthrough because the parallel spawn would not
+  happen. The synthesizer runs on the orchestrator's own model (often Sonnet);
+  the three specialists each run on `claude-opus-4-7`. Do not reintroduce the
+  model-match gate on `start_review` — it would reproduce the regression.
+  (`get_skill('review-task')` still uses the model-match logic for any
+  out-of-band callers; the workflow always goes through `start_review`.)
 
 ```
 workflow-skills/
   create-task.md          # /contextmatrix:create-task (slash command + skill)
   init-project.md         # /contextmatrix:init-project (slash command + skill)
+  refresh-knowledge.md    # /contextmatrix:refresh-knowledge (slash command + skill, human-only)
   create-plan.md          # skill only (loaded via get_skill / start_workflow)
   execute-task.md         # skill only
   review-task.md          # skill only (loaded via start_review or get_skill)
@@ -140,13 +137,14 @@ workflow-skills/
                           # /contextmatrix:start-workflow (server-side only — no skill file)
 ```
 
-Only three skills are exposed as slash commands: `create-task`, `init-project`,
-and `start-workflow`. Phase-specific skills (`create-plan`, `execute-task`,
+Four slash commands exist: `create-task`, `init-project`, `start-workflow`, and
+`refresh-knowledge`. Phase-specific skills (`create-plan`, `execute-task`,
 `review-task`, `document-task`, `run-autonomous`, `brainstorming`,
 `systematic-debugging`) are loaded by the orchestrator via `get_skill` (or
 `start_review` for the review-entry transition); they are not user-facing entry
 points. This mirrors how `brainstorming` and `systematic-debugging` have always
-worked.
+worked. `validSkillNames` in `internal/mcp/prompts.go` lists the complete set
+addressable by `get_skill`.
 
 `start-workflow` has no skill file. It exists as both a **prompt** (slash
 command) and a **tool** (`start_workflow`). Both are server-side only: they
@@ -220,11 +218,12 @@ skills.
 
 CC exposes these slash commands via the MCP `prompts` capability:
 
-| Command                         | Argument      | Type               | Description                                                                     |
-| ------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | optional free text | Start task creation interview                                                   |
-| `/contextmatrix:init-project`   | `name`        | optional           | Initialize a new project board                                                  |
-| `/contextmatrix:start-workflow` | `card_id`     | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag |
+| Command                            | Argument         | Type               | Description                                                                                                                                                                                            |
+| ---------------------------------- | ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/contextmatrix:create-task`       | `description`    | optional free text | Start task creation interview                                                                                                                                                                          |
+| `/contextmatrix:init-project`      | `name`           | optional           | Initialize a new project board                                                                                                                                                                         |
+| `/contextmatrix:start-workflow`    | `card_id`        | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag                                                                                                                        |
+| `/contextmatrix:refresh-knowledge` | `project`/`repo` | `project` required | Human-only. Rebuild a project's knowledge-base docs (`architecture.md`, `code-structure.md`, `api-documentation.md`, `glossary.md`). Spawns Sonnet sub-agents and commits via `commit_knowledge_docs`. |
 
 `/contextmatrix:start-workflow` is the canonical entry point: it inspects the
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
@@ -241,15 +240,19 @@ Usage examples:
 /contextmatrix:create-task there is a bug in the login form validation
 /contextmatrix:start-workflow ALPHA-001   # routes to run-autonomous or create-plan automatically
 /contextmatrix:init-project my-new-project
+/contextmatrix:refresh-knowledge my-project
 ```
 
-The two surviving skill-content prompts (`create-task`, `init-project`) return
-raw skill content for inline execution by the main agent — no sub-agent
+The interview-style prompts (`create-task`, `init-project`, `refresh-knowledge`)
+return raw skill content for inline execution by the main agent — no sub-agent
 involved. `start-workflow` returns the workflow skill (`create-plan` or
 `run-autonomous`) wrapped in the inline-execution envelope; the orchestrator
 runs it directly. Phase-specific skills loaded later via `get_skill` either run
-inline (`brainstorming`, `review-task` when caller_model matches) or are spawned
-as sub-agents via the `Agent` tool with the returned `model`.
+inline (`create-plan` or `brainstorming` when caller_model matches the skill's
+required model, `review-task` always) or are spawned as sub-agents via the
+`Agent` tool with the returned `model`. The inline-eligible whitelist lives in
+`inlineEligibleSkills` (`internal/mcp/prompts.go`): `review-task`,
+`create-plan`, and `brainstorming`.
 
 ## Workflow
 
@@ -331,46 +334,42 @@ The parent card remains in `in_progress` during this phase.
 The orchestrator calls `start_review(card_id, agent_id, caller_model)`, which
 atomically transitions the parent to `review` AND returns the `review-task`
 skill in one call — there is no path to load the review skill without committing
-the transition. The response always has `inline: true`; the orchestrator
-runs the skill in its own session (see "Server-side inline execution" above for
-why). The flow:
+the transition. The response always has `inline: true`; the orchestrator runs
+the skill in its own session (see "Server-side inline execution" above for why).
+The flow:
 
-- **Pass 1 — Spec compliance and test gate (synthesizer = orchestrator):**
-  the orchestrator runs the project test suite and lint, plus a spec /
-  scope check against the plan and acceptance criteria. If Pass 1 fails,
-  it skips Pass 2 entirely, writes findings with `recommendation: revise`,
-  and prints `REVIEW_FINDINGS`. No specialists are spawned.
-- **Pass 2 — Three parallel specialists:** if Pass 1 succeeds, the
-  orchestrator spawns three `Agent` calls in a single message
-  (`model: claude-opus-4-7`, `subagent_type: general-purpose`):
-  Correctness (bugs, edges, errors, races, test quality), Design &
-  Maintainability (architecture, naming, complexity, docs), and Security
-  & Performance (input validation, secrets, CVEs, complexity, leaks).
-  Each specialist prompt carries the synthesizer's `agent_id` because
-  `report_usage` and `add_log` enforce `agent_id == AssignedAgent` —
-  specialists act on the synthesizer's behalf for board writes. Before
-  returning, each specialist calls `report_usage` against the parent
-  card with its own token consumption (model
-  `claude-opus-4-7`); this is what makes the specialists' cost visible
-  on the card. Specialists do not claim, transition, or write findings
-  to the card body — they return a structured Markdown report with
-  severity-tiered findings.
+- **Pass 1 — Spec compliance and test gate (synthesizer = orchestrator):** the
+  orchestrator runs the project test suite and lint, plus a spec / scope check
+  against the plan and acceptance criteria. If Pass 1 fails, it skips Pass 2
+  entirely, writes findings with `recommendation: revise`, and prints
+  `REVIEW_FINDINGS`. No specialists are spawned.
+- **Pass 2 — Three parallel specialists:** if Pass 1 succeeds, the orchestrator
+  spawns three `Agent` calls in a single message (`model: claude-opus-4-7`,
+  `subagent_type: general-purpose`): Correctness (bugs, edges, errors, races,
+  test quality), Design & Maintainability (architecture, naming, complexity,
+  docs), and Security & Performance (input validation, secrets, CVEs,
+  complexity, leaks). Each specialist prompt carries the synthesizer's
+  `agent_id` because `report_usage` and `add_log` enforce
+  `agent_id == AssignedAgent` — specialists act on the synthesizer's behalf for
+  board writes. Before returning, each specialist calls `report_usage` against
+  the parent card with its own token consumption (model `claude-opus-4-7`); this
+  is what makes the specialists' cost visible on the card. Specialists do not
+  claim, transition, or write findings to the card body — they return a
+  structured Markdown report with severity-tiered findings.
 - **Synthesis (synthesizer = orchestrator):** the orchestrator dedupes
-  overlapping findings, applies the strictest-defensible severity, and
-  decides the overall recommendation (any Critical → `revise`;
-  Important without Critical → typically `revise` unless purely
-  cosmetic; only Minor / none → `approve` or `approve_with_notes`). It
-  writes the synthesized `## Review Findings` section to the parent
-  card body via `update_card`, calls `report_usage` for the synthesizer
-  work, and prints `REVIEW_FINDINGS`. The orchestrator does NOT release
-  the claim — it keeps ownership for the next phase.
-- **User decision (CC handles directly)**: CC reads the card body,
-  presents the `## Review Findings` section to the user, and asks for
-  approve/reject. No sub-agent — the orchestrator already holds the
-  claim and is alive.
+  overlapping findings, applies the strictest-defensible severity, and decides
+  the overall recommendation (any Critical → `revise`; Important without
+  Critical → typically `revise` unless purely cosmetic; only Minor / none →
+  `approve` or `approve_with_notes`). It writes the synthesized
+  `## Review Findings` section to the parent card body via `update_card`, calls
+  `report_usage` for the synthesizer work, and prints `REVIEW_FINDINGS`. The
+  orchestrator does NOT release the claim — it keeps ownership for the next
+  phase.
+- **User decision (CC handles directly)**: CC reads the card body, presents the
+  `## Review Findings` section to the user, and asks for approve/reject. No
+  sub-agent — the orchestrator already holds the claim and is alive.
 - Based on the user's response, the orchestrator prints one of:
-  - `REVIEW_APPROVED` — proceeds to finalization (transitions parent
-    to `done`).
+  - `REVIEW_APPROVED` — proceeds to finalization (transitions parent to `done`).
   - `REVIEW_REJECTED` — the rejection loop:
     1. Calls `transition_card` to move parent from `review` back to
        `in_progress`.
@@ -392,6 +391,37 @@ routes the card to `run-autonomous` automatically and drives the entire
 lifecycle using the `run-autonomous.md` skill. The orchestrator model is set by
 the invoker — Opus for local autonomous (user's session), Sonnet for the remote
 runner (via container config).
+
+## HITL chat surface
+
+HITL runs and the global chat panel both expose a typed message channel back to
+a live Claude Code session. Two surfaces exist:
+
+- **Per-card runner messages** —
+  `POST /api/projects/{project}/cards/{id}/message` forwards human-typed content
+  to a running runner container (`card.runner_status == "running"`). The
+  endpoint is human-only (rejects non-human `X-Agent-ID`), bounds content to 8
+  KB, and the runner echoes the message back through its session-log stream so
+  the UI shows it in the same transcript as the agent's output.
+- **Global chat panel** — `/api/chats/*` drives `internal/chat.Manager`, which
+  owns a SQLite-backed transcript store (sessions + messages), an idle-TTL
+  reaper that warms sessions down to cold, an SSE hub for browser fan-out
+  (`GET /api/chats/{id}/stream`), and a runner-log bridge that maps each runner
+  log entry to a transcript row. Cold sessions rehydrate from the persisted
+  transcript via `transcript.Build` before the container starts; the rehydration
+  phase ends on the first user message or an explicit
+  `chat_rehydration_complete` call.
+
+**Promote to autonomous from chat.** A human can promote a running HITL card
+mid-flight: `POST /api/projects/{project}/cards/{id}/promote` (web UI) or the
+`promote_to_autonomous` MCP tool (Claude). Both call
+`service.PromoteToAutonomous` first (fail-closed: rejects terminal cards, flips
+`autonomous: true`, appends an activity log entry, fires an SSE event); only on
+success does the API endpoint fire the runner's `/promote` webhook so the
+runner-side stdin message is written. Both surfaces gate on `human:` prefix —
+agents cannot self-promote. The runner verifies the flag out-of-band via
+`GET /api/v1/cards/{project}/{id}/autonomous` (HMAC-signed) before writing its
+canned stdin message.
 
 **Lifecycle phases (create-plan skill, HITL and autonomous):**
 
@@ -415,12 +445,13 @@ phase labels. run-autonomous starts from the correct phase based on card state:
 ```
 Step 0:  Claim the card        → claim_card called before any exploration begins
 Step 1:  Create feature branch → if feature_branch is true and branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
-Phase 1: Plan Drafting         → inline, calls create-plan skill
+Step 2:  Load context          → get_knowledge_base + get_task_context once, retained across phases
+Phase 1: Plan Drafting         → inline, calls create-plan skill via get_skill (model-matched inline)
 Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
 Phase 4: Documentation         → spawns document-task sub-agent (parent in in_progress)
-Phase 5: Review                → orchestrator transitions parent to review, runs review-task inline; spawns 3 opus specialists in parallel and synthesizes findings
-Phase 6: Finalization          → transitions parent to done
+Phase 5: Review                → orchestrator transitions parent to review via start_review, runs review-task inline; spawns 3 opus specialists in parallel and synthesizes findings
+Phase 6: Finalization          → transitions parent to done, final report_usage, release_card (mandatory)
 ```
 
 The orchestrator claims the card and moves it to `in_progress` before
@@ -577,14 +608,18 @@ configured in `config.yaml` under `token_costs` as cost-per-token values:
 
 ```yaml
 token_costs:
-  claude-haiku-4-5: { prompt: 0.0000008, completion: 0.000004 } # $0.80 / $4.00 per MTok
+  claude-haiku-4-5: { prompt: 0.000001, completion: 0.000005 } # $1.00 / $5.00 per MTok
   claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 } # $3.00 / $15.00 per MTok
   claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
+  claude-opus-4-7: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
 ```
 
 The `report_usage` call must pass `model` matching one of these keys. The model
 used depends on the orchestrator and phase — see the **Model Allocation**
-section below for the full breakdown.
+section below for the full breakdown. The `recalculate_costs` tool reprices
+cards that have non-zero tokens but zero stored cost (e.g. when usage was
+reported without a model name); it only touches qualifying cards and never
+overwrites a non-zero cost.
 
 ## Model Allocation
 
@@ -708,10 +743,10 @@ planning, brainstorming, and debugging skills to load architectural context.
 
 **Input:**
 
-| Field     | Required | Description                               |
-| --------- | -------- | ----------------------------------------- |
-| `project` | yes      | Project name                              |
-| `repo`    | no       | Repo name; defaults to the primary repo   |
+| Field     | Required | Description                             |
+| --------- | -------- | --------------------------------------- |
+| `project` | yes      | Project name                            |
+| `repo`    | no       | Repo name; defaults to the primary repo |
 
 **Response:**
 
@@ -751,3 +786,30 @@ loading the full payload.
 
 **Input:** `project` (required), `repo` (optional), `doc` (required — one of
 `architecture.md`, `code-structure.md`, `api-documentation.md`, `glossary.md`).
+
+### `list_knowledge_bases`
+
+Enumerate KB summaries across all projects (or a single project). Returns
+project name, repos, and per-doc human-edited flags so the refresh skill can
+warn before overwriting human edits.
+
+**Input:** `project` (optional — omit to enumerate every project).
+
+### Human-only refresh tools
+
+The `refresh-knowledge` skill orchestrates a rebuild of the four KB docs. These
+tools enforce `agent_id` starting with `human:` and reject other callers
+(`agent_id must start with 'human:' and have a non-empty suffix`). Agents cannot
+self-refresh.
+
+- **`refresh_knowledge_base`** — returns a build plan (per-doc work items,
+  human-edited flags, cost estimate). Does not run sub-agents; the skill spawns
+  those.
+- **`commit_knowledge_docs`** — atomically writes the produced docs and commits
+  them with a single message keyed by `head_commit` (the target repo HEAD SHA at
+  refresh time). Clears the `human_edited` flag on each written doc.
+- **`update_refresh_progress`** — runner-mode only. Reports per-doc progress
+  (docs_total / docs_done / current_doc) for a refresh job running inside the
+  runner container so the operator UI shows live status. Returns
+  `tracked: false` when no in-flight job matches; local mode invocations are
+  intentional no-ops.

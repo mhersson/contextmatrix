@@ -28,15 +28,35 @@ GET    /api/projects/{project}/usage                  # aggregated token usage
 GET    /api/projects/{project}/dashboard              # project dashboard metrics
 POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
+GET    /api/projects/{project}/knowledge                              # KB summary (repos + docs) for the project
+GET    /api/projects/{project}/knowledge/{repo}/{doc}                 # read one KB doc + metadata
+PUT    /api/projects/{project}/knowledge/{repo}/{doc}                 # save a hand-edited KB doc
+GET    /api/projects/{project}/knowledge/{repo}/refresh-plan          # planned doc set for the next refresh
+POST   /api/projects/{project}/knowledge/{repo}/refresh               # trigger a runner-driven KB refresh (human-only)
+GET    /api/projects/{project}/knowledge/refresh-status               # in-flight refresh jobs for the project
+
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # runner status callback (HMAC-signed; runner-enabled only)
+POST   /api/runner/knowledge-status                    # runner KB-refresh terminal callback (HMAC-signed; runner-enabled only)
 POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; runner-enabled only)
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner-enabled only)
 GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; runner-enabled only)
+
+GET    /api/chats                                      ?project=&status=&created_by=&limit=
+POST   /api/chats                                      # create a new chat session (cold)
+GET    /api/chats/models                               # chat model allowlist + default
+GET    /api/chats/{id}
+PATCH  /api/chats/{id}                                 # rename a session
+DELETE /api/chats/{id}                                 # delete session and transcript
+POST   /api/chats/{id}/open                            # start (or reattach to) the chat container
+POST   /api/chats/{id}/end                             # stop the container; flip to cold
+POST   /api/chats/{id}/messages                        # send a user message into the active container
+GET    /api/chats/{id}/messages                        ?since_seq=&limit=    # transcript bootstrap
+GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
@@ -68,11 +88,37 @@ identity. It is required on the agent endpoints (`/claim`, `/release`,
 `/heartbeat`, `/log`, `/usage`, `/report-push`) and on any mutation of a claimed
 card — there the header value must match `assigned_agent` (403 on mismatch). It
 is also used to gate human-only fields and human-only endpoints (`/run`,
-`/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
-value beginning with `human:`. Read endpoints, project CRUD, sync, branches, app
-config, task-skills, healthz, and readyz do not require the header. Request
-bodies on agent endpoints no longer carry an `agent_id` field — it is silently
-ignored if present.
+`/stop`, `/message`, `/promote`, `/stop-all`, KB refresh trigger): those require
+an `X-Agent-ID` value beginning with `human:`. Read endpoints, project CRUD,
+sync, branches, app config, task-skills, healthz, and readyz do not require the
+header. Request bodies on agent endpoints no longer carry an `agent_id` field —
+it is silently ignored if present.
+
+**Identity is a tag, not auth.** ContextMatrix is single-tenant and has no auth
+layer below `X-Agent-ID`; spoofing it accomplishes nothing because there is no
+permission gradient to escalate into. The `human:` prefix gates workflow
+contracts (only humans promote / refresh KB), not security boundaries. The web
+UI generates a per-browser identity (`human:web-<8 hex chars>`) and never
+prompts the operator for a username. Two routes contain fall-backs that record
+`human:web` (KB PUT) or `human:api` (runner `/promote`) when no header is
+present — both are intentional, because the UI is the only legitimate caller.
+See § Trust model in `CLAUDE.md`.
+
+**CSRF protection:** every state-changing request on the main listener must
+carry `X-Requested-With: contextmatrix`. The web UI sets this header on every
+non-GET fetch in `web/src/api/client.ts`. Cross-origin browsers cannot set
+custom headers on a "simple request" without a CORS preflight, and the server
+serves no permissive CORS for state-changing routes — a missing header is
+therefore a strong cross-origin signal and the request is rejected with 403
+`BAD_REQUEST`. Exempt paths:
+
+- `GET` / `HEAD` / `OPTIONS` on any route (read-only).
+- `/api/runner/*` — authenticated via HMAC, no browser path.
+- `/mcp` — Bearer-authed MCP endpoint.
+- `/healthz`, `/readyz` — probe endpoints.
+
+The guard sits just outside the mux; any new state-changing route must opt in to
+the guard by _not_ adding itself to the exempt list.
 
 **Request correlation:** every response carries an `X-Request-ID` header. If the
 client sends an `X-Request-ID` matching `[A-Za-z0-9._-]{1,128}` it is echoed;
@@ -93,37 +139,56 @@ otherwise the server generates a UUID. The same id is emitted as the
 
 - 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`, `/log`,
   `/usage`, `/report-push`, `/stop-all`, `/api/runner/status`,
+  `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
   `GET /api/v1/cards/.../autonomous`)
-- 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`)
+- 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
+  `POST /api/chats`)
 - 202: accepted — async endpoint kicked off background work (`POST /run`,
-  `/stop`, `/message`, `/promote`)
+  `/stop`, `/message`, `/promote`, KB `/refresh`, chat `/messages`)
 - 204: deleted (DELETE) and `POST /heartbeat` (no body)
-- 400: malformed input (bad JSON, missing/bad query param, unknown filter value)
-  — emitted with code `BAD_REQUEST`
+- 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
+  missing CSRF header) — emitted with code `BAD_REQUEST`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
-  claim attempt (`CARD_NOT_VETTED`), or agent attempting a human-only field
-  mutation (`HUMAN_ONLY_FIELD`)
-- 404: card, project, or referenced parent not found — parent-not-found uses
-  code `PARENT_NOT_FOUND`
+  claim attempt (`CARD_NOT_VETTED`), agent attempting a human-only field
+  mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
+  runner-side endpoint (`INVALID_SIGNATURE`)
+- 404: card, project, KB doc, chat session, or referenced parent not found —
+  parent-not-found uses code `PARENT_NOT_FOUND`
 - 409: conflict (invalid transition, card already claimed, already-running
-  runner task → `RUNNER_CONFLICT`)
+  runner task → `RUNNER_CONFLICT`, KB refresh in flight → `RUNNER_CONFLICT`)
+- 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
 - 422: semantic validation error — mutation body references an unknown type,
   state, priority, or invalid autonomous combination. Emitted with code
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
+- 429: concurrent chat cap reached (`TOO_MANY_CHATS`)
 - 502: runner host unreachable (`RUNNER_UNAVAILABLE`)
-- 503: runner not configured
+- 503: runner not configured (`RUNNER_DISABLED`), sync disabled
+  (`SYNC_DISABLED`), or `/readyz` dependency check failed
 
 **Error code / HTTP status mapping (selected):**
 
-| Code                     | HTTP | Meaning                                  |
-| ------------------------ | ---- | ---------------------------------------- |
-| `BAD_REQUEST`            | 400  | malformed input / unknown filter value   |
-| `PARENT_NOT_FOUND`       | 404  | referenced parent card does not exist    |
-| `VALIDATION_ERROR`       | 422  | mutation body semantically invalid       |
-| `RUNNER_CONFLICT`        | 409  | card already queued/running              |
-| `RUNNER_UNAVAILABLE`     | 502  | runner webhook failed (host unreachable) |
-| `RUNNER_NOT_RUNNING`     | 409  | card is not currently running            |
-| `REVIEW_ATTEMPTS_CAPPED` | 409  | review attempts limit reached            |
+| Code                      | HTTP    | Meaning                                                       |
+| ------------------------- | ------- | ------------------------------------------------------------- |
+| `BAD_REQUEST`             | 400     | malformed input / unknown filter value / CSRF missing         |
+| `PROJECT_NOT_FOUND`       | 404     | project slug does not exist                                   |
+| `CARD_NOT_FOUND`          | 404     | card ID does not exist in the project                         |
+| `KNOWLEDGE_DOC_NOT_FOUND` | 404     | KB doc path unknown or rejected (symlink)                     |
+| `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
+| `CHAT_NOT_FOUND`          | 404     | chat session ID does not exist                                |
+| `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
+| `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist                   |
+| `RUNNER_CONFLICT`         | 409     | card already queued/running, KB refresh already in flight     |
+| `RUNNER_DISABLED`         | 503/403 | runner not configured globally (503) or for the project (403) |
+| `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
+| `RUNNER_NOT_RUNNING`      | 409     | card is not currently running                                 |
+| `REVIEW_ATTEMPTS_CAPPED`  | 409     | review attempts limit reached                                 |
+| `INVALID_SIGNATURE`       | 403     | HMAC signature or `X-Webhook-Timestamp` missing / expired     |
+| `TOO_MANY_CHATS`          | 429     | configured `chat.max_concurrent` cap reached                  |
+| `CONTENT_TOO_LARGE`       | 413     | message / request body exceeds the size cap                   |
+| `PROTECTED_BRANCH`        | 403     | report-push targeted `main` / `master`                        |
+| `NO_GITHUB_REPO`          | 404     | project `repo` is not a GitHub URL                            |
+| `SYNC_DISABLED`           | 503     | sync trigger with no remote configured                        |
+| `SYNC_ERROR`              | 500     | sync trigger raised an error                                  |
 
 **`APIError.details` sanitization:** downstream error strings that look like
 go-git transport errors, ssh/exec failures, or absolute filesystem paths are
@@ -606,6 +671,100 @@ Returns current sync status.
 | `syncing`         | bool               | `true` while a sync is in flight.                             |
 | `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
 
+## Knowledge Base Endpoints
+
+The KB stores per-project, per-repo markdown documents (`overview`,
+`directory-map`, `interfaces`, etc.). See `docs/data-model.md` for the full list
+of doc names. Reads are unauthenticated; writes are gated by the CSRF middleware
+(UI-origin signal) and either the `human:` prefix (refresh) or the `human:web`
+fallback (single-doc edit).
+
+### GET /api/projects/{project}/knowledge
+
+Returns the KB summary for one project — a list of repos with their docs and
+last-built timestamps. Repos configured in `.board.yaml` that have no built KB
+content yet are included as stub entries (no docs, no `built_at`) so the UI
+sidebar can render a "Refresh" button for every configured repo from the first
+visit. Repos are sorted by name.
+
+### GET /api/projects/{project}/knowledge/{repo}/{doc}
+
+Returns the markdown content and metadata for one KB doc. Symlinks under the KB
+tree are rejected (404 `KNOWLEDGE_DOC_NOT_FOUND`).
+
+```json
+{
+  "content": "# Repo overview\n\n...",
+  "meta": {
+    "human_edited": true,
+    "built_at": "2026-05-10T08:12:33Z",
+    "...": "..."
+  }
+}
+```
+
+### PUT /api/projects/{project}/knowledge/{repo}/{doc}
+
+Save a hand-edited doc. The body is `{"content": "..."}`. An empty or absent
+`content` returns 400 — to remove a doc, refresh and exclude it from the
+overwrite list (or delete via the boards repo). The handler tags the write as
+`human_edited=true` and records the agent ID (`human:web` when the header is
+absent — UI is the only legitimate caller).
+
+```json
+{ "files_written": 1 }
+```
+
+### GET /api/projects/{project}/knowledge/{repo}/refresh-plan
+
+Returns the set of docs that the next refresh job would (re)build for the given
+repo, taking the current human-edited / freshness state into account. Used by
+the UI to preview the refresh impact before triggering one.
+
+### POST /api/projects/{project}/knowledge/{repo}/refresh
+
+Trigger a runner-driven knowledge-base refresh for one repo. Human-only
+(`X-Agent-ID` must start with `human:`). Returns 503 `RUNNER_DISABLED` when the
+runner is not configured, 409 `RUNNER_CONFLICT` when a refresh is already in
+flight for the same `(project, repo)`, and 502 `RUNNER_UNAVAILABLE` when the
+runner webhook fails.
+
+Accepts an optional JSON body to override the default plan and force a re-build
+of specific docs:
+
+```json
+{ "overwrite_docs": ["overview", "directory-map"] }
+```
+
+Each name must be in the curated `board.KnowledgeDocNames` allowlist — the
+runner enforces the same set, this is defence-in-depth at the CM boundary.
+Returns 202 `Accepted` with the initial job state on success.
+
+### GET /api/projects/{project}/knowledge/refresh-status
+
+Returns a map of in-flight or recently-finished refresh jobs for the project,
+keyed by repo name. Each entry carries the job state (`running` / `succeeded` /
+`failed`), progress counters, the agent that triggered it, the commit SHA on
+success, and the optional error message on failure.
+
+```json
+{
+  "repos": {
+    "contextmatrix": {
+      "state": "running",
+      "agent_id": "human:alice",
+      "started_at": "2026-05-14T09:11:32Z",
+      "finished_at": null,
+      "docs_total": 8,
+      "docs_done": 3,
+      "current_doc": "interfaces",
+      "error": "",
+      "commit_sha": ""
+    }
+  }
+}
+```
+
 ## Runner Endpoints
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full webhook
@@ -799,6 +958,33 @@ a workflow skill. Same HMAC authentication as `/api/runner/status`
 (`X-Signature-256` + `X-Webhook-Timestamp`). Only registered when the runner is
 enabled. Used for runner-side telemetry; the response body is `{"ok": true}`.
 
+### POST /api/runner/knowledge-status
+
+Runner terminal callback for a KB refresh job. Same HMAC authentication as
+`/api/runner/status`. Only registered when the runner is enabled. The body
+carries the project, repo, runner-reported terminal state, and an optional error
+message:
+
+```json
+{
+  "project": "contextmatrix",
+  "repo": "contextmatrix",
+  "state": "succeeded",
+  "error": ""
+}
+```
+
+The server reconciles the reported state against the registry's `committed` flag
+(which is set by the `commit_knowledge_docs` MCP tool side effect):
+
+- `succeeded` + committed → `StateSucceeded`
+- `succeeded` + `!committed` → `StateFailed("commit not observed")`
+- any other state → `StateFailed`
+
+Responds with `{"ok": true, "tracked": <bool>}`. `tracked` is `false` when no
+in-flight job is found for the `(project, repo)` pair, in which case the
+callback is acknowledged but not acted on.
+
 ### GET /api/v1/cards/{project}/{id}/autonomous
 
 Runner-only read endpoint. Authenticated with HMAC-SHA256 over an empty body
@@ -812,9 +998,8 @@ path.
 
 Project-agnostic chat sessions that share the runner's worker image but use
 long-lived containers instead of card-scoped one-shots. Identity follows the
-same `X-Agent-ID` tagging convention as the rest of the API (see § Trust
-model in `CLAUDE.md`); the web UI defaults to `human:web` when the header is
-absent.
+same `X-Agent-ID` tagging convention as the rest of the API (see § Trust model
+in `CLAUDE.md`); the web UI defaults to `human:web` when the header is absent.
 
 ### POST /api/chats
 
@@ -834,24 +1019,28 @@ All three fields are optional. An empty `title` is auto-filled from the first
 user message; `project` may be empty for cross-project chats. `model` selects
 the orchestrator model for this session; omit to use `chat.default_model`. The
 value must be a key from `chat.models` — unknown IDs return `400`
-(`INVALID_MODEL`). The choice is persisted on the session row and forwarded
-to the container as `CM_ORCHESTRATOR_MODEL` on every `/open`.
+(`INVALID_MODEL`). The choice is persisted on the session row and forwarded to
+the container as `CM_ORCHESTRATOR_MODEL` on every `/open`.
 
 Response (`201 Created`): the new `ChatSession` row.
 
 ### GET /api/chats/models
 
-List the chat model allowlist and the configured default. Used by the New
-Chat dialog to populate the model picker.
+List the chat model allowlist and the configured default. Used by the New Chat
+dialog to populate the model picker.
 
 Response:
 
 ```json
 {
   "models": [
-    {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "max_tokens": 200000},
-    {"id": "claude-opus-4-7",           "label": "Opus 4.7",  "max_tokens": 1000000},
-    {"id": "claude-sonnet-4-6",         "label": "Sonnet 4.6","max_tokens": 1000000}
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "label": "Haiku 4.5",
+      "max_tokens": 200000
+    },
+    { "id": "claude-opus-4-7", "label": "Opus 4.7", "max_tokens": 1000000 },
+    { "id": "claude-sonnet-4-6", "label": "Sonnet 4.6", "max_tokens": 1000000 }
   ],
   "default": "claude-sonnet-4-6"
 }
@@ -864,13 +1053,14 @@ Models are sorted by `id`. When chat is disabled in config the response is
 
 List sessions, newest-first by `last_active`. Query parameters:
 
-| Param        | Effect                                                    |
-| ------------ | --------------------------------------------------------- |
-| `project`    | Filter by project name (omit for all)                     |
-| `status`     | Filter by `cold` / `active` / `warm-idle` / `ending`      |
-| `created_by` | Filter by agent ID (e.g. `human:web-1a2b3c4d`)            |
+| Param        | Default | Max  | Effect                                                                           |
+| ------------ | ------- | ---- | -------------------------------------------------------------------------------- |
+| `project`    | —       | —    | Filter by project name (omit for all)                                            |
+| `status`     | —       | —    | Filter by `cold` / `active` / `warm-idle` / `ending`. Unknown values return 400. |
+| `created_by` | —       | —    | Filter by agent ID (e.g. `human:web-1a2b3c4d`)                                   |
+| `limit`      | `500`   | 5000 | Cap on rows returned; out-of-range values clamp / 400                            |
 
-Response: a JSON array of `ChatSession`. Always `[]`, never `null`.
+Response: a JSON array of `Session`. Always `[]`, never `null`.
 
 ### GET /api/chats/{id}
 
@@ -878,11 +1068,11 @@ Returns the `ChatSession` row. `404` (`CHAT_NOT_FOUND`) if unknown.
 
 Response fields that the UI header consumes:
 
-| Field                       | Type    | Meaning                                                                                                       |
-| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| `model`                     | string  | Orchestrator model ID. Set at creation; reused on every `/open`.                                              |
-| `context_tokens`            | int     | Last `input + cache_read + cache_create` reported by Claude. Updated on every assistant turn.                  |
-| `context_tokens_updated_at` | RFC3339 | Timestamp of the last `context_tokens` update. Zero (`0001-01-01T00:00:00Z`) until the first usage entry.    |
+| Field                       | Type    | Meaning                                                                                                                                    |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `model`                     | string  | Orchestrator model ID. Set at creation; reused on every `/open`.                                                                           |
+| `context_tokens`            | int     | Last `input + cache_read + cache_create` reported by Claude. Updated on every assistant turn.                                              |
+| `context_tokens_updated_at` | RFC3339 | Timestamp of the last `context_tokens` update. Zero (`0001-01-01T00:00:00Z`) until the first usage entry.                                  |
 | `rehydration_active`        | bool    | `true` between cold-reopen and the agent's `chat_rehydration_complete` call. Drives the "Restoring workspace…" banner. Omitted when false. |
 
 ### PATCH /api/chats/{id}
@@ -890,15 +1080,15 @@ Response fields that the UI header consumes:
 Update a session's title.
 
 ```json
-{"title": "Renamed: auth-flow regression"}
+{ "title": "Renamed: auth-flow regression" }
 ```
 
 Response: the updated `ChatSession`.
 
 ### DELETE /api/chats/{id}
 
-Removes the session and its transcript (FK cascade on `chat_messages`). If
-the session is `active` or `warm-idle`, the runner container is ended first.
+Removes the session and its transcript (FK cascade on `chat_messages`). If the
+session is `active` or `warm-idle`, the runner container is ended first.
 
 ### POST /api/chats/{id}/open
 
@@ -912,21 +1102,21 @@ Response: the refreshed `ChatSession` (now with `status: active` and a
 
 ### POST /api/chats/{id}/end
 
-End the session: closes the container's stdin and force-stops it. Status
-flips to `cold`; `container_id` is cleared.
+End the session: closes the container's stdin and force-stops it. Status flips
+to `cold`; `container_id` is cleared.
 
 Response (`200 OK`): the refreshed `ChatSession` in the cold state.
 
 ### POST /api/chats/{id}/messages
 
 Send a user message into the active chat container. The Manager appends the
-message to the transcript with a server-assigned seq, broadcasts a `user`
-event on the per-session SSE hub, then forwards the message to the runner.
+message to the transcript with a server-assigned seq, broadcasts a `user` event
+on the per-session SSE hub, then forwards the message to the runner.
 
 Request:
 
 ```json
-{"content": "Show me the diff between v1 and v2 of the auth middleware."}
+{ "content": "Show me the diff between v1 and v2 of the auth middleware." }
 ```
 
 `content` is capped at 8 KiB (`413` on overflow).
@@ -934,32 +1124,44 @@ Request:
 Response (`202 Accepted`):
 
 ```json
-{"ok": true, "message_id": "msg-1234abcd"}
+{ "ok": true, "message_id": "msg-1234abcd" }
 ```
 
 ### GET /api/chats/{id}/messages
 
 Bootstrap endpoint that returns persisted transcript rows from SQLite, ordered
-oldest-first. Used by the browser on Chat tab mount (and on refresh) to
-backfill the in-memory ring buffer beyond what the SSE in-memory replay
-(128 entries) can cover.
+oldest-first. Used by the browser on Chat tab mount (and on refresh) to backfill
+the in-memory ring buffer beyond what the SSE in-memory replay (128 entries) can
+cover.
 
 Query parameters:
 
-| Param       | Default | Max  | Effect                                       |
-| ----------- | ------- | ---- | -------------------------------------------- |
-| `since_seq` | `0`     | —    | Exclusive lower bound: returns `seq > N`.    |
-| `limit`     | `200`   | 1000 | Cap on rows returned. Values above clamp.    |
+| Param       | Default | Max  | Effect                                    |
+| ----------- | ------- | ---- | ----------------------------------------- |
+| `since_seq` | `0`     | —    | Exclusive lower bound: returns `seq > N`. |
+| `limit`     | `200`   | 1000 | Cap on rows returned. Values above clamp. |
 
 Response:
 
 ```json
 {
   "messages": [
-    {"id": 1, "session_id": "01J...", "seq": 1, "role": "user",
-     "content": "{\"text\":\"hi\"}", "created_at": "2026-05-14T12:00:00Z"},
-    {"id": 2, "session_id": "01J...", "seq": 2, "role": "assistant_text",
-     "content": "{\"text\":\"hello\"}", "created_at": "2026-05-14T12:00:01Z"}
+    {
+      "id": 1,
+      "session_id": "01J...",
+      "seq": 1,
+      "role": "user",
+      "content": "{\"text\":\"hi\"}",
+      "created_at": "2026-05-14T12:00:00Z"
+    },
+    {
+      "id": 2,
+      "session_id": "01J...",
+      "seq": 2,
+      "role": "assistant_text",
+      "content": "{\"text\":\"hello\"}",
+      "created_at": "2026-05-14T12:00:01Z"
+    }
   ]
 }
 ```
@@ -969,24 +1171,42 @@ return `400 BAD_REQUEST`. Unknown session returns `404 CHAT_NOT_FOUND`.
 
 The browser pairs this REST bootstrap with the SSE `/stream` endpoint: fetches
 all messages with `since_seq=0`, records the highest seq, then subscribes to
-`/stream?since_seq=<last>` so the seam is gapless. SSE events whose `seq`
-falls inside the REST window are deduped on the client.
+`/stream?since_seq=<last>` so the seam is gapless. SSE events whose `seq` falls
+inside the REST window are deduped on the client.
 
 ### GET /api/chats/{id}/stream
 
-Server-Sent Events stream of new transcript entries for one session. Each
-event payload:
+Server-Sent Events stream of new transcript entries for one session. Two event
+kinds share the wire:
 
-```json
-{"seq": 7, "role": "assistant_text", "content": "{\"text\":\"…\"}"}
-```
+- **Default (transcript) event** — emitted without an SSE `event:` header so
+  older `EventSource.onmessage` listeners keep working. Payload:
+
+  ```json
+  {
+    "seq": 7,
+    "role": "assistant_text",
+    "content": "{\"text\":\"…\"}",
+    "rehydration_phase": false
+  }
+  ```
+
+  `rehydration_phase` is omitted when false so the UI can group rehydration
+  turns distinctly from normal traffic.
+
+- **`session_updated` event** — emitted with `event: session_updated` so the
+  browser can listen on a named channel. Carries the same shape as the `Session`
+  row (or `{}` when the manager has no update to attach). Used to push status /
+  context-token changes without a full re-fetch.
 
 Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
 server-side 128-entry ring buffer before tailing live events). The handler
 flushes a `: connected\n\n` comment immediately on subscribe so browsers see
 `onopen` fire before any event lands, and sends `: keepalive\n\n` every 15
-seconds. SSE write deadlines are cleared per-connection so the stream
-survives the server-wide `WriteTimeout`.
+seconds. SSE write deadlines are cleared per-connection so the stream survives
+the server-wide `WriteTimeout`. Subscribing to an unknown session returns
+`404 CHAT_NOT_FOUND` (the handler validates the session exists before reaching
+the hub).
 
 ## MCP Endpoints
 
@@ -1004,10 +1224,11 @@ final summary message. Called by a chat-mode worker after it has finished
 ingesting the rehydration prompt.
 
 **Identity gate:** the caller's `X-CM-Chat-Session` header must equal the
-`session_id` parameter; otherwise the call is rejected. The empty-caller
-case (no header) is allowed for card-mode and out-of-band callers, but the
-session_id must still resolve to an active chat session.
+`session_id` parameter; otherwise the call is rejected. The empty-caller case
+(no header) is allowed for card-mode and out-of-band callers, but the session_id
+must still resolve to an active chat session.
 
 **Parameters:**
+
 - `session_id` (string, required)
 - `summary` (string, required) — surfaced to the UI as an assistant message

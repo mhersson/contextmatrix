@@ -101,9 +101,10 @@ CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH=/etc/contextmatrix/github-app/private-key.
 
 The runner takes the same auth-mode fields (`auth_mode`, `app_id`,
 `installation_id`, `private_key_path`, `pat.token`, `host`, `api_base_url`) with
-the `CMR_GITHUB_*` env-var prefix (see runner README). Issue importing is
-server-only — there is no `CMR_GITHUB_ISSUE_IMPORTING_*` equivalent and the
-runner's `GitHubConfig` has no `IssueImporting` field.
+the `CMR_GITHUB_*` env-var prefix — see the
+[contextmatrix-runner README](https://github.com/mhersson/contextmatrix-runner).
+Issue importing is server-only: there is no `CMR_GITHUB_ISSUE_IMPORTING_*`
+equivalent and the runner's `GitHubConfig` has no `IssueImporting` field.
 
 ### 5. Verify
 
@@ -113,9 +114,15 @@ Start the server. The startup log should show:
 INFO github token provider initialized auth_mode=app
 ```
 
-If you see an error like `github api returned status 401`, the App is not
-installed on the boards repo (or the installation was not granted the
-**Contents: read & write** permission).
+The server does not validate the private-key file at config-load — it only
+checks that `private_key_path` is non-empty. A missing or unreadable PEM file
+fails on the first GitHub call (e.g., `git clone` of the boards repo) rather
+than at startup. The runner is stricter: it `os.Stat`s `private_key_path` in
+`Validate()` and refuses to start if the file is missing.
+
+If you see `github api: status 401` or `status 404` from a git clone or REST
+call, the App is not installed on the relevant repo (or the installation was not
+granted the **Contents: read & write** permission).
 
 ## Setup: Fine-grained PAT
 
@@ -177,6 +184,12 @@ github:
 
 If your enterprise's API URL doesn't match the standard `api.<host>` pattern,
 set `github.api_base_url` explicitly.
+
+When `github.host` is set, both `github.com` and the enterprise hostname are
+accepted simultaneously for project repo URLs (boards, task-skills, and any
+project's `repo` field in `.board.yaml`). This lets a single CM instance
+coordinate work across both surfaces with one identity, provided the App or PAT
+has access on both. See `internal/config/config.go` (`AllowedHosts`).
 
 Note: `api_base_url` derivation is server-only. The contextmatrix-runner does
 **not** derive `api_base_url` from `host`; if you set `host` on the runner you

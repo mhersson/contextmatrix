@@ -53,18 +53,26 @@ flowchart TB
 
 The repo includes a multi-stage Dockerfile:
 
-- **Stage 1**: Node.js — builds the React frontend
-- **Stage 2**: Go — compiles the binary with embedded frontend
-- **Stage 3**: Alpine runtime with `git` and `ca-certificates` (HTTPS only — SSH
-  for boards repos is no longer supported)
+- **Stage 1**: Node.js — builds the React frontend.
+- **Stage 2**: Go — compiles the binary with the frontend embedded via
+  `embed.FS` (`web/embed.go`), so the final image is a single binary.
+- **Stage 3**: Alpine runtime with `git`, `openssh-client`, and
+  `ca-certificates`. The runtime user is `nobody` with `HOME=/home/nobody`. The
+  `openssh-client` package is present for backward compatibility only — the
+  config validator rejects any `boards.git_remote_url` or
+  `task_skills.git_remote_url` that does not start with `https://`, so SSH
+  cloning is not exercised in practice.
 
 Workflow skills are baked into the image at `/etc/contextmatrix/skills/` (the
 Dockerfile sets `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` to that path). Override
 `workflow_skills_dir` or `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` if you bake them at
-a different path.
+a different path. Task-skills are **not** baked into the image — see the
+task-skills note in the Kubernetes section below.
 
 ```bash
 docker build -t contextmatrix:latest .
+# or, with version metadata stamped into the binary:
+make docker-build
 ```
 
 ## Running with Docker
@@ -72,18 +80,31 @@ docker build -t contextmatrix:latest .
 The simplest production deployment — a single container with a volume for boards
 data.
 
+`config.Validate()` requires the following at startup (the server refuses to
+start otherwise):
+
+- `boards.dir`
+- `github.auth_mode` set to `app` or `pat`, with the matching credential block
+  populated (App: `app_id` + `installation_id` + `private_key_path`; PAT:
+  `pat.token`).
+
+The other commonly-set fields (`mcp_api_key`, `runner.*`, `chat.*`) are optional
+but typical for a real deployment.
+
 ```bash
 # Initialize the boards repo
 mkdir -p ~/boards/contextmatrix
 cd ~/boards/contextmatrix && git init
 
-# Run
+# Run (PAT auth mode shown — github.auth_mode is mandatory)
 docker run -d \
   --name contextmatrix \
   -p 8080:8080 \
   -v ~/boards/contextmatrix:/data/boards \
   -e CONTEXTMATRIX_BOARDS_DIR=/data/boards \
   -e CONTEXTMATRIX_MCP_API_KEY=your-mcp-key-here \
+  -e CONTEXTMATRIX_GITHUB_AUTH_MODE=pat \
+  -e CONTEXTMATRIX_GITHUB_PAT_TOKEN=ghp_xxx \
   contextmatrix:latest
 ```
 
@@ -94,6 +115,17 @@ For runner integration, add:
   -e CONTEXTMATRIX_RUNNER_URL=http://runner-host:9090 \
   -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-must-be-at-least-32-chars-long \
 ```
+
+### Chat persistence
+
+The global chat panel persists sessions and transcripts in SQLite. The default
+path is `$XDG_STATE_HOME/contextmatrix/chats.db`; override with
+`CONTEXTMATRIX_CHAT_DB_PATH` (or `chat.db_path`) and mount that directory on a
+volume if you want chat history to survive container restarts. Other tunables —
+`chat.idle_ttl`, `chat.max_concurrent`, `chat.default_model`,
+`chat.resume_budget_tokens`, `chat.rehydration_timeout`, and the `chat.models`
+allowlist — all have working defaults; see `config.yaml.example` for the full
+list.
 
 ## Running on Kubernetes
 
@@ -122,6 +154,41 @@ writers.
 > variant; the server now rejects any `boards.git_remote_url` (and
 > `task_skills.git_remote_url`) that does not start with `https://`. Use the PAT
 > or GitHub App variants below.
+
+### Health probes
+
+The main listener serves two probe endpoints, both unauthenticated and excluded
+from request logging:
+
+| Path       | Returns                                            | Use as          |
+| ---------- | -------------------------------------------------- | --------------- |
+| `/healthz` | `200 {"status":"ok"}` always (no checks)           | liveness probe  |
+| `/readyz`  | `200` with per-check JSON, or `503` if any degrade | readiness probe |
+
+`/readyz` runs the registered service health checks (e.g. boards-repo write
+access) with a 500ms timeout and returns the per-check results in
+`{ "status": "ok"|"degraded", "checks": [...] }`. Treat any non-200 response as
+not-ready.
+
+Example pod spec snippet:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /healthz, port: 8080 }
+  periodSeconds: 10
+readinessProbe:
+  httpGet: { path: /readyz, port: 8080 }
+  periodSeconds: 5
+```
+
+### Admin listener (Prometheus + pprof)
+
+`/metrics` and `/debug/pprof/*` are served by a **separate** admin listener, not
+the main port. Set `admin_port` (env `CONTEXTMATRIX_ADMIN_PORT`) to a non-zero
+value to enable it. The bind address defaults to `127.0.0.1`; binding to
+anything else logs a loud warning because pprof can dump heap and goroutine
+state. In a pod, expose it as a sidecar port and scrape via the cluster's
+Prometheus operator; do not route it through the public proxy.
 
 ### Example deployment snippet — GitHub fine-grained PAT
 
@@ -259,6 +326,31 @@ from the LAN:
 - `/mcp*` — MCP endpoint (agent access)
 - `/healthz` — liveness probe
 - `/readyz` — readiness probe
+
+The admin listener (when enabled) is on a separate port (`admin_port`, loopback
+by default) and is never reachable through the main port, so no proxy rule is
+required for it.
+
+### Header and stream passthrough
+
+ContextMatrix runs a CSRF guard on every state-changing request: the request
+must carry `X-Requested-With: contextmatrix`. The web UI injects this header
+automatically. A reverse proxy must **preserve** that header and not strip it.
+Nginx, Caddy, and Cloudflare all pass it through by default; check that no
+custom header policy is filtering it.
+
+The app uses SSE for several long-lived streams (board events, runner session
+logs, chat events). Configure the proxy for these:
+
+- Disable response buffering (Nginx: `proxy_buffering off;` for the relevant
+  locations; Caddy buffers very little by default).
+- Use long-lived idle timeouts (≥ a few minutes — the server emits keepalive
+  comments but a 60s idle timeout will still cut connections).
+- No HTTP/2 stream multiplexing limits below ~32 concurrent streams per client;
+  a single dashboard tab opens multiple SSE connections.
+
+WebSockets are not used; everything streaming is SSE over plain HTTP/1.1 or
+HTTP/2.
 
 ### Cloudflare Tunnel example
 

@@ -1,12 +1,25 @@
 # Recommended GitHub auth topologies
 
 ContextMatrix has two binaries (the server and the runner). Each is configured
-separately at its own binary, optionally with a shared or distinct GitHub
-identity. This document covers three deployment patterns and provides
-side-by-side configs.
+separately, optionally with a shared or distinct GitHub identity. This document
+covers three deployment patterns and provides side-by-side configs.
 
 For step-by-step App / PAT creation, see
-[github-auth-setup.md](github-auth-setup.md).
+[github-auth-setup.md](github-auth-setup.md). For runner internals (env-var
+mapping, container handoff via `CM_GIT_TOKEN`, etc.) see the
+[contextmatrix-runner README](https://github.com/mhersson/contextmatrix-runner).
+
+**Which binary touches which repo:**
+
+| Repo                   | Server                                  | Runner                                        |
+| ---------------------- | --------------------------------------- | --------------------------------------------- |
+| Boards repo            | clone / pull / push                     | not accessed                                  |
+| Task-skills repo       | clone / pull (startup)                  | pull before each worker spawn                 |
+| Project repos (GitHub) | issue import (REST), branch list (REST) | mints `CM_GIT_TOKEN` for the worker container |
+
+The runner itself does not call any GitHub REST endpoint. The worker container
+clones the project repo and runs `gh pr create` using the token the runner
+mints.
 
 ## Topology 1: Single App, both binaries _(recommended default)_
 
@@ -143,12 +156,12 @@ audit trail.
 **Setup:**
 
 1. Create a GitHub App. Install it on: boards repo, task-skills repo, every
-   project repo. (Server uses this.)
+   project repo. (Server uses this for all three surfaces.)
 2. Create a fine-grained PAT. Grant access to: task-skills repo and every
-   project repo. (Runner uses this; the runner doesn't touch the boards repo,
-   but it does `git pull` the task-skills repo before each worker spawn and
-   hands the same token to the worker container as `CM_GIT_TOKEN` for
-   project-repo clone/push.)
+   project repo. (Runner uses this — it pulls task-skills before each worker
+   spawn and hands the same token to the worker container as `CM_GIT_TOKEN` for
+   project-repo clone/push. The runner never touches the boards repo, so it does
+   not need access there.)
 
 **Server config:** identical to Topology 1's server.
 

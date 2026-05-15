@@ -3,6 +3,22 @@
 - **YAML frontmatter parsing:** use `bytes.SplitN(content, []byte("---"), 3)` to
   split. Element 0 is empty (before first `---`), element 1 is YAML, element 2
   is body. Handle `\r\n` line endings.
+- **`gitops.CommitQueue` per-project ordering, idle teardown:** the queue spawns
+  one goroutine per `Project` value and serializes that project's commits in
+  enqueue order; different projects commit in parallel. Production wires
+  `gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))` in
+  `main.go`, so a worker that goes idle for 30 minutes exits and the next
+  `Enqueue` for that project spawns a fresh one — `projectWorker.closed` plus
+  the per-worker mutex stop an Enqueue from sending into a channel the worker is
+  about to abandon. Do not assume worker identity across an idle gap when
+  reasoning about cached state.
+- **`CardService.LockWrites` is paired with queue pause + drain:** the gitsync
+  layer holds `LockWrites` across a pull+rebase so no card mutation interleaves
+  with the rebase. The same function also calls `commitQueue.Pause()` and
+  `AwaitIdle(ctx)` with a 30-second budget so an in-flight go-git commit cannot
+  collide with the shell-git rebase on `.git/index.lock`. `UnlockWrites` must
+  call `Resume()` before releasing `writeMu`; reversing the order leaves the
+  queue paused under a fresh write.
 - **Deferred git commits (`boards.git_deferred_commit`):** When
   `boards.git_deferred_commit: true` in `config.yaml`, agent mutations
   (heartbeats, log entries, intermediate updates) are batched and committed in a
@@ -118,16 +134,16 @@
   `slog.Default()` safely in those paths.
 - **MCP tool name in the request log line:** for `POST /mcp` requests the
   `observe` middleware emits two extra fields alongside the standard `method`,
-  `path`, `status`, `duration_ms`, and `request_id` fields:
-  `mcp_method` (JSON-RPC method, e.g. `tools/call`) and `mcp_tool` (tool name,
-  e.g. `claim_card` or `report_usage`). Both fields are omitted for non-MCP
-  routes and for MCP methods other than `tools/call` (e.g. `initialize`) where
-  there is no tool name. The extraction is best-effort — a body-peeking
-  middleware (`mcpRequestInfoMiddleware` in `internal/mcp/server.go`) reads the
-  request body, parses the JSON-RPC envelope, restores the body, and writes the
-  results into a `*ctxlog.MCPCall` stashed in the context by `observe`. Errors
-  during extraction are swallowed; the log line is still emitted with whatever
-  fields were successfully extracted.
+  `path`, `status`, `duration_ms`, and `request_id` fields: `mcp_method`
+  (JSON-RPC method, e.g. `tools/call`) and `mcp_tool` (tool name, e.g.
+  `claim_card` or `report_usage`). Both fields are omitted for non-MCP routes
+  and for MCP methods other than `tools/call` (e.g. `initialize`) where there is
+  no tool name. The extraction is best-effort — a body-peeking middleware
+  (`mcpRequestInfoMiddleware` in `internal/mcp/server.go`) reads the request
+  body, parses the JSON-RPC envelope, restores the body, and writes the results
+  into a `*ctxlog.MCPCall` stashed in the context by `observe`. Errors during
+  extraction are swallowed; the log line is still emitted with whatever fields
+  were successfully extracted.
 - **`/metrics` and pprof live on the admin port:** Prometheus scraping
   (`GET /metrics`) and `/debug/pprof/*` are served only on the admin listener
   (`admin_port`), which defaults to `127.0.0.1` (`admin_bind_addr`). The main
@@ -145,56 +161,76 @@
   `https://` regardless of `github.auth_mode`. SSH URLs are rejected
   unconditionally — there is no SSH transport fallback.
 - **Chat SQLite: WAL + MaxOpenConns + manager-level writer mutex:** the chat
-  store sets `MaxOpenConns=5` so concurrent readers (`ListMessages`,
-  `MaxSeq`, `GetSession`) do not queue behind a writer. SQLite remains a
-  single-writer engine regardless of pool size; the single-writer gate is
-  `chat.Manager.mu`, held across the entire seq-assignment + store insert in
-  `AppendMessage`. Do not move the store write outside the lock — disk
-  insertion order must match seq order, and the in-memory seq cache must
-  stay consistent with the on-disk `(session_id, seq)` UNIQUE index. The
-  pool size is a reader-concurrency knob; raising the writer concurrency
-  requires changing the manager's locking model, not the pool.
+  store sets `MaxOpenConns=5` so concurrent readers (`ListMessages`, `MaxSeq`,
+  `GetSession`) do not queue behind a writer. SQLite remains a single-writer
+  engine regardless of pool size; the single-writer gate is `chat.Manager.mu`,
+  held across the entire seq-assignment + store insert in `AppendMessage`. Do
+  not move the store write outside the lock — disk insertion order must match
+  seq order, and the in-memory seq cache must stay consistent with the on-disk
+  `(session_id, seq)` UNIQUE index. The pool size is a reader-concurrency knob;
+  raising the writer concurrency requires changing the manager's locking model,
+  not the pool.
+- **SQLite driver is `modernc.org/sqlite`, pragmas live in the DSN:** the chat
+  store opens
+  `sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")`.
+  The driver name is `"sqlite"` (not `"sqlite3"` — that registration belongs to
+  `mattn/go-sqlite3`, which we do **not** import to keep the binary CGO-free).
+  The `_pragma=...` query-string parameters are a `modernc.org` extension;
+  switching drivers means rewriting these as `PRAGMA` statements executed on the
+  open connection.
+- **Chat SSE per-session subscriber cap:** `SSEHub.Subscribe` returns an error
+  if a session already has 32 live subscribers (`maxSubscribersPerSession` in
+  `internal/chat/sse.go`). A normal browser tab is one subscriber; the cap
+  blocks runaway clients from exhausting goroutines and channel memory. The
+  128-entry ring buffer per session is also a hard cap — events older than the
+  ring window are gone, and reconnects past the window depend on the REST
+  bootstrap in `useChatStream` to backfill. Session-update events
+  (`session_updated`) are NOT stored in the ring; only `message` events are,
+  since session metadata is meant to be re-fetched on reconnect.
 - **Chat schema migrations are versioned:** `internal/chat/sqlite/migrations.go`
   uses a `schema_migrations(version, applied_at)` table. Every migration is
   idempotent (`IF EXISTS` / `IF NOT EXISTS`) so a pre-versioning DB picks up
-  unapplied versions on first open without a separate back-fill step. v2
-  drops the original non-unique `idx_chat_messages_session_seq` and creates
-  the unique index that supersedes it. When adding a v3+, append to the
-  `migrations` slice; do not edit shipped versions.
+  unapplied versions on first open without a separate back-fill step. v2 drops
+  the original non-unique `idx_chat_messages_session_seq` and creates the unique
+  index that supersedes it. v3 adds rehydration / context-token columns to
+  `chat_sessions` and a `rehydration_phase` column to `chat_messages` — SQLite
+  has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so v3 uses `addColumnIfMissing`
+  (a `PRAGMA table_info` probe) instead of a raw `ALTER`. When adding v4+,
+  append to the `migrations` slice; do not edit shipped versions, and reach for
+  `addColumnIfMissing` rather than a plain `ALTER` for column adds so re-runs
+  against drifted databases stay safe.
 - **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
-  `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap
-  via `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID
-  change, the hook fetches the persisted transcript first, records the
-  highest `seq`, then subscribes to the SSE stream with `since_seq=<last>`.
-  SSE events whose seq falls inside the bootstrap window are deduped on the
-  client. Reverting to SSE-only (no bootstrap) loses everything older than
-  the server-side 128-entry ring on refresh.
+  `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap via
+  `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID change, the
+  hook fetches the persisted transcript first, records the highest `seq`, then
+  subscribes to the SSE stream with `since_seq=<last>`. SSE events whose seq
+  falls inside the bootstrap window are deduped on the client. Reverting to
+  SSE-only (no bootstrap) loses everything older than the server-side 128-entry
+  ring on refresh.
 - **Chat rehydration is best-effort and never blocks `/open`:** the runner's
   `prepareChatResume` writes `resume.jsonl` + `resume.meta.json` into a
-  per-container host directory before starting the container. If the write
-  fails (host tmp not writable, disk full, etc.), `manager.go` logs
+  per-container host directory before starting the container. If the write fails
+  (host tmp not writable, disk full, etc.), `manager.go` logs
   `StartChat: rehydration file prep failed; starting fresh agent`, omits
   `CM_CHAT_RESUME=1`, and starts the container anyway. The stdin priming
-  envelope is still written (it is gated on the CM payload's `resume`, not
-  on the file-write outcome), so the agent receives the instructions, fails
-  to read `/run/cm-chat/resume.jsonl`, and calls
-  `chat_rehydration_complete` with a summary that says so. `/open` always
-  returns `200`; surface failures via the transcript, never by refusing to
-  open.
+  envelope is still written (it is gated on the CM payload's `resume`, not on
+  the file-write outcome), so the agent receives the instructions, fails to read
+  `/run/cm-chat/resume.jsonl`, and calls `chat_rehydration_complete` with a
+  summary that says so. `/open` always returns `200`; surface failures via the
+  transcript, never by refusing to open.
 - **`rehydration_phase` stamping prevents reopen pollution:** every message
   appended while `Session.RehydrationActive=TRUE` gets stamped with
-  `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build`
-  drops those rows when assembling the next resume payload, so the resumed
-  agent never sees prior agents' `ls`/`Read`/`Bash` chatter — only real
-  conversation turns plus the prior `chat_rehydration_complete` summaries.
-  Without this filter, each reopen would compound the previous reopen's
-  rehydration noise into the next transcript.
+  `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build` drops
+  those rows when assembling the next resume payload, so the resumed agent never
+  sees prior agents' `ls`/`Read`/`Bash` chatter — only real conversation turns
+  plus the prior `chat_rehydration_complete` summaries. Without this filter,
+  each reopen would compound the previous reopen's rehydration noise into the
+  next transcript.
 - **`claude -p PROMPT --input-format stream-json` does NOT auto-execute
-  `PROMPT`:** Claude treats `-p` as system context when stream-json input
-  is enabled, not as a user message. The rehydration priming therefore
-  has to arrive as a stream-json `user`-typed envelope written to stdin
-  *after* `AttachChatStdin` succeeds — see `webhook/chat.go` and
-  `streammsg.BuildUserMessage`. The same applies to any future "kick the
-  agent off with X" pattern in chat or HITL modes: use a stream-json user
-  envelope on stdin, not `-p`. Cost us several iterations during the chat
-  rehydration build.
+  `PROMPT`:** Claude treats `-p` as system context when stream-json input is
+  enabled, not as a user message. The rehydration priming therefore has to
+  arrive as a stream-json `user`-typed envelope written to stdin _after_
+  `AttachChatStdin` succeeds — see `webhook/chat.go` and
+  `streammsg.BuildUserMessage`. The same applies to any future "kick the agent
+  off with X" pattern in chat or HITL modes: use a stream-json user envelope on
+  stdin, not `-p`. Cost us several iterations during the chat rehydration build.

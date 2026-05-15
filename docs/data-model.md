@@ -252,8 +252,9 @@ its own, the parent's `skills` value is copied onto the subtask at creation time
 to `create_card` to override.
 
 **Override path:** The `skills` field can be set via `update_card` MCP tool, the
-REST `PATCH` endpoint, or by hand-editing the YAML. The web UI multi-select is a
-follow-up feature.
+REST `PATCH` endpoint, hand-editing the YAML, or the per-card multi-select in
+the CardPanel metadata (`MetadataSkills`). Project-wide defaults are managed via
+the `DefaultSkillsSelector` in Project Settings.
 
 ## Go type definitions
 
@@ -328,6 +329,12 @@ type TokenUsage struct {
 ```go
 // internal/board/project.go
 
+type Repo struct {
+    Name    string `yaml:"name"              json:"name"`
+    URL     string `yaml:"url"               json:"url"`
+    Primary bool   `yaml:"primary,omitempty" json:"primary,omitempty"`
+}
+
 type RemoteExecutionConfig struct {
     Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
     RunnerImage string `yaml:"runner_image,omitempty" json:"runner_image,omitempty"`
@@ -347,7 +354,8 @@ type ProjectConfig struct {
     DisplayName     string                 `yaml:"display_name,omitempty"     json:"display_name,omitempty"`
     Prefix          string                 `yaml:"prefix"                     json:"prefix"`
     NextID          int                    `yaml:"next_id"                    json:"next_id"`
-    Repo            string                 `yaml:"repo,omitempty"             json:"repo,omitempty"`
+    Repo            string                 `yaml:"repo,omitempty"             json:"repo,omitempty"`     // legacy singular field; superseded by Repos
+    Repos           []Repo                 `yaml:"repos,omitempty"            json:"repos,omitempty"`    // multi-repo projects; one entry may be Primary
     States          []string               `yaml:"states"                     json:"states"`
     Types           []string               `yaml:"types"                      json:"types"`
     Priorities      []string               `yaml:"priorities"                 json:"priorities"`
@@ -358,6 +366,13 @@ type ProjectConfig struct {
     Templates       map[string]string      `yaml:"-"                          json:"templates,omitempty"`      // loaded from templates/ dir at runtime
 }
 ```
+
+`ProjectConfig.EffectiveRepos()` normalises the two fields into a single
+`[]Repo`: when `Repos` is set the slice is returned with empty `Name` fields
+derived from `URL` and the first entry auto-promoted to `Primary` when no entry
+sets it; otherwise the legacy singular `Repo` field is synthesised as
+`[]Repo{{URL: Repo, Primary: true}}`. Validation rejects duplicate names,
+missing URLs, or more than one `Primary: true` entry.
 
 **Immutable fields** (set on creation, never changed): `id`, `project`,
 `created`, `source`. Additionally, `branch_name` is immutable after first

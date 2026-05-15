@@ -9,23 +9,32 @@ Code.
 ## Architecture Overview
 
 ```text
-                                   HMAC-signed webhooks
-                      ┌──────────────────────────────────────────────────┐
-                      │                                                  ▼
-  ┌──────────────┐    │    ┌───────────────────┐    ┌────────────────────────┐
-  │  Web UI      │────┘    │  contextmatrix    │    │ contextmatrix-runner   │
-  │  (Run btn)   │─────────│  (REST API)       │───►│  /trigger              │
-  │  (Console)   │◄────────│  (SSE proxy)      │◄───│  /kill  /stop-all      │
-  │  (Chat input)│─────────│  POST /message    │───►│  /message              │
-  │  (Promote)   │─────────│  POST /promote    │───►│  /promote              │
-  │              │         │  (release_card    │───►│  /end-session          │
-  │              │         │   → terminal)     │    │                        │
-  └──────────────┘         │  POST /mcp        │◄───│  Docker containers     │
-                           │  (MCP tools)      │◄───│  (Claude Code)         │
-                           └───────────────────┘    └────────────────────────┘
-                                  ▲                            │
-                                  │      MCP (Bearer auth)     │
-                                  └────────────────────────────┘
+  ┌──────────────┐         ┌──────────────────────┐    HMAC      ┌────────────────────────┐
+  │  Web UI      │────────►│  contextmatrix       │─── webhook ─►│ contextmatrix-runner   │
+  │  (Run btn)   │  REST   │  POST /api/.../run   │    /trigger  │                        │
+  │  (Console)   │         │  POST /api/.../stop  │    /kill     │  Docker containers     │
+  │  (Chat input)│         │  POST /api/.../msg   │    /message  │  (Claude Code)         │
+  │  (Promote)   │         │  POST /api/.../prom  │    /promote  │                        │
+  │              │         │  POST /api/.../s-all │    /stop-all │                        │
+  │              │         │                      │    /end-     │                        │
+  │              │         │  end-session         │    session   │                        │
+  │              │         │  subscriber +        │              │                        │
+  │              │         │  reconcile sweep     │ /containers  │                        │
+  │              │         │                      │◄─────────────┤                        │
+  │              │         │  GET /api/runner/    │   SSE        │                        │
+  │              │◄────────┤    logs (SSE proxy)  │◄──────────── │  GET /logs             │
+  │              │         │                      │              │                        │
+  │              │         │  POST /api/runner/   │              │                        │
+  │              │         │    status            │◄─── HMAC ────┤  reportStatus          │
+  │              │         │  POST /api/runner/   │              │                        │
+  │              │         │    knowledge-status  │◄─── HMAC ────┤  reportKnowledge       │
+  │              │         │  POST /api/runner/   │              │                        │
+  │              │         │    skill-engaged     │◄─── HMAC ────┤  reportSkill           │
+  │              │         │  GET  /api/v1/cards/ │              │                        │
+  │              │         │    .../autonomous    │◄─── HMAC ────┤  verifyAutonomous      │
+  │              │         │                      │              │                        │
+  │              │         │  POST /mcp           │◄── Bearer ───┤  MCP tools             │
+  └──────────────┘         └──────────────────────┘              └────────────────────────┘
 ```
 
 **Message paths:**
@@ -36,16 +45,21 @@ Code.
   as `GET /api/runner/logs`. Web UI opens an `EventSource` only while the Runner
   Console panel is open.
 - **Chat input** (interactive mode only) — Web UI sends
-  `POST /api/projects/{project}/cards/{id}/message` to CM, which forwards to the
-  runner's `/message` endpoint. The runner writes the message to the container's
-  stdin and echoes it as a `user` log entry.
+  `POST /api/projects/{project}/cards/{id}/message` to CM, which generates a
+  `message_id`, forwards `{card_id, project, message_id, content}` to the
+  runner's `/message` endpoint, and returns the id to the browser. The runner
+  writes the message to the container's stdin and echoes it as a `user` log
+  entry.
 - **Promote to autonomous** — Web UI sends
-  `POST /api/projects/{project}/cards/{id}/promote` to CM, which flips the
-  card's `autonomous` flag server-side (git commit + SSE event), then forwards
-  to the runner's `/promote` endpoint. The runner calls the contextmatrix
-  promote API first (fail closed — returns 502 without stdin write on failure),
-  then emits a `system` log entry and injects a canned message into stdin
-  telling the agent to check the card at its next gate.
+  `POST /api/projects/{project}/cards/{id}/promote` to CM. CM flips the card's
+  `autonomous` flag server-side (`PromoteToAutonomous` — git commit + SSE
+  event), ensures `feature_branch` and `create_pr` are enabled, then forwards to
+  the runner's `/promote` endpoint. CM short-circuits the outbound webhook when
+  the card is already autonomous (the runner's verification GET would otherwise
+  loop). The runner verifies the flag via
+  `GET /api/v1/cards/{project}/{id}/autonomous` (fail closed — 502 without stdin
+  write on failure), emits a `system` log entry, and injects a canned message
+  into stdin telling the agent to check the card at its next gate.
 
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
@@ -112,14 +126,15 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project",
-  "repo_url": "git@github.com:org/repo.git",
+  "card_id": "ALPHA-042",
+  "project": "alpha",
+  "repo_url": "https://github.com/example-org/alpha-service.git",
   "mcp_api_key": "optional-bearer-token",
-  "runner_image": "optional/custom-image:latest",
+  "runner_image": "ghcr.io/example-org/cm-runner:2026-04-23",
   "base_branch": "develop",
   "interactive": false,
-  "model": "claude-sonnet-4-6"
+  "model": "claude-sonnet-4-6",
+  "task_skills": ["go-development", "documentation"]
 }
 ```
 
@@ -131,24 +146,33 @@ container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the
 entrypoint uses as the `--model` argument to Claude Code.
 
 `base_branch` is omitted when not set on the card. When present, the runner
-should clone using `-b <base_branch>` and instruct Claude Code to open PRs
-against that branch instead of the repository default. See the runner card
-CTXRUN-019 for the implementation on the runner side.
+clones with `-b <base_branch>` and Claude Code opens PRs against that branch
+instead of the repository default. See the runner repo
+(<https://github.com/mhersson/contextmatrix-runner>) for the runner-side
+implementation.
 
-`interactive` defaults to `false`. When `true`, the runner sets the
-`CM_INTERACTIVE=1` container environment variable and launches Claude Code with
+`runner_image` is populated from the project's `remote_execution.runner_image`
+field when set; otherwise the runner falls back to its configured `base_image`.
+
+`interactive` defaults to `false`. The web UI sends `interactive: true` when the
+user clicks "Run HITL". When `true`, the runner sets the `CM_INTERACTIVE=1`
+container environment variable and launches Claude Code with
 `--input-format stream-json --output-format stream-json`. After attaching stdin,
 the runner writes a priming stream-json user message to the container that
 instructs Claude to start the `create-plan` workflow immediately — no human
 input is required to begin. See [Interactive Mode](#interactive-mode) for
 details.
 
+`task_skills` is the resolved skill list (per `docs/data-model.md`) — see
+[Task skills mount](#task-skills-mount) for the resolution rules and the
+omit-vs-empty-array distinction.
+
 **Note:** `feature_branch` and `create_pr` are auto-enabled on the card for
 **all** run triggers — both autonomous and HITL runs. This ensures a feature
 branch and PR are always created regardless of the execution mode chosen at
 launch.
 
-## Task skills mount
+#### Task skills mount
 
 When `task_skills_dir` is configured on the runner host (i.e. the value is
 non-empty), the runner bind-mounts that directory read-only into worker
@@ -157,26 +181,11 @@ containers at `/host-skills`. When `task_skills_dir` is the empty string, no
 ignored. The entrypoint copies the resolved subset of skills into
 `~/.claude/skills/` for Claude Code to discover.
 
-### Trigger payload field
-
-CM resolves the skill list (per `docs/data-model.md`) and ships it in the
-`/trigger` payload:
-
-```json
-{
-  "card_id": "ALPHA-001",
-  "project": "alpha",
-  "repo_url": "...",
-  "task_skills": ["go-development", "documentation"]
-}
-```
-
-`task_skills` is omitted when the resolved list is `nil` (mount full set). Empty
-array means "explicit none — mount nothing."
-
-### Runner env vars
-
-The runner forwards the resolution to the container as:
+CM resolves the skill list (`card.skills` > `project.default_skills` > nil) and
+ships it in the `/trigger` payload's `task_skills` field. The list is omitted
+when the resolved value is `nil` (mount full set); an empty array means
+"explicit none — mount nothing." The runner forwards the resolution to the
+container as:
 
 - `CM_TASK_SKILLS_SET=1` whenever the payload had a non-nil `task_skills` field.
 - `CM_TASK_SKILLS=<csv>` containing the comma-joined list (empty allowed).
@@ -185,7 +194,7 @@ The runner forwards the resolution to the container as:
 mount nothing" — the env var alone isn't enough because `unset` and
 `empty string` are indistinguishable in shell.
 
-### Entrypoint behaviour
+Entrypoint behaviour:
 
 ```
 if /host-skills exists:
@@ -198,28 +207,18 @@ if /host-skills exists:
         cp -r /host-skills/*/ ~/.claude/skills/
 ```
 
-### On-trigger pull
-
 Before constructing the container config, the runner runs `git pull --ff-only`
-on `task_skills_dir`. On failure, the runner logs and continues with the
-existing local clone — the trigger never aborts because of a sync issue.
-
-### Server startup pull
+on `task_skills_dir`. Failures are logged and the trigger continues against the
+existing local clone.
 
 The ContextMatrix server mirrors this behaviour on startup. If `task_skills.dir`
 already contains a `.git` directory **and** `task_skills.git_remote_url` is
 non-empty, the server runs `git pull --ff-only` (60-second timeout) immediately
 after initialising the task-skills git manager and before opening any network
-listeners. Failures are logged as warnings and do not prevent startup — the
-cached on-disk copy is used as-is. A non-fast-forward situation (divergent local
-history) also surfaces as a warning; the working tree is not modified.
-
-The `task-skills startup pull: ok` log line confirms a successful pull; absence
-of the line means either the preconditions were not met (no `.git`, no remote
-URL) or the pull was skipped/failed (see `task-skills startup pull failed` warn
-log).
-
-### Required tool
+listeners. Failures are logged as warnings and do not prevent startup. The log
+line `task-skills startup pull: ok` confirms success; absence means the
+preconditions were not met or the pull was skipped/failed (see
+`task-skills startup pull failed` warn log).
 
 The container's `--allowed-tools` allowlist must include `Skill` for Claude
 Code's native skill engagement to work.
@@ -231,8 +230,8 @@ subscriber / reconcile sweep when a card reaches a terminal state.
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project"
+  "card_id": "ALPHA-042",
+  "project": "alpha"
 }
 ```
 
@@ -302,40 +301,70 @@ Sent when a user clicks "Stop All" in the header.
 
 ```json
 {
-  "project": "my-project"
+  "project": "alpha"
 }
 ```
+
+#### POST {runner_url}/refresh-knowledge
+
+Sent when an operator triggers a knowledge-base refresh for a (project, repo)
+pair via `POST /api/projects/{project}/knowledge/{repo}/refresh`. Distinct from
+`/trigger` — no `card_id`, the job key is (project, repo). The runner starts a
+refresh container that runs the canned KB-refresh workflow and reports terminal
+state via `POST /api/runner/knowledge-status`.
+
+```json
+{
+  "project": "alpha",
+  "repo": "github.com/example-org/alpha-service",
+  "repo_url": "https://github.com/example-org/alpha-service.git",
+  "base_branch": "main",
+  "agent_id": "human:alice",
+  "overwrite_docs": ["architecture.md"],
+  "mcp_api_key": "...",
+  "runner_image": "...",
+  "model": "claude-opus-4-7"
+}
+```
+
+`agent_id` is forwarded so the agent's later `commit_knowledge_docs` MCP call
+attributes the boards-repo commit correctly. `overwrite_docs` is the explicit
+subset the operator approved for overwrite; an empty list means "create-only"
+(see `docs/api-reference.md` § Knowledge Refresh).
 
 #### POST {runner_url}/message
 
 Sent when a user submits a chat message while a container is running in
 interactive mode. HMAC-signed identically to trigger/kill.
 
-Card-bound HITL payload:
+Card-bound HITL payload (CM sends this from
+`POST /api/projects/{project}/cards/{id}/message` — CM generates the
+`message_id`):
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project",
-  "message_id": "msg-uuid-1234",
+  "card_id": "ALPHA-042",
+  "project": "alpha",
+  "message_id": "5a7f3c1e-9d2b-4e1a-bd8c-6f9e2a3c4d5f",
   "content": "Please focus on the authentication module first."
 }
 ```
 
-Chat-session payload (global chat surface — see § Chat-mode endpoints below):
+Chat-session payload (CM's chat manager sends this when the user submits a turn
+via `POST /api/chats/{id}/messages` — see § Chat-mode endpoints below):
 
 ```json
 {
-  "session_id": "01J5...",
-  "message_id": "msg-uuid-1234",
+  "session_id": "01K8ZQH7R3VYJE9XPK4MBWN5T2",
+  "message_id": "5a7f3c1e-9d2b-4e1a-bd8c-6f9e2a3c4d5f",
   "content": "Show me the diff between v1 and v2."
 }
 ```
 
-The handler dispatches on `session_id`: when set, it writes to the chat
-tracker's stdin and rejects `card_id` / `project` in the same payload
-(mutually exclusive). Card-mode and chat-mode share the same `/message`
-endpoint, validation rules, and 8-KiB content cap.
+The runner dispatches on `session_id`: when set, it writes to the chat tracker's
+stdin and treats `card_id` / `project` as mutually exclusive with `session_id`.
+Card-mode and chat-mode share the same `/message` endpoint, validation rules,
+and 8-KiB content cap.
 
 The runner:
 
@@ -369,8 +398,8 @@ interactive mode. HMAC-signed identically to trigger/kill.
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project"
+  "card_id": "ALPHA-042",
+  "project": "alpha"
 }
 ```
 
@@ -421,8 +450,8 @@ HMAC-signed identically to `/kill`.
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project"
+  "card_id": "ALPHA-042",
+  "project": "alpha"
 }
 ```
 
@@ -469,11 +498,11 @@ The runner emits a `system` `LogEntry` with content
 ### Chat-mode endpoints
 
 The chat endpoints back the global chat surface (`/api/chats/*` on CM, see
-`docs/api-reference.md` § Chat Endpoints). Chat containers run the same
-worker image as card-mode containers but stay long-lived (no per-task
-cleanup) and dispatch on the `CM_CHAT_SESSION` env var. Tracker entries
-carry `LabelSessionID` instead of `LabelCardID`; `ListManaged` /
-`CleanupOrphans` / `ForceRemoveByLabels` treat both kinds as managed.
+`docs/api-reference.md` § Chat Endpoints). Chat containers run the same worker
+image as card-mode containers but stay long-lived (no per-task cleanup) and
+dispatch on the `CM_CHAT_SESSION` env var. Tracker entries carry
+`LabelSessionID` instead of `LabelCardID`; `ListManaged` / `CleanupOrphans` /
+`ForceRemoveByLabels` treat both kinds as managed.
 
 #### POST {runner_url}/chat/start
 
@@ -487,31 +516,34 @@ Start a chat container for a session. HMAC-signed.
   "mcp_api_key": "<forwarded as CM_MCP_API_KEY>",
   "model": "claude-opus-4-7",
   "resume": [
-    {"seq": 2, "role": "user",           "content": "explain the chat manager"},
-    {"seq": 3, "role": "assistant_text", "content": "It owns session lifecycle…"}
+    { "seq": 2, "role": "user", "content": "explain the chat manager" },
+    {
+      "seq": 3,
+      "role": "assistant_text",
+      "content": "It owns session lifecycle…"
+    }
   ]
 }
 ```
 
 `project` and `repo_url` are both optional — omit for a cross-project chat.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
-mode); the container then merges an MCP entry with no `Authorization`
-header.
+mode); the container then merges an MCP entry with no `Authorization` header.
 
 `model` selects the orchestrator model; the runner sets it as
-`CM_ORCHESTRATOR_MODEL` in the container env so the entrypoint passes it as
-the `--model` argument to Claude. Required for chat starts (CM always
-populates it from the session row, falling back to `chat.default_model`).
+`CM_ORCHESTRATOR_MODEL` in the container env so the entrypoint passes it as the
+`--model` argument to Claude. Required for chat starts (CM always populates it
+from the session row, falling back to `chat.default_model`).
 
-`resume` is optional. When present, it carries the truncated transcript built
-by `chat.transcript.Build` (one JSON object per turn, `seq` + `role` +
-`content`). The runner writes it to a host-side temporary directory and
-bind-mounts the directory at `/run/cm-chat/` inside the container — read-only,
-so the agent cannot tamper with its own resume payload:
+`resume` is optional. When present, it carries the truncated transcript built by
+`chat.transcript.Build` (one JSON object per turn, `seq` + `role` + `content`).
+The runner writes it to a host-side temporary directory and bind-mounts the
+directory at `/run/cm-chat/` inside the container — read-only, so the agent
+cannot tamper with its own resume payload:
 
-| File                          | Contents                                                                |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| `/run/cm-chat/resume.jsonl`   | One JSON object per turn, chronological. Drops `rehydration_phase=TRUE` entries from prior reopens.        |
+| File                            | Contents                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/run/cm-chat/resume.jsonl`     | One JSON object per turn, chronological. Drops `rehydration_phase=TRUE` entries from prior reopens.                      |
 | `/run/cm-chat/resume.meta.json` | `{session_id, project, original_count, included_count, clipped}` — `clipped:true` when the budget truncated older turns. |
 
 The runner:
@@ -521,63 +553,62 @@ The runner:
 2. Materialises `resume.jsonl` + `resume.meta.json` into a per-container host
    directory and adds the bind mount. Failure here is non-fatal — the runner
    logs `StartChat: rehydration file prep failed; starting fresh agent` and
-   omits the `CM_CHAT_RESUME=1` env var. The container starts; the agent
-   finds no resume file and continues without restoration.
+   omits the `CM_CHAT_RESUME=1` env var. The container starts; the agent finds
+   no resume file and continues without restoration.
 3. Starts the worker container with `CM_CHAT_SESSION=<session_id>`,
    `CM_ORCHESTRATOR_MODEL=<model>`, and (when resume succeeded)
    `CM_CHAT_RESUME=1`. The entrypoint clones `repo_url` into
    `/home/user/workspace/<project>` when both are provided, then runs
-   `claude --input-format stream-json --output-format stream-json` with
-   stdin attached.
-4. Attaches the container stdin via `tracker.SetStdin` so subsequent
-   `/message` calls can write user turns.
+   `claude --input-format stream-json --output-format stream-json` with stdin
+   attached.
+4. Attaches the container stdin via `tracker.SetStdin` so subsequent `/message`
+   calls can write user turns.
 5. **When `resume` is non-nil, writes the rehydration priming envelope to
    stdin.** This is a stream-json `user`-typed message built by
-   `streammsg.BuildUserMessage`, not the `-p` positional prompt: `claude -p
-   PROMPT --input-format stream-json` treats `-p` as system context and does
-   **not** auto-execute it. The priming must arrive as a stream-json user
-   envelope to actually run. The priming text instructs the agent to read
-   `/run/cm-chat/resume.jsonl`, verify workspace state with `ls`, re-clone
-   any missing repos, and call
+   `streammsg.BuildUserMessage`, not the `-p` positional prompt:
+   `claude -p PROMPT --input-format stream-json` treats `-p` as system context
+   and does **not** auto-execute it. The priming must arrive as a stream-json
+   user envelope to actually run. The priming text instructs the agent to read
+   `/run/cm-chat/resume.jsonl`, verify workspace state with `ls`, re-clone any
+   missing repos, and call
    `mcp__contextmatrix__chat_rehydration_complete(session_id, summary)` when
    done. Priming text is **not** persisted to the CM transcript; only the
-   agent's response is recorded. Build / write failures are logged at WARN
-   and do not abort the start — the container is left running with an empty
-   stdin, and the user can type a fresh message.
+   agent's response is recorded. Build / write failures are logged at WARN and
+   do not abort the start — the container is left running with an empty stdin,
+   and the user can type a fresh message.
 6. Spawns `StreamChatLogs`: a goroutine that demultiplexes container
-   stdout/stderr, runs the same `logparser.ProcessStream` used by card mode,
-   and publishes parsed entries on the broadcaster with `SessionID` and
-   `Project` set (no `CardID`).
+   stdout/stderr, runs the same `logparser.ProcessStream` used by card mode, and
+   publishes parsed entries on the broadcaster with `SessionID` and `Project`
+   set (no `CardID`).
 
 Response (`202 Accepted`):
 
 ```json
-{"ok": true, "container_id": "ctr-abc123"}
+{ "ok": true, "container_id": "ctr-abc123" }
 ```
 
 **Error responses:**
 
-| Status | Condition                                        |
-| ------ | ------------------------------------------------ |
-| 400    | Invalid payload (`session_id` regex, repo URL)   |
-| 409    | Session already has a container tracked          |
-| 429    | Chat concurrency cap reached                     |
+| Status | Condition                                      |
+| ------ | ---------------------------------------------- |
+| 400    | Invalid payload (`session_id` regex, repo URL) |
+| 409    | Session already has a container tracked        |
+| 429    | Chat concurrency cap reached                   |
 
 #### POST {runner_url}/chat/end
 
 End a tracked chat container. HMAC-signed.
 
 ```json
-{"session_id": "01J5..."}
+{ "session_id": "01J5..." }
 ```
 
-The runner closes the container's stdin, calls `Manager.Stop` (SIGTERM +
-grace + SIGKILL), and removes the tracker entry. Closing stdin alone is not
-sufficient because `claude -p --input-format stream-json` does not always
-unblock on EOF.
+The runner closes the container's stdin, calls `Manager.Stop` (SIGTERM + grace +
+SIGKILL), and removes the tracker entry. Closing stdin alone is not sufficient
+because `claude -p --input-format stream-json` does not always unblock on EOF.
 
-Response (`200 OK`): empty body. A second call returns `404` because the
-tracker entry is gone.
+Response (`200 OK`): empty body. A second call returns `404` because the tracker
+entry is gone.
 
 ### Runner → ContextMatrix: SSE Log Stream
 
@@ -598,15 +629,14 @@ X-Webhook-Timestamp: <unix-timestamp>
 
 **Query parameters:**
 
-| Param        | Effect                                                          |
-| ------------ | --------------------------------------------------------------- |
-| `project`    | Filter entries to a single project. Omit to receive all.        |
-| `session_id` | Filter entries to one chat session (chat-mode bridge).          |
+| Param        | Effect                                                   |
+| ------------ | -------------------------------------------------------- |
+| `project`    | Filter entries to a single project. Omit to receive all. |
+| `session_id` | Filter entries to one chat session (chat-mode bridge).   |
 
 `project` and `session_id` are mutually exclusive in practice: CM's chat
-log-bridge consumer (`chat.Manager.startConsumer`) signs a GET with
-`session_id` only, while card-mode and the project-scoped session manager
-use `project`.
+log-bridge consumer (`chat.Manager.startConsumer`) signs a GET with `session_id`
+only, while card-mode and the project-scoped session manager use `project`.
 
 **Response:** `Content-Type: text/event-stream`. Each event is a JSON-encoded
 `LogEntry`:
@@ -614,8 +644,8 @@ use `project`.
 ```json
 {
   "ts": "2026-04-08T12:34:56.789Z",
-  "card_id": "PROJ-042",
-  "project": "my-project",
+  "card_id": "ALPHA-042",
+  "project": "alpha",
   "type": "text",
   "content": "Planning the implementation..."
 }
@@ -630,14 +660,14 @@ publishes a corresponding event on the per-session SSE hub.
 
 <a name="logentry-types"></a>
 
-| type        | Source             | Meaning                                                               |
-| ----------- | ------------------ | --------------------------------------------------------------------- |
-| `text`      | Claude Code stdout | Parsed assistant text block                                           |
-| `thinking`  | Claude Code stdout | Parsed assistant thinking block                                       |
-| `tool_call` | Claude Code stdout | Non-MCP tool call: `Name: <summary>`, truncated to 200 runes with `…` |
-| `stderr`    | Container stderr   | Raw stderr line from the container                                    |
-| `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled)     |
-| `user`      | Chat input         | User message submitted via the chat input                             |
+| type        | Source             | Meaning                                                                                                                                                                                                                                                                                                                             |
+| ----------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`      | Claude Code stdout | Parsed assistant text block                                                                                                                                                                                                                                                                                                         |
+| `thinking`  | Claude Code stdout | Parsed assistant thinking block                                                                                                                                                                                                                                                                                                     |
+| `tool_call` | Claude Code stdout | Non-MCP tool call: `Name: <summary>`, truncated to 200 runes with `…`                                                                                                                                                                                                                                                               |
+| `stderr`    | Container stderr   | Raw stderr line from the container                                                                                                                                                                                                                                                                                                  |
+| `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled)                                                                                                                                                                                                                                                                   |
+| `user`      | Chat input         | User message submitted via the chat input                                                                                                                                                                                                                                                                                           |
 | `usage`     | Claude Code stdout | Stream-json usage block. `content` is empty; `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`; `model` carries the responding model ID. CM's chat manager consumes this to update `Session.ContextTokens` and emit a `session_updated` SSE event. Never persisted as a transcript row. |
 
 **Keepalive:** The runner sends `: keepalive\n\n` comments every 15 seconds to
@@ -647,26 +677,79 @@ prevent proxy and browser timeouts.
 tokens, Anthropic API keys, Bearer tokens) before publishing. Secrets are
 replaced with `[REDACTED]`.
 
-### Runner → ContextMatrix Callback
+### Runner → ContextMatrix Callbacks
+
+All runner → CM POST callbacks are HMAC-signed (`X-Signature-256` +
+`X-Webhook-Timestamp` over `METHOD\nURI\nTIMESTAMP.BODY`) using the shared
+`runner.api_key`. CM rejects missing / invalid signatures with 403
+(`INVALID_SIGNATURE`). The runner-only endpoints below are registered only when
+`runner.enabled: true` on the CM side and are exempt from the CSRF guard
+(`/api/runner/*` prefix).
 
 #### POST /api/runner/status
 
-The runner reports container lifecycle events back to ContextMatrix. Must
-include `X-Signature-256` header signed with the shared secret.
+The runner reports container lifecycle events back to ContextMatrix.
 
 ```json
 {
-  "card_id": "PROJ-042",
-  "project": "my-project",
+  "card_id": "ALPHA-042",
+  "project": "alpha",
   "runner_status": "running",
   "message": "container started"
 }
 ```
 
-Valid `runner_status` values: `"running"`, `"failed"`, `"completed"`.
+Valid `runner_status` values: `"running"`, `"failed"`, `"completed"` (enforced
+server-side by `board.ValidateRunnerCallbackStatus`).
+
+CM applies a post-terminal normalisation: if the card has already reached a
+terminal state (`done` / `not_planned`) and the runner reports `failed` or
+`killed`, the service rewrites the value to `completed` (and the activity-log
+message to `"container cleaned up after run completed"`) so a cleanup-driven
+kill does not retroactively flip a successful run to failed.
 
 Task completion is **not** reported via this endpoint — the Claude Code instance
 inside the container uses the normal MCP `complete_task` tool.
+
+#### POST /api/runner/knowledge-status
+
+The runner's terminal callback for a knowledge-base refresh container. Payload:
+
+```json
+{
+  "project": "alpha",
+  "repo": "github.com/example-org/alpha-service",
+  "state": "succeeded",
+  "error": ""
+}
+```
+
+CM reconciles the reported `state` against `refresh.Registry.Committed` (set
+when the agent's `commit_knowledge_docs` MCP call returns successfully):
+
+- `state == "succeeded"` + committed → `StateSucceeded`
+- `state == "succeeded"` + not committed → `StateFailed("commit not observed")`
+- any other `state` → `StateFailed`
+
+Returns `200 {"ok": true, "tracked": true|false}` — `tracked: false` means the
+(project, repo) pair was not found in the in-process registry (callback arrived
+after CM restart).
+
+#### POST /api/runner/skill-engaged
+
+Runner-side hook fired when the worker's `Skill` tool engages a named skill. CM
+appends a deduplicated activity-log entry to the card.
+
+```json
+{
+  "card_id": "ALPHA-042",
+  "project": "alpha",
+  "skill_name": "go-development"
+}
+```
+
+Returns `200 {"ok": true}`. Validation: all three fields are required; missing
+fields return `400 BAD_REQUEST`.
 
 #### GET /api/v1/cards/{project}/{id}/autonomous
 
@@ -687,6 +770,37 @@ Headers:
 Only registered when the runner is enabled on the CM side
 (`runner.enabled: true`). Missing / invalid HMAC returns 403; unknown card
 returns 404.
+
+### ContextMatrix Operator Endpoints
+
+These are the CM-side handlers the web UI calls. They wrap the outbound runner
+webhooks above, perform card-state and per-project enablement checks, and update
+CM bookkeeping (`runner_status`, `feature_branch`, `create_pr`, `autonomous`).
+All five gate on `isNonHumanAgent` — agents hitting them with a non-`human:*`
+`X-Agent-ID` receive `403 HUMAN_ONLY_FIELD`. Absent header counts as human (UI =
+human; see CLAUDE.md trust model).
+
+| Endpoint                                          | Notes                                                                                                                                                                                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Validates card is in `todo`, runner_status not already `{queued, running}`, and per-project remote execution is enabled. Auto-patches `feature_branch=true, create_pr=true`. Returns `202` with the queued card. |
+| `POST /api/projects/{project}/cards/{id}/stop`    | Requires `runner_status ∈ {queued, running}`. Sends `/kill` to the runner, then sets `runner_status: killed` via `UpdateRunnerStatus`. Returns `202`.                                                                                                          |
+| `POST /api/projects/{project}/cards/{id}/message` | Body `{"content": "..."}` (≤ 8 KiB). Requires `runner_status == running`. CM generates the `message_id` (UUIDv4), forwards to runner `/message`, returns `202 {"ok": true, "message_id": "..."}`.                                                              |
+| `POST /api/projects/{project}/cards/{id}/promote` | Idempotent. When `autonomous: true` already, short-circuits with `202` and the current card (prevents runner-verify recursion). Otherwise flips `autonomous: true`, ensures `feature_branch/create_pr`, then sends `/promote` to runner. Returns `202`.        |
+| `POST /api/projects/{project}/stop-all`           | Sends `/stop-all` to the runner; iterates project cards and flips `runner_status` to `killed` for every card currently in `{queued, running}`. Returns `200 {"affected_cards": [...]}`.                                                                        |
+
+**Common error codes** (status / `code`):
+
+| Code                 | Status | Meaning                                                                |
+| -------------------- | ------ | ---------------------------------------------------------------------- |
+| `RUNNER_DISABLED`    | 503    | `runner` is not configured on the server, or disabled for the project. |
+| `RUNNER_CONFLICT`    | 409    | Card is already `queued` or `running` on the runner.                   |
+| `RUNNER_NOT_RUNNING` | 409    | Card is not currently being executed by the runner.                    |
+| `RUNNER_UNAVAILABLE` | 502    | Outbound webhook to the runner failed.                                 |
+| `INVALID_TRANSITION` | 409    | Run endpoint refused because the card is not in `todo`.                |
+| `HUMAN_ONLY_FIELD`   | 403    | `X-Agent-ID` did not satisfy `board.IsHumanAgentID`.                   |
+| `CONTENT_TOO_LARGE`  | 413    | Message body exceeds 8192 bytes.                                       |
+| `VALIDATION_ERROR`   | 422    | Empty `content` on message endpoint, or other body-shape rejection.    |
+| `BAD_REQUEST`        | 400    | Malformed JSON body.                                                   |
 
 ### Response Format
 
@@ -728,22 +842,28 @@ Or on error:
 
 **Per-endpoint behaviour notes:**
 
-- **`/stop-all`** — may return `207 Multi-Status` when some containers were
-  stopped and others failed. The body contains per-card results.
 - **`/kill`** — idempotent: returns `200` (not 404) when the card is not
   tracked. Use this to safely call stop on cards that may already be finished.
 - **`/message`** — may return `410` with code `stdin_closed` after the container
   session has ended and stdin is no longer writable.
 - **`/promote`** — closes stdin immediately after writing the canned message. A
-  subsequent `/end-session` on the same card is idempotent (returns `409`
-  because stdin is already closed).
-- **Drain short-circuit** — `/trigger`, `/message`, `/promote`, and
-  `/end-session` return `503` with code `draining` while the runner is
+  subsequent `/end-session` on the same card is idempotent (returns `409` or
+  `410` because stdin is already closed; both are swallowed by the subscriber's
+  `isExpectedEndSessionErr` classifier and do not generate a warning log).
+- **Drain short-circuit** — `/trigger`, `/message`, `/promote`, `/end-session`,
+  and `/refresh-knowledge` return `503` with code `draining` while the runner is
   performing a graceful shutdown so the shutdown sequence is not racing new
-  long-running work. `/kill`, `/stop-all`, `/logs`, `/health`, and `/readyz`
-  intentionally remain reachable during drain — they either complete quickly or
-  surface state operators need to read while shutting down. Clients should not
-  retry the short-circuited endpoints during a draining window.
+  long-running work. `/kill`, `/stop-all`, `/logs`, `/containers`, `/health`,
+  and `/readyz` intentionally remain reachable during drain — they either
+  complete quickly or surface state operators need to read while shutting down.
+  Clients should not retry the short-circuited endpoints during a draining
+  window.
+
+The CM-side `POST /api/projects/{project}/stop-all` always returns
+`200 {"affected_cards": [...]}` listing card IDs whose `runner_status` was
+flipped from `{queued, running}` to `killed` — it does not surface partial
+runner failures via a 207 status. A complete runner outage during stop-all
+returns `502 RUNNER_UNAVAILABLE` from CM before any cards are updated.
 
 ### Retry Policy
 
@@ -1036,7 +1156,7 @@ Normal events:
 {
   "type": "text",
   "content": "...",
-  "card_id": "PROJ-042",
+  "card_id": "ALPHA-042",
   "ts": "...",
   "seq": 42
 }
@@ -1183,7 +1303,33 @@ runner:
   api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
   orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
   orchestrator_opus_model: "claude-opus-4-7" # Model sent when use_opus_orchestrator is true
+  reconcile_interval: "60s" # Backstop sweep tick; "0s" disables
+
+# Chat (global chat panel)
+chat:
+  # SQLite path defaults to $XDG_STATE_HOME/contextmatrix/chats.db
+  # db_path: "/var/lib/contextmatrix/chats.db"
+  idle_ttl: 1h
+  max_concurrent: 8
+  default_model: "claude-sonnet-4-6"
+  resume_budget_tokens: 40000
+  rehydration_timeout: 10m
+  models:
+    claude-sonnet-4-6:
+      label: "Sonnet 4.6"
+      max_tokens: 1000000
+    claude-opus-4-7:
+      label: "Opus 4.7"
+      max_tokens: 1000000
+    claude-haiku-4-5-20251001:
+      label: "Haiku 4.5"
+      max_tokens: 200000
 ```
+
+Validation: when `runner.enabled: true`, `runner.url` and `runner.api_key` are
+required and `runner.api_key` must be at least 32 characters
+(`MinRunnerAPIKeyLength`). `reconcile_interval` accepts any `time.Duration`
+string; `"0s"` or empty disables the sweep entirely.
 
 Environment variable overrides:
 
@@ -1193,6 +1339,10 @@ Environment variable overrides:
 - `CONTEXTMATRIX_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
 - `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
+- `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL`
+- `CONTEXTMATRIX_CHAT_DB_PATH`
+- `CONTEXTMATRIX_CHAT_IDLE_TTL`
+- `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 
 ### Runner (`config.yaml` — reference for runner implementor)
 
@@ -1332,6 +1482,19 @@ bookkeeping for the UI; a card that reaches a terminal state while the runner is
 still running may briefly show a non-empty `runner_status` until the runner's
 completion callback fires.
 
+`UpdateRunnerStatus` also applies a post-terminal normalisation: a `failed` or
+`killed` callback that arrives after the card has already reached `done` /
+`not_planned` is rewritten to `completed` (with activity-log message
+`"container cleaned up after run completed"`). This is the cleanup trajectory —
+the run succeeded, the container is only being reaped — and keeps the UI from
+flipping a finished card to "failed" because the sweep/subscriber killed its
+lingering container.
+
+Reaching any terminal `runner_status` (`failed`, `killed`, or normalised
+`completed`) also clears `assigned_agent`, clears `last_heartbeat`, and flushes
+pending deferred commits so the boards repo reflects the final state
+immediately.
+
 ## Kill Switch Semantics
 
 | Action                       | Scope                | Behavior                                               |
@@ -1368,5 +1531,5 @@ dropping in-flight work or leaving orphaned containers:
 ## See Also
 
 The runner-side implementation of the interactive protocol (HITL endpoints,
-`CM_INTERACTIVE` entrypoint branching, stdin injection) is tracked in
-**CTXRUN-026** in the contextmatrix-runner board.
+`CM_INTERACTIVE` entrypoint branching, stdin injection) lives in the
+contextmatrix-runner repo: <https://github.com/mhersson/contextmatrix-runner>.
