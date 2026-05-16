@@ -157,6 +157,14 @@ type Manager struct {
 	// round-trip; callers on *different* ids no longer serialise behind a
 	// global mutex while a slow docker pull is in flight.
 	openGroup singleflight.Group
+
+	// clearGroup serialises concurrent ClearContext calls per sessionID.
+	// Without this, two simultaneous clears on the same session could
+	// interleave their /clear + primer pairs, leaving the transcript in an
+	// ambiguous state. singleflight.Do is the right primitive here: the
+	// first caller runs the body, and all concurrent callers on the same id
+	// share the result (success or error).
+	clearGroup singleflight.Group
 	// openLimitMu serialises just the MaxConcurrent count check + the
 	// StartChat reservation window so concurrent cold opens cannot pass a
 	// stale count and overshoot the limit. Held across StartChat for
@@ -610,6 +618,11 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 // (content=ContextClearedMarker, kind=EventKindDivider) that the UI
 // renders as a horizontal rule.
 //
+// Concurrent ClearContext calls for the same session are serialised via
+// clearGroup (singleflight): the first caller executes the body and all
+// concurrent callers on the same session share the result. This prevents
+// /clear + primer pairs from interleaving across simultaneous requests.
+//
 // Failure semantics: a failure in the runner /clear or primer call wraps
 // ErrRunnerSend so the API layer maps to 502. On runner failure we abort
 // before marking the transcript or appending the divider — the transcript
@@ -629,6 +642,18 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 		return ErrSessionNotRunning
 	}
 
+	_, err, _ = m.clearGroup.Do(sessionID, func() (any, error) {
+		return struct{}{}, m.doClearContext(ctx, sessionID)
+	})
+
+	return err
+}
+
+// doClearContext is the serialised body of ClearContext, called under
+// clearGroup.Do to prevent concurrent clears from interleaving on the same
+// session. The session-not-running guard is checked before entering
+// clearGroup, so this function can assume the session is active or warm-idle.
+func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	clearMsgID := NewID()
 	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)

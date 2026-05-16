@@ -2062,6 +2062,82 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }
 
+// TestClearContext_ConcurrentCallsSerialised verifies that singleflight
+// serialises concurrent ClearContext calls for the same session. Because
+// singleflight.Do deduplicates in-flight calls keyed on sessionID, only
+// one /clear + primer pair actually runs (the others share the result).
+// The transcript must contain exactly one divider row, and all
+// /clear + primer pairs (if any) must appear back-to-back in sendArgs.
+func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
+	t.Parallel()
+
+	primerPath := writeTempPrimer(t, "PRIMER")
+	mgr, runner, store := newManagerWithPrimerPath(t, primerPath)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	const n = 5
+
+	var wg sync.WaitGroup
+
+	errs := make([]error, n)
+
+	for i := range n {
+		wg.Add(1)
+
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = mgr.ClearContext(ctx, sess.ID)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All callers must succeed (singleflight shares the result).
+	for i, e := range errs {
+		require.NoError(t, e, "goroutine %d got unexpected error", i)
+	}
+
+	// Exactly one divider row should be in the transcript — singleflight
+	// deduplicates concurrent calls so only one tx commits.
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+
+	var dividerCount int
+	for _, m := range msgs {
+		if m.Kind == chat.EventKindDivider {
+			dividerCount++
+		}
+	}
+
+	require.Equal(t, 1, dividerCount,
+		"singleflight must deduplicate concurrent clears to exactly one divider row")
+
+	// The /clear + primer pairs that did run must appear consecutively in
+	// sendArgs (no interleaving). With singleflight the only pair is at
+	// indices 0 and 1 (from the single execution).
+	runner.mu.Lock()
+	args := append([]sendArg(nil), runner.sendArgs...)
+	runner.mu.Unlock()
+
+	// At least one /clear + primer pair must have executed.
+	require.GreaterOrEqual(t, len(args), 2, "at least one /clear + primer pair must have run")
+
+	// Each consecutive pair must be /clear then primer.
+	for i := 0; i+1 < len(args); i += 2 {
+		assert.Equal(t, "/clear", args[i].Content,
+			"expected /clear at index %d, got %q", i, args[i].Content)
+		assert.Equal(t, "PRIMER", args[i+1].Content,
+			"expected PRIMER at index %d, got %q", i+1, args[i+1].Content)
+	}
+}
+
 // TestClearContext_DividerFailureLeavesTranscriptClean verifies that when
 // ClearTranscriptAtomic fails (simulating a divider INSERT failure inside the
 // transaction), no rows are marked as rehydration_phase=true. The transaction
