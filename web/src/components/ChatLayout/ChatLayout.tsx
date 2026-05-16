@@ -16,6 +16,7 @@ interface Props {
   onSplit: (slot: Slot) => void;
   onResize: (key: 'col' | 'leftRow' | 'rightRow', sizes: number[]) => void;
   onDropChatOnPane: (slot: Slot, chatId: string) => void;
+  onMovePane: (fromSlot: Slot, toSlot: Slot) => void;
   onPickEmptyPane: (slot: Slot, chatId: string) => void;
   onCancelEmpty: (slot: Slot) => void;
   onNewChat: (slot: Slot) => void;
@@ -28,7 +29,7 @@ interface Props {
 export function ChatLayout(props: Props) {
   const {
     panes, focused, sizes, availableChats, draggingChatId, isMobile,
-    onFocus, onClose, onSplit, onResize, onDropChatOnPane,
+    onFocus, onClose, onSplit, onResize, onDropChatOnPane, onMovePane,
     onPickEmptyPane, onCancelEmpty, onNewChat,
     onEndSession, onReopenChat, onDeleteChat, renderPaneBody,
   } = props;
@@ -161,6 +162,7 @@ export function ChatLayout(props: Props) {
         onClose={() => onClose(slot)}
         onSplit={() => onSplit(slot)}
         onDropChat={(id) => onDropChatOnPane(slot, id)}
+        onMovePane={(fromSlot) => onMovePane(fromSlot, slot)}
         onEndSession={chatId && onEndSession ? () => onEndSession(chatId) : undefined}
         onReopenChat={chatId && onReopenChat ? () => onReopenChat(chatId) : undefined}
         onDeleteChat={chatId && onDeleteChat ? () => onDeleteChat(slot, chatId) : undefined}

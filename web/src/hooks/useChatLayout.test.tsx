@@ -292,6 +292,77 @@ describe('useChatLayout — persistence', () => {
   });
 });
 
+describe('useChatLayout — movePane', () => {
+  it('movePane swaps two non-empty slots', () => {
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.openInNewPane('B'); }); // TR
+    act(() => { result.current.movePane('TL', 'TR'); });
+    expect(result.current.state.panes.TL?.chatId).toBe('B');
+    expect(result.current.state.panes.TR?.chatId).toBe('A');
+    // Focus follows the dragged chat (source had A, so focused = toSlot = TR)
+    expect(result.current.state.focused).toBe('TR');
+  });
+
+  it('movePane from non-empty to empty slot: target gets chat, source becomes empty pane', () => {
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.splitFromPane('TL'); }); // TR (empty pane placeholder)
+    // Before: TL = {chatId: 'A'}, TR = {chatId: null}
+    act(() => { result.current.movePane('TL', 'TR'); });
+    // After swap: TL = {chatId: null}, TR = {chatId: 'A'}.
+    // normalize() doesn't promote TR → TL because TL is an empty pane object (not null).
+    expect(result.current.state.panes.TR?.chatId).toBe('A');
+    expect(result.current.state.panes.TL?.chatId).toBeNull(); // empty pane placeholder
+    // Chat A is now in TR, focused = TR (source had a chat).
+    expect(result.current.state.focused).toBe('TR');
+  });
+
+  it('movePane is a no-op when fromSlot === toSlot', () => {
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.openInNewPane('B'); }); // TR
+    const before = result.current.state;
+    act(() => { result.current.movePane('TL', 'TL'); });
+    expect(result.current.state).toBe(before);
+  });
+
+  it('movePane on two columns preserves layout shape (2 panes → swap left↔right)', () => {
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.openInNewPane('B'); }); // TR
+    expect(result.current.paneCount).toBe(2);
+    act(() => { result.current.movePane('TL', 'TR'); });
+    expect(result.current.paneCount).toBe(2);
+    expect(result.current.state.panes.TL?.chatId).toBe('B');
+    expect(result.current.state.panes.TR?.chatId).toBe('A');
+  });
+
+  it('movePane from empty-pane-object source to non-empty target does NOT change focus or stamp LRU', () => {
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.openInNewPane('B'); }); // TR
+    // Create an empty pane in BL via splitFromPane from TL
+    act(() => { result.current.focus('TL'); });
+    act(() => { result.current.splitFromPane('TL'); }); // creates empty pane in BL
+    const emptySlot = (['BL', 'BR'] as const).find(
+      (s) => result.current.state.panes[s]?.chatId == null && result.current.state.panes[s] != null,
+    )!;
+    // Make TL focused (non-empty target)
+    act(() => { result.current.focus('TL'); });
+    const focusedBefore = result.current.state.focused;
+    const lruBefore = result.current.state.lastFocusedAt['TL'];
+
+    // Move from the empty pane slot to TL
+    act(() => { result.current.movePane(emptySlot, 'TL'); });
+
+    // focused must be unchanged (source had no chatId)
+    expect(result.current.state.focused).toBe(focusedBefore);
+    // lastFocusedAt for TL must be unchanged (no LRU stamp)
+    expect(result.current.state.lastFocusedAt['TL']).toBe(lruBefore);
+  });
+});
+
 describe('useChatLayout — reconciliation against availableChats', () => {
   it('drops panes whose chat is removed from availableChats', () => {
     const { result, rerender } = renderHook(

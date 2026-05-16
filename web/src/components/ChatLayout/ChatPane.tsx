@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import type { Slot, AvailableChat } from './types';
+import { SLOTS } from './types';
 import { PaneHeader } from './PaneHeader';
+import { isTouchDevice } from '../../utils/isTouchDevice';
+import { PANE_SOURCE_MIME } from './dragProtocol';
+
+const TOUCH = isTouchDevice();
 
 interface Props {
   slot: Slot;
@@ -15,6 +20,7 @@ interface Props {
   onClose: () => void;
   onSplit: () => void;
   onDropChat: (chatId: string) => void;
+  onMovePane: (fromSlot: Slot) => void;
   onEndSession?: () => void;
   onReopenChat?: () => void;
   onDeleteChat?: () => void;
@@ -34,6 +40,7 @@ export function ChatPane({
   onClose,
   onSplit,
   onDropChat,
+  onMovePane,
   onEndSession,
   onReopenChat,
   onDeleteChat,
@@ -56,12 +63,26 @@ export function ChatPane({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDropTarget(false);
+    // Check for pane-source drag first (header drag between panes).
+    const fromSlotRaw = e.dataTransfer.getData(PANE_SOURCE_MIME);
+    if (fromSlotRaw) {
+      // Validate the slot value against the known SLOTS list for forward-compat.
+      if (SLOTS.includes(fromSlotRaw as Slot) && fromSlotRaw !== slot) {
+        onMovePane(fromSlotRaw as Slot);
+      }
+      // Same pane or invalid slot: fall through to sidebar path only when
+      // the value is not a known slot (unknown MIME value from a future drag
+      // source). Same-pane is a no-op.
+      if (SLOTS.includes(fromSlotRaw as Slot)) return;
+    }
+    // Sidebar drag: route to swapPaneChat.
     const dropped = e.dataTransfer.getData('text/plain');
     if (dropped) onDropChat(dropped);
   };
 
   const isSwap = isDropTarget && draggingChatId && chatId && chatId !== draggingChatId;
   const overlayChatLabel = draggingChatId ?? '';
+  const headerDraggable = !TOUCH && chatId != null;
 
   return (
     <div
@@ -85,6 +106,8 @@ export function ChatPane({
         </div>
       )}
       <PaneHeader
+        slot={slot}
+        draggable={headerDraggable}
         chatId={chatId}
         chat={chat}
         isFocused={isFocused}
