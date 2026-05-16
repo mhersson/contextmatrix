@@ -226,8 +226,10 @@ the page reloads. Defaults (`showText: true`, `showToolCalls: false`,
 `showThinking: false`) apply when the key is missing, malformed, or any field
 is not a boolean.
 
-State lives in three booleans in `ChatPanel.tsx`: `showText`, `showToolCalls`,
-`showThinking`. No new props or context is involved.
+State lives in the `useChatFilterPrefs` hook
+(`web/src/hooks/useChatFilterPrefs.ts`), which owns the load/save round-trip
+and exposes `{ prefs, setPref }`. `ChatPanel.tsx` consumes the hook; no new
+props or context is involved.
 
 ### Rail tabs + default tab on HITL
 

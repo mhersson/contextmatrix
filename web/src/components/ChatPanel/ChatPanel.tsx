@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { LogEntry } from '../../types';
+import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -10,39 +11,6 @@ const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 const MAX_MESSAGE_LENGTH = 8000;
 const NEAR_BOTTOM_THRESHOLD = 50;
-
-const FILTER_PREFS_KEY = 'chat_filter_prefs';
-
-interface FilterPrefs {
-  showText: boolean;
-  showToolCalls: boolean;
-  showThinking: boolean;
-}
-
-const DEFAULT_FILTER_PREFS: FilterPrefs = { showText: true, showToolCalls: false, showThinking: false };
-
-function loadFilterPrefs(): FilterPrefs {
-  try {
-    const raw = localStorage.getItem(FILTER_PREFS_KEY);
-    if (!raw) return DEFAULT_FILTER_PREFS;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return DEFAULT_FILTER_PREFS;
-    const p = parsed as Record<string, unknown>;
-    return {
-      showText: typeof p.showText === 'boolean' ? p.showText : DEFAULT_FILTER_PREFS.showText,
-      showToolCalls: typeof p.showToolCalls === 'boolean' ? p.showToolCalls : DEFAULT_FILTER_PREFS.showToolCalls,
-      showThinking: typeof p.showThinking === 'boolean' ? p.showThinking : DEFAULT_FILTER_PREFS.showThinking,
-    };
-  } catch {
-    return DEFAULT_FILTER_PREFS;
-  }
-}
-
-function saveFilterPrefs(prefs: FilterPrefs): void {
-  try {
-    localStorage.setItem(FILTER_PREFS_KEY, JSON.stringify(prefs));
-  } catch { /* ignore QuotaExceededError and blocked storage */ }
-}
 
 export interface ChatPanelProps {
   logs: readonly LogEntry[];
@@ -73,9 +41,8 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showText, setShowText] = useState(() => loadFilterPrefs().showText);
-  const [showToolCalls, setShowToolCalls] = useState(() => loadFilterPrefs().showToolCalls);
-  const [showThinking, setShowThinking] = useState(() => loadFilterPrefs().showThinking);
+  const { prefs, setPref } = useChatFilterPrefs();
+  const { showText, showToolCalls, showThinking } = prefs;
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -150,10 +117,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
           <input
             type="checkbox"
             checked={showText}
-            onChange={(e) => {
-              setShowText(e.target.checked);
-              saveFilterPrefs({ showText: e.target.checked, showToolCalls, showThinking });
-            }}
+            onChange={(e) => setPref('showText', e.target.checked)}
           />
           Text
         </label>
@@ -161,10 +125,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
           <input
             type="checkbox"
             checked={showToolCalls}
-            onChange={(e) => {
-              setShowToolCalls(e.target.checked);
-              saveFilterPrefs({ showText, showToolCalls: e.target.checked, showThinking });
-            }}
+            onChange={(e) => setPref('showToolCalls', e.target.checked)}
           />
           Tool calls
         </label>
@@ -172,10 +133,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
           <input
             type="checkbox"
             checked={showThinking}
-            onChange={(e) => {
-              setShowThinking(e.target.checked);
-              saveFilterPrefs({ showText, showToolCalls, showThinking: e.target.checked });
-            }}
+            onChange={(e) => setPref('showThinking', e.target.checked)}
           />
           Thinking
         </label>
