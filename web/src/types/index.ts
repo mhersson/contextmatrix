@@ -277,6 +277,13 @@ export interface LogEntry {
   seq?: number;
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
+  /**
+   * Structural marker for chat messages — e.g. "divider" for the "Context
+   * cleared" sentinel appended on Clear Context. Empty / absent means a
+   * regular message. The frontend matches on this rather than content
+   * strings so the rendering rule is unambiguous and survives reloads.
+   */
+  kind?: string;
 }
 
 export interface AppConfig {
@@ -379,6 +386,8 @@ export interface ChatMessage {
   content: string;
   created_at: string;
   rehydration_phase?: boolean;
+  /** Structural marker (e.g. "divider"). See LogEntry.kind. */
+  kind?: string;
 }
 
 export interface ChatModel {
