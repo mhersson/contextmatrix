@@ -28,8 +28,15 @@ const (
 // SSEEvent is the shape pushed to browser subscribers. The default kind
 // (empty) is treated as a message event for backwards compatibility with
 // the original SSE wire (which had no kind discriminator).
+//
+// Kind is the SSE routing discriminator (off-wire, decides the SSE
+// `event:` header). DataKind is the per-message payload marker that
+// rides on the JSON itself (`"kind": "divider"`) so structural markers
+// like the Clear Context divider survive both the live SSE wire and a
+// REST-bootstrap reload.
 type SSEEvent struct {
 	Kind             SSEEventKind   `json:"-"`
+	DataKind         string         `json:"kind,omitempty"`
 	Seq              int64          `json:"seq,omitempty"`
 	Role             Role           `json:"role,omitempty"`
 	Content          string         `json:"content,omitempty"`

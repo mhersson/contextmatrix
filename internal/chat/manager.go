@@ -21,6 +21,23 @@ import (
 // or warm-idle sessions has reached the configured MaxConcurrent ceiling.
 var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 
+// ErrRunnerSend is the sentinel wrapped around runner.SendChatMessage
+// failures inside ClearContext. The API layer matches on errors.Is to
+// route these to a 502 RUNNER_UNAVAILABLE rather than a 500 INTERNAL_ERROR,
+// since the runtime cause is "the runner is unreachable", not a bug.
+var ErrRunnerSend = errors.New("chat: runner send failed")
+
+// ContextClearedMarker is the canonical content string written to the
+// system-role transcript row appended on Clear Context. The frontend uses
+// this in conjunction with the persisted kind ("divider") to render a
+// horizontal rule rather than a normal system message.
+const ContextClearedMarker = "Context cleared"
+
+// EventKindDivider is the persisted Message.Kind / SSE DataKind value that
+// marks a structural divider in the transcript (currently used only for the
+// Clear Context sentinel). Empty kind means "regular message".
+const EventKindDivider = "divider"
+
 // RunnerClient is the subset of the runner webhook surface that
 // chat.Manager uses. The real implementation lives in internal/chat/runner.go;
 // tests inject stubs.
@@ -572,6 +589,71 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 	return nil
 }
 
+// ClearContext clears the runner's working memory in place: sends
+// "/clear" then re-primes the session with the chat-mode primer, marks
+// every prior transcript row with rehydration_phase=true so future
+// rehydration payloads skip them, and appends a system-role divider row
+// (content=ContextClearedMarker, kind=EventKindDivider) that the UI
+// renders as a horizontal rule.
+//
+// Failure semantics: a failure in the runner /clear or primer call wraps
+// ErrRunnerSend so the API layer maps to 502. On runner failure we abort
+// before marking the transcript or appending the divider — the transcript
+// stays consistent with the runtime. If the /clear succeeds but the
+// primer fails, a WARN log records that the runtime is "unoriented"; the
+// transcript is still left untouched, so the user can retry.
+func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
+	if _, err := m.store.GetSession(ctx, sessionID); err != nil {
+		return fmt.Errorf("chat: ClearContext: %w", err)
+	}
+
+	clearMsgID := NewID()
+	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
+	}
+
+	primerPresent := false
+
+	if primer := m.loadPrimer(); primer != "" {
+		primerPresent = true
+		primerMsgID := NewID()
+
+		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
+			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
+				"session_id", sessionID, "error", err)
+
+			return fmt.Errorf("chat: ClearContext: primer: %w: %w", ErrRunnerSend, err)
+		}
+	}
+
+	markedCount, err := m.store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: ClearContext: mark phase: %w", err)
+	}
+
+	msg, err := m.appendMessageWithKind(ctx, sessionID, RoleSystem, ContextClearedMarker, EventKindDivider)
+	if err != nil {
+		return fmt.Errorf("chat: ClearContext: append divider: %w", err)
+	}
+
+	if m.hub != nil {
+		m.hub.Publish(sessionID, SSEEvent{
+			Seq:              msg.Seq,
+			Role:             RoleSystem,
+			Content:          msg.Content,
+			DataKind:         EventKindDivider,
+			RehydrationPhase: msg.RehydrationPhase,
+		})
+	}
+
+	m.logger.Info("chat: context cleared",
+		"session_id", sessionID,
+		"marked_count", markedCount,
+		"primer_present", primerPresent)
+
+	return nil
+}
+
 // OpenSession transitions a session into the active state, starting a
 // new container if cold or reattaching if warm-idle. Idempotent on
 // already-active sessions.
@@ -816,6 +898,13 @@ func truncateMessageContent(content string) string {
 // during the rehydration phase are excluded from future resume payloads
 // by transcript.Build.
 func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role, content string) (Message, error) {
+	return m.appendMessageWithKind(ctx, sessionID, role, content, "")
+}
+
+// appendMessageWithKind is the internal variant that stamps a non-empty
+// Message.Kind on the persisted row. Public callers reach this via
+// AppendMessage (kind="") or ClearContext (kind=EventKindDivider).
+func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, role Role, content, kind string) (Message, error) {
 	content = truncateMessageContent(content)
 
 	phase := m.isRehydrationActive(ctx, sessionID)
@@ -892,6 +981,7 @@ func (m *Manager) AppendMessage(ctx context.Context, sessionID string, role Role
 		Seq:              seq,
 		Role:             role,
 		Content:          content,
+		Kind:             kind,
 		CreatedAt:        m.clk.Now().UTC().Truncate(time.Second),
 		RehydrationPhase: phase,
 	}
