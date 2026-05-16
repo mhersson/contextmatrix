@@ -218,16 +218,36 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // divider is published on the live SSE wire AND persisted with
 // kind="divider" so a page reload still renders it as a horizontal rule.
 //
+// Request body is intentionally ignored — the operation has no per-user
+// parameters and matches the empty-body convention used by endChat.
+// agentIDForChat is intentionally not invoked here — ClearContext has no
+// per-user effect on the no-auth trust model (see CLAUDE.md §Trust model).
+//
 // Errors are routed:
-//   - chat.ErrSessionNotFound → 404 (via handleChatError)
-//   - chat.ErrRunnerSend      → 502 RUNNER_UNAVAILABLE
-//   - everything else         → 500 (via handleChatError)
+//   - chat.ErrSessionNotFound   → 404 (via handleChatError)
+//   - chat.ErrSessionNotRunning → 409 RUNNER_NOT_RUNNING
+//   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed" or "primer_failed")
+//   - everything else           → 500 (via handleChatError)
 func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.mgr.ClearContext(r.Context(), id); err != nil {
+		if errors.Is(err, chat.ErrSessionNotRunning) {
+			writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
+				"session is not running", "")
+
+			return
+		}
+
 		if errors.Is(err, chat.ErrRunnerSend) {
+			// ErrRunnerSendPrimer is the more specific sentinel — check it first
+			// so "primer_failed" takes precedence over the general "clear_failed".
+			detail := "clear_failed"
+			if errors.Is(err, chat.ErrRunnerSendPrimer) {
+				detail = "primer_failed"
+			}
+
 			writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
-				"runner unavailable", "")
+				"runner unavailable", detail)
 
 			return
 		}

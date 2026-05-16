@@ -80,6 +80,10 @@ func (f *failingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sess
 	return f.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
 }
 
+func (f *failingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	return f.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
+}
+
 func (f *failingStore) Close() error {
 	return f.Store.Close()
 }
@@ -155,6 +159,10 @@ func (ts *trackingStore) MaxSeq(ctx context.Context, sessionID string) (int64, e
 
 func (ts *trackingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
 	return ts.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+}
+
+func (ts *trackingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	return ts.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
 }
 
 func (ts *trackingStore) Close() error {
@@ -244,9 +252,81 @@ func (y *yieldingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, ses
 	return y.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
 }
 
+func (y *yieldingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	return y.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
+}
+
 func (y *yieldingStore) Close() error {
 	return y.Store.Close()
 }
+
+// clearAtomicFailingStore wraps a real chat.Store and can inject a one-shot
+// failure into ClearTranscriptAtomic. Used by
+// TestClearContext_DividerFailureLeavesTranscriptClean.
+type clearAtomicFailingStore struct {
+	chat.Store
+	failNext atomic.Bool
+}
+
+func (c *clearAtomicFailingStore) FailNext() { c.failNext.Store(true) }
+
+func (c *clearAtomicFailingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	if c.failNext.CompareAndSwap(true, false) {
+		return 0, chat.Message{}, errors.New("injected: ClearTranscriptAtomic failure")
+	}
+
+	return c.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
+}
+
+func (c *clearAtomicFailingStore) CreateSession(ctx context.Context, s chat.Session) error {
+	return c.Store.CreateSession(ctx, s)
+}
+
+func (c *clearAtomicFailingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
+	return c.Store.GetSession(ctx, id)
+}
+
+func (c *clearAtomicFailingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
+	return c.Store.ListSessions(ctx, filter)
+}
+
+func (c *clearAtomicFailingStore) UpdateSession(ctx context.Context, s chat.Session) error {
+	return c.Store.UpdateSession(ctx, s)
+}
+
+func (c *clearAtomicFailingStore) DeleteSession(ctx context.Context, id string) error {
+	return c.Store.DeleteSession(ctx, id)
+}
+
+func (c *clearAtomicFailingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
+	return c.Store.SetRehydrationActive(ctx, sessionID, active)
+}
+
+func (c *clearAtomicFailingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
+	return c.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
+}
+
+func (c *clearAtomicFailingStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
+	return c.Store.AppendMessage(ctx, m)
+}
+
+func (c *clearAtomicFailingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
+	return c.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
+}
+
+func (c *clearAtomicFailingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
+	return c.Store.ListMessagesTail(ctx, sessionID, limit)
+}
+
+func (c *clearAtomicFailingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
+	return c.Store.MaxSeq(ctx, sessionID)
+}
+
+func (c *clearAtomicFailingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	return c.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+}
+
+func (c *clearAtomicFailingStore) Close() error { return c.Store.Close() }
 
 // sessionGate is a per-session-id blocking gate used by gatingStore. block(id)
 // arms the gate so the next AppendMessage call with that id parks on a
@@ -383,6 +463,10 @@ func (g *gatingStore) MaxSeq(ctx context.Context, sessionID string) (int64, erro
 
 func (g *gatingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
 	return g.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+}
+
+func (g *gatingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	return g.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
 }
 
 func (g *gatingStore) Close() error {

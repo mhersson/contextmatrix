@@ -18,9 +18,12 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 // useChatLayout, useTheme, etc.) start each test from defaults. Without this,
 // writes from one `it()` block leak into the next via jsdom's shared storage —
 // invisible on Node 22+ where localStorage is undefined, but breaks CI on
-// Node 20 where jsdom supplies a real implementation.
+// Node 20 where jsdom 29 supplies a real implementation.
+// On Node 25+ the runtime exposes a native localStorage (backed by
+// --localstorage-file) that lacks .clear() unless a valid file path is given.
+// Guard against that to avoid TypeError in afterEach when .clear is undefined.
 afterEach(() => {
-  if (typeof localStorage !== 'undefined') {
+  if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
     localStorage.clear();
   }
 });

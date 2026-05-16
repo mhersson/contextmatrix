@@ -20,6 +20,11 @@ interface EvictToast {
   snapshot: ChatLayoutState;
 }
 
+interface ClearErrorToast {
+  chatId: string;
+  code: string;
+}
+
 export function ChatPage() {
   const { id: deepLinkId } = useParams();
   const navigate = useNavigate();
@@ -51,6 +56,17 @@ export function ChatPage() {
     setEvictToast(null);
   }, []);
   useEffect(() => () => { if (evictTimerRef.current) clearTimeout(evictTimerRef.current); }, []);
+
+  const [clearErrorToast, setClearErrorToast] = useState<ClearErrorToast | null>(null);
+  const clearErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissClearErrorToast = useCallback(() => {
+    if (clearErrorTimerRef.current) {
+      clearTimeout(clearErrorTimerRef.current);
+      clearErrorTimerRef.current = null;
+    }
+    setClearErrorToast(null);
+  }, []);
+  useEffect(() => () => { if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current); }, []);
 
   const onLRUEvict = useCallback((e: LRUEvictionEvent) => {
     if (evictTimerRef.current) clearTimeout(evictTimerRef.current);
@@ -172,6 +188,10 @@ export function ChatPage() {
       await api.clearChatContext(chatId);
     } catch (e) {
       console.warn('clearChatContext failed', isAPIError(e) ? e.error : e);
+      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
+      setClearErrorToast({ chatId, code });
+      clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       setPendingClear(null);
     }
@@ -260,6 +280,19 @@ export function ChatPage() {
             className="chat-evict-toast-close"
             aria-label="Dismiss"
             onClick={dismissEvictToast}
+          >×</button>
+        </div>
+      )}
+      {clearErrorToast && (
+        <div className="chat-evict-toast" role="alert" aria-live="assertive">
+          <span className="chat-evict-toast-text">
+            Couldn&apos;t clear context for <strong>{clearErrorToast.chatId}</strong>: {clearErrorToast.code}.
+          </span>
+          <button
+            type="button"
+            className="chat-evict-toast-close"
+            aria-label="Dismiss"
+            onClick={dismissClearErrorToast}
           >×</button>
         </div>
       )}

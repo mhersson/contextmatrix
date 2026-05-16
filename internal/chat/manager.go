@@ -27,6 +27,20 @@ var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 // since the runtime cause is "the runner is unreachable", not a bug.
 var ErrRunnerSend = errors.New("chat: runner send failed")
 
+// ErrSessionNotRunning is returned by ClearContext when the target session is
+// not in an active or warm-idle state (i.e. the runner container is not
+// running). Clearing a cold or ending session has no runner to talk to.
+// The API layer maps this to 409 RUNNER_NOT_RUNNING.
+var ErrSessionNotRunning = errors.New("chat: session is not running")
+
+// ErrRunnerSendPrimer is wrapped around primer-send failures inside
+// ClearContext, in addition to the general ErrRunnerSend sentinel. The API
+// layer uses errors.Is(err, ErrRunnerSendPrimer) to distinguish a "primer
+// send failed after /clear succeeded" case (detail: "primer_failed") from a
+// plain "/clear send failure" (detail: "clear_failed"). Both cases are still
+// 502 RUNNER_UNAVAILABLE; the detail string is the differentiator.
+var ErrRunnerSendPrimer = errors.New("chat: primer send failed after /clear succeeded")
+
 // ContextClearedMarker is the canonical content string written to the
 // system-role transcript row appended on Clear Context. The frontend uses
 // this in conjunction with the persisted kind ("divider") to render a
@@ -143,6 +157,14 @@ type Manager struct {
 	// round-trip; callers on *different* ids no longer serialise behind a
 	// global mutex while a slow docker pull is in flight.
 	openGroup singleflight.Group
+
+	// clearGroup serialises concurrent ClearContext calls per sessionID.
+	// Without this, two simultaneous clears on the same session could
+	// interleave their /clear + primer pairs, leaving the transcript in an
+	// ambiguous state. singleflight.Do is the right primitive here: the
+	// first caller runs the body, and all concurrent callers on the same id
+	// share the result (success or error).
+	clearGroup singleflight.Group
 	// openLimitMu serialises just the MaxConcurrent count check + the
 	// StartChat reservation window so concurrent cold opens cannot pass a
 	// stale count and overshoot the limit. Held across StartChat for
@@ -596,6 +618,11 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 // (content=ContextClearedMarker, kind=EventKindDivider) that the UI
 // renders as a horizontal rule.
 //
+// Concurrent ClearContext calls for the same session are serialised via
+// clearGroup (singleflight): the first caller executes the body and all
+// concurrent callers on the same session share the result. This prevents
+// /clear + primer pairs from interleaving across simultaneous requests.
+//
 // Failure semantics: a failure in the runner /clear or primer call wraps
 // ErrRunnerSend so the API layer maps to 502. On runner failure we abort
 // before marking the transcript or appending the divider — the transcript
@@ -603,10 +630,30 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 // primer fails, a WARN log records that the runtime is "unoriented"; the
 // transcript is still left untouched, so the user can retry.
 func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
-	if _, err := m.store.GetSession(ctx, sessionID); err != nil {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
 		return fmt.Errorf("chat: ClearContext: %w", err)
 	}
 
+	// Only active and warm-idle sessions have a live runner container. A cold
+	// or ending session has nothing to /clear, so we fail fast here rather
+	// than letting the runner call time out or produce a confusing error.
+	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
+		return ErrSessionNotRunning
+	}
+
+	_, err, _ = m.clearGroup.Do(sessionID, func() (any, error) {
+		return struct{}{}, m.doClearContext(ctx, sessionID)
+	})
+
+	return err
+}
+
+// doClearContext is the serialised body of ClearContext, called under
+// clearGroup.Do to prevent concurrent clears from interleaving on the same
+// session. The session-not-running guard is checked before entering
+// clearGroup, so this function can assume the session is active or warm-idle.
+func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	clearMsgID := NewID()
 	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
@@ -622,19 +669,62 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
 				"session_id", sessionID, "error", err)
 
-			return fmt.Errorf("chat: ClearContext: primer: %w: %w", ErrRunnerSend, err)
+			// Wrap with both ErrRunnerSendPrimer and ErrRunnerSend so callers
+			// can use errors.Is to distinguish primer failure from /clear failure
+			// while still matching the broader ErrRunnerSend sentinel.
+			return fmt.Errorf("chat: ClearContext: primer: %w: %w: %w", ErrRunnerSendPrimer, ErrRunnerSend, err)
 		}
 	}
 
-	markedCount, err := m.store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("chat: ClearContext: mark phase: %w", err)
+	// Build the divider message under the per-session append lock so the
+	// seq is assigned atomically with the transcript mark + INSERT. The
+	// ClearTranscriptAtomic call wraps both operations in a single SQL
+	// transaction, preventing partial-failure states (rows marked but no
+	// divider inserted, or vice-versa).
+	sl := m.appendLock(sessionID)
+	sl.Lock()
+
+	m.mu.Lock()
+	if _, ok := m.seqMap[sessionID]; !ok {
+		maxSeq, seedErr := m.store.MaxSeq(ctx, sessionID)
+		if seedErr != nil {
+			m.mu.Unlock()
+			sl.Unlock()
+
+			return fmt.Errorf("chat: ClearContext: seed seq: %w", seedErr)
+		}
+
+		m.seqMap[sessionID] = maxSeq
 	}
 
-	msg, err := m.appendMessageWithKind(ctx, sessionID, RoleSystem, ContextClearedMarker, EventKindDivider)
-	if err != nil {
-		return fmt.Errorf("chat: ClearContext: append divider: %w", err)
+	m.seqMap[sessionID]++
+	seq := m.seqMap[sessionID]
+	m.mu.Unlock()
+
+	phase := m.isRehydrationActive(ctx, sessionID)
+
+	divider := Message{
+		SessionID:        sessionID,
+		Seq:              seq,
+		Role:             RoleSystem,
+		Content:          ContextClearedMarker,
+		Kind:             EventKindDivider,
+		CreatedAt:        m.clk.Now().UTC().Truncate(time.Second),
+		RehydrationPhase: phase,
 	}
+
+	markedCount, msg, err := m.store.ClearTranscriptAtomic(ctx, sessionID, divider)
+	if err != nil {
+		// Roll back the seq reservation so the next append re-uses it.
+		m.mu.Lock()
+		m.seqMap[sessionID]--
+		m.mu.Unlock()
+		sl.Unlock()
+
+		return fmt.Errorf("chat: ClearContext: atomic transcript update: %w", err)
+	}
+
+	sl.Unlock()
 
 	if m.hub != nil {
 		m.hub.Publish(sessionID, SSEEvent{

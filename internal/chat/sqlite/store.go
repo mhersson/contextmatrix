@@ -353,6 +353,53 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 	return out, rows.Err()
 }
 
+// ClearTranscriptAtomic runs the two-step Clear Context transcript mutation
+// inside a single BEGIN/COMMIT transaction:
+//  1. UPDATE … SET rehydration_phase = 1 WHERE … AND rehydration_phase = 0
+//  2. INSERT the divider message row
+//
+// A rollback is deferred so any partial failure leaves the transcript
+// unchanged — the caller can retry the full ClearContext without worrying
+// about half-marked rows.
+func (s *Store) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, chat.Message{}, fmt.Errorf("chat: ClearTranscriptAtomic: begin tx: %w", err)
+	}
+
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE chat_messages SET rehydration_phase = 1 WHERE session_id = ? AND rehydration_phase = 0`,
+		sessionID)
+	if err != nil {
+		return 0, chat.Message{}, fmt.Errorf("chat: ClearTranscriptAtomic: mark phase: %w", err)
+	}
+
+	markedCount, _ := res.RowsAffected()
+
+	phase := 0
+	if divider.RehydrationPhase {
+		phase = 1
+	}
+
+	_, err = tx.ExecContext(ctx, `INSERT INTO chat_messages
+        (session_id, seq, role, content, created_at, rehydration_phase, kind)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		divider.SessionID, divider.Seq, string(divider.Role), divider.Content,
+		divider.CreatedAt.Unix(), phase, divider.Kind)
+	if err != nil {
+		return 0, chat.Message{}, fmt.Errorf("chat: ClearTranscriptAtomic: insert divider: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, chat.Message{}, fmt.Errorf("chat: ClearTranscriptAtomic: commit: %w", err)
+	}
+
+	return markedCount, divider, nil
+}
+
 // nullIf returns a sql.NullString that is NULL when s is empty.
 func nullIf(s string) sql.NullString {
 	if s == "" {
