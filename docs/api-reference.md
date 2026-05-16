@@ -54,6 +54,7 @@ PATCH  /api/chats/{id}                                 # rename a session
 DELETE /api/chats/{id}                                 # delete session and transcript
 POST   /api/chats/{id}/open                            # start (or reattach to) the chat container
 POST   /api/chats/{id}/end                             # stop the container; flip to cold
+POST   /api/chats/{id}/clear                           # clear runner context + re-prime + mark transcript
 POST   /api/chats/{id}/messages                        # send a user message into the active container
 GET    /api/chats/{id}/messages                        ?since_seq=&limit=    # transcript bootstrap
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
@@ -1106,6 +1107,47 @@ End the session: closes the container's stdin and force-stops it. Status flips
 to `cold`; `container_id` is cleared.
 
 Response (`200 OK`): the refreshed `ChatSession` in the cold state.
+
+### POST /api/chats/{id}/clear
+
+Clear the runner's working memory in place without ending the session. The
+server sends `"/clear"` to the runner, re-primes the session with the
+chat-mode primer (if configured), marks every prior transcript row with
+`rehydration_phase = true` so it is excluded from future cold-open resume
+payloads, and appends a divider row (`role: system`, `content: "Context
+cleared"`, `kind: "divider"`) that the UI renders as a horizontal rule.
+The divider is broadcast on the SSE wire AND persisted, so a page reload
+still shows the rule in the transcript.
+
+Request: empty JSON body (`{}`). CSRF-gated; UI-only.
+
+Responses:
+
+| Status | Code                 | Meaning                                     |
+| ------ | -------------------- | ------------------------------------------- |
+| 202    | —                    | Cleared; body `{"ok": true}`                |
+| 403    | `BAD_REQUEST`        | Missing `X-Requested-With: contextmatrix`   |
+| 404    | `CHAT_NOT_FOUND`     | Unknown session id                          |
+| 502    | `RUNNER_UNAVAILABLE` | Runner `/clear` or primer send failed       |
+| 500    | `INTERNAL_ERROR`     | Persistence failure (rare; transcript-side) |
+
+On a `502` the transcript is left untouched — the operator can retry once
+the runner is reachable again. On `500` the runner has already been
+cleared but the transcript mark/divider step failed; the session is still
+usable, the divider just won't appear in the UI until the next clear.
+
+Example SSE event for the divider (default unnamed channel, matching the
+existing message wire shape):
+
+```json
+{
+  "seq": 42,
+  "role": "system",
+  "content": "Context cleared",
+  "kind": "divider",
+  "rehydration_phase": false
+}
+```
 
 ### POST /api/chats/{id}/messages
 
