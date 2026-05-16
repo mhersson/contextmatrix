@@ -20,6 +20,7 @@ interface Props {
   onCancelEmpty: (slot: Slot) => void;
   onNewChat: (slot: Slot) => void;
   onEndSession?: (chatId: string) => void;
+  onClearContext?: (chatId: string) => void;
   onReopenChat?: (chatId: string) => void;
   onDeleteChat?: (slot: Slot, chatId: string) => void;
   renderPaneBody: (chatId: string, slot: Slot, isFocused: boolean) => React.ReactNode;
@@ -30,7 +31,7 @@ export function ChatLayout(props: Props) {
     panes, focused, sizes, availableChats, draggingChatId, isMobile,
     onFocus, onClose, onSplit, onResize, onDropChatOnPane,
     onPickEmptyPane, onCancelEmpty, onNewChat,
-    onEndSession, onReopenChat, onDeleteChat, renderPaneBody,
+    onEndSession, onClearContext, onReopenChat, onDeleteChat, renderPaneBody,
   } = props;
 
   const occupied = SLOTS.filter((s) => panes[s] != null);
@@ -162,6 +163,7 @@ export function ChatLayout(props: Props) {
         onSplit={() => onSplit(slot)}
         onDropChat={(id) => onDropChatOnPane(slot, id)}
         onEndSession={chatId && onEndSession ? () => onEndSession(chatId) : undefined}
+        onClearContext={chatId && onClearContext ? () => onClearContext(chatId) : undefined}
         onReopenChat={chatId && onReopenChat ? () => onReopenChat(chatId) : undefined}
         onDeleteChat={chatId && onDeleteChat ? () => onDeleteChat(slot, chatId) : undefined}
       >{body}</ChatPane>
