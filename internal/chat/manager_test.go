@@ -1874,6 +1874,10 @@ func TestClearContext_HappyPath(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
+	// Open the session so the runner container is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
 	// Pre-clear: 3 transcript messages.
 	for i := range 3 {
 		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "msg-"+strconv.Itoa(i))
@@ -1917,6 +1921,10 @@ func TestClearContext_PrimerMissing(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
+	// Open so the session is active (runner container is running).
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
 	runner.mu.Lock()
@@ -1934,14 +1942,24 @@ func TestClearContext_PrimerMissing(t *testing.T) {
 
 func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
 	mgr, runner, store := newManagerForClear(t, "PRIMER")
-	runner.sendErrSeq = []error{errors.New("runner unreachable")}
 
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
 	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "pre-clear")
 	require.NoError(t, err)
+
+	// Arm the failure: the next SendChatMessage (i.e. the /clear call) returns
+	// an error. SendCalls are indexed from 0; StartChat does not count.
+	runner.mu.Lock()
+	runner.sendErrSeq = []error{errors.New("runner unreachable")}
+	runner.mu.Unlock()
 
 	err = mgr.ClearContext(ctx, sess.ID)
 	require.Error(t, err)
@@ -1957,14 +1975,23 @@ func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
 
 func TestClearContext_PrimerFailure(t *testing.T) {
 	mgr, runner, store := newManagerForClear(t, "PRIMER")
-	runner.sendErrSeq = []error{nil, errors.New("primer send failed")}
 
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
 	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "pre-clear")
 	require.NoError(t, err)
+
+	// Arm failure: /clear succeeds (index 0 → nil), primer fails (index 1 → error).
+	runner.mu.Lock()
+	runner.sendErrSeq = []error{nil, errors.New("primer send failed")}
+	runner.mu.Unlock()
 
 	err = mgr.ClearContext(ctx, sess.ID)
 	require.Error(t, err)
@@ -1990,6 +2017,10 @@ func TestClearContext_RepeatedClears(t *testing.T) {
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
 	// Batch A — 2 messages, then clear.
@@ -2029,4 +2060,47 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, chat.ErrSessionNotFound,
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
+}
+
+// TestClearContext_ColdSession asserts that ClearContext returns
+// ErrSessionNotRunning when the session is cold (no live runner container)
+// and that the runner is never called.
+func TestClearContext_ColdSession(t *testing.T) {
+	t.Parallel()
+	mgr, runner, _ := newManagerForClear(t, "PRIMER")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Session is cold (newly created). ClearContext must reject it.
+	err = mgr.ClearContext(ctx, sess.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, chat.ErrSessionNotRunning,
+		"cold session must return ErrSessionNotRunning, got: %v", err)
+
+	// Runner must never have been contacted.
+	assert.Equal(t, int64(0), runner.sendCalls.Load(), "runner must not be called for a cold session")
+}
+
+// TestClearContext_EndingSession asserts that ClearContext returns
+// ErrSessionNotRunning when the session is in the "ending" state.
+func TestClearContext_EndingSession(t *testing.T) {
+	t.Parallel()
+	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Force the session into the "ending" state directly in the store.
+	sess.Status = chat.StatusEnding
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	err = mgr.ClearContext(ctx, sess.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, chat.ErrSessionNotRunning,
+		"ending session must return ErrSessionNotRunning, got: %v", err)
+
+	assert.Equal(t, int64(0), runner.sendCalls.Load(), "runner must not be called for an ending session")
 }

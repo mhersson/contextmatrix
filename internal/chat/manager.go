@@ -27,6 +27,12 @@ var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 // since the runtime cause is "the runner is unreachable", not a bug.
 var ErrRunnerSend = errors.New("chat: runner send failed")
 
+// ErrSessionNotRunning is returned by ClearContext when the target session is
+// not in an active or warm-idle state (i.e. the runner container is not
+// running). Clearing a cold or ending session has no runner to talk to.
+// The API layer maps this to 409 RUNNER_NOT_RUNNING.
+var ErrSessionNotRunning = errors.New("chat: session is not running")
+
 // ContextClearedMarker is the canonical content string written to the
 // system-role transcript row appended on Clear Context. The frontend uses
 // this in conjunction with the persisted kind ("divider") to render a
@@ -603,8 +609,16 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 // primer fails, a WARN log records that the runtime is "unoriented"; the
 // transcript is still left untouched, so the user can retry.
 func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
-	if _, err := m.store.GetSession(ctx, sessionID); err != nil {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
 		return fmt.Errorf("chat: ClearContext: %w", err)
+	}
+
+	// Only active and warm-idle sessions have a live runner container. A cold
+	// or ending session has nothing to /clear, so we fail fast here rather
+	// than letting the runner call time out or produce a confusing error.
+	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
+		return ErrSessionNotRunning
 	}
 
 	clearMsgID := NewID()

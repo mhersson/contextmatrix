@@ -1123,13 +1123,14 @@ Request: empty JSON body (`{}`). CSRF-gated; UI-only.
 
 Responses:
 
-| Status | Code                 | Meaning                                     |
-| ------ | -------------------- | ------------------------------------------- |
-| 202    | —                    | Cleared; body `{"ok": true}`                |
-| 403    | `BAD_REQUEST`        | Missing `X-Requested-With: contextmatrix`   |
-| 404    | `CHAT_NOT_FOUND`     | Unknown session id                          |
-| 502    | `RUNNER_UNAVAILABLE` | Runner `/clear` or primer send failed       |
-| 500    | `INTERNAL_ERROR`     | Persistence failure (rare; transcript-side) |
+| Status | Code                 | Meaning                                              |
+| ------ | -------------------- | ---------------------------------------------------- |
+| 202    | —                    | Cleared; body `{"ok": true}`                         |
+| 403    | `BAD_REQUEST`        | Missing `X-Requested-With: contextmatrix`            |
+| 404    | `CHAT_NOT_FOUND`     | Unknown session id                                   |
+| 409    | `RUNNER_NOT_RUNNING` | Session is not active or warm-idle (no live runner)  |
+| 502    | `RUNNER_UNAVAILABLE` | Runner `/clear` or primer send failed (see `detail`) |
+| 500    | `INTERNAL_ERROR`     | Persistence failure (rare; transcript-side)          |
 
 On a `502` the transcript is left untouched — the operator can retry once
 the runner is reachable again. On `500` the runner has already been

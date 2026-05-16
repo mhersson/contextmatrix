@@ -491,6 +491,11 @@ func TestClearChat_Success(t *testing.T) {
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
+	// Open the session so the runner container is active. ClearContext now
+	// requires an active or warm-idle session.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
 	req.Header.Set("X-Requested-With", "contextmatrix")
@@ -517,6 +522,11 @@ func TestClearChat_MissingCSRF(t *testing.T) {
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
+	// CSRF check runs before the handler body, so the session state does not
+	// matter for this test. Open anyway to be consistent with the happy path.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
 	// Intentionally omit X-Requested-With.
@@ -538,11 +548,15 @@ func TestClearChat_NotFound(t *testing.T) {
 
 func TestClearChat_RunnerFailure(t *testing.T) {
 	mux, mgr, runner := newChatFixtureWithRunner(t, defaultFixtureOpts())
-	runner.sendErr = errors.New("runner unreachable")
 
 	sess, err := mgr.CreateSession(context.Background(),
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
+
+	// Open the session so it is active, then arm the send error for /clear.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	runner.sendErr = errors.New("runner unreachable")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
@@ -554,6 +568,27 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+}
+
+// TestClearChat_ColdSession asserts that POST .../clear returns 409
+// RUNNER_NOT_RUNNING when the target session is cold (no running container).
+func TestClearChat_ColdSession(t *testing.T) {
+	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Session is cold — do NOT open it.
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusConflict, w.Code, "body=%s", w.Body.String())
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
 }
 
 func TestListModels_NilConfig(t *testing.T) {
