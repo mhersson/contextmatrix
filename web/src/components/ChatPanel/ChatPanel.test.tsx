@@ -1,7 +1,22 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import type { LogEntry } from '../../types';
+
+// Node 25 provides a built-in localStorage that lacks .clear(). Override it
+// with a real-backing-store mock that supports spy-able methods, matching the
+// pattern used in useCollapsedCards.test.ts and useChatLayout.test.tsx.
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
+    removeItem: vi.fn((key: string) => { delete store[key]; }),
+    clear: vi.fn(() => { store = {}; }),
+  };
+})();
+
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
 
 const logs: LogEntry[] = [
   { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user', content: 'hello' },
@@ -10,6 +25,11 @@ const logs: LogEntry[] = [
 ];
 
 describe('ChatPanel', () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    vi.clearAllMocks();
+  });
+
   it('renders user and assistant text by default; tool_call hidden', () => {
     render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
     expect(screen.getByText('hello')).toBeInTheDocument();
@@ -70,5 +90,58 @@ describe('ChatPanel', () => {
     render(<ChatPanel logs={sysLogs} onSend={() => {}} sendDisabled={false} />);
     expect(screen.getByText('just an ordinary system note')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-divider')).not.toBeInTheDocument();
+  });
+
+  describe('localStorage filter prefs', () => {
+    it('restores showToolCalls=true from localStorage so tool_call entries are visible on first render', () => {
+      localStorageMock.setItem('chat_filter_prefs', JSON.stringify({ showText: true, showToolCalls: true, showThinking: false }));
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByText('Read: foo.go')).toBeInTheDocument();
+    });
+
+    it('falls back to defaults when localStorage key is missing', () => {
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByText('hello')).toBeInTheDocument();
+      expect(screen.getByText('world')).toBeInTheDocument();
+      expect(screen.queryByText('Read: foo.go')).not.toBeInTheDocument();
+    });
+
+    it('falls back to defaults when localStorage contains malformed JSON', () => {
+      localStorageMock.setItem('chat_filter_prefs', 'not-valid-json{{{');
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.queryByText('Read: foo.go')).not.toBeInTheDocument();
+    });
+
+    it('falls back to defaults for fields that are not booleans', () => {
+      localStorageMock.setItem('chat_filter_prefs', JSON.stringify({ showText: 'yes', showToolCalls: 1, showThinking: null }));
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      // showText defaults to true (visible), showToolCalls defaults to false (hidden)
+      expect(screen.getByText('world')).toBeInTheDocument();
+      expect(screen.queryByText('Read: foo.go')).not.toBeInTheDocument();
+    });
+
+    it('writes updated prefs to localStorage when a checkbox is toggled', () => {
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      fireEvent.click(screen.getByLabelText('Tool calls'));
+      const stored = JSON.parse(localStorageMock.getItem('chat_filter_prefs') ?? '{}');
+      expect(stored.showToolCalls).toBe(true);
+      expect(stored.showText).toBe(true);
+      expect(stored.showThinking).toBe(false);
+    });
+
+    it('tolerates a throwing localStorage.getItem without crashing', () => {
+      localStorageMock.getItem.mockImplementationOnce(() => {
+        throw new Error('storage blocked');
+      });
+      expect(() => render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />)).not.toThrow();
+    });
+
+    it('tolerates a throwing localStorage.setItem without crashing', () => {
+      render(<ChatPanel logs={logs} onSend={() => {}} sendDisabled={false} />);
+      localStorageMock.setItem.mockImplementationOnce(() => {
+        throw new Error('QuotaExceededError');
+      });
+      expect(() => fireEvent.click(screen.getByLabelText('Tool calls'))).not.toThrow();
+    });
   });
 });

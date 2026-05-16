@@ -22,7 +22,8 @@
 - No `localStorage` usage except: theme preference, palette preference
   (`palette` key), human agent ID, last selected project, last chat id
   (`last_chat_id`), chat section collapse (`sidebar.chat_section_collapsed`),
-  multi-pane chat layout (`chat_layout`), collapsed column/card state.
+  multi-pane chat layout (`chat_layout`), collapsed column/card state, chat
+  filter preferences (`chat_filter_prefs`).
 - Theme state is managed via `ThemeProvider` (in `web/src/hooks/useTheme.ts`)
   wrapping the app root. Components consume it with `useTheme()`. The markdown
   editor (`@uiw/react-md-editor`) receives `data-color-mode={theme}` so it
@@ -218,12 +219,17 @@ not be hidden.
 
 Filtering is applied at render time against the full in-memory buffer
 (`cardLogs`). Toggling a filter on retroactively reveals all messages of that
-type received since the session started. Filter state is session-only —
-`useState` with no `localStorage` persistence — and resets to defaults on page
-reload.
+type received since the session started. Filter state is persisted to
+`localStorage` under the key `chat_filter_prefs` (JSON `{ showText,
+showToolCalls, showThinking }`) and restored when the panel re-mounts or
+the page reloads. Defaults (`showText: true`, `showToolCalls: false`,
+`showThinking: false`) apply when the key is missing, malformed, or any field
+is not a boolean.
 
-State lives in three booleans in `CardChat.tsx`: `showText`, `showToolCalls`,
-`showThinking`. No new props or context is involved.
+State lives in the `useChatFilterPrefs` hook
+(`web/src/hooks/useChatFilterPrefs.ts`), which owns the load/save round-trip
+and exposes `{ prefs, setPref }`. `ChatPanel.tsx` consumes the hook; no new
+props or context is involved.
 
 ### Rail tabs + default tab on HITL
 

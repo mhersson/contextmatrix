@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { LogEntry } from '../../types';
+import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -40,9 +41,8 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showText, setShowText] = useState(true);
-  const [showToolCalls, setShowToolCalls] = useState(false);
-  const [showThinking, setShowThinking] = useState(false);
+  const { prefs, setPref } = useChatFilterPrefs();
+  const { showText, showToolCalls, showThinking } = prefs;
   const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -114,15 +114,27 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
       {/* Filter bar */}
       <div className="flex items-center gap-4 px-4 py-2 border-b border-[var(--bg3)] bg-[var(--bg1)] text-xs font-mono shrink-0">
         <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--fg)' }}>
-          <input type="checkbox" checked={showText} onChange={(e) => setShowText(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={showText}
+            onChange={(e) => setPref('showText', e.target.checked)}
+          />
           Text
         </label>
         <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--aqua)' }}>
-          <input type="checkbox" checked={showToolCalls} onChange={(e) => setShowToolCalls(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={showToolCalls}
+            onChange={(e) => setPref('showToolCalls', e.target.checked)}
+          />
           Tool calls
         </label>
         <label className="flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--grey2)' }}>
-          <input type="checkbox" checked={showThinking} onChange={(e) => setShowThinking(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={showThinking}
+            onChange={(e) => setPref('showThinking', e.target.checked)}
+          />
           Thinking
         </label>
       </div>
