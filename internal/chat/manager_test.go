@@ -2062,6 +2062,58 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }
 
+// TestClearContext_DividerFailureLeavesTranscriptClean verifies that when
+// ClearTranscriptAtomic fails (simulating a divider INSERT failure inside the
+// transaction), no rows are marked as rehydration_phase=true. The transaction
+// rollback must leave the transcript completely unchanged.
+func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	inner, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inner.Close() })
+
+	fstore := &clearAtomicFailingStore{Store: inner}
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   fstore,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Seed 3 messages.
+	for i := range 3 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "msg-"+strconv.Itoa(i))
+		require.NoError(t, err)
+	}
+
+	// Arm the one-shot failure so ClearTranscriptAtomic returns an error.
+	fstore.FailNext()
+
+	err = mgr.ClearContext(ctx, sess.ID)
+	require.Error(t, err, "ClearContext must propagate the atomic tx failure")
+
+	// Read directly from inner store so we bypass any manager cache.
+	msgs, err := inner.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 3, "no divider row must have been inserted")
+
+	for _, m := range msgs {
+		assert.False(t, m.RehydrationPhase,
+			"seq=%d must not be marked: transaction must have rolled back", m.Seq)
+	}
+}
+
 // TestClearContext_ColdSession asserts that ClearContext returns
 // ErrSessionNotRunning when the session is cold (no live runner container)
 // and that the runner is never called.

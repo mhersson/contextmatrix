@@ -640,15 +640,55 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	markedCount, err := m.store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("chat: ClearContext: mark phase: %w", err)
+	// Build the divider message under the per-session append lock so the
+	// seq is assigned atomically with the transcript mark + INSERT. The
+	// ClearTranscriptAtomic call wraps both operations in a single SQL
+	// transaction, preventing partial-failure states (rows marked but no
+	// divider inserted, or vice-versa).
+	sl := m.appendLock(sessionID)
+	sl.Lock()
+
+	m.mu.Lock()
+	if _, ok := m.seqMap[sessionID]; !ok {
+		maxSeq, seedErr := m.store.MaxSeq(ctx, sessionID)
+		if seedErr != nil {
+			m.mu.Unlock()
+			sl.Unlock()
+
+			return fmt.Errorf("chat: ClearContext: seed seq: %w", seedErr)
+		}
+
+		m.seqMap[sessionID] = maxSeq
 	}
 
-	msg, err := m.appendMessageWithKind(ctx, sessionID, RoleSystem, ContextClearedMarker, EventKindDivider)
-	if err != nil {
-		return fmt.Errorf("chat: ClearContext: append divider: %w", err)
+	m.seqMap[sessionID]++
+	seq := m.seqMap[sessionID]
+	m.mu.Unlock()
+
+	phase := m.isRehydrationActive(ctx, sessionID)
+
+	divider := Message{
+		SessionID:        sessionID,
+		Seq:              seq,
+		Role:             RoleSystem,
+		Content:          ContextClearedMarker,
+		Kind:             EventKindDivider,
+		CreatedAt:        m.clk.Now().UTC().Truncate(time.Second),
+		RehydrationPhase: phase,
 	}
+
+	markedCount, msg, err := m.store.ClearTranscriptAtomic(ctx, sessionID, divider)
+	if err != nil {
+		// Roll back the seq reservation so the next append re-uses it.
+		m.mu.Lock()
+		m.seqMap[sessionID]--
+		m.mu.Unlock()
+		sl.Unlock()
+
+		return fmt.Errorf("chat: ClearContext: atomic transcript update: %w", err)
+	}
+
+	sl.Unlock()
 
 	if m.hub != nil {
 		m.hub.Publish(sessionID, SSEEvent{

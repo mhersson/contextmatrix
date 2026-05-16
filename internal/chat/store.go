@@ -39,6 +39,13 @@ type Store interface {
 	// updated (zero is not an error: clearing an empty session is valid).
 	MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error)
 
+	// ClearTranscriptAtomic marks all prior messages as rehydration_phase=1
+	// and inserts the divider message in a single database transaction. If
+	// either operation fails the transaction is rolled back, leaving the
+	// transcript unchanged. Returns the number of rows marked plus the
+	// inserted divider message (with its assigned ID).
+	ClearTranscriptAtomic(ctx context.Context, sessionID string, divider Message) (markedCount int64, inserted Message, err error)
+
 	// ListMessagesTail returns the newest limit messages for sessionID in
 	// chronological (ASC) order. Used by buildResume so rehydration payloads
 	// reflect recent context rather than oldest. limit <= 0 returns nil.
