@@ -1153,10 +1153,13 @@ existing message wire shape):
   "seq": 42,
   "role": "system",
   "content": "Context cleared",
-  "kind": "divider",
-  "rehydration_phase": false
+  "kind": "divider"
 }
 ```
+
+`rehydration_phase` is omitted when `false` (`omitempty` on the wire), so it
+does not appear in a normal Clear Context event. It will be present and `true`
+only when Clear is invoked while the session is in its rehydration phase (rare).
 
 ### POST /api/chats/{id}/messages
 
