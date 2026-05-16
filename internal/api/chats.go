@@ -239,8 +239,15 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if errors.Is(err, chat.ErrRunnerSend) {
+			// ErrRunnerSendPrimer is the more specific sentinel — check it first
+			// so "primer_failed" takes precedence over the general "clear_failed".
+			detail := "clear_failed"
+			if errors.Is(err, chat.ErrRunnerSendPrimer) {
+				detail = "primer_failed"
+			}
+
 			writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
-				"runner unavailable", "clear_failed")
+				"runner unavailable", detail)
 
 			return
 		}

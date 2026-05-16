@@ -1137,6 +1137,14 @@ the runner is reachable again. On `500` the runner has already been
 cleared but the transcript mark/divider step failed; the session is still
 usable, the divider just won't appear in the UI until the next clear.
 
+The `502` response body includes a `detail` field that distinguishes the
+two failure stages:
+
+| `detail`        | Meaning                                                                        |
+| --------------- | ------------------------------------------------------------------------------ |
+| `clear_failed`  | The runner `/clear` call failed; primer was never attempted                    |
+| `primer_failed` | The `/clear` succeeded but the primer re-send failed; runtime is unoriented    |
+
 Example SSE event for the divider (default unnamed channel, matching the
 existing message wire shape):
 

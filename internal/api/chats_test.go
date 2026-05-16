@@ -8,9 +8,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +26,10 @@ import (
 )
 
 type chatStubRunner struct {
-	sendErr error
+	sendErr    error
+	sendErrSeq []error
+	mu         sync.Mutex
+	sendCalls  int64
 }
 
 func (r *chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
@@ -33,6 +38,16 @@ func (r *chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (
 
 func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
 func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+	r.mu.Lock()
+	idx := r.sendCalls
+	r.sendCalls++
+	seq := r.sendErrSeq
+	r.mu.Unlock()
+
+	if idx >= 0 && int(idx) < len(seq) {
+		return seq[idx]
+	}
+
 	return r.sendErr
 }
 
@@ -76,6 +91,12 @@ func newChatFixture(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manag
 
 func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager, *chatStubRunner) {
 	t.Helper()
+
+	return newChatFixtureWithRunnerAndPrimer(t, opts, "")
+}
+
+func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPath string) (*http.ServeMux, *chat.Manager, *chatStubRunner) {
+	t.Helper()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -88,6 +109,7 @@ func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: chatCfg.DefaultModel,
+		PrimerPath:   primerPath,
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
@@ -568,6 +590,42 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+	assert.Equal(t, "clear_failed", apiErr.Details, "body must carry detail=clear_failed for /clear step failure")
+}
+
+// TestClearChat_PrimerFailure_Detail asserts that when /clear succeeds but the
+// primer re-send fails, the 502 response body carries detail="primer_failed".
+func TestClearChat_PrimerFailure_Detail(t *testing.T) {
+	// Write a temporary primer file so ClearContext actually attempts to send it.
+	primerPath := filepath.Join(t.TempDir(), "chat-mode.md")
+	require.NoError(t, os.WriteFile(primerPath, []byte("ORIENT"), 0o644))
+
+	mux, mgr, runner := newChatFixtureWithRunnerAndPrimer(t, defaultFixtureOpts(), primerPath)
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open the session so it is active.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
+	// Arm: /clear succeeds (index 0 → nil), primer fails (index 1 → error).
+	runner.mu.Lock()
+	runner.sendErrSeq = []error{nil, errors.New("primer send failed")}
+	runner.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadGateway, w.Code, "body=%s", w.Body.String())
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+	assert.Equal(t, "primer_failed", apiErr.Details,
+		"body must carry detail=primer_failed when primer send fails after /clear succeeds")
 }
 
 // TestClearChat_ColdSession asserts that POST .../clear returns 409

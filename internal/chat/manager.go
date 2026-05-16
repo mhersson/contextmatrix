@@ -33,6 +33,14 @@ var ErrRunnerSend = errors.New("chat: runner send failed")
 // The API layer maps this to 409 RUNNER_NOT_RUNNING.
 var ErrSessionNotRunning = errors.New("chat: session is not running")
 
+// ErrRunnerSendPrimer is wrapped around primer-send failures inside
+// ClearContext, in addition to the general ErrRunnerSend sentinel. The API
+// layer uses errors.Is(err, ErrRunnerSendPrimer) to distinguish a "primer
+// send failed after /clear succeeded" case (detail: "primer_failed") from a
+// plain "/clear send failure" (detail: "clear_failed"). Both cases are still
+// 502 RUNNER_UNAVAILABLE; the detail string is the differentiator.
+var ErrRunnerSendPrimer = errors.New("chat: primer send failed after /clear succeeded")
+
 // ContextClearedMarker is the canonical content string written to the
 // system-role transcript row appended on Clear Context. The frontend uses
 // this in conjunction with the persisted kind ("divider") to render a
@@ -636,7 +644,10 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
 				"session_id", sessionID, "error", err)
 
-			return fmt.Errorf("chat: ClearContext: primer: %w: %w", ErrRunnerSend, err)
+			// Wrap with both ErrRunnerSendPrimer and ErrRunnerSend so callers
+			// can use errors.Is to distinguish primer failure from /clear failure
+			// while still matching the broader ErrRunnerSend sentinel.
+			return fmt.Errorf("chat: ClearContext: primer: %w: %w: %w", ErrRunnerSendPrimer, ErrRunnerSend, err)
 		}
 	}
 
