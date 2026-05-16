@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,15 +23,20 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 )
 
-type chatStubRunner struct{}
+type chatStubRunner struct {
+	sendErr error
+}
 
-func (chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
+func (r *chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
 	return "container-" + opts.SessionID, nil
 }
 
-func (chatStubRunner) EndChat(_ context.Context, _ string) error               { return nil }
-func (chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
-func (chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+	return r.sendErr
+}
+
+func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()
@@ -63,14 +69,22 @@ func jsonReq(t *testing.T, method, path, body string) *http.Request {
 
 func newChatFixture(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager) {
 	t.Helper()
+	mux, mgr, _ := newChatFixtureWithRunner(t, opts)
+
+	return mux, mgr
+}
+
+func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager, *chatStubRunner) {
+	t.Helper()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
 	chatCfg := opts.chatConfig
+	runner := &chatStubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       chatStubRunner{},
+		Runner:       runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: chatCfg.DefaultModel,
@@ -86,11 +100,12 @@ func newChatFixture(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manag
 	mux.HandleFunc("PATCH /api/chats/{id}", chh.patchChat)
 	mux.HandleFunc("POST /api/chats/{id}/open", chh.openChat)
 	mux.HandleFunc("POST /api/chats/{id}/end", chh.endChat)
+	mux.HandleFunc("POST /api/chats/{id}/clear", chh.clearChat)
 	mux.HandleFunc("POST /api/chats/{id}/messages", chh.sendMessage)
 	mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 
-	return mux, mgr
+	return mux, mgr, runner
 }
 
 func TestCreateChat_Success(t *testing.T) {
@@ -466,6 +481,81 @@ func TestCreateChat_InvalidModel(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "INVALID_MODEL")
 }
 
+func TestClearChat_Success(t *testing.T) {
+	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	// Wrap with csrfGuard so the success path exercises the same gate the
+	// production router uses; the bare mux would otherwise skip it.
+	h := csrfGuard(mux)
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusAccepted, w.Code, "body=%s", w.Body.String())
+
+	// Divider row was persisted with kind=divider and the canonical marker.
+	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, chat.RoleSystem, msgs[0].Role)
+	assert.Equal(t, chat.ContextClearedMarker, msgs[0].Content)
+	assert.Equal(t, chat.EventKindDivider, msgs[0].Kind,
+		"persisted divider row must carry kind so REST bootstrap renders the rule on reload")
+}
+
+func TestClearChat_MissingCSRF(t *testing.T) {
+	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	h := csrfGuard(mux)
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	// Intentionally omit X-Requested-With.
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestClearChat_NotFound(t *testing.T) {
+	mux, _, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/no-such/clear",
+		bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestClearChat_RunnerFailure(t *testing.T) {
+	mux, mgr, runner := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	runner.sendErr = errors.New("runner unreachable")
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadGateway, w.Code, "body=%s", w.Body.String())
+
+	var apiErr APIError
+
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+}
+
 func TestListModels_NilConfig(t *testing.T) {
 	t.Parallel()
 	// Create a fixture with nil chat config by manually building without the chatConfig.
@@ -476,7 +566,7 @@ func TestListModels_NilConfig(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       chatStubRunner{},
+		Runner:       &chatStubRunner{},
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: "claude-sonnet-4-6",

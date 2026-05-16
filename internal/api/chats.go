@@ -211,6 +211,35 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+// clearChat wipes the runner's working memory in place, re-primes the
+// session with the chat-mode primer, marks prior transcript rows as
+// rehydration_phase=true so they are excluded from future cold-open
+// resume payloads, and appends a "Context cleared" divider row. The
+// divider is published on the live SSE wire AND persisted with
+// kind="divider" so a page reload still renders it as a horizontal rule.
+//
+// Errors are routed:
+//   - chat.ErrSessionNotFound → 404 (via handleChatError)
+//   - chat.ErrRunnerSend      → 502 RUNNER_UNAVAILABLE
+//   - everything else         → 500 (via handleChatError)
+func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.mgr.ClearContext(r.Context(), id); err != nil {
+		if errors.Is(err, chat.ErrRunnerSend) {
+			writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
+				"runner unavailable", "")
+
+			return
+		}
+
+		handleChatError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+}
+
 func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Content string `json:"content"`
@@ -442,13 +471,16 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 		// Backwards-compatible default: emit data without an event: header
 		// so older clients listening on the unnamed message stream keep
 		// working. rehydration_phase is included so the UI can group
-		// agent rehydration messages distinctly from normal turns.
+		// agent rehydration messages distinctly from normal turns. kind
+		// (omitempty) carries structural markers like "divider" for the
+		// Clear Context sentinel — empty for regular messages.
 		b, _ := json.Marshal(struct {
 			Seq              int64     `json:"seq"`
 			Role             chat.Role `json:"role"`
 			Content          string    `json:"content"`
+			Kind             string    `json:"kind,omitempty"`
 			RehydrationPhase bool      `json:"rehydration_phase,omitempty"`
-		}{Seq: e.Seq, Role: e.Role, Content: e.Content, RehydrationPhase: e.RehydrationPhase})
+		}{Seq: e.Seq, Role: e.Role, Content: e.Content, Kind: e.DataKind, RehydrationPhase: e.RehydrationPhase})
 		_, _ = w.Write([]byte("data: "))
 		_, _ = w.Write(b)
 		_, _ = w.Write([]byte("\n\n"))
