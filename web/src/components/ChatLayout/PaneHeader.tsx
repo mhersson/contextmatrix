@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AvailableChat } from './types';
+import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
 import { contextPct, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
+import {
+  PANE_SOURCE_MIME,
+  CHAT_DRAG_START_EVENT,
+  CHAT_DRAG_END_EVENT,
+} from './dragProtocol';
 
 interface Props {
+  slot: Slot;
+  draggable: boolean;
   chatId: string | null;
   chat?: AvailableChat;
   isFocused: boolean;
@@ -20,6 +27,8 @@ interface Props {
 }
 
 export function PaneHeader({
+  slot,
+  draggable,
   chatId,
   chat,
   connected = false,
@@ -66,8 +75,25 @@ export function PaneHeader({
     fn?.();
   };
 
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!chatId) { e.preventDefault(); return; }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', chatId);
+    e.dataTransfer.setData(PANE_SOURCE_MIME, slot);
+    window.dispatchEvent(new CustomEvent(CHAT_DRAG_START_EVENT, { detail: { chatId } }));
+  };
+
+  const handleDragEnd = () => {
+    window.dispatchEvent(new Event(CHAT_DRAG_END_EVENT));
+  };
+
   return (
-    <div className="chat-pane-header">
+    <div
+      className="chat-pane-header"
+      draggable={draggable}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
       <PaneAccentStripe chatId={chatId} />
       <div className="chat-pane-title">
         <span className="chat-pane-name" style={titleStyle}>{title}</span>
@@ -87,6 +113,8 @@ export function PaneHeader({
           <button
             type="button"
             className="chat-pane-btn"
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
             onClick={(e) => { e.stopPropagation(); onSplit(); }}
             aria-label="Split pane"
             title="Split pane"
@@ -97,6 +125,8 @@ export function PaneHeader({
             <button
               type="button"
               className="chat-pane-btn"
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
               aria-label="More chat actions"
               aria-haspopup="menu"
@@ -148,6 +178,8 @@ export function PaneHeader({
           <button
             type="button"
             className="chat-pane-btn chat-pane-btn--close"
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
             onClick={(e) => { e.stopPropagation(); onClose(); }}
             aria-label="Close pane"
             title="Close pane"

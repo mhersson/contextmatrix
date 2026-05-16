@@ -12,7 +12,7 @@ import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
 import {
   CHAT_DRAG_START_EVENT,
   CHAT_DRAG_END_EVENT,
-} from '../../components/Sidebar/ChatSection';
+} from '../../components/ChatLayout/dragProtocol';
 
 interface EvictToast {
   victimChatId: string;
@@ -122,6 +122,14 @@ export function ChatPage() {
     [layout],
   );
 
+  const handleMovePane = useCallback(
+    (fromSlot: Slot, toSlot: Slot) => {
+      layout.setDragging(null);
+      layout.movePane(fromSlot, toSlot);
+    },
+    [layout],
+  );
+
   const renderPaneBody = useCallback(
     (chatId: string, _slot: Slot, isFocused: boolean) => (
       <ChatThread sessionID={chatId} embedded isFocused={isFocused} />
@@ -222,6 +230,7 @@ export function ChatPage() {
             onSplit={layout.splitFromPane}
             onResize={handleResize}
             onDropChatOnPane={handleDropChatOnPane}
+            onMovePane={handleMovePane}
             onPickEmptyPane={layout.swapPaneChat}
             onCancelEmpty={layout.cancelEmptyPane}
             onNewChat={() => setDialogOpen(true)}

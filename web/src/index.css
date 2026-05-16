@@ -1316,6 +1316,8 @@ input, select, textarea {
   background: color-mix(in oklab, var(--bg1) 75%, var(--bg-blue));
   box-shadow: inset 0 -1px 0 0 color-mix(in oklab, var(--aqua) 40%, transparent);
 }
+.chat-pane-header[draggable="true"] { cursor: grab; }
+.chat-pane-header[draggable="true"]:active { cursor: grabbing; }
 
 .chat-pane-stripe {
   width: 2px;

@@ -7,8 +7,7 @@ import type { ChatSession, ChatStatus } from '../../types';
 
 const STORAGE_KEY = 'sidebar.chat_section_collapsed';
 
-const CHAT_DRAG_START_EVENT = 'cm:chat-drag-start';
-const CHAT_DRAG_END_EVENT = 'cm:chat-drag-end';
+import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragProtocol';
 
 function statusDotColor(status: ChatStatus): string | null {
   switch (status) {
@@ -149,5 +148,3 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
     </div>
   );
 }
-
-export { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT };

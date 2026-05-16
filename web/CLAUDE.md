@@ -338,6 +338,7 @@ panels library.
   deleted; the End / Reopen / Delete actions live on `ChatThread`'s
   non-embedded header and are reachable on mobile or by closing other
   panes down to one).
+- `movePane(fromSlot, toSlot)` — unconditional swap of the two slots' contents (including null-on-either-side); then `normalize()` collapses any empty slots. Focus follows the dragged chat: `focused = toSlot` when the source had a chat; `lastFocusedAt[toSlot]` is stamped. No-op when `fromSlot === toSlot`. Used exclusively by pane-header drags (see below).
 - `focus(slot)` — stamps `lastFocusedAt[slot] = Date.now()` for LRU.
 
 ### 5th-chat policy: LRU eviction with undo
@@ -358,14 +359,44 @@ calls `restoreSnapshot(snapshot)` to atomically revert.
 - Server-side deletes are reconciled via an effect that watches
   `availableChats`: ids no longer in the list are removed from panes.
 
-### Drag-and-drop from the sidebar
+### Drag-and-drop
 
-`ChatSection` lives outside `ChatLayoutProvider`'s subtree (the sidebar
-renders above the route outlet). To let pane drop-overlays show the
-incoming chat name, `ChatSection` dispatches `cm:chat-drag-start` /
+Two drag sources feed the same drop targets (panes):
+
+**Sidebar drags** (`ChatSection`): `ChatSection` lives outside
+`ChatLayoutProvider`'s subtree (the sidebar renders above the route
+outlet). It sets `draggable=true` on chat rows and writes only
+`text/plain` (chat id) to `dataTransfer`. To let pane drop-overlays show
+the incoming chat name, `ChatSection` dispatches `cm:chat-drag-start` /
 `cm:chat-drag-end` custom events; `ChatPage` listens and forwards to
-`layout.setDragging(...)`. Touch devices skip `draggable=true` to avoid
-hijacking scroll gestures (`!isTouchDevice()` guard).
+`layout.setDragging(...)`. Drop routes to `onDropChatOnPane` →
+`swapPaneChat`. Touch devices skip `draggable=true` (`!isTouchDevice()`
+guard).
+
+**Pane-header drags** (`PaneHeader`): the entire `chat-pane-header` div is
+a drag source when `!isTouchDevice() && chatId != null` (the parent
+`ChatPane` computes this and passes `draggable={headerDraggable}` to
+`PaneHeader`). The header gets `cursor: grab` via inline style when
+draggable. `onDragStart` writes two MIME types: `text/plain` (chat id) and
+the custom `application/x-cm-pane-source-slot` (the source `Slot` string,
+e.g. `"TL"`). It also dispatches the same `cm:chat-drag-start` window event
+so the drop overlays activate. Action buttons (`chat-pane-btn`) carry
+`draggable={false}` + `onDragStart={(e) => e.preventDefault()}` to prevent
+accidental header drags originating from a button area.
+
+**Drop routing in `ChatPane.handleDrop`**: reads
+`application/x-cm-pane-source-slot` first. If present and the source slot
+differs from the target, calls `onMovePane(fromSlot)` →
+`layout.movePane(fromSlot, toSlot)` (unconditional swap). If the source
+MIME is absent, falls through to the sidebar path: reads `text/plain` →
+`onDropChat` → `swapPaneChat`. Same-pane drops (source MIME == target slot)
+are a no-op. An unrecognised slot value (not in `SLOTS`) is treated as a
+malformed drop and falls through to the sidebar path for forward-compat.
+
+**Protocol constants** (`PANE_SOURCE_MIME`, `CHAT_DRAG_START_EVENT`,
+`CHAT_DRAG_END_EVENT`) are the single source of truth defined in
+`web/src/components/ChatLayout/dragProtocol.ts`. Import from there; do not
+re-declare them locally.
 
 ### Routing
 

@@ -41,6 +41,7 @@ export interface UseChatLayoutResult {
   openInNewPane: (chatId: string) => void;
   closePane: (slot: Slot) => void;
   swapPaneChat: (slot: Slot, chatId: string) => void;
+  movePane: (fromSlot: Slot, toSlot: Slot) => void;
   splitFromPane: (slot: Slot) => void;
   cancelEmptyPane: (slot: Slot) => void;
   setSizes: (key: keyof PaneSizes, sizes: number[]) => void;
@@ -347,6 +348,29 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     });
   }, []);
 
+  const movePane = useCallback((fromSlot: Slot, toSlot: Slot) => {
+    if (fromSlot === toSlot) return;
+    setState((s) => {
+      const fromPane = s.panes[fromSlot];
+      const toPane = s.panes[toSlot];
+      // Unconditional swap — even if one side is null (source becomes empty,
+      // target gets the chat). Normalize collapses any resulting empty slots.
+      const panes: PaneSlots = {
+        ...s.panes,
+        [fromSlot]: toPane,
+        [toSlot]: fromPane,
+      };
+      // Focus follows the dragged chat: set focused = toSlot when the source
+      // had a chat (the common case). Stamp lastFocusedAt so LRU is correct.
+      const hadChat = fromPane?.chatId != null;
+      const focused = hadChat ? toSlot : s.focused;
+      const lastFocusedAt = hadChat
+        ? { ...s.lastFocusedAt, [toSlot]: Date.now() }
+        : s.lastFocusedAt;
+      return normalize({ ...s, panes, focused, lastFocusedAt });
+    });
+  }, []);
+
   const splitFromPane = useCallback((slot: Slot) => {
     setState((s) => {
       const target = splitTargetSlot(s, slot);
@@ -397,6 +421,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     openInNewPane,
     closePane,
     swapPaneChat,
+    movePane,
     splitFromPane,
     cancelEmptyPane,
     setSizes,
