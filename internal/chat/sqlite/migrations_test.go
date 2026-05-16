@@ -15,7 +15,7 @@ func TestMigrate_FreshDB_AppliesAllVersionsAndDropsRedundantIndex(t *testing.T) 
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	assert.Equal(t, []int{1, 2, 3}, appliedVersions(t, s.db))
+	assert.Equal(t, []int{1, 2, 3, 4}, appliedVersions(t, s.db))
 	assert.True(t, indexExists(t, s.db, "idx_chat_messages_session_seq_unique"))
 	assert.False(t, indexExists(t, s.db, "idx_chat_messages_session_seq"))
 }
@@ -28,7 +28,7 @@ func TestMigrate_PreWave38DB_AppliesV2(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	assert.Equal(t, []int{1, 2, 3}, appliedVersions(t, s.db))
+	assert.Equal(t, []int{1, 2, 3, 4}, appliedVersions(t, s.db))
 	assert.True(t, indexExists(t, s.db, "idx_chat_messages_session_seq_unique"))
 	assert.False(t, indexExists(t, s.db, "idx_chat_messages_session_seq"))
 }
@@ -42,7 +42,7 @@ func TestMigrate_Wave38DB_DropsRedundantNonUniqueIndex(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	assert.Equal(t, []int{1, 2, 3}, appliedVersions(t, s.db))
+	assert.Equal(t, []int{1, 2, 3, 4}, appliedVersions(t, s.db))
 	assert.True(t, indexExists(t, s.db, "idx_chat_messages_session_seq_unique"))
 	assert.False(t, indexExists(t, s.db, "idx_chat_messages_session_seq"))
 }
@@ -57,7 +57,7 @@ func TestMigrate_ReopenDoesNotDuplicateVersionRows(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s2.Close() })
 
-	assert.Equal(t, []int{1, 2, 3}, appliedVersions(t, s2.db))
+	assert.Equal(t, []int{1, 2, 3, 4}, appliedVersions(t, s2.db))
 }
 
 func TestMigrate_V3_AddsRehydrationAndModelColumns(t *testing.T) {
@@ -74,6 +74,15 @@ func TestMigrate_V3_AddsRehydrationAndModelColumns(t *testing.T) {
 	assert.True(t, indexExists(t, s.db, "idx_chat_messages_phase"))
 }
 
+func TestMigrate_V4_AddsKindColumn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	s, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	assert.True(t, columnExists(t, s.db, "chat_messages", "kind"))
+}
+
 func TestMigrate_V3_IdempotentOnPreV3DBWithPartialColumns(t *testing.T) {
 	// Simulate a database that drifted from the version history: v1 + v2
 	// schema in place but one v3 column already exists (e.g. added by a
@@ -87,7 +96,7 @@ func TestMigrate_V3_IdempotentOnPreV3DBWithPartialColumns(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	assert.Equal(t, []int{1, 2, 3}, appliedVersions(t, s.db))
+	assert.Equal(t, []int{1, 2, 3, 4}, appliedVersions(t, s.db))
 	assert.True(t, columnExists(t, s.db, "chat_sessions", "model"))
 	assert.True(t, columnExists(t, s.db, "chat_sessions", "rehydration_active"))
 	assert.True(t, columnExists(t, s.db, "chat_messages", "rehydration_phase"))

@@ -32,6 +32,13 @@ type Store interface {
 	AppendMessage(ctx context.Context, m Message) (int64, error)
 	ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error)
 
+	// MarkAllMessagesRehydrationPhase flips rehydration_phase = 1 on every
+	// row for sessionID that is still at 0. Used by Manager.ClearContext to
+	// exclude pre-clear messages from future rehydration payloads without
+	// deleting them from the transcript. Returns the number of rows
+	// updated (zero is not an error: clearing an empty session is valid).
+	MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error)
+
 	// ListMessagesTail returns the newest limit messages for sessionID in
 	// chronological (ASC) order. Used by buildResume so rehydration payloads
 	// reflect recent context rather than oldest. limit <= 0 returns nil.
