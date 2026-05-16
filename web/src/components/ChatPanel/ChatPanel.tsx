@@ -202,6 +202,30 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
 }
 
 function ChatEntry({ entry }: { entry: LogEntry }) {
+  // Structural divider sentinel (kind="divider") rendered as a horizontal
+  // rule with a small inline label rather than the normal system message
+  // style. The match is on kind (not content) so the rendering survives
+  // localised label changes and is unambiguous on REST-bootstrap reload.
+  if (entry.kind === 'divider') {
+    return (
+      <div
+        className="flex items-center gap-3 py-2"
+        data-testid="chat-divider"
+        role="separator"
+        aria-label={entry.content || 'divider'}
+      >
+        <hr className="flex-1 border-t" style={{ borderColor: 'var(--bg3)' }} />
+        <span
+          className="text-[10px] uppercase tracking-wider font-mono"
+          style={{ color: 'var(--grey1)' }}
+        >
+          {entry.content || 'divider'}
+        </span>
+        <hr className="flex-1 border-t" style={{ borderColor: 'var(--bg3)' }} />
+      </div>
+    );
+  }
+
   if (entry.type === 'user') {
     return (
       <div className="flex justify-end">

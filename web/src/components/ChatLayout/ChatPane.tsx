@@ -16,6 +16,7 @@ interface Props {
   onSplit: () => void;
   onDropChat: (chatId: string) => void;
   onEndSession?: () => void;
+  onClearContext?: () => void;
   onReopenChat?: () => void;
   onDeleteChat?: () => void;
   children?: React.ReactNode;
@@ -35,6 +36,7 @@ export function ChatPane({
   onSplit,
   onDropChat,
   onEndSession,
+  onClearContext,
   onReopenChat,
   onDeleteChat,
   children,
@@ -94,6 +96,7 @@ export function ChatPane({
         onClose={onClose}
         onSplit={onSplit}
         onEndSession={onEndSession}
+        onClearContext={onClearContext}
         onReopenChat={onReopenChat}
         onDeleteChat={onDeleteChat}
       />

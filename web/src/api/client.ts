@@ -425,6 +425,13 @@ class APIClient {
     });
   }
 
+  async clearChatContext(id: string): Promise<void> {
+    return this.request<void>(`/chats/${encodeURIComponent(id)}/clear`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
   async sendChatMessage(id: string, content: string): Promise<{ ok: boolean; message_id: string }> {
     return this.request<{ ok: boolean; message_id: string }>(`/chats/${encodeURIComponent(id)}/messages`, {
       method: 'POST',

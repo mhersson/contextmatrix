@@ -76,6 +76,10 @@ func (f *failingStore) MaxSeq(ctx context.Context, sessionID string) (int64, err
 	return f.Store.MaxSeq(ctx, sessionID)
 }
 
+func (f *failingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	return f.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+}
+
 func (f *failingStore) Close() error {
 	return f.Store.Close()
 }
@@ -147,6 +151,10 @@ func (ts *trackingStore) ListMessagesTail(ctx context.Context, sessionID string,
 
 func (ts *trackingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 	return ts.Store.MaxSeq(ctx, sessionID)
+}
+
+func (ts *trackingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	return ts.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
 }
 
 func (ts *trackingStore) Close() error {
@@ -230,6 +238,10 @@ func (y *yieldingStore) ListMessagesTail(ctx context.Context, sessionID string, 
 
 func (y *yieldingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 	return y.Store.MaxSeq(ctx, sessionID)
+}
+
+func (y *yieldingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	return y.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
 }
 
 func (y *yieldingStore) Close() error {
@@ -367,6 +379,10 @@ func (g *gatingStore) ListMessagesTail(ctx context.Context, sessionID string, li
 
 func (g *gatingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 	return g.Store.MaxSeq(ctx, sessionID)
+}
+
+func (g *gatingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	return g.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
 }
 
 func (g *gatingStore) Close() error {

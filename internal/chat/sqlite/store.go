@@ -235,14 +235,29 @@ func (s *Store) AppendMessage(ctx context.Context, m chat.Message) (int64, error
 	}
 
 	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_messages
-        (session_id, seq, role, content, created_at, rehydration_phase)
-        VALUES (?, ?, ?, ?, ?, ?)`,
-		m.SessionID, m.Seq, string(m.Role), m.Content, m.CreatedAt.Unix(), phase)
+        (session_id, seq, role, content, created_at, rehydration_phase, kind)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		m.SessionID, m.Seq, string(m.Role), m.Content, m.CreatedAt.Unix(), phase, m.Kind)
 	if err != nil {
 		return 0, fmt.Errorf("chat: append message: %w", err)
 	}
 
 	return m.Seq, nil
+}
+
+// MarkAllMessagesRehydrationPhase flips rehydration_phase = 1 on every row
+// for sessionID still at 0. Returns RowsAffected.
+func (s *Store) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_messages SET rehydration_phase = 1 WHERE session_id = ? AND rehydration_phase = 0`,
+		sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("chat: mark all rehydration_phase: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+
+	return n, nil
 }
 
 func (s *Store) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
@@ -260,7 +275,7 @@ func (s *Store) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 }
 
 func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_id, seq, role, content, created_at, rehydration_phase
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
         FROM chat_messages
         WHERE session_id = ? AND seq > ?
         ORDER BY seq ASC LIMIT ?`, sessionID, sinceSeq, limit)
@@ -280,7 +295,7 @@ func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int
 			phase     int
 		)
 
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.Seq, &role, &m.Content, &createdAt, &phase); err != nil {
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Seq, &role, &m.Content, &createdAt, &phase, &m.Kind); err != nil {
 			return nil, err
 		}
 
@@ -299,9 +314,9 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, session_id, seq, role, content, created_at, rehydration_phase
+		SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
 		FROM (
-			SELECT id, session_id, seq, role, content, created_at, rehydration_phase
+			SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
 			FROM chat_messages
 			WHERE session_id = ?
 			ORDER BY seq DESC
@@ -325,7 +340,7 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 			phase     int
 		)
 
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.Seq, &role, &m.Content, &createdAt, &phase); err != nil {
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Seq, &role, &m.Content, &createdAt, &phase, &m.Kind); err != nil {
 			return nil, err
 		}
 

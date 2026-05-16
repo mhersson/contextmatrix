@@ -7,6 +7,12 @@ interface ChatSSEEvent {
   seq: number;
   role: string;
   content: string;
+  /**
+   * Structural marker, e.g. "divider" for the Clear Context sentinel.
+   * Empty / absent means a regular message. Matched on by ChatPanel to
+   * render a horizontal rule instead of the normal system-message style.
+   */
+  kind?: string;
   rehydration_phase?: boolean;
 }
 
@@ -36,6 +42,7 @@ function eventToLog(e: ChatSSEEvent): LogEntry {
     type: roleToType(e.role),
     content: e.content,
     seq: e.seq,
+    kind: e.kind,
     rehydration_phase: e.rehydration_phase,
   };
 }
@@ -47,6 +54,7 @@ function messageToLog(m: ChatMessage): LogEntry {
     type: roleToType(m.role),
     content: m.content,
     seq: m.seq,
+    kind: m.kind,
     rehydration_phase: m.rehydration_phase,
   };
 }

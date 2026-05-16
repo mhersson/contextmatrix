@@ -234,6 +234,27 @@ func TestBuild_FirstUserAndLastKCollision(t *testing.T) {
 		"first user message must appear exactly once (no duplication from pin)")
 }
 
+// TestBuild_SkipsClearedMessages verifies that rehydration_phase=true rows
+// — the marker stamped by Manager.ClearContext — are excluded from the
+// resume payload while phase=false rows pass through normally. This is
+// the wire-side guarantee that a cleared session does not re-feed pre-clear
+// turns into the runner on the next cold reopen.
+func TestBuild_SkipsClearedMessages(t *testing.T) {
+	in := []Message{
+		{Seq: 1, Role: RoleUser, Content: "pre-clear turn", RehydrationPhase: true},
+		{Seq: 2, Role: RoleAssistantText, Content: "pre-clear reply", RehydrationPhase: true},
+		{Seq: 3, Role: RoleSystem, Content: "Context cleared", RehydrationPhase: true},
+		{Seq: 4, Role: RoleUser, Content: "post-clear turn"},
+		{Seq: 5, Role: RoleAssistantText, Content: "post-clear reply"},
+	}
+
+	got := Build(in, BuildOpts{})
+	require.NotNil(t, got)
+
+	assert.Equal(t, []int64{4, 5}, seqsOf(got.Turns),
+		"only post-clear rows must appear in the resume payload")
+}
+
 func rolesOf(turns []ResumeTurn) []string {
 	out := make([]string, len(turns))
 	for i, t := range turns {

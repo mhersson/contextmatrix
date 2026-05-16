@@ -61,13 +61,18 @@ type Session struct {
 	RehydrationActive      bool      `json:"rehydration_active,omitempty"`
 }
 
-// Message is a single persisted transcript entry.
+// Message is a single persisted transcript entry. Kind discriminates
+// structural markers from regular transcript rows: an empty Kind is a
+// regular message; "divider" marks the system row appended on Clear
+// Context so the frontend can render it as a horizontal rule both on
+// the live SSE wire and after a page reload via the REST bootstrap.
 type Message struct {
 	ID               int64     `json:"id"`
 	SessionID        string    `json:"session_id"`
 	Seq              int64     `json:"seq"`
 	Role             Role      `json:"role"`
 	Content          string    `json:"content"` // JSON envelope, opaque to the store
+	Kind             string    `json:"kind,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	RehydrationPhase bool      `json:"rehydration_phase,omitempty"`
 }

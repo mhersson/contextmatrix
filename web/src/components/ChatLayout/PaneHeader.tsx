@@ -14,6 +14,7 @@ interface Props {
   onClose: () => void;
   onSplit: () => void;
   onEndSession?: () => void;
+  onClearContext?: () => void;
   onReopenChat?: () => void;
   onDeleteChat?: () => void;
 }
@@ -27,6 +28,7 @@ export function PaneHeader({
   onClose,
   onSplit,
   onEndSession,
+  onClearContext,
   onReopenChat,
   onDeleteChat,
 }: Props) {
@@ -57,7 +59,7 @@ export function PaneHeader({
   const status = chat?.status;
   const isRunning = status === 'active' || status === 'warm-idle';
   const isCold = status === 'cold';
-  const showMenu = chatId != null && (onEndSession || onReopenChat || onDeleteChat);
+  const showMenu = chatId != null && (onEndSession || onClearContext || onReopenChat || onDeleteChat);
 
   const runAndClose = (fn?: () => void) => () => {
     setMenuOpen(false);
@@ -110,6 +112,14 @@ export function PaneHeader({
                     role="menuitem"
                     onClick={(e) => { e.stopPropagation(); runAndClose(onEndSession)(); }}
                   >End session</button>
+                )}
+                {isRunning && onClearContext && (
+                  <button
+                    type="button"
+                    className="chat-pane-menu-item"
+                    role="menuitem"
+                    onClick={(e) => { e.stopPropagation(); runAndClose(onClearContext)(); }}
+                  >Clear context</button>
                 )}
                 {isCold && onReopenChat && (
                   <button

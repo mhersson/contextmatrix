@@ -37,9 +37,18 @@ type stubRunner struct {
 	startErr      error
 	sendErr       error
 	streamLogsFn  func(ctx context.Context, sessionID string, onEntry func(chat.LogEntry)) error
-	mu            sync.Mutex
-	lastOpts      chat.StartChatOpts
+	// sendErrSeq, when non-nil, returns the i-th sendErr (i = call index,
+	// starting at 0). Pads with nil when len(seq) is less than the call
+	// count. Takes precedence over sendErr when set.
+	sendErrSeq []error
+	mu         sync.Mutex
+	lastOpts   chat.StartChatOpts
+	// sendArgs captures every (content, messageID) pair passed to
+	// SendChatMessage in call order. Tests assert ordering on clear+primer.
+	sendArgs []sendArg
 }
+
+type sendArg struct{ Content, MessageID string }
 
 func (s *stubRunner) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
 	s.startCalls.Add(1)
@@ -61,7 +70,16 @@ func (s *stubRunner) EndChat(ctx context.Context, sessionID string) error {
 }
 
 func (s *stubRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
-	s.sendCalls.Add(1)
+	idx := s.sendCalls.Add(1) - 1
+
+	s.mu.Lock()
+	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID})
+	seq := s.sendErrSeq
+	s.mu.Unlock()
+
+	if idx >= 0 && int(idx) < len(seq) {
+		return seq[idx]
+	}
 
 	return s.sendErr
 }
@@ -1838,4 +1856,177 @@ func TestManager_OpenCold_PrimerReadOnEachOpen(t *testing.T) {
 
 	assert.Equal(t, "VERSION-2", runner.lastOpts.Primer,
 		"second cold-open must read the updated primer (hot-reload)")
+}
+
+// --- ClearContext tests ---
+
+func newManagerForClear(t *testing.T, primer string) (*chat.Manager, *stubRunner, chat.Store) {
+	t.Helper()
+	primerPath := writeTempPrimer(t, primer)
+
+	return newManagerWithPrimerPath(t, primerPath)
+}
+
+func TestClearContext_HappyPath(t *testing.T) {
+	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Pre-clear: 3 transcript messages.
+	for i := range 3 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "msg-"+strconv.Itoa(i))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	// Runner saw /clear then primer in order.
+	runner.mu.Lock()
+	args := append([]sendArg(nil), runner.sendArgs...)
+	runner.mu.Unlock()
+	require.Len(t, args, 2)
+	assert.Equal(t, "/clear", args[0].Content)
+	assert.Equal(t, "PRIMER", args[1].Content)
+	assert.NotEqual(t, args[0].MessageID, args[1].MessageID, "each runner write must use a fresh message id")
+
+	// All three pre-clear rows now have rehydration_phase=true.
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 4, "3 pre-clear + 1 divider")
+
+	for _, m := range msgs[:3] {
+		assert.True(t, m.RehydrationPhase,
+			"pre-clear row seq=%d must be flipped to rehydration_phase=true", m.Seq)
+	}
+
+	// Divider row is the last entry: system role, marker content, kind=divider.
+	divider := msgs[3]
+	assert.Equal(t, chat.RoleSystem, divider.Role)
+	assert.Equal(t, chat.ContextClearedMarker, divider.Content)
+	assert.Equal(t, chat.EventKindDivider, divider.Kind,
+		"divider row must persist kind so REST-bootstrap reload renders the rule")
+}
+
+func TestClearContext_PrimerMissing(t *testing.T) {
+	// PrimerPath is "" → loadPrimer returns "" → no primer-send call.
+	mgr, runner, store := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	runner.mu.Lock()
+	args := append([]sendArg(nil), runner.sendArgs...)
+	runner.mu.Unlock()
+	require.Len(t, args, 1, "only /clear runs when there's no primer file")
+	assert.Equal(t, "/clear", args[0].Content)
+
+	// Divider still persists.
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, chat.EventKindDivider, msgs[0].Kind)
+}
+
+func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
+	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	runner.sendErrSeq = []error{errors.New("runner unreachable")}
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "pre-clear")
+	require.NoError(t, err)
+
+	err = mgr.ClearContext(ctx, sess.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, chat.ErrRunnerSend,
+		"runner /clear failure must wrap ErrRunnerSend so API maps to 502, got: %v", err)
+
+	// Transcript untouched: only the pre-clear row, no divider, phase=false.
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.False(t, msgs[0].RehydrationPhase, "phase must not flip when /clear fails")
+}
+
+func TestClearContext_PrimerFailure(t *testing.T) {
+	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	runner.sendErrSeq = []error{nil, errors.New("primer send failed")}
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "pre-clear")
+	require.NoError(t, err)
+
+	err = mgr.ClearContext(ctx, sess.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, chat.ErrRunnerSend,
+		"primer-send failure must wrap ErrRunnerSend, got: %v", err)
+
+	// Both runner calls attempted, but transcript untouched.
+	runner.mu.Lock()
+	args := append([]sendArg(nil), runner.sendArgs...)
+	runner.mu.Unlock()
+	require.Len(t, args, 2)
+	assert.Equal(t, "/clear", args[0].Content)
+	assert.Equal(t, "PRIMER", args[1].Content)
+
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1, "no divider appended when primer fails")
+	assert.False(t, msgs[0].RehydrationPhase)
+}
+
+func TestClearContext_RepeatedClears(t *testing.T) {
+	mgr, _, store := newManagerForClear(t, "PRIMER")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Batch A — 2 messages, then clear.
+	for i := range 2 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "a-"+strconv.Itoa(i))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	// Batch B — 1 message, then clear again.
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "b-0")
+	require.NoError(t, err)
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
+	require.NoError(t, err)
+	// 2 batch-A + 1 divider + 1 batch-B + 1 divider = 5
+	require.Len(t, msgs, 5)
+
+	// Cumulative marking: every row prior to the latest divider is in
+	// phase=true. The most recent divider (appended AFTER the mark step)
+	// stays phase=false — it is the "current marker" until the next clear.
+	for _, m := range msgs[:4] {
+		assert.True(t, m.RehydrationPhase,
+			"seq=%d role=%s must be flipped after the second clear", m.Seq, m.Role)
+	}
+
+	assert.False(t, msgs[4].RehydrationPhase,
+		"the most-recent divider stays phase=false until a subsequent clear")
+	assert.Equal(t, chat.EventKindDivider, msgs[4].Kind)
+}
+
+func TestClearContext_SessionNotFound(t *testing.T) {
+	mgr, _, _ := newManagerForClear(t, "PRIMER")
+	err := mgr.ClearContext(context.Background(), "nope")
+	require.Error(t, err)
+	require.ErrorIs(t, err, chat.ErrSessionNotFound,
+		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }

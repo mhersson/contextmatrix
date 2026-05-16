@@ -152,6 +152,23 @@ export function ChatPage() {
     }
   }, []);
 
+  const [pendingClear, setPendingClear] = useState<{ chatId: string } | null>(null);
+  const requestClearContext = useCallback((chatId: string) => {
+    setPendingClear({ chatId });
+  }, []);
+  const cancelClear = useCallback(() => setPendingClear(null), []);
+  const confirmClearContext = useCallback(async () => {
+    if (!pendingClear) return;
+    const { chatId } = pendingClear;
+    try {
+      await api.clearChatContext(chatId);
+    } catch (e) {
+      console.warn('clearChatContext failed', isAPIError(e) ? e.error : e);
+    } finally {
+      setPendingClear(null);
+    }
+  }, [pendingClear]);
+
   const [pendingDelete, setPendingDelete] = useState<{ chatId: string; slot: Slot } | null>(null);
   const requestDeleteChat = useCallback((slot: Slot, chatId: string) => {
     setPendingDelete({ chatId, slot });
@@ -209,6 +226,7 @@ export function ChatPage() {
             onCancelEmpty={layout.cancelEmptyPane}
             onNewChat={() => setDialogOpen(true)}
             onEndSession={handleEndSession}
+            onClearContext={requestClearContext}
             onReopenChat={handleReopenChat}
             onDeleteChat={requestDeleteChat}
             renderPaneBody={renderPaneBody}
@@ -237,6 +255,15 @@ export function ChatPage() {
         </div>
       )}
       <NewChatDialog open={dialogOpen} onClose={closeDialog} />
+      <ConfirmModal
+        open={pendingClear !== null}
+        title="Clear context"
+        message="This clears claude's working memory and re-primes the session. Past messages stay visible but won't be replayed if the chat is later reopened."
+        confirmLabel="Clear context"
+        variant="default"
+        onConfirm={() => void confirmClearContext()}
+        onCancel={cancelClear}
+      />
       <ConfirmModal
         open={pendingDelete !== null}
         title="Delete chat?"

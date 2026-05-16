@@ -94,6 +94,17 @@ var migrations = []migration{
 			})
 		},
 	},
+	{
+		version: 4,
+		up: func(ctx context.Context, db *sql.DB) error {
+			// kind discriminates structural markers (e.g. "divider" for the
+			// "Context cleared" sentinel) on the persisted row. Empty string
+			// means "regular message" — preserves wire compat for callers
+			// that don't set it.
+			return addColumnIfMissing(ctx, db, "chat_messages", "kind",
+				`ALTER TABLE chat_messages ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
+		},
+	},
 }
 
 // addColumnIfMissing applies an ALTER TABLE ADD COLUMN statement only if the
