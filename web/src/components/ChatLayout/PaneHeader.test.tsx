@@ -4,6 +4,8 @@ import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
 
 const baseProps = {
+  slot: 'TL' as const,
+  draggable: false,
   chatId: 'chat-1',
   isFocused: false,
   showSplit: false,
