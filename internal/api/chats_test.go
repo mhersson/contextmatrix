@@ -649,6 +649,36 @@ func TestClearChat_ColdSession(t *testing.T) {
 	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
 }
 
+// TestClearChat_RunnerFailure_TranscriptUntouched asserts that when the runner
+// /clear call fails (502 path) the transcript remains empty — no rows were
+// persisted and no divider was inserted.
+func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
+	mux, mgr, runner := newChatFixtureWithRunner(t, defaultFixtureOpts())
+
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open the session so it is active.
+	_, err = mgr.OpenSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+
+	// Arm the runner to fail on /clear.
+	runner.sendErr = errors.New("runner unreachable")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
+		bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadGateway, w.Code, "body=%s", w.Body.String())
+
+	// Transcript must be completely untouched: no rows, no phase flips.
+	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 100)
+	require.NoError(t, err)
+	assert.Empty(t, msgs,
+		"transcript must remain empty when the runner /clear call fails")
+}
+
 func TestListModels_NilConfig(t *testing.T) {
 	t.Parallel()
 	// Create a fixture with nil chat config by manually building without the chatConfig.

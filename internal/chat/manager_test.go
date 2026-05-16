@@ -2190,6 +2190,52 @@ func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
 	}
 }
 
+// TestClearContext_ColdReopen_RehydrationPayloadEmpty verifies the full
+// clear → cold → reopen seam: after ClearContext all prior messages are
+// stamped rehydration_phase=true, so when the session is ended and reopened
+// transcript.Build finds nothing to include and StartChat receives a nil
+// Resume (fresh start, no rehydration payload).
+func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
+	t.Parallel()
+
+	primerPath := writeTempPrimer(t, "PRIMER")
+	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	// Open so the session is active.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Append 3 assistant messages before clearing.
+	for i := range 3 {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText,
+			`{"text":"pre-clear-`+strconv.Itoa(i)+`"}`)
+		require.NoError(t, err)
+	}
+
+	// Clear — marks all 3 messages as rehydration_phase=true.
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	// End the session so the next open is a cold start.
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	// Reopen — cold path, buildResume reads the transcript.
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	opts := runner.lastOpts
+	runner.mu.Unlock()
+
+	// All pre-clear rows are in rehydration_phase=true, so transcript.Build
+	// must return nil (nothing to include after the Clear divider).
+	assert.Nil(t, opts.Resume,
+		"Resume must be nil after clear: all prior messages are phase=true and should be excluded by transcript.Build")
+}
+
 // TestClearContext_ColdSession asserts that ClearContext returns
 // ErrSessionNotRunning when the session is cold (no live runner container)
 // and that the runner is never called.
