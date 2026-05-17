@@ -17,7 +17,9 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
 import { api, isAPIError } from '../../api/client';
-import type { BoardEvent, Card, CreateCardInput } from '../../types';
+import type { BoardEvent, Card, CreateCardInput, DashboardData } from '../../types';
+import type { ActivityEntry } from '../Board/NowRail';
+import { useSSEBus } from '../../hooks/useSSEBus';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
 const Dashboard = lazy(() =>
@@ -29,6 +31,16 @@ const ProjectSettings = lazy(() =>
 const KnowledgeBase = lazy(() =>
   import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
 );
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return `${h}h ago`;
+}
 
 function RouteFallback() {
   return (
@@ -68,6 +80,64 @@ export function ProjectShell() {
   }
 
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
+
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
+  const bus = useSSEBus();
+
+  // Fetch dashboard data for the board route (board reads active_agents +
+  // cards_completed_today). Polls at the same cadence as the Dashboard
+  // component for parity.
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    const fetchDashboard = () => {
+      api.getDashboard(project).then((data) => {
+        if (!cancelled) setDashboard(data);
+      }).catch(() => {
+        // non-fatal: board renders with empty fallbacks
+      });
+    };
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [project]);
+
+  // Subscribe to SSE for the NowRail activity feed.
+  useEffect(() => {
+    if (!project) return;
+    const handler = (evt: BoardEvent) => {
+      if (evt.project !== project) return;
+      const action =
+        evt.type === 'card.claimed' ? 'claim' :
+        evt.type === 'card.state_changed' ? 'transition' :
+        evt.type === 'card.released' ? 'release' :
+        null;
+      if (!action || !evt.agent) return;
+      setLiveActivity((curr) => [
+        { id: `${evt.timestamp}-${evt.card_id}-${evt.type}`, agent: evt.agent!, action, cardId: evt.card_id, ts: evt.timestamp },
+        ...curr,
+      ].slice(0, 50));
+    };
+    const unsubs = [
+      bus.subscribe('card.claimed', handler),
+      bus.subscribe('card.state_changed', handler),
+      bus.subscribe('card.released', handler),
+    ];
+    return () => { unsubs.forEach((u) => u()); };
+  }, [bus, project]);
+
+  // Clear live activity when project changes so we don't carry over events.
+  useEffect(() => {
+    setLiveActivity([]);
+  }, [project]);
+
+  const syncLabel = syncStatus?.last_sync_time
+    ? `git sync · ${relativeTime(syncStatus.last_sync_time)}`
+    : 'git sync · idle';
 
   const handleCardCreated = useCallback((event: BoardEvent) => {
     if (event.data?.source_system === 'github') {
@@ -220,6 +290,11 @@ export function ProjectShell() {
                   project && config ? (
                     <Board
                       cards={cards} config={config} loading={loading} error={error}
+                      activeAgents={dashboard?.active_agents ?? []}
+                      cardsCompletedToday={dashboard?.cards_completed_today ?? 0}
+                      lastSyncLabel={syncLabel}
+                      activityEntries={liveActivity}
+                      currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

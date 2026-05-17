@@ -1,6 +1,8 @@
 import { useDroppable } from '@dnd-kit/core';
 import type { Card, ProjectConfig } from '../../types';
 import { CardItem } from './CardItem';
+import { displayState } from '../../lib/stateLabels';
+import { stateColors } from '../../lib/chip';
 
 interface ColumnProps {
   state: string;
@@ -18,12 +20,6 @@ interface ColumnProps {
   onParentClick?: (cardId: string) => void;
 }
 
-function formatStateName(state: string): string {
-  return state
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
@@ -73,7 +69,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
         <button
           type="button"
           onClick={() => onToggleCollapse?.(state)}
-          aria-label={`Expand ${formatStateName(state)} column`}
+          aria-label={`Expand ${displayState(state)} column`}
           aria-expanded={false}
           className="w-full flex flex-col items-center gap-2 py-3 cursor-pointer hover:bg-[var(--bg1)] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]"
         >
@@ -84,7 +80,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
             className="section-eyebrow text-[var(--grey2)] whitespace-nowrap"
             style={{ writingMode: 'vertical-lr' }}
           >
-            {formatStateName(state)}
+            {displayState(state)}
           </span>
         </button>
       </div>
@@ -94,14 +90,20 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
   return (
     <div
       ref={setNodeRef}
+      data-accent="stripe"
       className={`
+        col relative
         flex-shrink-0 flex flex-col
         bg-[var(--bg0)] rounded-lg border border-[var(--bg3)]
         transition-all duration-150
         ${dropTargetClass}
         ${dimClass}
       `}
-      style={{ width: 'var(--col-width)', minWidth: 'var(--col-width)' }}
+      style={{
+        width: 'var(--col-width)',
+        minWidth: 'var(--col-width)',
+        '--col-color': stateColors[state] || 'var(--grey2)',
+      } as React.CSSProperties}
     >      {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--bg3)]">
         <div className="flex items-center gap-1.5">
@@ -110,7 +112,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               onClick={() => onToggleCollapse(state)}
               className="w-5 h-5 flex items-center justify-center rounded text-[var(--grey1)] hover:text-[var(--fg)] hover:bg-[var(--bg2)] transition-colors"
               title="Collapse column"
-              aria-label={`Collapse ${formatStateName(state)} column`}
+              aria-label={`Collapse ${displayState(state)} column`}
               aria-expanded={true}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,8 +120,8 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               </svg>
             </button>
           )}
-          <h2 className="section-eyebrow text-[var(--grey2)]" aria-label={`${formatStateName(state)} column`}>
-            {formatStateName(state)}
+          <h2 className="section-eyebrow text-[var(--grey2)]" aria-label={`${displayState(state)} column`}>
+            {displayState(state)}
           </h2>
         </div>
         <div className="flex items-center gap-2">

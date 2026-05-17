@@ -5,6 +5,7 @@ import type { Card } from '../../types';
 import { runnerStatusStyles } from '../../types';
 import { gitHubIcon } from '../icons';
 import { chipTint, priorityColors, shortCardId, typeColors } from '../../lib/chip';
+import { avatarGradient } from '../../utils/colorHash';
 
 interface CardItemProps {
   card: Card;
@@ -211,13 +212,22 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
 
         {/* Agent indicator */}
         {card.assigned_agent && (
-          <span
-            className="chip-pill truncate max-w-[120px]"
-            style={chipTint('var(--aqua)')}
-            title={card.assigned_agent}
-          >
-            {card.assigned_agent}
-          </span>
+          (() => {
+            const grad = avatarGradient(card.assigned_agent);
+            return (
+              <span
+                className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--aqua) 16%, transparent)', color: 'var(--aqua)' }}
+                title={card.assigned_agent}
+              >
+                <span
+                  className="agent-avatar agent-avatar--online"
+                  style={{ '--av-from': grad.from, '--av-to': grad.to } as React.CSSProperties}
+                />
+                <span className="truncate">{card.assigned_agent.replace(/^claude-/, '').replace(/^human:/, '')}</span>
+              </span>
+            );
+          })()
         )}
 
         {/* Dependency status */}

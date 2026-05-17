@@ -106,6 +106,14 @@ vi.mock('../../hooks/useResizeDivider', () => ({
   })),
 }));
 
+vi.mock('../../hooks/useSSEBus', () => ({
+  useSSEBus: vi.fn(() => ({
+    subscribe: vi.fn(() => () => {}),
+    connected: true,
+    error: null,
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Component mocks
 // ---------------------------------------------------------------------------
@@ -163,6 +171,7 @@ vi.mock('../../api/client', () => ({
   api: {
     runCard: vi.fn(),
     createCard: vi.fn(),
+    getDashboard: vi.fn(() => new Promise(() => {})),
   },
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,

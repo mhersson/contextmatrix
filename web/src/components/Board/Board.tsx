@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -12,14 +12,18 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { Card, CardFilter, ProjectConfig } from '../../types';
+import type { ActiveAgent, Card, CardFilter, ProjectConfig } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
 import { useCollapsedCards } from '../../hooks/useCollapsedCards';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
-import { FilterBar } from './FilterBar';
+import { BoardBand } from './BoardBand';
+import { MetricsRibbon } from './MetricsRibbon';
+import { FilterChipBar } from './FilterChipBar';
+import { NowRail, type ActivityEntry } from './NowRail';
+import { BoardFooter } from './BoardFooter';
 import { BoardSkeleton } from './BoardSkeleton';
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -53,6 +57,11 @@ interface BoardProps {
   config: ProjectConfig;
   loading: boolean;
   error: string | null;
+  activeAgents: ActiveAgent[];
+  cardsCompletedToday: number;
+  lastSyncLabel: string;
+  activityEntries: ActivityEntry[];
+  currentAgent: string | null;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<void>;
   onCreateCard?: (state: string) => void;
@@ -60,10 +69,24 @@ interface BoardProps {
   onParentClick?: (cardId: string) => void;
 }
 
-export function Board({ cards, config, loading, error, onCardClick, onCardMove, onCreateCard, flashCardId, onParentClick }: BoardProps) {
+export function Board({
+  cards,
+  config,
+  loading,
+  error,
+  activeAgents,
+  cardsCompletedToday,
+  lastSyncLabel,
+  activityEntries,
+  currentAgent,
+  onCardClick,
+  onCardMove,
+  onCreateCard,
+  flashCardId,
+  onParentClick,
+}: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
-  const filterBarRef = useRef<HTMLDivElement>(null);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
@@ -121,10 +144,6 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
     useMemo(
       () => [
         {
-          key: '/',
-          handler: () => filterBarRef.current?.querySelector('select')?.focus(),
-        },
-        {
           key: 'Escape',
           handler: () => {
             if (hasFilter) setFilter({});
@@ -174,41 +193,36 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
     );
   }
 
-  return (
-    <div className="flex flex-col h-full use-system-fonts">
-      {/* Board header */}
-      <div className="px-4 py-3 border-b border-[var(--bg3)] flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-medium text-[var(--fg)]">{config.name}</h1>
-          <p className="text-xs text-[var(--grey1)]">
-            {hasFilter
-              ? `${filteredCards.length} of ${cards.length} cards`
-              : `${cards.length} ${cards.length === 1 ? 'card' : 'cards'}`}
-          </p>
-        </div>
-        {onCreateCard && (
-          <button
-            onClick={() => onCreateCard(config.states[0])}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90 transition-opacity"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Card
-          </button>
-        )}
-      </div>
+  const inFlight = (cardsByState['in_progress']?.length ?? 0) + (cardsByState['review']?.length ?? 0);
+  const stalledCount = cardsByState['stalled']?.length ?? cards.filter((c) => c.state === 'stalled').length;
+  const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
 
-      {/* Filter bar */}
-      <FilterBar
-        ref={filterBarRef}
-        config={config}
-        cards={cards}
+  return (
+    <div className="flex flex-col h-full">
+      <BoardBand
+        projectName={config.name}
+        displayName={config.display_name}
+        activeAgents={activeAgents.length}
+        openCount={openCount}
+        inReviewCount={cardsByState['review']?.length ?? 0}
+        shippedToday={cardsCompletedToday}
+        lastUpdated={lastSyncLabel}
+        onCreateCard={() => onCreateCard?.(config.states[0])}
+      />
+
+      <MetricsRibbon
+        activeAgents={activeAgents.length}
+        inFlight={inFlight}
+        stalled={stalledCount}
+        shippedToday={cardsCompletedToday}
+      />
+
+      <FilterChipBar
         filter={filter}
+        currentAgent={currentAgent}
         onFilterChange={setFilter}
       />
 
-      {/* Columns */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -216,37 +230,44 @@ export function Board({ cards, config, loading, error, onCardClick, onCardMove, 
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="flex gap-3 p-3 sm:gap-4 sm:p-4 h-full min-w-max">
-            {config.states.map((state) => (
-              <Column
-                key={state}
-                state={state}
-                cards={cardsByState[state]}
-                config={config}
-                collapsed={collapsedColumns.has(state)}
-                onToggleCollapse={toggleCollapse}
-                onCardClick={onCardClick}
-                activeCardState={activeCard?.state}
-                flashCardId={flashCardId}
-                collapsedCards={collapsedCards}
-                onToggleCardCollapse={toggleCardCollapse}
-                onCollapseAll={collapseMany}
-                onExpandAll={expandMany}
-                onParentClick={onParentClick}
-              />
-            ))}
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-x-auto overflow-y-hidden">
+            <div className="flex gap-3 p-3 sm:gap-4 sm:p-4 h-full min-w-max">
+              {config.states.filter((s) => s !== 'stalled').map((state) => (
+                <Column
+                  key={state}
+                  state={state}
+                  cards={cardsByState[state]}
+                  config={config}
+                  collapsed={collapsedColumns.has(state)}
+                  onToggleCollapse={toggleCollapse}
+                  onCardClick={onCardClick}
+                  activeCardState={activeCard?.state}
+                  flashCardId={flashCardId}
+                  collapsedCards={collapsedCards}
+                  onToggleCardCollapse={toggleCardCollapse}
+                  onCollapseAll={collapseMany}
+                  onExpandAll={expandMany}
+                  onParentClick={onParentClick}
+                />
+              ))}
+            </div>
           </div>
+          <NowRail agents={activeAgents} activityEntries={activityEntries} />
         </div>
 
         <DragOverlay>
           {activeCard ? (
-            <div className="w-[260px]">
-              <CardItem card={activeCard} />
-            </div>
+            <div className="w-[260px]"><CardItem card={activeCard} /></div>
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <BoardFooter
+        lastSyncLabel={lastSyncLabel}
+        cardCount={cards.length}
+        columnCount={config.states.filter((s) => s !== 'stalled').length}
+      />
     </div>
   );
 }
