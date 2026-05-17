@@ -46,4 +46,16 @@ describe('FilterChipBar', () => {
     fireEvent.click(screen.getByRole('button', { name: /runner:running/i }));
     expect(onFilterChange).toHaveBeenCalledWith({ runner_status: 'running' });
   });
+
+  it('fires onSearchChange when typing in the search input', () => {
+    const onSearchChange = vi.fn();
+    render(<FilterChipBar {...baseProps} searchQuery="" onSearchChange={onSearchChange} />);
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'auth' } });
+    expect(onSearchChange).toHaveBeenCalledWith('auth');
+  });
+
+  it('renders the current searchQuery in the input', () => {
+    render(<FilterChipBar {...baseProps} searchQuery="bug" onSearchChange={() => {}} />);
+    expect(screen.getByPlaceholderText(/search/i)).toHaveValue('bug');
+  });
 });

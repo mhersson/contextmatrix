@@ -822,6 +822,39 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 	return body, true
 }
 
+// runnerHealthResponse is the wire shape for GET /api/runner/health.
+type runnerHealthResponse struct {
+	OK                bool `json:"ok"`
+	RunningContainers int  `json:"running_containers"`
+	MaxConcurrent     int  `json:"max_concurrent"`
+}
+
+// getRunnerHealth handles GET /api/runner/health by proxying to the runner's
+// /health endpoint and returning the parsed shape. The UI reads max_concurrent
+// from here to render the NowRail capacity meter — it's the runner-global cap,
+// not a per-project value. Returns 503 when the runner is disabled and 502
+// when the runner is unreachable; callers should fail soft (hide capacity).
+func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request) {
+	if h.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
+
+		return
+	}
+
+	info, err := h.runner.Health(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "runner health probe failed", err.Error())
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, runnerHealthResponse{
+		OK:                info.OK,
+		RunningContainers: info.RunningContainers,
+		MaxConcurrent:     info.MaxConcurrent,
+	})
+}
+
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,
 // falling back to the global runner config if not set per-project.
 func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {

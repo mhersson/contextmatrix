@@ -232,6 +232,13 @@ export interface CardCost {
   estimated_cost_usd: number;
 }
 
+export interface MetricSeries {
+  active_agents: number[];
+  in_flight: number[];
+  stalled: number[];
+  shipped: number[];
+}
+
 export interface DashboardData {
   state_counts: Record<string, number>;
   active_agents: ActiveAgent[];
@@ -239,6 +246,7 @@ export interface DashboardData {
   cards_completed_today: number;
   cards_completed_last_7d: number;
   cards_completed_prior_7d: number;
+  metric_series: MetricSeries;
   agent_costs: AgentCost[];
   card_costs: CardCost[];
 }

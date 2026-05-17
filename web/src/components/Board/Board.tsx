@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { ActiveAgent, Card, CardFilter, ProjectConfig } from '../../types';
+import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
@@ -62,6 +62,8 @@ interface BoardProps {
   cardsCompletedToday: number;
   cardsCompletedLast7d?: number;
   cardsCompletedPrior7d?: number;
+  metricSeries?: MetricSeries;
+  runnerMaxAgents?: number;
   lastSyncLabel: string;
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
@@ -82,6 +84,8 @@ export function Board({
   cardsCompletedToday,
   cardsCompletedLast7d,
   cardsCompletedPrior7d,
+  metricSeries,
+  runnerMaxAgents,
   lastSyncLabel,
   activityEntries,
   activityBackfillLoaded,
@@ -94,6 +98,7 @@ export function Board({
 }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const [nowRailOpen, setNowRailOpen] = useState(true);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
@@ -114,9 +119,11 @@ export function Board({
   const sensors = useSensors(touchDevice ? touchSensor : pointerSensor, keyboardSensor);
 
   const hasFilter = Object.values(filter).some(Boolean);
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const hasSearch = searchTerm.length > 0;
 
   const filteredCards = useMemo(() => {
-    if (!hasFilter) return cards;
+    if (!hasFilter && !hasSearch) return cards;
     return cards.filter((card) => {
       if (filter.type && card.type !== filter.type) return false;
       if (filter.priority && card.priority !== filter.priority) return false;
@@ -124,9 +131,19 @@ export function Board({
       if (filter.agent && card.assigned_agent !== filter.agent) return false;
       if (filter.autonomous && !card.autonomous) return false;
       if (filter.runner_status && card.runner_status !== filter.runner_status) return false;
+      if (hasSearch) {
+        const haystack = [
+          card.id,
+          card.title,
+          card.assigned_agent ?? '',
+          card.branch_name ?? '',
+          ...(card.labels ?? []),
+        ].join(' ').toLowerCase();
+        if (!haystack.includes(searchTerm)) return false;
+      }
       return true;
     });
-  }, [cards, filter, hasFilter]);
+  }, [cards, filter, hasFilter, hasSearch, searchTerm]);
 
   const cardsByState = useMemo(() => {
     const grouped: Record<string, Card[]> = {};
@@ -157,10 +174,11 @@ export function Board({
           key: 'Escape',
           handler: () => {
             if (hasFilter) setFilter({});
+            if (hasSearch) setSearchQuery('');
           },
         },
       ],
-      [hasFilter]
+      [hasFilter, hasSearch]
     )
   );
 
@@ -229,6 +247,10 @@ export function Board({
         shippedToday={cardsCompletedToday}
         shipped7d={cardsCompletedLast7d}
         shipped7dPrior={cardsCompletedPrior7d}
+        activeAgentsSeries={metricSeries?.active_agents}
+        inFlightSeries={metricSeries?.in_flight}
+        stalledSeries={metricSeries?.stalled}
+        shippedSeries={metricSeries?.shipped}
       />
 
       <SpotlightStrip
@@ -243,6 +265,8 @@ export function Board({
         filter={filter}
         currentAgent={currentAgent}
         onFilterChange={setFilter}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
       />
 
       <DndContext
@@ -279,7 +303,7 @@ export function Board({
             <NowRail
               agents={activeAgents}
               activityEntries={activityEntries}
-              maxAgents={config.max_concurrent_agents}
+              maxAgents={runnerMaxAgents}
               hasBackfill={activityBackfillLoaded}
             />
           )}

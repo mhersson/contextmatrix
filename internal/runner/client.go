@@ -191,6 +191,41 @@ func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
 	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
+// HealthInfo is the parsed shape of the runner's /health response.
+type HealthInfo struct {
+	OK                bool
+	RunningContainers int
+	MaxConcurrent     int
+}
+
+type healthResponseWire struct {
+	OK                bool `json:"ok"`
+	RunningContainers int  `json:"running_containers"`
+	MaxConcurrent     int  `json:"max_concurrent"`
+}
+
+// Health queries the runner's /health endpoint. The runner exposes
+// max_concurrent (its global capacity cap) and the live container count.
+// /health is unauthenticated on the runner side; we still sign so the
+// shared transport stays consistent.
+func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
+	body, err := c.sendGet(ctx, c.baseURL+"/health")
+	if err != nil {
+		return HealthInfo{}, err
+	}
+
+	var parsed healthResponseWire
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return HealthInfo{}, fmt.Errorf("parse /health response: %w", err)
+	}
+
+	return HealthInfo{
+		OK:                parsed.OK,
+		RunningContainers: parsed.RunningContainers,
+		MaxConcurrent:     parsed.MaxConcurrent,
+	}, nil
+}
+
 // ListContainers queries the runner's /containers endpoint for every Docker
 // container currently labeled as runner-managed. The returned slice is CM's
 // ground truth for "what containers are actually running right now" —

@@ -4,6 +4,8 @@ interface FilterChipBarProps {
   filter: CardFilter;
   currentAgent: string | null;
   onFilterChange: (filter: CardFilter) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
 type StringFilterKey = Exclude<keyof CardFilter, 'vetted' | 'autonomous'>;
@@ -13,7 +15,13 @@ type StringFilterKey = Exclude<keyof CardFilter, 'vetted' | 'autonomous'>;
  * The chips are visually prominent so the active filter is obvious at
  * a glance. Owns the search input + view toggle.
  */
-export function FilterChipBar({ filter, currentAgent, onFilterChange }: FilterChipBarProps) {
+export function FilterChipBar({
+  filter,
+  currentAgent,
+  onFilterChange,
+  searchQuery = '',
+  onSearchChange,
+}: FilterChipBarProps) {
   function toggle(key: StringFilterKey, value: string) {
     const next = { ...filter };
     if (filter[key] === value) {
@@ -30,7 +38,12 @@ export function FilterChipBar({ filter, currentAgent, onFilterChange }: FilterCh
     <div className="filter-chip-bar">
       <label className="filter-chip-bar__search">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input placeholder="Search cards, agents, branches…" />
+        <input
+          type="search"
+          placeholder="Search cards, agents, branches…"
+          value={searchQuery}
+          onChange={(e) => onSearchChange?.(e.target.value)}
+        />
       </label>
       <div className="filter-chip-bar__chips">
         {currentAgent && (

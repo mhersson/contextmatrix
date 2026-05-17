@@ -219,6 +219,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/runner/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
+		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}
 

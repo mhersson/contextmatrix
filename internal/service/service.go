@@ -354,6 +354,8 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		card.State = state
 		card.Updated = time.Now()
 
+		appendStateChangeLog(card, oldState, state, "", card.Updated)
+
 		// State-change invariants: release claim on not_planned, clear
 		// runner_status on terminal states. Each step in the path is a state
 		// change, so pass stateChanged=true.

@@ -98,6 +98,34 @@ type CardContext struct {
 	Template string // Template body for the card's type
 }
 
+// stateChangedAction is the activity-log Action value emitted whenever a
+// card transitions to a new state. Message format is "oldState -> newState";
+// the dashboard sparkline reconstruction parses this to compute end-of-day
+// state per card without needing a separate time-series store.
+const stateChangedAction = "state_changed"
+
+// appendStateChangeLog records a state transition on card.ActivityLog. The
+// caller must have already validated that oldState != newState. An empty
+// agent string is normalised to "system" for transitions driven by the
+// stall checker, parent auto-transition, or other server-side machinery.
+// The activity log is then trimmed to maxActivityLogEntries (oldest dropped).
+func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts time.Time) {
+	if agent == "" {
+		agent = "system"
+	}
+
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     agent,
+		Timestamp: ts,
+		Action:    stateChangedAction,
+		Message:   fmt.Sprintf("%s -> %s", oldState, newState),
+	})
+
+	if len(card.ActivityLog) > maxActivityLogEntries {
+		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	}
+}
+
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
 var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 
@@ -598,6 +626,7 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 
 	return s.applyCardMutation(ctx, project, id, s.buildPatchApply(ctx, input), mutationOpts{
 		immediateCommit: input.ImmediateCommit,
+		commitAgentID:   input.AgentID,
 		commitAction:    "updated",
 	})
 }
@@ -1102,6 +1131,14 @@ func (s *CardService) applyCardMutation(
 
 	stateChanged := card.State != oldState
 	card.Updated = time.Now()
+
+	// Record the transition so the dashboard sparkline reconstruction has
+	// an authoritative per-card history (the only structured trail of state
+	// transitions in the data model). Stamped on Updated so the timestamp
+	// matches the card's "last touched" moment.
+	if stateChanged {
+		appendStateChangeLog(card, oldState, card.State, opts.commitAgentID, card.Updated)
+	}
 
 	// Release agent claim on not_planned and clear runner_status on terminal
 	// states. Must happen before validate+persist so the written card reflects

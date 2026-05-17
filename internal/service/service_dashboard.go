@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -37,6 +38,25 @@ type CardCost struct {
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 }
 
+// MetricSeries holds an 8-sample daily window (oldest first, today last) for
+// each tile on the board's metrics ribbon. Shipped is bucketed by Updated
+// across cards in the done state. The other three are reconstructed by
+// walking each card's state_changed activity-log entries — accurate going
+// forward from when state-change logging was introduced; for older cards
+// without state-change entries the sparkline falls back to the card's
+// current state. ActiveAgents counts cards where the reconstructed state
+// is in_progress/review and the card currently has an assigned agent
+// (claim history isn't tracked, so per-day agent presence is approximate).
+type MetricSeries struct {
+	ActiveAgents []int `json:"active_agents"`
+	InFlight     []int `json:"in_flight"`
+	Stalled      []int `json:"stalled"`
+	Shipped      []int `json:"shipped"`
+}
+
+// MetricSeriesDays is the number of daily samples in each MetricSeries slice.
+const MetricSeriesDays = 8
+
 // DashboardData contains all data needed for the project dashboard view.
 type DashboardData struct {
 	StateCounts           map[string]int `json:"state_counts"`
@@ -45,6 +65,7 @@ type DashboardData struct {
 	CardsCompletedToday   int            `json:"cards_completed_today"`
 	CardsCompletedLast7d  int            `json:"cards_completed_last_7d"`
 	CardsCompletedPrior7d int            `json:"cards_completed_prior_7d"`
+	MetricSeries          MetricSeries   `json:"metric_series"`
 	AgentCosts            []AgentCost    `json:"agent_costs"`
 	CardCosts             []CardCost     `json:"card_costs"`
 }
@@ -66,6 +87,26 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		ActiveAgents: make([]ActiveAgent, 0),
 		AgentCosts:   make([]AgentCost, 0),
 		CardCosts:    make([]CardCost, 0),
+		MetricSeries: MetricSeries{
+			ActiveAgents: make([]int, MetricSeriesDays),
+			InFlight:     make([]int, MetricSeriesDays),
+			Stalled:      make([]int, MetricSeriesDays),
+			Shipped:      make([]int, MetricSeriesDays),
+		},
+	}
+
+	// Day boundaries for the sparkline window. dayEnds[i] is the end-of-day
+	// instant for sample i; i=0 is 7 days ago, i=MetricSeriesDays-1 is today.
+	// Today's end is the upcoming midnight (so "now" counts as part of today).
+	dayEnds := make([]time.Time, MetricSeriesDays)
+	for i := 0; i < MetricSeriesDays; i++ {
+		offset := time.Duration(MetricSeriesDays-1-i) * 24 * time.Hour
+		base := todayStart.Add(-offset)
+		dayEnds[i] = base.Add(24 * time.Hour)
+	}
+	dayStarts := make([]time.Time, MetricSeriesDays)
+	for i := 0; i < MetricSeriesDays; i++ {
+		dayStarts[i] = dayEnds[i].Add(-24 * time.Hour)
 	}
 
 	agentCostMap := make(map[string]*AgentCost)
@@ -98,6 +139,38 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 				data.CardsCompletedLast7d++
 			} else if !card.Updated.Before(prior7dStart) {
 				data.CardsCompletedPrior7d++
+			}
+
+			// Shipped sparkline: bucket each done card by the day it
+			// transitioned to done (approximated by Updated). Accurate
+			// because the Updated stamp on a done card is the moment
+			// it landed in done.
+			for i := 0; i < MetricSeriesDays; i++ {
+				if !card.Updated.Before(dayStarts[i]) && card.Updated.Before(dayEnds[i]) {
+					data.MetricSeries.Shipped[i]++
+					break
+				}
+			}
+		}
+
+		// Reconstruct historical state at end-of-day for each sample. Walks
+		// the card's state_changed activity-log entries; falls back to the
+		// current state for cards that pre-date state-change logging.
+		for i := 0; i < MetricSeriesDays; i++ {
+			if card.Created.After(dayEnds[i]) {
+				continue
+			}
+
+			state := stateAtTime(card, dayEnds[i])
+
+			switch state {
+			case board.StateInProgress, board.StateReview:
+				data.MetricSeries.InFlight[i]++
+				if card.AssignedAgent != "" {
+					data.MetricSeries.ActiveAgents[i]++
+				}
+			case board.StateStalled:
+				data.MetricSeries.Stalled[i]++
 			}
 		}
 
@@ -137,4 +210,63 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	return data, nil
+}
+
+// stateAtTime reconstructs a card's state at instant t by walking its
+// state_changed activity log.
+//
+//	1. Latest entry whose Timestamp <= t exists  → use that entry's new-state.
+//	2. All known entries have Timestamp > t      → use the oldest entry's
+//	                                               from-state (the state the
+//	                                               card sat in before any
+//	                                               recorded transition).
+//	3. No state_changed entries at all           → fall back to card.State
+//	                                               (legacy data before the
+//	                                               state-change log existed).
+func stateAtTime(card *board.Card, t time.Time) string {
+	var (
+		latestTS    time.Time
+		latestState string
+		found       bool
+
+		oldestTS   time.Time
+		oldestFrom string
+		anyEntry   bool
+	)
+
+	for _, e := range card.ActivityLog {
+		if e.Action != stateChangedAction {
+			continue
+		}
+
+		parts := strings.SplitN(e.Message, " -> ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		if !anyEntry || e.Timestamp.Before(oldestTS) {
+			oldestTS = e.Timestamp
+			oldestFrom = parts[0]
+			anyEntry = true
+		}
+
+		if e.Timestamp.After(t) {
+			continue
+		}
+
+		if !found || e.Timestamp.After(latestTS) {
+			latestTS = e.Timestamp
+			latestState = parts[1]
+			found = true
+		}
+	}
+
+	switch {
+	case found:
+		return latestState
+	case anyEntry:
+		return oldestFrom
+	default:
+		return card.State
+	}
 }

@@ -2359,6 +2359,13 @@ input, select, textarea {
 }
 .metric-tile__delta--up { color: var(--green); }
 .metric-tile__delta--down { color: var(--red); }
+.spark {
+  display: block;
+  width: 80px;
+  height: 22px;
+  margin-top: 4px;
+  opacity: 0.85;
+}
 
 /* ── Spotlight strip ─────────────────────────────────────────────────── */
 .spotlight-strip {

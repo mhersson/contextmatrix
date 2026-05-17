@@ -84,7 +84,18 @@ export function ProjectShell() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
   const [backfillLoaded, setBackfillLoaded] = useState(false);
+  const [runnerMaxAgents, setRunnerMaxAgents] = useState<number | undefined>(undefined);
   const bus = useSSEBus();
+
+  // Fetch the runner's global max_concurrent from /api/runner/health.
+  // Runner disabled or unreachable → leave undefined (NowRail degrades).
+  useEffect(() => {
+    let cancelled = false;
+    api.getRunnerHealth()
+      .then((h) => { if (!cancelled) setRunnerMaxAgents(h.max_concurrent); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch dashboard data for the board route (board reads active_agents +
   // cards_completed_today). Polls at the same cadence as the Dashboard
@@ -331,6 +342,8 @@ export function ProjectShell() {
                       cardsCompletedToday={dashboard?.cards_completed_today ?? 0}
                       cardsCompletedLast7d={dashboard?.cards_completed_last_7d}
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
+                      metricSeries={dashboard?.metric_series}
+                      runnerMaxAgents={runnerMaxAgents}
                       lastSyncLabel={syncLabel}
                       activityEntries={liveActivity}
                       activityBackfillLoaded={backfillLoaded}

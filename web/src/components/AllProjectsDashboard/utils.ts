@@ -130,6 +130,12 @@ export function aggregateDashboards(
     cards_completed_today: completedToday,
     cards_completed_last_7d: completedLast7d,
     cards_completed_prior_7d: completedPrior7d,
+    metric_series: {
+      active_agents: [],
+      in_flight: [],
+      stalled: [],
+      shipped: [],
+    },
     agent_costs: Array.from(agentCostMap.values()),
     card_costs: allCardCosts,
   };
