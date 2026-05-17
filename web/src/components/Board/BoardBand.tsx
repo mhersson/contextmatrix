@@ -7,6 +7,8 @@ interface BoardBandProps {
   shippedToday: number;
   lastUpdated: string;
   onCreateCard: () => void;
+  shippedLast7d?: number;
+  shippedPrior7d?: number;
 }
 
 /**
@@ -23,8 +25,17 @@ export function BoardBand({
   shippedToday,
   lastUpdated,
   onCreateCard,
+  shippedLast7d,
+  shippedPrior7d,
 }: BoardBandProps) {
   const title = displayName ?? projectName;
+
+  const showDelta = shippedLast7d !== undefined && shippedPrior7d !== undefined && shippedPrior7d > 0;
+  const deltaPct = showDelta
+    ? Math.round(((shippedLast7d - shippedPrior7d) / shippedPrior7d) * 100)
+    : 0;
+  const deltaUp = showDelta && shippedLast7d >= shippedPrior7d;
+
   return (
     <div className="board-band">
       <div>
@@ -38,6 +49,23 @@ export function BoardBand({
           <span className="board-band__pulse">{activeAgents} agents live</span>
           <span className="board-band__sep">·</span>
           <span>{openCount} open · {inReviewCount} in review · {shippedToday} shipped today</span>
+          {shippedLast7d !== undefined && (
+            <>
+              <span className="board-band__sep">·</span>
+              <span>
+                {shippedLast7d} shipped this week
+                {showDelta && (
+                  <>
+                    {' '}·{' '}
+                    <span style={{ color: deltaUp ? 'var(--green)' : 'var(--red)' }}>
+                      {deltaUp ? '+' : ''}
+                      {deltaPct}%
+                    </span>
+                  </>
+                )}
+              </span>
+            </>
+          )}
           <span className="board-band__sep">·</span>
           <span>{lastUpdated}</span>
         </div>

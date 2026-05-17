@@ -42,4 +42,16 @@ describe('BoardBand', () => {
     fireEvent.click(screen.getByRole('button', { name: /new card/i }));
     expect(onCreateCard).toHaveBeenCalledTimes(1);
   });
+
+  it('shows shipped-7d delta when shipped7d + prior7d are provided', () => {
+    render(
+      <BoardBand
+        projectName="p" displayName="P" activeAgents={1} openCount={1} inReviewCount={0} shippedToday={0}
+        lastUpdated="" onCreateCard={() => {}}
+        shippedLast7d={14} shippedPrior7d={11}
+      />
+    );
+    expect(screen.getByText(/14 shipped this week/)).toBeInTheDocument();
+    expect(screen.getByText(/\+27%/)).toBeInTheDocument();
+  });
 });

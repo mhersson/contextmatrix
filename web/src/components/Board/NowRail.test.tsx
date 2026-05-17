@@ -38,4 +38,38 @@ describe('NowRail', () => {
     );
     expect(screen.getByText('haiku-4.5')).toBeInTheDocument();
   });
+
+  it('renders capacity X / max when maxAgents is provided', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} />);
+    // "2 / 8" appears in both the agents header and the capacity meta strip.
+    expect(screen.getAllByText(/2 \/ 8/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/25%/)).toBeInTheDocument();
+  });
+
+  it('renders capacity section in degraded form when maxAgents is absent', () => {
+    render(<NowRail agents={agents} activityEntries={[]} />);
+    expect(screen.getByText('Capacity')).toBeInTheDocument();
+    expect(screen.getByText(/no cap set/i)).toBeInTheDocument();
+  });
+
+  it('caps the activity feed at 8 entries', () => {
+    const entries = Array.from({ length: 15 }, (_, i) => ({
+      id: `e${i}`,
+      agent: `agent-${i}`,
+      action: 'claim',
+      cardId: `CTX-${i}`,
+      ts: '2026-05-17T12:00:00Z',
+    }));
+    render(<NowRail agents={[]} activityEntries={entries} />);
+    // Each entry renders its cardId text; we should see the first 8 only.
+    expect(screen.getByText('CTX-0')).toBeInTheDocument();
+    expect(screen.getByText('CTX-7')).toBeInTheDocument();
+    expect(screen.queryByText('CTX-8')).not.toBeInTheDocument();
+  });
+
+  it('switches activity label to "Activity" when hasBackfill is true', () => {
+    render(<NowRail agents={agents} activityEntries={[]} hasBackfill={true} />);
+    expect(screen.queryByText(/since page load/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Activity')).toBeInTheDocument();
+  });
 });

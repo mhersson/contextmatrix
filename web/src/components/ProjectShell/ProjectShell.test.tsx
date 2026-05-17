@@ -172,6 +172,7 @@ vi.mock('../../api/client', () => ({
     runCard: vi.fn(),
     createCard: vi.fn(),
     getDashboard: vi.fn(() => new Promise(() => {})),
+    getActivity: vi.fn(() => new Promise(() => {})),
   },
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,

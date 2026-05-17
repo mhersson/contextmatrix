@@ -60,8 +60,11 @@ interface BoardProps {
   error: string | null;
   activeAgents: ActiveAgent[];
   cardsCompletedToday: number;
+  cardsCompletedLast7d?: number;
+  cardsCompletedPrior7d?: number;
   lastSyncLabel: string;
   activityEntries: ActivityEntry[];
+  activityBackfillLoaded?: boolean;
   currentAgent: string | null;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<void>;
@@ -77,8 +80,11 @@ export function Board({
   error,
   activeAgents,
   cardsCompletedToday,
+  cardsCompletedLast7d,
+  cardsCompletedPrior7d,
   lastSyncLabel,
   activityEntries,
+  activityBackfillLoaded,
   currentAgent,
   onCardClick,
   onCardMove,
@@ -88,6 +94,7 @@ export function Board({
 }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
+  const [nowRailOpen, setNowRailOpen] = useState(true);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
@@ -209,6 +216,8 @@ export function Board({
         openCount={openCount}
         inReviewCount={cardsByState['review']?.length ?? 0}
         shippedToday={cardsCompletedToday}
+        shippedLast7d={cardsCompletedLast7d}
+        shippedPrior7d={cardsCompletedPrior7d}
         lastUpdated={lastSyncLabel}
         onCreateCard={() => onCreateCard?.(config.states[0])}
       />
@@ -218,6 +227,8 @@ export function Board({
         inFlight={inFlight}
         stalled={stalledCount}
         shippedToday={cardsCompletedToday}
+        shipped7d={cardsCompletedLast7d}
+        shipped7dPrior={cardsCompletedPrior7d}
       />
 
       <SpotlightStrip
@@ -264,7 +275,14 @@ export function Board({
               ))}
             </div>
           </div>
-          <NowRail agents={activeAgents} activityEntries={activityEntries} />
+          {nowRailOpen && (
+            <NowRail
+              agents={activeAgents}
+              activityEntries={activityEntries}
+              maxAgents={config.max_concurrent_agents}
+              hasBackfill={activityBackfillLoaded}
+            />
+          )}
         </div>
 
         <DragOverlay>
@@ -278,6 +296,8 @@ export function Board({
         lastSyncLabel={lastSyncLabel}
         cardCount={cards.length}
         columnCount={config.states.filter((s) => s !== 'stalled').length}
+        nowRailOpen={nowRailOpen}
+        onToggleNowRail={() => setNowRailOpen((v) => !v)}
       />
     </div>
   );

@@ -2654,10 +2654,59 @@ input, select, textarea {
 .board-footer__pulse {
   display: inline-flex; align-items: center; gap: 8px;
 }
+.board-footer__rail-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: transparent;
+  border: 1px solid var(--bg3);
+  color: var(--grey1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.board-footer__rail-toggle:hover {
+  color: var(--fg);
+  border-color: var(--bg5);
+}
+.board-footer__rail-toggle[aria-pressed="true"] {
+  color: var(--aqua);
+  border-color: color-mix(in srgb, var(--aqua) 40%, transparent);
+  background: color-mix(in srgb, var(--aqua) 12%, transparent);
+}
 .board-footer__pulse::before {
   content: "";
   width: 5px; height: 5px; border-radius: 99px;
   background: var(--green);
   box-shadow: 0 0 6px color-mix(in oklab, var(--green) 50%, transparent);
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ── Now-rail capacity meter ─────────────────────────────────────────── */
+.cap-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--bg2) 80%, transparent);
+  position: relative;
+  overflow: hidden;
+}
+.cap-fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--aqua), var(--blue));
+  border-radius: 99px;
+}
+.cap-meta {
+  display: flex; justify-content: space-between;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+}
+.now-rail__empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  padding: 4px 0;
 }

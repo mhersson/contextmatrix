@@ -1,42 +1,69 @@
-interface Tile {
-  label: string;
-  value: number;
-}
-
 interface MetricsRibbonProps {
   activeAgents: number;
   inFlight: number;
   stalled: number;
   shippedToday: number;
+  shipped7d?: number;
+  shipped7dPrior?: number;
 }
 
 /**
- * Four metric tiles surfaced from existing DashboardData fields:
- *   - active_agents.length
- *   - in_progress + review counts (in flight)
- *   - stalled count
- *   - cards_completed_today
- *
- * Sparklines and cycle-time-p50 are deliberately not included — they
- * would require backend time-series support.
+ * Metric tiles surfaced from DashboardData fields. The 7d tile is shown only
+ * when both shipped7d and shipped7dPrior are provided (Phase 2 backend
+ * additions); the delta renders +X% / -X% colored green/red.
  */
-export function MetricsRibbon({ activeAgents, inFlight, stalled, shippedToday }: MetricsRibbonProps) {
-  const tiles: Tile[] = [
-    { label: 'Active agents', value: activeAgents },
-    { label: 'In flight', value: inFlight },
-    { label: 'Stalled', value: stalled },
-    { label: 'Shipped today', value: shippedToday },
-  ];
+export function MetricsRibbon({
+  activeAgents,
+  inFlight,
+  stalled,
+  shippedToday,
+  shipped7d,
+  shipped7dPrior,
+}: MetricsRibbonProps) {
+  const showShipped7d = shipped7d !== undefined;
+  const hasDelta = showShipped7d && shipped7dPrior !== undefined && shipped7dPrior > 0;
+  const deltaPct = hasDelta ? Math.round(((shipped7d! - shipped7dPrior!) / shipped7dPrior!) * 100) : 0;
+  const deltaUp = hasDelta && shipped7d! >= shipped7dPrior!;
+
   return (
     <div className="metrics-ribbon">
-      {tiles.map((t) => (
-        <div className="metric-tile" key={t.label}>
-          <span className="metric-tile__label">{t.label}</span>
+      <div className="metric-tile">
+        <span className="metric-tile__label">Active agents</span>
+        <span className="metric-tile__value">
+          <span className="metric-tile__num">{activeAgents}</span>
+        </span>
+      </div>
+      <div className="metric-tile">
+        <span className="metric-tile__label">In flight</span>
+        <span className="metric-tile__value">
+          <span className="metric-tile__num">{inFlight}</span>
+        </span>
+      </div>
+      <div className="metric-tile">
+        <span className="metric-tile__label">Stalled</span>
+        <span className="metric-tile__value">
+          <span className="metric-tile__num">{stalled}</span>
+        </span>
+      </div>
+      <div className="metric-tile">
+        <span className="metric-tile__label">Shipped today</span>
+        <span className="metric-tile__value">
+          <span className="metric-tile__num">{shippedToday}</span>
+        </span>
+      </div>
+      {showShipped7d && (
+        <div className="metric-tile">
+          <span className="metric-tile__label">Shipped · 7d</span>
           <span className="metric-tile__value">
-            <span className="metric-tile__num">{t.value}</span>
+            <span className="metric-tile__num">{shipped7d}</span>
+            {hasDelta && (
+              <span className={`metric-tile__delta ${deltaUp ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}>
+                {deltaUp ? '+' : ''}{deltaPct}%
+              </span>
+            )}
           </span>
         </div>
-      ))}
+      )}
     </div>
   );
 }

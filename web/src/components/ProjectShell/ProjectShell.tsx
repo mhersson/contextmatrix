@@ -83,6 +83,7 @@ export function ProjectShell() {
 
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
+  const [backfillLoaded, setBackfillLoaded] = useState(false);
   const bus = useSSEBus();
 
   // Fetch dashboard data for the board route (board reads active_agents +
@@ -133,6 +134,42 @@ export function ProjectShell() {
   // Clear live activity when project changes so we don't carry over events.
   useEffect(() => {
     setLiveActivity([]);
+    setBackfillLoaded(false);
+  }, [project]);
+
+  // One-shot historical activity backfill on mount / project change. SSE
+  // handles forward updates; this fills in entries older than the page load.
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    api.getActivity(project, 50)
+      .then((resp) => {
+        if (cancelled) return;
+        const backfill: ActivityEntry[] = resp.entries.map((e) => ({
+          id: `${e.ts}-${e.card_id}-${e.agent}`,
+          agent: e.agent,
+          action: e.action,
+          cardId: e.card_id,
+          ts: e.ts,
+        }));
+        // Merge with any live entries that arrived before backfill resolved,
+        // dedup by id, sort newest-first.
+        setLiveActivity((curr) => {
+          const seen = new Set<string>();
+          const merged = [...curr, ...backfill].filter((e) => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+          });
+          merged.sort((a, b) => b.ts.localeCompare(a.ts));
+          return merged.slice(0, 50);
+        });
+        setBackfillLoaded(true);
+      })
+      .catch(() => {
+        // Non-fatal: SSE still populates going forward.
+      });
+    return () => { cancelled = true; };
   }, [project]);
 
   const syncLabel = syncStatus?.last_sync_time
@@ -292,8 +329,11 @@ export function ProjectShell() {
                       cards={cards} config={config} loading={loading} error={error}
                       activeAgents={dashboard?.active_agents ?? []}
                       cardsCompletedToday={dashboard?.cards_completed_today ?? 0}
+                      cardsCompletedLast7d={dashboard?.cards_completed_last_7d}
+                      cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
                       lastSyncLabel={syncLabel}
                       activityEntries={liveActivity}
+                      activityBackfillLoaded={backfillLoaded}
                       currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
