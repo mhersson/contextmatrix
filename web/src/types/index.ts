@@ -237,8 +237,28 @@ export interface DashboardData {
   active_agents: ActiveAgent[];
   total_cost_usd: number;
   cards_completed_today: number;
+  cards_completed_last_7d: number;
+  cards_completed_prior_7d: number;
   agent_costs: AgentCost[];
   card_costs: CardCost[];
+}
+
+export interface ActivityFeedEntry {
+  agent: string;
+  action: string;
+  message?: string;
+  card_id: string;
+  ts: string;
+}
+
+export interface ActivityFeedResponse {
+  entries: ActivityFeedEntry[];
+}
+
+export interface RunnerHealth {
+  ok: boolean;
+  running_containers: number;
+  max_concurrent: number;
 }
 
 export interface CreateProjectInput {

@@ -116,6 +116,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
+	acth := &activityHandlers{svc: cfg.Service}
 	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
@@ -162,10 +163,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/usage", ah.reportUsage)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/report-push", ah.reportPush)
 
-	// Project usage and dashboard
+	// Project usage, dashboard, and activity feed
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
 	mux.HandleFunc("GET /api/projects/{project}/dashboard", ph.getProjectDashboard)
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
+	mux.HandleFunc("GET /api/projects/{project}/activity", acth.getActivity)
 
 	// Knowledge base
 	mux.HandleFunc("GET /api/projects/{project}/knowledge", kh.listForProject)

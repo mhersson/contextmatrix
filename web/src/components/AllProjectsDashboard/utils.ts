@@ -94,6 +94,8 @@ export function aggregateDashboards(
   const stateCounts: Record<string, number> = {};
   let totalCost = 0;
   let completedToday = 0;
+  let completedLast7d = 0;
+  let completedPrior7d = 0;
   const allAgents: ActiveAgent[] = [];
   const agentCostMap = new Map<string, AgentCost>();
   const allCardCosts: CardCost[] = [];
@@ -104,6 +106,8 @@ export function aggregateDashboards(
     }
     totalCost += data.total_cost_usd;
     completedToday += data.cards_completed_today;
+    completedLast7d += data.cards_completed_last_7d ?? 0;
+    completedPrior7d += data.cards_completed_prior_7d ?? 0;
     allAgents.push(...data.active_agents);
     allCardCosts.push(...data.card_costs);
     for (const ac of data.agent_costs) {
@@ -124,6 +128,8 @@ export function aggregateDashboards(
     active_agents: allAgents,
     total_cost_usd: totalCost,
     cards_completed_today: completedToday,
+    cards_completed_last_7d: completedLast7d,
+    cards_completed_prior_7d: completedPrior7d,
     agent_costs: Array.from(agentCostMap.values()),
     card_costs: allCardCosts,
   };

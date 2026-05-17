@@ -39,12 +39,14 @@ type CardCost struct {
 
 // DashboardData contains all data needed for the project dashboard view.
 type DashboardData struct {
-	StateCounts         map[string]int `json:"state_counts"`
-	ActiveAgents        []ActiveAgent  `json:"active_agents"`
-	TotalCostUSD        float64        `json:"total_cost_usd"`
-	CardsCompletedToday int            `json:"cards_completed_today"`
-	AgentCosts          []AgentCost    `json:"agent_costs"`
-	CardCosts           []CardCost     `json:"card_costs"`
+	StateCounts           map[string]int `json:"state_counts"`
+	ActiveAgents          []ActiveAgent  `json:"active_agents"`
+	TotalCostUSD          float64        `json:"total_cost_usd"`
+	CardsCompletedToday   int            `json:"cards_completed_today"`
+	CardsCompletedLast7d  int            `json:"cards_completed_last_7d"`
+	CardsCompletedPrior7d int            `json:"cards_completed_prior_7d"`
+	AgentCosts            []AgentCost    `json:"agent_costs"`
+	CardCosts             []CardCost     `json:"card_costs"`
 }
 
 // GetDashboard computes aggregated dashboard data for a project.
@@ -54,8 +56,10 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		return nil, fmt.Errorf("list cards: %w", err)
 	}
 
-	now := time.Now()
+	now := s.clk.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	last7dStart := now.Add(-7 * 24 * time.Hour)
+	prior7dStart := now.Add(-14 * 24 * time.Hour)
 
 	data := &DashboardData{
 		StateCounts:  make(map[string]int),
@@ -85,9 +89,16 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 			data.ActiveAgents = append(data.ActiveAgents, aa)
 		}
 
-		// Cards completed today.
-		if card.State == board.StateDone && !card.Updated.Before(todayStart) {
-			data.CardsCompletedToday++
+		// Cards completed today and in rolling 7d windows.
+		if card.State == board.StateDone {
+			if !card.Updated.Before(todayStart) {
+				data.CardsCompletedToday++
+			}
+			if !card.Updated.Before(last7dStart) {
+				data.CardsCompletedLast7d++
+			} else if !card.Updated.Before(prior7dStart) {
+				data.CardsCompletedPrior7d++
+			}
 		}
 
 		// Cost aggregation.
