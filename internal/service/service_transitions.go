@@ -188,10 +188,15 @@ func (s *CardService) transitionParentDirect(
 			)
 		}
 
+		// Parent auto-transitions are always system-driven (fired from the
+		// child write path, no agent context). Tag with "system" so SSE
+		// consumers can render the row consistently with the activity log
+		// entry written by appendStateChangeLog.
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,
 			Project:   parent.Project,
 			CardID:    parent.ID,
+			Agent:     "system",
 			Timestamp: parent.Updated,
 			Data: map[string]any{
 				"old_state": oldState,

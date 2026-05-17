@@ -108,7 +108,9 @@ const stateChangedAction = "state_changed"
 // caller must have already validated that oldState != newState. An empty
 // agent string is normalised to "system" for transitions driven by the
 // stall checker, parent auto-transition, or other server-side machinery.
-// The activity log is then trimmed to maxActivityLogEntries (oldest dropped).
+// The activity log is then trimmed via trimActivityLog (state_changed
+// entries are preserved preferentially so the dashboard sparkline can
+// reconstruct historical state on high-activity cards).
 func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts time.Time) {
 	if agent == "" {
 		agent = "system"
@@ -121,9 +123,43 @@ func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts
 		Message:   fmt.Sprintf("%s -> %s", oldState, newState),
 	})
 
-	if len(card.ActivityLog) > maxActivityLogEntries {
-		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
+}
+
+// trimActivityLog enforces the activity-log cap while preserving
+// state_changed entries preferentially. The dashboard's 7-day sparkline
+// reconstructs end-of-day state by walking these entries (see
+// stateAtTime in service_dashboard.go); dropping them silently makes
+// the sparkline paint the wrong history for high-activity cards.
+//
+// Strategy: drop non-state-changed entries oldest-first until under the
+// cap; only then fall back to dropping oldest state_changed entries
+// (which is still correct because the latest transition wins).
+func trimActivityLog(log []board.ActivityEntry) []board.ActivityEntry {
+	if len(log) <= maxActivityLogEntries {
+		return log
 	}
+
+	excess := len(log) - maxActivityLogEntries
+	out := make([]board.ActivityEntry, 0, len(log))
+
+	for _, e := range log {
+		if excess > 0 && e.Action != stateChangedAction {
+			excess--
+
+			continue
+		}
+
+		out = append(out, e)
+	}
+
+	// If even after dropping every non-state-changed we still over-cap
+	// (a card with 50+ transitions), drop oldest state_changed entries.
+	if len(out) > maxActivityLogEntries {
+		out = out[len(out)-maxActivityLogEntries:]
+	}
+
+	return out
 }
 
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
@@ -968,11 +1004,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// Append entry
 	card.ActivityLog = append(card.ActivityLog, entry)
-
-	// Cap at max entries (keep most recent)
-	if len(card.ActivityLog) > maxActivityLogEntries {
-		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
-	}
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
 	card.Updated = time.Now()
 
@@ -1250,10 +1282,21 @@ func (s *CardService) applyCardMutation(
 		eventType = events.CardStateChanged
 	}
 
+	// Carry the acting agent on every published event so SSE consumers that
+	// filter by agent (e.g. NowRail activity feed) can render the row
+	// without needing to refetch the card. Empty agent (UpdateCard without
+	// an X-Agent-ID) normalises to "system" — matches the convention
+	// appendStateChangeLog uses when writing the activity-log entry.
+	eventAgent := opts.commitAgentID
+	if eventAgent == "" {
+		eventAgent = "system"
+	}
+
 	s.bus.Publish(events.Event{
 		Type:      eventType,
 		Project:   project,
 		CardID:    id,
+		Agent:     eventAgent,
 		Timestamp: card.Updated,
 		Data: map[string]any{
 			"old_state": oldState,

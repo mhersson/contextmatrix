@@ -78,12 +78,17 @@ export function MetricsRibbon({
         </span>
         <Sparkline values={stalledSeries} color="var(--red)" />
       </div>
+      {/*
+        "Shipped today" is a point-in-time count and intentionally has no
+        sparkline — the trend belongs on the 7d tile, where the series
+        covers the same window the number measures. Rendering the 7d
+        series under both tiles produced identical sparklines side-by-side.
+      */}
       <div className="metric-tile">
         <span className="metric-tile__label">Shipped today</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{shippedToday}</span>
         </span>
-        <Sparkline values={shippedSeries} color="var(--green)" />
       </div>
       {showShipped7d && (
         <div className="metric-tile">

@@ -38,20 +38,20 @@ type GitHubImportConfig struct {
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml.
 type ProjectConfig struct {
-	Name                string                 `yaml:"name" json:"name"`
-	DisplayName         string                 `yaml:"display_name,omitempty" json:"display_name,omitempty"`
-	Prefix              string                 `yaml:"prefix" json:"prefix"`
-	NextID              int                    `yaml:"next_id" json:"next_id"`
-	Repo                string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
-	Repos               []Repo                 `yaml:"repos,omitempty" json:"repos,omitempty"`
-	States              []string               `yaml:"states" json:"states"`
-	Types               []string               `yaml:"types" json:"types"`
-	Priorities          []string               `yaml:"priorities" json:"priorities"`
+	Name            string                 `yaml:"name" json:"name"`
+	DisplayName     string                 `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Prefix          string                 `yaml:"prefix" json:"prefix"`
+	NextID          int                    `yaml:"next_id" json:"next_id"`
+	Repo            string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Repos           []Repo                 `yaml:"repos,omitempty" json:"repos,omitempty"`
+	States          []string               `yaml:"states" json:"states"`
+	Types           []string               `yaml:"types" json:"types"`
+	Priorities      []string               `yaml:"priorities" json:"priorities"`
 	Transitions     map[string][]string    `yaml:"transitions" json:"transitions"`
 	RemoteExecution *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
-	GitHub              *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
-	DefaultSkills       *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
-	Templates           map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
+	GitHub          *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
+	DefaultSkills   *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
+	Templates       map[string]string      `yaml:"-" json:"templates,omitempty"` // loaded from templates/ dir at runtime
 }
 
 var (

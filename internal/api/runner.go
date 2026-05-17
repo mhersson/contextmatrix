@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -43,7 +45,40 @@ type runnerHandlers struct {
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
 	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
+
+	// healthCache memoises /runner/health responses so concurrent browser tabs
+	// don't each fire a fresh probe at the runner — and so a runner outage
+	// doesn't cause every refresh to block for the full per-request timeout.
+	healthCache healthProbeCache
 }
+
+// healthProbeCache is a small TTL cache for runner /health responses.
+// Both successes and failures are cached so an outage doesn't produce a
+// thundering-herd of blocked goroutines hitting a dead runner.
+//
+// Concurrent callers arriving during a cold-or-expired window are
+// coalesced via singleflight, so exactly one upstream probe runs per
+// TTL window regardless of inbound concurrency. The probe itself uses
+// a detached context so a single caller cancelling mid-probe cannot
+// poison the cache for the rest of the TTL window.
+type healthProbeCache struct {
+	mu      sync.Mutex
+	expires time.Time
+	info    runner.HealthInfo
+	err     error
+
+	flight singleflight.Group
+}
+
+// runnerHealthCacheTTL is how long a /runner/health probe result is reused.
+// Short enough that operators see capacity changes promptly, long enough to
+// dampen multi-tab refresh storms.
+const runnerHealthCacheTTL = 2 * time.Second
+
+// runnerHealthProbeTimeout is the per-probe timeout for upstream /health
+// calls. Tighter than the runner client's default 10s so a hung runner
+// doesn't pin every browser tab for that long.
+const runnerHealthProbeTimeout = 3 * time.Second
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
 func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
@@ -834,6 +869,12 @@ type runnerHealthResponse struct {
 // from here to render the NowRail capacity meter — it's the runner-global cap,
 // not a per-project value. Returns 503 when the runner is disabled and 502
 // when the runner is unreachable; callers should fail soft (hide capacity).
+//
+// Probe results are cached for runnerHealthCacheTTL so concurrent tabs and
+// rapid refreshes don't tie up the runner with redundant probes, and a runner
+// outage doesn't make every browser request block for the full timeout.
+// Upstream errors are sanitized (raw err details never leave the server)
+// to match how every other runner endpoint in this file handles them.
 func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request) {
 	if h.runner == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRunnerDisabled, "runner is not configured", "")
@@ -841,9 +882,10 @@ func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	info, err := h.runner.Health(r.Context())
+	info, err := h.healthCache.get(r.Context(), h.runner)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "runner health probe failed", err.Error())
+		ctxlog.Logger(r.Context()).Error("runner health probe failed", "error", err)
+		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "runner health probe failed", "")
 
 		return
 	}
@@ -853,6 +895,58 @@ func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request)
 		RunningContainers: info.RunningContainers,
 		MaxConcurrent:     info.MaxConcurrent,
 	})
+}
+
+// get returns a (possibly cached) runner /health response. The cache TTL
+// (runnerHealthCacheTTL) is short so operator changes propagate quickly,
+// but covers both success and failure so a runner outage cannot cause
+// every concurrent caller to issue a fresh probe.
+//
+// On a cold or expired cache, concurrent callers are coalesced via
+// singleflight — exactly one upstream probe runs per TTL window. The
+// probe runs against a detached context (`context.WithoutCancel`) so a
+// single caller's cancellation (browser tab closed mid-probe) cannot
+// write a transient `context.Canceled` into the cache and poison every
+// other caller's read for the rest of the TTL window.
+//
+// `ctx` is only consulted to abandon the wait when the caller goes
+// away; the in-flight probe continues so the result still lands in
+// the cache for the next caller.
+func (c *healthProbeCache) get(ctx context.Context, client *runner.Client) (runner.HealthInfo, error) {
+	c.mu.Lock()
+	if time.Now().Before(c.expires) {
+		info, err := c.info, c.err
+		c.mu.Unlock()
+
+		return info, err
+	}
+	c.mu.Unlock()
+
+	ch := c.flight.DoChan("probe", func() (any, error) {
+		probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runnerHealthProbeTimeout)
+		defer cancel()
+
+		info, err := client.Health(probeCtx)
+
+		c.mu.Lock()
+		c.info = info
+		c.err = err
+		c.expires = time.Now().Add(runnerHealthCacheTTL)
+		c.mu.Unlock()
+
+		return info, err
+	})
+
+	select {
+	case res := <-ch:
+		info, _ := res.Val.(runner.HealthInfo)
+
+		return info, res.Err
+	case <-ctx.Done():
+		// Caller went away; let the singleflight probe keep running so
+		// the next caller benefits from the cached result.
+		return runner.HealthInfo{}, fmt.Errorf("runner health probe: %w", ctx.Err())
+	}
 }
 
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,

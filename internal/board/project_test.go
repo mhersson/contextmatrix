@@ -826,4 +826,3 @@ func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {
 	assert.NotContains(t, string(data), "default_skills",
 		"nil DefaultSkills should not appear in the YAML")
 }
-

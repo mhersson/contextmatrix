@@ -486,13 +486,17 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	// Verify the "completed" log entry was added (subsequent state_changed
 	// entries for the in_progress → review transition follow it).
 	require.NotEmpty(t, output.Card.ActivityLog)
+
 	var completed *board.ActivityEntry
+
 	for i := range output.Card.ActivityLog {
 		if output.Card.ActivityLog[i].Action == "completed" {
 			completed = &output.Card.ActivityLog[i]
+
 			break
 		}
 	}
+
 	require.NotNil(t, completed, "completed activity entry should be present")
 	assert.Equal(t, "All tests passing, feature implemented", completed.Message)
 	assert.Equal(t, "agent-done", completed.Agent)

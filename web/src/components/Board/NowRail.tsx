@@ -20,15 +20,62 @@ function shortAgent(agentId: string): string {
   return agentId.replace(/^claude-/, '').replace(/^human:/, '');
 }
 
+// actionDotClass maps an activity-log Action string to the NowRail dot
+// modifier class. The vocabulary mirrors what the server writes into the
+// activity log (see service_cards.go appendStateChangeLog and AddLogEntry
+// callers) — `claimed` / `released` / `state_changed` from the state-machine
+// layer, plus `done` / `shipped` / `review_requested` from agent-emitted log
+// entries. Unknown actions fall through to no class (default dot styling).
 function actionDotClass(action: string): string {
   switch (action) {
-    case 'claim': return 'now-rail__act-dot--claim';
+    case 'claimed':
+    case 'claim':
+      return 'now-rail__act-dot--claim';
+    case 'released':
+    case 'release':
+      return 'now-rail__act-dot--release';
+    case 'state_changed':
+    case 'transition':
+      return 'now-rail__act-dot--transition';
     case 'done':
-    case 'shipped': return 'now-rail__act-dot--done';
+    case 'completed':
+    case 'shipped':
+      return 'now-rail__act-dot--done';
     case 'review_requested':
-    case 'review': return 'now-rail__act-dot--review';
-    case 'system': return 'now-rail__act-dot--system';
-    default: return '';
+    case 'review':
+      return 'now-rail__act-dot--review';
+    case 'system':
+      return 'now-rail__act-dot--system';
+    default:
+      return '';
+  }
+}
+
+// actionLabel renders the Action string in a human-friendly form. The raw
+// vocabulary uses snake_case (`state_changed`) which reads as a developer
+// constant when surfaced in the UI; here we map known actions to the verb
+// form used in the rest of the board copy.
+function actionLabel(action: string): string {
+  switch (action) {
+    case 'claimed':
+    case 'claim':
+      return 'claimed';
+    case 'released':
+    case 'release':
+      return 'released';
+    case 'state_changed':
+    case 'transition':
+      return 'transitioned';
+    case 'done':
+    case 'completed':
+      return 'completed';
+    case 'shipped':
+      return 'shipped';
+    case 'review_requested':
+    case 'review':
+      return 'requested review for';
+    default:
+      return action;
   }
 }
 
@@ -110,7 +157,7 @@ export function NowRail({ agents, activityEntries, maxAgents, hasBackfill }: Now
         )}
       </div>
 
-      <div className="now-rail__section">
+      <div className="now-rail__section" role="log" aria-live="polite" aria-relevant="additions">
         <div className="now-rail__head">
           <span className="label">{hasBackfill ? 'Activity' : 'Activity · since page load'}</span>
           <span className="count">live</span>
@@ -121,7 +168,7 @@ export function NowRail({ agents, activityEntries, maxAgents, hasBackfill }: Now
           <div className="now-rail__act-row" key={e.id}>
             <div className={`now-rail__act-dot ${actionDotClass(e.action)}`} />
             <div className="now-rail__act-body">
-              <span className="who">{shortAgent(e.agent)}</span> {e.action} <span className="ref">{e.cardId}</span>
+              <span className="who">{shortAgent(e.agent)}</span> {actionLabel(e.action)} <span className="ref">{e.cardId}</span>
             </div>
             <div className="now-rail__act-when">{relativeTime(e.ts)}</div>
           </div>

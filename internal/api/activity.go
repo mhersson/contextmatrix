@@ -1,34 +1,27 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
-	"sort"
 	"strconv"
-	"time"
 
 	"github.com/mhersson/contextmatrix/internal/service"
-	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 type activityHandlers struct {
 	svc *service.CardService
 }
 
-type activityEntryDTO struct {
-	Agent   string    `json:"agent"`
-	Action  string    `json:"action"`
-	Message string    `json:"message,omitempty"`
-	CardID  string    `json:"card_id"`
-	TS      time.Time `json:"ts"`
-}
-
+// activityResponse is the envelope returned by GET /api/projects/{project}/activity.
+// Uses `items` to match the project's other list endpoints (e.g. /cards).
 type activityResponse struct {
-	Entries []activityEntryDTO `json:"entries"`
+	Items []service.ActivityFeedEntry `json:"items"`
 }
 
 // getActivity handles GET /api/projects/{project}/activity?limit=N.
-// Flattens per-card activity_log into a single chronological feed (newest first).
+// Returns the most-recent activity-log entries across all cards in the
+// project, newest first. `limit` defaults to 50 and is capped at 500. The
+// feed is rolling (no cursor): callers receive at most `limit` entries
+// and refresh by re-fetching.
 func (h *activityHandlers) getActivity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	project := r.PathValue("project")
@@ -40,43 +33,24 @@ func (h *activityHandlers) getActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := 50
+
 	if s := r.URL.Query().Get("limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
+		n, err := strconv.Atoi(s)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid limit", "")
+
+			return
 		}
+
+		limit = n
 	}
 
-	if limit > 500 {
-		limit = 500
-	}
-
-	cards, err := h.svc.ListCards(ctx, project, storage.CardFilter{})
+	items, err := h.svc.ListActivity(ctx, project, limit)
 	if err != nil {
 		handleServiceError(w, r, err)
 
 		return
 	}
 
-	out := make([]activityEntryDTO, 0, limit)
-
-	for _, c := range cards {
-		for _, e := range c.ActivityLog {
-			out = append(out, activityEntryDTO{
-				Agent:   e.Agent,
-				Action:  e.Action,
-				Message: e.Message,
-				CardID:  c.ID,
-				TS:      e.Timestamp,
-			})
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].TS.After(out[j].TS) })
-
-	if len(out) > limit {
-		out = out[:limit]
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(activityResponse{Entries: out})
+	writeJSON(w, http.StatusOK, activityResponse{Items: items})
 }

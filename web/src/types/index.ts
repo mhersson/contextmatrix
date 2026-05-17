@@ -260,7 +260,7 @@ export interface ActivityFeedEntry {
 }
 
 export interface ActivityFeedResponse {
-  entries: ActivityFeedEntry[];
+  items: ActivityFeedEntry[];
 }
 
 export interface RunnerHealth {

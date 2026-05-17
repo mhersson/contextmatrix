@@ -44,7 +44,7 @@ export function BoardBand({
           <span className="dot" />
           <span className="accent">{projectName}</span>
         </div>
-        <h1 className="board-band__title">{title}</h1>
+        <h2 className="board-band__title">{title}</h2>
         <div className="board-band__sub">
           <span className="board-band__pulse">{activeAgents} agents live</span>
           <span className="board-band__sep">·</span>

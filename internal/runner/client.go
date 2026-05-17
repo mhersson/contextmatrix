@@ -219,11 +219,7 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 		return HealthInfo{}, fmt.Errorf("parse /health response: %w", err)
 	}
 
-	return HealthInfo{
-		OK:                parsed.OK,
-		RunningContainers: parsed.RunningContainers,
-		MaxConcurrent:     parsed.MaxConcurrent,
-	}, nil
+	return HealthInfo(parsed), nil
 }
 
 // ListContainers queries the runner's /containers endpoint for every Docker

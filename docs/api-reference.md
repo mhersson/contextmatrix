@@ -26,6 +26,7 @@ POST   /api/projects/{project}/cards/{id}/report-push { "branch": "...", "pr_url
 GET    /api/projects/{project}/branches               # list branches from project's GitHub repo
 GET    /api/projects/{project}/usage                  # aggregated token usage
 GET    /api/projects/{project}/dashboard              # project dashboard metrics
+GET    /api/projects/{project}/activity   ?limit=     # flattened activity-log feed (newest first; cap 500)
 POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
 GET    /api/projects/{project}/knowledge                              # KB summary (repos + docs) for the project
@@ -43,6 +44,7 @@ POST   /api/projects/{project}/stop-all               # stop all running tasks (
 POST   /api/runner/status                              # runner status callback (HMAC-signed; runner-enabled only)
 POST   /api/runner/knowledge-status                    # runner KB-refresh terminal callback (HMAC-signed; runner-enabled only)
 POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; runner-enabled only)
+GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached)
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner-enabled only)
 GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; runner-enabled only)
 
@@ -605,6 +607,14 @@ Returns dashboard metrics for a project.
   ],
   "total_cost_usd": 0.315,
   "cards_completed_today": 2,
+  "cards_completed_last_7d": 9,
+  "cards_completed_prior_7d": 6,
+  "metric_series": {
+    "active_agents": [0, 1, 1, 2, 2, 1, 3, 2],
+    "in_flight":     [1, 2, 2, 3, 3, 2, 4, 3],
+    "stalled":       [0, 0, 1, 1, 0, 0, 0, 0],
+    "shipped":       [1, 0, 2, 1, 1, 2, 1, 2]
+  },
   "agent_costs": [
     {
       "agent_id": "claude-7a3f",
@@ -628,6 +638,51 @@ Returns dashboard metrics for a project.
 ```
 
 `assigned_agent` is omitted when no agent currently owns the card.
+
+`cards_completed_last_7d` counts cards whose `updated` falls inside the
+trailing 7-day window ending at "now"; `cards_completed_prior_7d` counts the
+preceding 7-day window (used by the UI to render a week-over-week delta).
+
+`metric_series` is an 8-sample daily window (oldest first, today last) for
+each tile on the board's metrics ribbon. Each slice always has exactly 8
+entries. `shipped` is bucketed by `updated` on cards in the `done` state;
+the other three are reconstructed by walking each card's `state_changed`
+activity-log entries. The `active_agents` series counts cards whose
+reconstructed end-of-day state is `in_progress`/`review` **and** which
+currently have an assigned agent (claim history isn't tracked, so per-day
+agent presence is approximate). Cards that pre-date state-change logging
+fall back to their current `state` for the whole window.
+
+### GET /api/projects/{project}/activity
+
+Returns a chronological flat feed of activity-log entries across every card
+in the project. Used by the board's NowRail "Activity" section to backfill
+entries older than the page load (SSE delivers everything from page load
+forward).
+
+Query parameters:
+
+- `limit` (optional, default 50, max 500) — maximum number of entries to
+  return. Invalid values (non-integer or `<= 0`) return 400.
+
+Response envelope mirrors `/cards` — uses `items` rather than a bare array:
+
+```json
+{
+  "items": [
+    {
+      "agent": "claude-7a3f",
+      "action": "claimed",
+      "message": "",
+      "card_id": "ALPHA-003",
+      "ts": "2026-05-17T12:34:56Z"
+    }
+  ]
+}
+```
+
+Entries are sorted newest-first by `ts`. The feed is rolling (no cursor):
+clients receive at most `limit` entries and refresh by re-fetching.
 
 ### POST /api/projects/{project}/recalculate-costs
 
@@ -860,6 +915,33 @@ Returns **202 Accepted** with the updated card (`runner_status: "killed"`).
 
 Stop all running remote executions in a project. Human-only. Returns
 `{ "affected_cards": ["PROJ-001", "PROJ-003"] }`.
+
+### GET /api/runner/health
+
+Proxies a `GET /health` to the configured runner and returns the parsed
+shape. Used by the board's NowRail to render the capacity meter
+(`max_concurrent` is the runner-global cap, not a per-project value).
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "running_containers": 2,
+  "max_concurrent": 4
+}
+```
+
+- 503 `RUNNER_DISABLED` when the runner is not configured.
+- 502 `RUNNER_UNAVAILABLE` when the runner is configured but the probe
+  fails (timeout, transport error, non-2xx response). Upstream error
+  details are not surfaced in the response body — the underlying error
+  is logged server-side. Callers should fail soft (hide capacity).
+
+Probe results are cached server-side for ~2 seconds so concurrent
+browser tabs do not each fire a fresh probe. Probes use a tighter
+upstream timeout (3 s) than the runner client's default to keep the
+endpoint responsive during a runner outage.
 
 ### GET /api/runner/logs
 
