@@ -48,7 +48,7 @@ describe('Sidebar', () => {
       loading: false,
       error: null,
       connected: true,
-      refreshProjects: () => {},
+      refreshProjects: async () => {},
     });
 
     renderSidebar();
@@ -71,7 +71,7 @@ describe('Sidebar', () => {
       loading: false,
       error: null,
       connected: true,
-      refreshProjects: () => {},
+      refreshProjects: async () => {},
     });
 
     renderSidebar();
@@ -91,7 +91,7 @@ describe('Sidebar', () => {
         loading: false,
         error: null,
         connected: true,
-        refreshProjects: () => {},
+        refreshProjects: async () => {},
       });
     });
 

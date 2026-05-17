@@ -102,6 +102,7 @@ func TestRunnerClient_StartChat_MarshalsPrimer(t *testing.T) {
 	received = nil
 	_, err = rc.StartChat(context.Background(), chat.StartChatOpts{SessionID: "S2"})
 	require.NoError(t, err)
+
 	_, present := received["primer"]
 	assert.False(t, present, "primer field must be omitted when empty (omitempty)")
 }

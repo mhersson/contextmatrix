@@ -5,7 +5,6 @@ import { useSync } from '../../hooks/useSync';
 import { useAgentId } from '../../hooks/useAgentId';
 import { useCardActions } from '../../hooks/useCardActions';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
-import { useLastProject } from '../../hooks/useLastProject';
 import { useProjects } from '../../hooks/useProjects';
 import { useToast } from '../../hooks/useToast';
 import { useRunnerLogs } from '../../hooks/useRunnerLogs';
@@ -45,7 +44,6 @@ export function ProjectShell() {
   const { projects } = useProjects();
   const { showToast } = useToast();
   const { agentId } = useAgentId();
-  const [, setLastProject] = useLastProject();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -61,10 +59,6 @@ export function ProjectShell() {
   useEffect(() => {
     return () => clearTimeout(flashTimerRef.current);
   }, []);
-
-  useEffect(() => {
-    if (project) setLastProject(project);
-  }, [project, setLastProject]);
 
   const [prevProject, setPrevProject] = useState(project);
   if (project !== prevProject) {

@@ -2093,6 +2093,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 
 		go func(idx int) {
 			defer wg.Done()
+
 			errs[idx] = mgr.ClearContext(ctx, sess.ID)
 		}(i)
 	}
@@ -2110,6 +2111,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	require.NoError(t, err)
 
 	var dividerCount int
+
 	for _, m := range msgs {
 		if m.Kind == chat.EventKindDivider {
 			dividerCount++

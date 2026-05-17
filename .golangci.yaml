@@ -33,6 +33,11 @@ linters:
       branch-max-lines: 2
   exclusions:
     generated: lax
+    paths:
+    # The `flatted` npm package ships a Go binding under web/node_modules.
+    # Don't lint or auto-fix third-party JS-tooling code.
+    - web/node_modules
+    - node_modules
     presets:
     - common-false-positives
     - std-error-handling
@@ -84,3 +89,7 @@ issues:
 formatters:
   enable:
   - goimports
+  exclusions:
+    paths:
+    - web/node_modules
+    - node_modules

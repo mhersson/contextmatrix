@@ -7,7 +7,6 @@ import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
-import { RedirectToLastProject } from './components/RedirectToLastProject';
 import { ToastContainer } from './components/Toast';
 import type { ProjectConfig } from './types';
 
@@ -68,9 +67,9 @@ function AppInner() {
               <ErrorBoundary>
                 <Suspense fallback={<AppShellSkeleton />}>
                   <Routes>
-                    <Route index element={<RedirectToLastProject />} />
+                    <Route index element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
                     <Route path="projects/:project/*" element={<ProjectShell />} />
-                    <Route path="all" element={<AllProjectsDashboard />} />
+                    <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
                     <Route path="chat" element={<ChatPage />} />
                     <Route path="chat/:id" element={<ChatPage />} />
                     <Route path="*" element={<NotFound />} />

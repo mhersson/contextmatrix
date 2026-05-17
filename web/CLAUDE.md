@@ -840,8 +840,9 @@ Both levels must have the catch-all so that:
   `--bg2`, `--bg3`). No hardcoded colours.
 - The `404` indicator is `aria-hidden="true"` (decorative); the heading is an
   `h1` for accessibility.
-- A `<Link to="/">Go home</Link>` returns the user to the root, which
-  `RedirectToLastProject` then forwards to the most-recently-visited project.
+- A `<Link to="/">Go home</Link>` returns the user to the root, which renders
+  the All Projects operations dashboard (`AllProjectsDashboard`). `/all` is
+  preserved as an alias so existing sidebar links and bookmarks still resolve.
 - Exported via `web/src/components/NotFound/index.ts` barrel (standard pattern).
 
 ### Adding routes in future

@@ -578,6 +578,7 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 	// Open the session so it is active, then arm the send error for /clear.
 	_, err = mgr.OpenSession(context.Background(), sess.ID)
 	require.NoError(t, err)
+
 	runner.sendErr = errors.New("runner unreachable")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",

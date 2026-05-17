@@ -66,10 +66,6 @@ vi.mock('../../hooks/useKeyboardShortcuts', () => ({
   useKeyboardShortcuts: vi.fn(),
 }));
 
-vi.mock('../../hooks/useLastProject', () => ({
-  useLastProject: vi.fn(() => [null, vi.fn()]),
-}));
-
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: vi.fn(() => ({
     projects: [{ name: 'test', prefix: 'TEST', next_id: 1, states: [], types: [], priorities: [], transitions: {} }],

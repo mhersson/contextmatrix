@@ -5,41 +5,70 @@ import { useSSEBus } from './useSSEBus';
 
 const REFRESH_INTERVAL = 30000;
 
-export function useProjectSummaries(projectNames: string[]) {
+export interface UseProjectSummariesResult {
+  summaries: Map<string, DashboardData>;
+  /** Project names whose latest dashboard fetch rejected. */
+  errors: Set<string>;
+  loading: boolean;
+  refresh: () => Promise<void>;
+}
+
+export function useProjectSummaries(projectNames: string[]): UseProjectSummariesResult {
   const [summaries, setSummaries] = useState<Map<string, DashboardData>>(new Map());
+  const [errors, setErrors] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
   const projectNamesRef = useRef(projectNames);
   useEffect(() => {
     projectNamesRef.current = projectNames;
   });
+
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Monotonic request id; only the latest request commits its result.
+  const reqIdRef = useRef(0);
 
   const fetchAll = useCallback(async () => {
     const names = projectNamesRef.current;
+    const reqId = ++reqIdRef.current;
+
     if (names.length === 0) {
       setSummaries(new Map());
+      setErrors(new Set());
       setLoading(false);
       return;
     }
 
-    const results = await Promise.allSettled(
+    const results = await Promise.all(
       names.map(async (name) => {
-        const data = await api.getDashboard(name);
-        return [name, data] as const;
-      })
+        try {
+          const data = await api.getDashboard(name);
+          return { name, ok: true as const, data };
+        } catch (err) {
+          return { name, ok: false as const, error: err };
+        }
+      }),
     );
 
+    if (reqId !== reqIdRef.current) return; // stale — newer request already in flight
+
     const map = new Map<string, DashboardData>();
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        map.set(result.value[0], result.value[1]);
+    const failed = new Set<string>();
+    for (const r of results) {
+      if (r.ok) {
+        map.set(r.name, r.data);
+      } else {
+        failed.add(r.name);
+        console.warn(`getDashboard(${r.name}) failed:`, r.error);
       }
     }
     setSummaries(map);
+    setErrors(failed);
     setLoading(false);
   }, []);
 
-  const projectKey = projectNames.join(',');
+  // JSON.stringify avoids the collision where two distinct lists (e.g.
+  // ['a,b'] vs ['a','b']) hash to the same comma-joined string.
+  const projectKey = JSON.stringify(projectNames);
   useEffect(() => {
     const initialTimeout = setTimeout(fetchAll, 0);
     const interval = setInterval(fetchAll, REFRESH_INTERVAL);
@@ -59,5 +88,5 @@ export function useProjectSummaries(projectNames: string[]) {
     });
   }, [subscribe, fetchAll]);
 
-  return { summaries, loading };
+  return { summaries, errors, loading, refresh: fetchAll };
 }

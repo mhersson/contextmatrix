@@ -8,7 +8,7 @@ interface ProjectsContextValue {
   loading: boolean;
   error: string | null;
   connected: boolean;
-  refreshProjects: () => void;
+  refreshProjects: () => Promise<void>;
 }
 
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
