@@ -21,6 +21,7 @@ import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
 import { MetricsRibbon } from './MetricsRibbon';
+import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
 import { NowRail, type ActivityEntry } from './NowRail';
 import { BoardFooter } from './BoardFooter';
@@ -114,6 +115,8 @@ export function Board({
       if (filter.priority && card.priority !== filter.priority) return false;
       if (filter.label && !(card.labels ?? []).includes(filter.label)) return false;
       if (filter.agent && card.assigned_agent !== filter.agent) return false;
+      if (filter.autonomous && !card.autonomous) return false;
+      if (filter.runner_status && card.runner_status !== filter.runner_status) return false;
       return true;
     });
   }, [cards, filter, hasFilter]);
@@ -215,6 +218,14 @@ export function Board({
         inFlight={inFlight}
         stalled={stalledCount}
         shippedToday={cardsCompletedToday}
+      />
+
+      <SpotlightStrip
+        cards={cards}
+        onCardClick={(cardId) => {
+          const c = cards.find((x) => x.id === cardId);
+          if (c) onCardClick?.(c);
+        }}
       />
 
       <FilterChipBar

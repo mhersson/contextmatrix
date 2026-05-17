@@ -32,4 +32,18 @@ describe('FilterChipBar', () => {
     render(<FilterChipBar {...baseProps} filter={{ agent: 'human:morten' }} />);
     expect(screen.getByRole('button', { name: /mine/i })).toHaveAttribute('data-active', 'true');
   });
+
+  it('toggles Autonomous (boolean filter)', () => {
+    const onFilterChange = vi.fn();
+    render(<FilterChipBar {...baseProps} onFilterChange={onFilterChange} />);
+    fireEvent.click(screen.getByRole('button', { name: /autonomous/i }));
+    expect(onFilterChange).toHaveBeenCalledWith({ autonomous: true });
+  });
+
+  it('toggles runner:running', () => {
+    const onFilterChange = vi.fn();
+    render(<FilterChipBar {...baseProps} onFilterChange={onFilterChange} />);
+    fireEvent.click(screen.getByRole('button', { name: /runner:running/i }));
+    expect(onFilterChange).toHaveBeenCalledWith({ runner_status: 'running' });
+  });
 });

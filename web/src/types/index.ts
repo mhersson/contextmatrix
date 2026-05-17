@@ -102,6 +102,8 @@ export interface CardFilter {
   parent?: string;
   external_id?: string;
   vetted?: boolean;
+  autonomous?: boolean;
+  runner_status?: string;
 }
 
 export interface APIError {

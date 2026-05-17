@@ -6,7 +6,7 @@ interface FilterChipBarProps {
   onFilterChange: (filter: CardFilter) => void;
 }
 
-type StringFilterKey = Exclude<keyof CardFilter, 'vetted'>;
+type StringFilterKey = Exclude<keyof CardFilter, 'vetted' | 'autonomous'>;
 
 /**
  * Replaces the dropdown-style FilterBar with a chip-driven filter row.
@@ -55,6 +55,26 @@ export function FilterChipBar({ filter, currentAgent, onFilterChange }: FilterCh
         <button type="button" className="fchip" data-active={isActive('type', 'bug')} onClick={() => toggle('type', 'bug')}>
           <span className="fchip__swatch" style={{ background: 'var(--yellow)' }} />
           Bugs
+        </button>
+        <button
+          type="button"
+          className="fchip"
+          data-active={filter.autonomous === true}
+          onClick={() => onFilterChange(
+            filter.autonomous ? { ...filter, autonomous: undefined } : { ...filter, autonomous: true }
+          )}
+        >
+          <span className="fchip__swatch" style={{ background: 'var(--purple)' }} />
+          Autonomous
+        </button>
+        <button
+          type="button"
+          className="fchip"
+          data-active={filter.runner_status === 'running'}
+          onClick={() => toggle('runner_status', 'running')}
+        >
+          <span className="fchip__swatch" style={{ background: 'var(--aqua)' }} />
+          runner:running
         </button>
       </div>
     </div>

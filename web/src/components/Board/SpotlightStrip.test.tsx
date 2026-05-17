@@ -30,9 +30,11 @@ describe('SpotlightStrip', () => {
     expect(screen.getByText('blocked')).toBeInTheDocument();
   });
 
-  it('renders nothing when there are no surfaced cards', () => {
-    const { container } = render(<SpotlightStrip cards={[mkCard({})]} onCardClick={() => {}} />);
-    expect(container.firstChild).toBeNull();
+  it('renders an "all clear" placeholder when there are no surfaced cards', () => {
+    render(<SpotlightStrip cards={[mkCard({})]} onCardClick={() => {}} />);
+    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+    expect(screen.getByText(/all clear/i)).toBeInTheDocument();
+    expect(screen.getByText(/no stalled or blocked cards/i)).toBeInTheDocument();
   });
 
   it('fires onCardClick when a spotlight card is clicked', () => {

@@ -2402,6 +2402,23 @@ input, select, textarea {
   scrollbar-width: thin;
   padding-bottom: 2px;
 }
+.spotlight-strip[data-empty="true"] {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--bg2) 35%, transparent) 0%,
+    transparent 100%);
+}
+.spotlight-strip[data-empty="true"] .spotlight-strip__label { color: var(--grey1); }
+.spotlight-strip[data-empty="true"] .spotlight-strip__label::before {
+  background: var(--grey1);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--grey1) 50%, transparent);
+}
+.spotlight-strip__empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  letter-spacing: 0.04em;
+  padding: 4px 0 2px;
+}
 .spotlight-card {
   display: grid;
   grid-template-columns: auto 1fr auto;
