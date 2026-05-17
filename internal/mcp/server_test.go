@@ -483,12 +483,23 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Contains(t, output.NextStep, "review", "next_step should reference review")
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
 
-	// Verify log entry was added
+	// Verify the "completed" log entry was added (subsequent state_changed
+	// entries for the in_progress → review transition follow it).
 	require.NotEmpty(t, output.Card.ActivityLog)
-	lastLog := output.Card.ActivityLog[len(output.Card.ActivityLog)-1]
-	assert.Equal(t, "completed", lastLog.Action)
-	assert.Equal(t, "All tests passing, feature implemented", lastLog.Message)
-	assert.Equal(t, "agent-done", lastLog.Agent)
+
+	var completed *board.ActivityEntry
+
+	for i := range output.Card.ActivityLog {
+		if output.Card.ActivityLog[i].Action == "completed" {
+			completed = &output.Card.ActivityLog[i]
+
+			break
+		}
+	}
+
+	require.NotNil(t, completed, "completed activity entry should be present")
+	assert.Equal(t, "All tests passing, feature implemented", completed.Message)
+	assert.Equal(t, "agent-done", completed.Agent)
 }
 
 func TestCompleteTask_Subtask(t *testing.T) {

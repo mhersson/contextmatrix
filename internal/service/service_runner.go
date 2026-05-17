@@ -98,9 +98,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	if len(card.ActivityLog) > maxActivityLogEntries {
-		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
-	}
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
 	card.Updated = time.Now()
 
@@ -288,9 +286,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 			Action:    "runner_status",
 			Message:   message,
 		})
-		if len(card.ActivityLog) > maxActivityLogEntries {
-			card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
-		}
+		card.ActivityLog = trimActivityLog(card.ActivityLog)
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
@@ -429,9 +425,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	if len(card.ActivityLog) > maxActivityLogEntries {
-		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
-	}
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
@@ -520,9 +514,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	if len(card.ActivityLog) > maxActivityLogEntries {
-		card.ActivityLog = card.ActivityLog[len(card.ActivityLog)-maxActivityLogEntries:]
-	}
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
 	card.Updated = time.Now()
 

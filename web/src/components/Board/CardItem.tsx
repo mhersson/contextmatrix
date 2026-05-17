@@ -5,6 +5,7 @@ import type { Card } from '../../types';
 import { runnerStatusStyles } from '../../types';
 import { gitHubIcon } from '../icons';
 import { chipTint, priorityColors, shortCardId, typeColors } from '../../lib/chip';
+import { avatarGradient } from '../../utils/colorHash';
 
 interface CardItemProps {
   card: Card;
@@ -53,12 +54,20 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
   const isNotPlanned = card.state === 'not_planned';
 
   const borderClass = isStalled
-    ? 'border-l-[3px] border-l-[var(--red)] bg-[var(--bg-red)]'
+    ? 'border-l-[3px] border-l-[var(--red)]'
     : isNotPlanned
       ? 'border-l-[3px] border-l-[var(--bg4)]'
       : isAgentActive
         ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
         : 'border-l-[3px] border-l-transparent';
+
+  const stalledBg: React.CSSProperties | undefined = isStalled ? {
+    background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-red) 75%, transparent) 0%, var(--bg1) 50%)',
+  } : undefined;
+
+  const activeBg: React.CSSProperties | undefined = isAgentActive ? {
+    background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%, var(--bg1) 40%)',
+  } : undefined;
 
   const collapseButton = onToggleCollapse ? (
     <button
@@ -88,15 +97,15 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
     return (
       <div
         ref={setRefs}
-        style={style}
+        style={{ ...style, ...(stalledBg ?? activeBg) }}
         {...listeners}
         {...attributes}
         onClick={onClick}
         onKeyDown={handleKeyDown}
         aria-label={`Card ${card.id}: ${card.title}`}
         className={`
-          bg-[var(--bg1)] rounded-md px-3 py-1.5 mb-2 cursor-grab active:cursor-grabbing
-          transition-colors duration-150 hover:bg-[var(--bg2)]
+          bg-[var(--bg1)] rounded-[10px] px-3 py-1.5 mb-2 cursor-grab active:cursor-grabbing
+          transition-all duration-150 hover:bg-[var(--bg2)] hover:-translate-y-px hover:shadow-[0_6px_18px_-8px_rgba(0,0,0,0.35)]
           focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
           ${borderClass}
           ${isDragging ? 'shadow-lg z-50' : ''}
@@ -146,15 +155,15 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
   return (
     <div
       ref={setRefs}
-      style={style}
+      style={{ ...style, ...(stalledBg ?? activeBg) }}
       {...listeners}
       {...attributes}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       aria-label={`Card ${card.id}: ${card.title}`}
       className={`
-        bg-[var(--bg1)] rounded-md p-3 mb-2 cursor-grab active:cursor-grabbing
-        transition-colors duration-150 hover:bg-[var(--bg2)]
+        bg-[var(--bg1)] rounded-[10px] p-3 mb-2 cursor-grab active:cursor-grabbing
+        transition-all duration-150 hover:bg-[var(--bg2)] hover:-translate-y-px hover:shadow-[0_6px_18px_-8px_rgba(0,0,0,0.35)]
         focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
         ${borderClass}
         ${isDragging ? 'shadow-lg z-50' : ''}
@@ -179,7 +188,16 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
       </div>
 
       {/* Title */}
-      <h3 className={`text-sm font-medium mb-2 line-clamp-2 ${isNotPlanned ? 'text-[var(--grey1)]' : 'text-[var(--fg)]'}`}>
+      <h3
+        className={`mb-2 line-clamp-2 ${isNotPlanned ? 'text-[var(--grey1)]' : 'text-[var(--fg)]'}`}
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: '13.5px',
+          fontWeight: 500,
+          lineHeight: 1.32,
+          letterSpacing: '-0.005em',
+        }}
+      >
         {card.title}
       </h3>
 
@@ -211,13 +229,22 @@ export function CardItem({ card, onClick, flashCardId, isCollapsed, onToggleColl
 
         {/* Agent indicator */}
         {card.assigned_agent && (
-          <span
-            className="chip-pill truncate max-w-[120px]"
-            style={chipTint('var(--aqua)')}
-            title={card.assigned_agent}
-          >
-            {card.assigned_agent}
-          </span>
+          (() => {
+            const grad = avatarGradient(card.assigned_agent);
+            return (
+              <span
+                className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--aqua) 16%, transparent)', color: 'var(--aqua)' }}
+                title={card.assigned_agent}
+              >
+                <span
+                  className="agent-avatar agent-avatar--online"
+                  style={{ '--av-from': grad.from, '--av-to': grad.to } as React.CSSProperties}
+                />
+                <span className="truncate">{card.assigned_agent.replace(/^claude-/, '').replace(/^human:/, '')}</span>
+              </span>
+            );
+          })()
         )}
 
         {/* Dependency status */}

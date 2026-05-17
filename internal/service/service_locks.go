@@ -309,12 +309,17 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	}
 
 	previousAgent := card.AssignedAgent
+	previousState := card.State
 
 	// Update card state
 	card.State = board.StateStalled
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
 	card.Updated = time.Now()
+
+	if previousState != board.StateStalled {
+		appendStateChangeLog(card, previousState, board.StateStalled, "", card.Updated)
+	}
 
 	// Validate the post-mutation card so card-level invariants (state-enum,
 	// agent/heartbeat consistency) hold even though the stall path bypasses

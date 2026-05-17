@@ -162,6 +162,11 @@ describe('Board — touch device drag-and-drop', () => {
         config={baseConfig}
         loading={false}
         error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
       />
     );
     // Board renders card content
@@ -208,6 +213,11 @@ describe('Board — pointer device drag-and-drop', () => {
         config={baseConfig}
         loading={false}
         error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
       />
     );
     expect(screen.getByText('Sample card')).toBeInTheDocument();

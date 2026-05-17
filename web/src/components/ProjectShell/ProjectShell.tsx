@@ -17,7 +17,9 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
 import { api, isAPIError } from '../../api/client';
-import type { BoardEvent, Card, CreateCardInput } from '../../types';
+import type { BoardEvent, Card, CreateCardInput, DashboardData } from '../../types';
+import type { ActivityEntry } from '../Board/NowRail';
+import { useSSEBus } from '../../hooks/useSSEBus';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
 const Dashboard = lazy(() =>
@@ -29,6 +31,16 @@ const ProjectSettings = lazy(() =>
 const KnowledgeBase = lazy(() =>
   import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
 );
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return `${h}h ago`;
+}
 
 function RouteFallback() {
   return (
@@ -60,14 +72,134 @@ export function ProjectShell() {
     return () => clearTimeout(flashTimerRef.current);
   }, []);
 
+  const { syncStatus, triggerSync, handleSyncEvent } = useSync();
+
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
+  const [backfillLoaded, setBackfillLoaded] = useState(false);
+  const [runnerMaxAgents, setRunnerMaxAgents] = useState<number | undefined>(undefined);
+  const bus = useSSEBus();
+
+  // In-render reset on project change. This pattern (a `prev*` state marker
+  // compared in render) replaces a `useEffect(..., [project])` that called
+  // setState — the effect path was flagged by react-hooks/set-state-in-effect
+  // because it produced a cascading render after the project switch.
   const [prevProject, setPrevProject] = useState(project);
   if (project !== prevProject) {
     setPrevProject(project);
     setSelectedCard(null);
     setCreatePanelOpen(false);
+    setLiveActivity([]);
+    setBackfillLoaded(false);
   }
 
-  const { syncStatus, triggerSync, handleSyncEvent } = useSync();
+  // Fetch the runner's global max_concurrent from /api/runner/health.
+  // Runner disabled or unreachable → leave undefined (NowRail degrades).
+  useEffect(() => {
+    let cancelled = false;
+    api.getRunnerHealth()
+      .then((h) => { if (!cancelled) setRunnerMaxAgents(h.max_concurrent); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch dashboard data for the board route (board reads active_agents +
+  // cards_completed_today). Polls at the same cadence as the Dashboard
+  // component for parity.
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    const fetchDashboard = () => {
+      api.getDashboard(project).then((data) => {
+        if (!cancelled) setDashboard(data);
+      }).catch(() => {
+        // non-fatal: board renders with empty fallbacks
+      });
+    };
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [project]);
+
+  // Subscribe to SSE for the NowRail activity feed.
+  // Action vocabulary is normalised to the same set the backfill emits
+  // (the raw activity_log `Action` field — `"claimed"`, `"state_changed"`,
+  // `"released"`) so the dedup-by-id below is symmetric across both channels.
+  // The event id includes the action so the same card_id+timestamp+agent
+  // tuple from two different SSE events doesn't collide.
+  //
+  // `agent` defaults to "system" when missing — matches the activity log
+  // convention used by appendStateChangeLog for stall/parent auto-transitions
+  // and other server-side state changes. Without this, system-driven SSE
+  // events would silently never reach NowRail.
+  useEffect(() => {
+    if (!project) return;
+    const handler = (evt: BoardEvent) => {
+      if (evt.project !== project) return;
+      const action =
+        evt.type === 'card.claimed' ? 'claimed' :
+        evt.type === 'card.state_changed' ? 'state_changed' :
+        evt.type === 'card.released' ? 'released' :
+        null;
+      if (!action) return;
+      const agent = evt.agent || 'system';
+      setLiveActivity((curr) => [
+        { id: `${evt.timestamp}-${evt.card_id}-${agent}-${action}`, agent, action, cardId: evt.card_id, ts: evt.timestamp },
+        ...curr,
+      ].slice(0, 50));
+    };
+    const unsubs = [
+      bus.subscribe('card.claimed', handler),
+      bus.subscribe('card.state_changed', handler),
+      bus.subscribe('card.released', handler),
+    ];
+    return () => { unsubs.forEach((u) => u()); };
+  }, [bus, project]);
+
+  // One-shot historical activity backfill on mount / project change. SSE
+  // handles forward updates; this fills in entries older than the page load.
+  // Backfill ids use the same shape as the SSE branch above so the merge
+  // dedup is symmetric — an event delivered by both channels collapses to
+  // a single entry.
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    api.getActivity(project, 50)
+      .then((resp) => {
+        if (cancelled) return;
+        const backfill: ActivityEntry[] = resp.items.map((e) => ({
+          id: `${e.ts}-${e.card_id}-${e.agent}-${e.action}`,
+          agent: e.agent,
+          action: e.action,
+          cardId: e.card_id,
+          ts: e.ts,
+        }));
+        // Merge with any live entries that arrived before backfill resolved,
+        // dedup by id, sort newest-first.
+        setLiveActivity((curr) => {
+          const seen = new Set<string>();
+          const merged = [...curr, ...backfill].filter((e) => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+          });
+          merged.sort((a, b) => b.ts.localeCompare(a.ts));
+          return merged.slice(0, 50);
+        });
+        setBackfillLoaded(true);
+      })
+      .catch(() => {
+        // Non-fatal: SSE still populates going forward.
+      });
+    return () => { cancelled = true; };
+  }, [project]);
+
+  const syncLabel = syncStatus?.last_sync_time
+    ? `git sync · ${relativeTime(syncStatus.last_sync_time)}`
+    : 'git sync · idle';
 
   const handleCardCreated = useCallback((event: BoardEvent) => {
     if (event.data?.source_system === 'github') {
@@ -220,6 +352,16 @@ export function ProjectShell() {
                   project && config ? (
                     <Board
                       cards={cards} config={config} loading={loading} error={error}
+                      activeAgents={dashboard?.active_agents ?? []}
+                      cardsCompletedToday={dashboard?.cards_completed_today ?? 0}
+                      cardsCompletedLast7d={dashboard?.cards_completed_last_7d}
+                      cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
+                      metricSeries={dashboard?.metric_series}
+                      runnerMaxAgents={runnerMaxAgents}
+                      lastSyncLabel={syncLabel}
+                      activityEntries={liveActivity}
+                      activityBackfillLoaded={backfillLoaded}
+                      currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

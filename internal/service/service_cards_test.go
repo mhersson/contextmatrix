@@ -461,3 +461,64 @@ func TestPatchCard_TypeChange(t *testing.T) {
 		assert.ErrorIs(t, err, board.ErrInvalidType)
 	})
 }
+
+func TestTrimActivityLog_UnderCapNoOp(t *testing.T) {
+	in := []board.ActivityEntry{
+		{Action: "claimed"},
+		{Action: stateChangedAction, Message: "todo -> in_progress"},
+		{Action: "released"},
+	}
+	out := trimActivityLog(in)
+	assert.Equal(t, in, out, "trim must be a no-op when under cap")
+}
+
+func TestTrimActivityLog_DropsNonStateChangedFirst(t *testing.T) {
+	// 60 entries: 55 non-state-changed entries followed by 5 state_changed.
+	// After trim to maxActivityLogEntries (50), all 5 state_changed entries
+	// must survive — the regression the helper was added to prevent.
+	in := make([]board.ActivityEntry, 0, 60)
+	for i := range 55 {
+		in = append(in, board.ActivityEntry{Action: "claimed", Message: fmt.Sprintf("entry %d", i)})
+	}
+
+	stateChanges := []board.ActivityEntry{
+		{Action: stateChangedAction, Message: "todo -> in_progress"},
+		{Action: stateChangedAction, Message: "in_progress -> stalled"},
+		{Action: stateChangedAction, Message: "stalled -> in_progress"},
+		{Action: stateChangedAction, Message: "in_progress -> review"},
+		{Action: stateChangedAction, Message: "review -> done"},
+	}
+	in = append(in, stateChanges...)
+
+	out := trimActivityLog(in)
+	require.LessOrEqual(t, len(out), maxActivityLogEntries)
+
+	surviving := 0
+
+	for _, e := range out {
+		if e.Action == stateChangedAction {
+			surviving++
+		}
+	}
+
+	assert.Equal(t, len(stateChanges), surviving, "all state_changed entries must be preserved")
+}
+
+func TestTrimActivityLog_AllStateChangedOverflow(t *testing.T) {
+	// 60 state_changed entries with no non-state-changed to drop: helper
+	// must fall back to dropping oldest state_changed entries to enforce
+	// the cap.
+	in := make([]board.ActivityEntry, 60)
+	for i := range in {
+		in[i] = board.ActivityEntry{
+			Action:  stateChangedAction,
+			Message: fmt.Sprintf("s%d -> s%d", i, i+1),
+		}
+	}
+
+	out := trimActivityLog(in)
+	require.Len(t, out, maxActivityLogEntries)
+	// The 10 oldest got dropped; first surviving entry is index 10.
+	assert.Equal(t, "s10 -> s11", out[0].Message)
+	assert.Equal(t, "s59 -> s60", out[len(out)-1].Message)
+}

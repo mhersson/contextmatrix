@@ -354,6 +354,8 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		card.State = state
 		card.Updated = time.Now()
 
+		appendStateChangeLog(card, oldState, state, "", card.Updated)
+
 		// State-change invariants: release claim on not_planned, clear
 		// runner_status on terminal states. Each step in the path is a state
 		// change, so pass stateChanged=true.
@@ -392,10 +394,17 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 			return nil, rollbackErr
 		}
 
+		// TransitionTo is currently called only by system-driven paths
+		// (stall checker, MCP transition_card without agent context). Tag
+		// the SSE event with "system" so consumers that filter by agent
+		// (e.g. NowRail) don't drop these silently — and the displayed
+		// agent matches the "system" stamp appendStateChangeLog writes
+		// into the activity log.
 		s.bus.Publish(events.Event{
 			Type:      events.CardStateChanged,
 			Project:   project,
 			CardID:    cardID,
+			Agent:     "system",
 			Timestamp: card.Updated,
 			Data: map[string]any{
 				"old_state": oldState,

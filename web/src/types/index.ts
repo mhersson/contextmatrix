@@ -102,6 +102,8 @@ export interface CardFilter {
   parent?: string;
   external_id?: string;
   vetted?: boolean;
+  autonomous?: boolean;
+  runner_status?: string;
 }
 
 export interface APIError {
@@ -230,13 +232,41 @@ export interface CardCost {
   estimated_cost_usd: number;
 }
 
+export interface MetricSeries {
+  active_agents: number[];
+  in_flight: number[];
+  stalled: number[];
+  shipped: number[];
+}
+
 export interface DashboardData {
   state_counts: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
   cards_completed_today: number;
+  cards_completed_last_7d: number;
+  cards_completed_prior_7d: number;
+  metric_series: MetricSeries;
   agent_costs: AgentCost[];
   card_costs: CardCost[];
+}
+
+export interface ActivityFeedEntry {
+  agent: string;
+  action: string;
+  message?: string;
+  card_id: string;
+  ts: string;
+}
+
+export interface ActivityFeedResponse {
+  items: ActivityFeedEntry[];
+}
+
+export interface RunnerHealth {
+  ok: boolean;
+  running_containers: number;
+  max_concurrent: number;
 }
 
 export interface CreateProjectInput {

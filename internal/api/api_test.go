@@ -1566,8 +1566,14 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, "done", final.State)
 	assert.Empty(t, final.AssignedAgent)
 	assert.Nil(t, final.LastHeartbeat)
-	assert.Len(t, final.ActivityLog, 1)
+	// One log entry from AddLogEntry plus state_changed entries for
+	// todo -> in_progress and in_progress -> done.
+	require.Len(t, final.ActivityLog, 3)
 	assert.Equal(t, "Starting implementation", final.ActivityLog[0].Message)
+	assert.Equal(t, "state_changed", final.ActivityLog[1].Action)
+	assert.Equal(t, "todo -> in_progress", final.ActivityLog[1].Message)
+	assert.Equal(t, "state_changed", final.ActivityLog[2].Action)
+	assert.Equal(t, "in_progress -> done", final.ActivityLog[2].Message)
 	assert.Equal(t, []string{"integration"}, final.Labels)
 	assert.Contains(t, final.Body, "## Plan")
 }

@@ -16,7 +16,7 @@ function getInitialTheme(): Theme {
   if (stored === 'dark' || stored === 'light') {
     return stored;
   }
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  return 'light';
 }
 
 function getStoredPalette(): Palette | null {
@@ -66,7 +66,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       applyPalette(stored);
       return stored;
     }
-    return 'everforest';
+    applyPalette('catppuccin');
+    return 'catppuccin';
   });
   const [version, setVersion] = useState('');
 
@@ -81,7 +82,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (stored === null) {
         const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
           ? (config.theme as Palette)
-          : 'everforest';
+          : 'catppuccin';
         setPaletteState(p);
         applyPalette(p);
       }

@@ -23,6 +23,8 @@ import type {
   ChatStatus,
   ChatMessage,
   ChatModelList,
+  ActivityFeedResponse,
+  RunnerHealth,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -246,6 +248,14 @@ class APIClient {
 
   async getDashboard(project: string): Promise<DashboardData> {
     return this.request<DashboardData>(`/projects/${project}/dashboard`);
+  }
+
+  async getActivity(project: string, limit = 50): Promise<ActivityFeedResponse> {
+    return this.request<ActivityFeedResponse>(`/projects/${project}/activity?limit=${limit}`);
+  }
+
+  async getRunnerHealth(): Promise<RunnerHealth> {
+    return this.request<RunnerHealth>(`/runner/health`);
   }
 
   // App config
