@@ -16,7 +16,6 @@ import { FootStrip } from './FootStrip';
 import {
   aggregateDashboards,
   buildPrefixMap,
-  openTaskCount,
   summarySentence,
 } from './utils';
 
@@ -99,8 +98,6 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
     () => Object.values(aggregated.state_counts).reduce((a, b) => a + b, 0),
     [aggregated],
   );
-  const open = openTaskCount(aggregated.state_counts);
-  const inProgress = aggregated.state_counts.in_progress ?? 0;
   const stalled = aggregated.state_counts.stalled ?? 0;
   const blockedProjects = useMemo(() => {
     let n = 0;
@@ -179,9 +176,6 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
         />
         <div className="apd-section-pad">
           <KpiRow
-            openTasks={open}
-            inProgress={inProgress}
-            doneToday={aggregated.cards_completed_today}
             totalCostUsd={aggregated.total_cost_usd}
             stateCountsParents={aggregated.state_counts_parents}
             doneTodayParents={aggregated.cards_completed_today_parents}

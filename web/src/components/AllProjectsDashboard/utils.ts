@@ -161,20 +161,14 @@ export function aggregateDashboards(
       in_flight: [],
       stalled: [],
       shipped: [],
+      in_flight_parents: [],
+      stalled_parents: [],
+      shipped_parents: [],
     },
     agent_costs: Array.from(agentCostMap.values()),
     model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
   };
-}
-
-export function openTaskCount(counts: Record<string, number>): number {
-  let sum = 0;
-  for (const [state, count] of Object.entries(counts)) {
-    if (state === 'done' || state === 'stalled' || state === 'not_planned') continue;
-    sum += count;
-  }
-  return sum;
 }
 
 export function totalCardCount(counts: Record<string, number>): number {

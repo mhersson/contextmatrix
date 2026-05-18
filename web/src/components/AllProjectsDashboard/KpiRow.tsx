@@ -1,9 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 interface KpiRowProps {
-  openTasks: number;
-  inProgress: number;
-  doneToday: number;
   totalCostUsd: number;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
@@ -100,7 +97,7 @@ function CostValue({ amount }: { amount: number }) {
 
 const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
 
-export function KpiRow({ openTasks, inProgress, doneToday, totalCostUsd, stateCountsParents, doneTodayParents }: KpiRowProps) {
+export function KpiRow({ totalCostUsd, stateCountsParents, doneTodayParents }: KpiRowProps) {
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
 

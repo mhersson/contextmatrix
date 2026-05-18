@@ -19,6 +19,9 @@ function summary(overrides: Partial<DashboardData> = {}): DashboardData {
       in_flight: [],
       stalled: [],
       shipped: [],
+      in_flight_parents: [],
+      stalled_parents: [],
+      shipped_parents: [],
     },
     agent_costs: [],
     card_costs: [],
@@ -185,7 +188,7 @@ describe('aggregateDashboards parent-only fields', () => {
     // Old-format data that might not have the parents field
     const a = summary({ state_counts: { todo: 5 } });
     // Force the field to be missing to simulate old data
-    (a as Record<string, unknown>)['state_counts_parents'] = undefined;
+    (a as unknown as Record<string, unknown>)['state_counts_parents'] = undefined;
 
     const result = aggregateDashboards(new Map([['a', a]]));
     expect(result.state_counts_parents).toEqual({});
