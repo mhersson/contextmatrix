@@ -225,6 +225,17 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 				model = "unknown"
 			}
 
+			// Skip cards with no measurable usage. Zero-token, zero-cost
+			// entries (e.g. cards that recorded a TokenUsage struct but
+			// never accumulated anything) would otherwise inflate the
+			// "unknown" bucket's card_count without contributing real
+			// cost. The agent bucket above keeps them because agent
+			// attribution is meaningful even at zero, but the model
+			// rollup is purely a cost view.
+			if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
+				continue
+			}
+
 			mc, ok := modelCostMap[model]
 			if !ok {
 				mc = &ModelCost{Model: model}
@@ -245,6 +256,27 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	for _, mc := range modelCostMap {
 		data.ModelCosts = append(data.ModelCosts, *mc)
 	}
+
+	// Stable wire ordering: cost desc, identifier asc on ties. Map
+	// iteration is randomized, so without this the API response — and
+	// any snapshot test built on it — would differ run-to-run. The
+	// frontend re-sorts for display; this is purely a determinism
+	// guarantee at the API boundary.
+	sort.Slice(data.AgentCosts, func(i, j int) bool {
+		if data.AgentCosts[i].EstimatedCostUSD != data.AgentCosts[j].EstimatedCostUSD {
+			return data.AgentCosts[i].EstimatedCostUSD > data.AgentCosts[j].EstimatedCostUSD
+		}
+
+		return data.AgentCosts[i].AgentID < data.AgentCosts[j].AgentID
+	})
+
+	sort.Slice(data.ModelCosts, func(i, j int) bool {
+		if data.ModelCosts[i].EstimatedCostUSD != data.ModelCosts[j].EstimatedCostUSD {
+			return data.ModelCosts[i].EstimatedCostUSD > data.ModelCosts[j].EstimatedCostUSD
+		}
+
+		return data.ModelCosts[i].Model < data.ModelCosts[j].Model
+	})
 
 	return data, nil
 }
