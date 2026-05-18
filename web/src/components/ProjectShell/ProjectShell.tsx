@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
-import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
 import { useAgentId } from '../../hooks/useAgentId';
@@ -53,6 +53,7 @@ function RouteFallback() {
 export function ProjectShell() {
   const { project } = useParams<{ project: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projects } = useProjects();
   const { showToast } = useToast();
   const { agentId } = useAgentId();
@@ -61,6 +62,11 @@ export function ProjectShell() {
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
+  // Deep-link state markers — declared up here so the in-render reset on
+  // project change (below) can clear them. See the explanatory comment
+  // alongside the usage block further down for the full design rationale.
+  const [deepLinkConsumed, setDeepLinkConsumed] = useState(false);
+  const [pendingUrlStrip, setPendingUrlStrip] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mainRef = useRef<HTMLDivElement>(null);
   const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
@@ -91,6 +97,8 @@ export function ProjectShell() {
     setCreatePanelOpen(false);
     setLiveActivity([]);
     setBackfillLoaded(false);
+    setDeepLinkConsumed(false);
+    setPendingUrlStrip(false);
   }
 
   // Fetch the runner's global max_concurrent from /api/runner/health.
@@ -209,6 +217,56 @@ export function ProjectShell() {
   }, [showToast]);
 
   const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+
+  // Deep-link handling for ?card=ID. Two transitions, both implemented as
+  // in-render state-marker patterns (consistent with the prev-project reset
+  // above) rather than reactive effects — `react-hooks/set-state-in-effect`
+  // forbids calling setState from useEffect.
+  //
+  // Inbound: when ?card=ID is in the URL and the matching card has loaded,
+  // open the CardPanel. `deepLinkConsumed` tracks that we acted on a URL
+  // param so the outbound branch can distinguish a closed deep-linked
+  // panel (strip the URL) from the initial mount race where selectedCard
+  // is still null (don't strip).
+  //
+  // Outbound: when a consumed deep-link panel closes, mark the URL for
+  // stripping via `pendingUrlStrip`. The actual `setSearchParams` call
+  // (router mutation = external-system side-effect) runs in an effect.
+  //
+  // Click-driven panel opens deliberately do NOT write to the URL — full
+  // URL ↔ panel sync is a deferred follow-up.
+  //
+  // The `deepLinkConsumed` / `pendingUrlStrip` state markers are declared
+  // up next to the other useState hooks above so the prev-project reset
+  // block can clear them on cross-project SPA navigation (otherwise
+  // `deepLinkConsumed` stays stuck at true and silently rejects the new
+  // project's ?card= param).
+  const urlCardId = searchParams.get('card');
+  if (urlCardId && !deepLinkConsumed && selectedCard?.id !== urlCardId) {
+    const card = cards.find((c) => c.id === urlCardId);
+    if (card) {
+      setSelectedCard(card);
+      setDeepLinkConsumed(true);
+    }
+  }
+  if (deepLinkConsumed && selectedCard === null && urlCardId && !pendingUrlStrip) {
+    setPendingUrlStrip(true);
+    setDeepLinkConsumed(false);
+  }
+  if (pendingUrlStrip && !urlCardId) {
+    setPendingUrlStrip(false);
+  }
+
+  useEffect(() => {
+    if (!pendingUrlStrip) return;
+    setSearchParams(
+      (p) => {
+        p.delete('card');
+        return p;
+      },
+      { replace: true },
+    );
+  }, [pendingUrlStrip, setSearchParams]);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
