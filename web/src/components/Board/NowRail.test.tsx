@@ -81,4 +81,43 @@ describe('NowRail', () => {
     expect(screen.queryByText(/since page load/i)).not.toBeInTheDocument();
     expect(screen.getByText('Activity')).toBeInTheDocument();
   });
+
+  it('falls back to degraded copy when maxAgents is set but runningContainers is undefined', () => {
+    // Initial render before the first running-containers poll resolves: the
+    // meter must NOT flash "0 / 8 containers · 0%". We fall through to the
+    // "no cap set" degraded copy until both values are known.
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} />);
+    expect(screen.getByText(/no cap set/i)).toBeInTheDocument();
+    expect(screen.queryByText(/0 \/ 8 containers/)).not.toBeInTheDocument();
+  });
+
+  it('clamps negative runningContainers to 0 in the meter', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={-3} />);
+    expect(screen.getByText(/0 \/ 8 containers/)).toBeInTheDocument();
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    // Negative input must not leak into the meta strip.
+    expect(screen.queryByText(/-3 \/ 8 containers/)).not.toBeInTheDocument();
+  });
+
+  it('clamps NaN runningContainers to 0 in the meter', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={NaN} />);
+    expect(screen.getByText(/0 \/ 8 containers/)).toBeInTheDocument();
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
+  it('does not divide the Now · agents head-row by the runner container cap', () => {
+    // Fix B-1: the agents head-row must show just the active-agent count
+    // (here: 2), never "2 / 8". The runner cap (max_concurrent) is a
+    // container number — the canonical place for it is the Capacity meter.
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
+    // Locate the head-row inside the "Now · agents" section.
+    const agentsLabel = screen.getByText('Now · agents');
+    const agentsHead = agentsLabel.parentElement!;
+    const countSpan = agentsHead.querySelector('.count')!;
+    expect(countSpan.textContent).toBe('2');
+    expect(countSpan.textContent).not.toContain('/');
+    // Sanity: the runner-cap denominator still lives in the Capacity meta.
+    expect(screen.getByText(/3 \/ 8 containers/)).toBeInTheDocument();
+  });
 });

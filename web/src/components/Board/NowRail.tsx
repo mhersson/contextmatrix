@@ -105,10 +105,26 @@ function relativeTime(iso: string): string {
 const ACTIVITY_MAX = 8;
 
 export function NowRail({ agents, activityEntries, maxAgents, runningContainers, hasBackfill, className }: NowRailProps) {
-  const hasMax = maxAgents !== undefined && maxAgents > 0;
-  const containerCount = runningContainers ?? 0;
-  const capacityPct = hasMax ? Math.min(100, Math.round((containerCount / maxAgents!) * 100)) : 0;
-  const agentsCount = hasMax ? `${agents.length} / ${maxAgents}` : `${agents.length}`;
+  // Clamp runningContainers to a non-negative finite integer. The server types
+  // running_containers as Go int with no clamp, so undefined / null / NaN /
+  // negative values must not leak into width: '<n>%' (invalid CSS hides the
+  // bar). `typeof === 'number'` narrows the type for TS; `Number.isFinite`
+  // then rejects NaN and ±Infinity.
+  const containerCount = Math.max(
+    0,
+    typeof runningContainers === 'number' && Number.isFinite(runningContainers) ? runningContainers : 0,
+  );
+  // Full meter only renders when BOTH a cap is configured AND we have a real
+  // runningContainers value from the server. Pre-poll renders fall through to
+  // the degraded "no cap set" copy so the meter doesn't flash 0/N at 0%.
+  const showCapMeter = maxAgents !== undefined && maxAgents > 0 && runningContainers !== undefined;
+  const capacityPct = showCapMeter
+    ? Math.max(0, Math.min(100, Math.round((containerCount / maxAgents!) * 100)))
+    : 0;
+  // Now · agents head-row shows the active-agent count only. The runner cap
+  // (max_concurrent) is a container-capacity number, not an agent-capacity
+  // number — using it as a denominator here would be a category mismatch.
+  const agentsCount = `${agents.length}`;
   const visibleActivity = activityEntries.slice(0, ACTIVITY_MAX);
 
   return (
@@ -145,7 +161,7 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
           <span className="label">Capacity</span>
           <span className="count">{containerCount} running</span>
         </div>
-        {hasMax ? (
+        {showCapMeter ? (
           <>
             <div className="cap-bar">
               <div className="cap-fill" style={{ width: `${capacityPct}%` }} />
