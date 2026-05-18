@@ -21,6 +21,7 @@ on:
 
 jobs:
   go-checks:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
@@ -49,6 +50,7 @@ jobs:
           version: v2.11.4
 
   frontend-checks:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     defaults:
       run:
@@ -76,6 +78,7 @@ jobs:
         run: npm audit --audit-level=high
 
   govulncheck:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
@@ -113,6 +116,7 @@ jobs:
           echo "No fixable vulnerabilities. Remaining findings have no upstream fix available."
 
   hadolint:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
@@ -123,6 +127,7 @@ jobs:
           dockerfile: Dockerfile
 
   shellcheck:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
@@ -133,6 +138,7 @@ jobs:
           scandir: scripts
 
   image-scan:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
@@ -161,7 +167,11 @@ jobs:
   build:
     runs-on: self-hosted
     needs: [go-checks, frontend-checks, govulncheck, hadolint, shellcheck, image-scan]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: |
+      always() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     steps:
       - uses: actions/checkout@v6
         with:
