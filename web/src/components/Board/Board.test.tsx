@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { Board } from './Board';
 import type { Card, ProjectConfig } from '../../types';
@@ -225,5 +225,102 @@ describe('Board — pointer device drag-and-drop', () => {
 
   it('isTouchDevice returns false in simulated pointer environment', () => {
     expect(isTouchDevice()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board — mobile NowRail drawer
+// ---------------------------------------------------------------------------
+
+// Helper: build a matchMedia stub that returns true only for the given query.
+// Anything else (including `(pointer: coarse)`) returns false. This isolates
+// the test from the touch-device sensor path so mobile-layout behaviour can
+// only be triggered by the viewport-width query under test.
+function mockMatchMediaTrueFor(trueQuery: string) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: query === trueQuery,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  });
+}
+
+describe('Board — mobile NowRail drawer', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('hides the NowRail on initial mount when (max-width: 768px) matches', () => {
+    mockMatchMediaTrueFor('(max-width: 768px)');
+    const { container } = render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    expect(container.querySelector('.now-rail')).toBeNull();
+    expect(container.querySelector('.now-rail-backdrop')).toBeNull();
+  });
+
+  it('shows the NowRail and a backdrop after clicking the rail toggle on mobile', () => {
+    mockMatchMediaTrueFor('(max-width: 768px)');
+    const { container } = render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    const toggle = screen.getByRole('button', { name: /show rail/i });
+    fireEvent.click(toggle);
+    expect(container.querySelector('.now-rail')).not.toBeNull();
+    expect(container.querySelector('.now-rail-backdrop')).not.toBeNull();
+  });
+
+  // Negative control: proves the initial-closed behaviour is tied to the
+  // (max-width: 768px) query, not to some unrelated default. On a desktop
+  // viewport the rail must be open on mount and no backdrop should render.
+  it('renders the NowRail open on mount when (max-width: 768px) does not match', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)'); // any query the component does not read
+    const { container } = render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    expect(container.querySelector('.now-rail')).not.toBeNull();
+    expect(container.querySelector('.now-rail-backdrop')).toBeNull();
   });
 });

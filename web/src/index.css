@@ -2717,3 +2717,89 @@ input, select, textarea {
   color: var(--grey1);
   padding: 4px 0;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Board redesign — mobile (≤768px)
+   See docs/superpowers/specs/2026-05-18-board-mobile-design.md
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* BoardBand: stack vertically, smaller title, full-width CTA */
+  .board-band {
+    grid-template-columns: 1fr;
+    padding: 16px 14px 14px;
+  }
+  .board-band__title {
+    font-size: 22px;
+    letter-spacing: -0.015em;
+  }
+  .board-band button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* MetricsRibbon: horizontal scroll with snap, fixed-width tiles */
+  .metrics-ribbon {
+    grid-auto-columns: 140px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding: 0 14px;
+  }
+  .metric-tile {
+    scroll-snap-align: start;
+  }
+
+  /* SpotlightStrip: tighter padding, cards take most of viewport width */
+  .spotlight-strip {
+    padding: 12px 14px 14px;
+  }
+  .spotlight-strip__list {
+    grid-auto-columns: minmax(240px, 80vw);
+  }
+
+  /* FilterChipBar: search takes a full row, chips wrap below */
+  .filter-chip-bar {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .filter-chip-bar__search {
+    flex: 1 1 100%;
+  }
+
+  /* NowRail: slide-in drawer from the right. Slide motion comes from the
+     shared .animate-panel-slide-in class applied in JSX (Board.tsx) when
+     isMobile, keeping the animation in sync with MobileDocSheet / CardPanel. */
+  .now-rail {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    z-index: 50;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+    background: var(--bg0);
+  }
+  .now-rail-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  /* BoardFooter: tighter padding, wrap, truncate middle text. The rail toggle
+     must remain tappable while the drawer is open, so the footer sits above
+     the backdrop (z-index 40) and below the rail (z-index 50). */
+  .board-footer {
+    position: relative;
+    z-index: 41;
+    padding: 8px 14px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .board-footer > span:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+}

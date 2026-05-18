@@ -14,6 +14,7 @@ interface NowRailProps {
   activityEntries: ActivityEntry[];
   maxAgents?: number;
   hasBackfill?: boolean;
+  className?: string;
 }
 
 function shortAgent(agentId: string): string {
@@ -99,14 +100,14 @@ function relativeTime(iso: string): string {
  */
 const ACTIVITY_MAX = 8;
 
-export function NowRail({ agents, activityEntries, maxAgents, hasBackfill }: NowRailProps) {
+export function NowRail({ agents, activityEntries, maxAgents, hasBackfill, className }: NowRailProps) {
   const hasMax = maxAgents !== undefined && maxAgents > 0;
   const capacityPct = hasMax ? Math.min(100, Math.round((agents.length / maxAgents!) * 100)) : 0;
   const agentsCount = hasMax ? `${agents.length} / ${maxAgents}` : `${agents.length}`;
   const visibleActivity = activityEntries.slice(0, ACTIVITY_MAX);
 
   return (
-    <aside className="now-rail">
+    <aside className={className ? `now-rail ${className}` : 'now-rail'}>
       <div className="now-rail__section">
         <div className="now-rail__head">
           <span className="label">Now · agents</span>
