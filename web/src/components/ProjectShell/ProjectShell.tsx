@@ -388,6 +388,7 @@ export function ProjectShell() {
                       cardsCompletedLast7dParents={dashboard?.cards_completed_last_7d_parents}
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
                       cardsCompletedPrior7dParents={dashboard?.cards_completed_prior_7d_parents}
+                      stateCounts={dashboard?.state_counts}
                       stateCountsParents={dashboard?.state_counts_parents}
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}

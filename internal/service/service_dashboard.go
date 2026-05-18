@@ -60,11 +60,13 @@ type CardCost struct {
 // (claim history isn't tracked, so per-day agent presence is approximate).
 // The *Parents variants (InFlightParents, StalledParents, ShippedParents)
 // mirror the above but exclude subtasks (cards with a non-empty Parent field).
+// ActiveAgents has no parents variant by design — an agent working a subtask
+// is still real activity.
 type MetricSeries struct {
-	ActiveAgents   []int `json:"active_agents"`
-	InFlight       []int `json:"in_flight"`
-	Stalled        []int `json:"stalled"`
-	Shipped        []int `json:"shipped"`
+	ActiveAgents    []int `json:"active_agents"`
+	InFlight        []int `json:"in_flight"`
+	Stalled         []int `json:"stalled"`
+	Shipped         []int `json:"shipped"`
 	InFlightParents []int `json:"in_flight_parents"`
 	StalledParents  []int `json:"stalled_parents"`
 	ShippedParents  []int `json:"shipped_parents"`
@@ -75,20 +77,20 @@ const MetricSeriesDays = 8
 
 // DashboardData contains all data needed for the project dashboard view.
 type DashboardData struct {
-	StateCounts                 map[string]int `json:"state_counts"`
-	StateCountsParents          map[string]int `json:"state_counts_parents"`
-	ActiveAgents                []ActiveAgent  `json:"active_agents"`
-	TotalCostUSD                float64        `json:"total_cost_usd"`
-	CardsCompletedToday         int            `json:"cards_completed_today"`
-	CardsCompletedTodayParents  int            `json:"cards_completed_today_parents"`
-	CardsCompletedLast7d        int            `json:"cards_completed_last_7d"`
-	CardsCompletedLast7dParents int            `json:"cards_completed_last_7d_parents"`
-	CardsCompletedPrior7d       int            `json:"cards_completed_prior_7d"`
-	CardsCompletedPrior7dParents int           `json:"cards_completed_prior_7d_parents"`
-	MetricSeries                MetricSeries   `json:"metric_series"`
-	AgentCosts                  []AgentCost    `json:"agent_costs"`
-	ModelCosts                  []ModelCost    `json:"model_costs"`
-	CardCosts                   []CardCost     `json:"card_costs"`
+	StateCounts                  map[string]int `json:"state_counts"`
+	StateCountsParents           map[string]int `json:"state_counts_parents"`
+	ActiveAgents                 []ActiveAgent  `json:"active_agents"`
+	TotalCostUSD                 float64        `json:"total_cost_usd"`
+	CardsCompletedToday          int            `json:"cards_completed_today"`
+	CardsCompletedTodayParents   int            `json:"cards_completed_today_parents"`
+	CardsCompletedLast7d         int            `json:"cards_completed_last_7d"`
+	CardsCompletedLast7dParents  int            `json:"cards_completed_last_7d_parents"`
+	CardsCompletedPrior7d        int            `json:"cards_completed_prior_7d"`
+	CardsCompletedPrior7dParents int            `json:"cards_completed_prior_7d_parents"`
+	MetricSeries                 MetricSeries   `json:"metric_series"`
+	AgentCosts                   []AgentCost    `json:"agent_costs"`
+	ModelCosts                   []ModelCost    `json:"model_costs"`
+	CardCosts                    []CardCost     `json:"card_costs"`
 }
 
 // GetDashboard computes aggregated dashboard data for a project.
@@ -214,6 +216,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 				if card.Parent == "" {
 					data.MetricSeries.InFlightParents[i]++
 				}
+
 				if card.AssignedAgent != "" {
 					data.MetricSeries.ActiveAgents[i]++
 				}

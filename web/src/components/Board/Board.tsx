@@ -66,6 +66,7 @@ interface BoardProps {
   cardsCompletedLast7dParents?: number;
   cardsCompletedPrior7d?: number;
   cardsCompletedPrior7dParents?: number;
+  stateCounts?: Record<string, number>;
   stateCountsParents?: Record<string, number>;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
@@ -95,6 +96,7 @@ export function Board({
   cardsCompletedLast7dParents,
   cardsCompletedPrior7d,
   cardsCompletedPrior7dParents,
+  stateCounts,
   stateCountsParents,
   metricSeries,
   runnerMaxAgents,
@@ -237,23 +239,42 @@ export function Board({
     );
   }
 
-  const inFlightTotal = (cardsByState['in_progress']?.length ?? 0) + (cardsByState['review']?.length ?? 0);
-  const stalledTotal = cardsByState['stalled']?.length ?? cards.filter((c) => c.state === 'stalled').length;
+  // inFlightTotal / stalledTotal are derived from server-side stateCounts (unfiltered)
+  // so they agree with the parent-only stateCountsParents that come from the same source.
+  // Using filtered cardsByState would yield negative subtask counts under any active filter.
+  const inFlightTotal = stateCounts
+    ? (stateCounts['in_progress'] ?? 0) + (stateCounts['review'] ?? 0)
+    : undefined;
+  const stalledTotal = stateCounts
+    ? (stateCounts['stalled'] ?? 0)
+    : undefined;
   const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
 
   // Parent-only headline counts for MetricsRibbon. Fall back to totals when
   // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
   const inFlightParents = stateCountsParents !== undefined
     ? (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0)
-    : inFlightTotal;
+    : inFlightTotal ?? 0;
   const stalledParents = stateCountsParents !== undefined
     ? (stateCountsParents['stalled'] ?? 0)
-    : stalledTotal;
-  const inFlightSubtasks = inFlightTotal - inFlightParents;
-  const stalledSubtasks = stalledTotal - stalledParents;
+    : stalledTotal ?? 0;
+
+  // Compute *Subtasks only when both the total and the parents value are available.
+  // Otherwise pass undefined — suppresses the muted "+N sub" suffix until data is ready.
+  const inFlightSubtasks =
+    inFlightTotal !== undefined && stateCountsParents !== undefined
+      ? inFlightTotal - inFlightParents
+      : undefined;
+  const stalledSubtasks =
+    stalledTotal !== undefined && stateCountsParents !== undefined
+      ? stalledTotal - stalledParents
+      : undefined;
 
   const shippedTodayParents = cardsCompletedTodayParents ?? cardsCompletedToday;
-  const shippedTodaySubtasks = cardsCompletedToday - shippedTodayParents;
+  const shippedTodaySubtasks =
+    cardsCompletedTodayParents !== undefined
+      ? cardsCompletedToday - shippedTodayParents
+      : undefined;
 
   const shippedLast7dParents = cardsCompletedLast7dParents ?? cardsCompletedLast7d;
   const shipped7dSubtasks = cardsCompletedLast7d !== undefined && shippedLast7dParents !== undefined

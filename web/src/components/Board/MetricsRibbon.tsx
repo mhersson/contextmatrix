@@ -15,6 +15,11 @@ interface MetricsRibbonProps {
   shippedSeries?: number[];
 }
 
+function SubCount({ n }: { n?: number }) {
+  if (n === undefined || n <= 0) return null;
+  return <span className="metric-tile__sub">+{n} sub</span>;
+}
+
 function Sparkline({ values, color }: { values?: number[]; color: string }) {
   if (!values || values.length < 2) return null;
   const max = Math.max(...values, 1);
@@ -77,9 +82,7 @@ export function MetricsRibbon({
         <span className="metric-tile__label">In flight</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{inFlight}</span>
-          {inFlightSubtasks !== undefined && inFlightSubtasks > 0 && (
-            <span className="metric-tile__sub">+{inFlightSubtasks} sub</span>
-          )}
+          <SubCount n={inFlightSubtasks} />
         </span>
         <Sparkline values={inFlightSeries} color="var(--blue)" />
       </div>
@@ -87,9 +90,7 @@ export function MetricsRibbon({
         <span className="metric-tile__label">Stalled</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{stalled}</span>
-          {stalledSubtasks !== undefined && stalledSubtasks > 0 && (
-            <span className="metric-tile__sub">+{stalledSubtasks} sub</span>
-          )}
+          <SubCount n={stalledSubtasks} />
         </span>
         <Sparkline values={stalledSeries} color="var(--red)" />
       </div>
@@ -103,9 +104,7 @@ export function MetricsRibbon({
         <span className="metric-tile__label">Shipped today</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{shippedToday}</span>
-          {shippedTodaySubtasks !== undefined && shippedTodaySubtasks > 0 && (
-            <span className="metric-tile__sub">+{shippedTodaySubtasks} sub</span>
-          )}
+          <SubCount n={shippedTodaySubtasks} />
         </span>
       </div>
       {showShipped7d && (
@@ -113,9 +112,7 @@ export function MetricsRibbon({
           <span className="metric-tile__label">Shipped · 7d</span>
           <span className="metric-tile__value">
             <span className="metric-tile__num">{shipped7d}</span>
-            {shipped7dSubtasks !== undefined && shipped7dSubtasks > 0 && (
-              <span className="metric-tile__sub">+{shipped7dSubtasks} sub</span>
-            )}
+            <SubCount n={shipped7dSubtasks} />
             {hasDelta && (
               <span className={`metric-tile__delta ${deltaUp ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}>
                 {deltaUp ? '+' : ''}{deltaPct}%

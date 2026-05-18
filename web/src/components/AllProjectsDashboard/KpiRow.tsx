@@ -37,6 +37,7 @@ function KpiTile({ label, badge, value, source, accent, tooltip }: KpiTileProps)
     <div
       className="apd-card apd-kpi"
       title={tooltip}
+      aria-label={tooltip}
       style={{
         borderColor: 'var(--bg3)',
         backgroundColor: 'var(--bg1)',

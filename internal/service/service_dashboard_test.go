@@ -167,7 +167,7 @@ func setupDashboardServiceAt(t *testing.T, now time.Time) (*CardService, string,
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
 			board.StateTodo:       {board.StateInProgress, board.StateNotPlanned},
-			board.StateInProgress: {board.StateDone, board.StateTodo},
+			board.StateInProgress: {board.StateDone, board.StateTodo, board.StateStalled},
 			board.StateDone:       {board.StateTodo},
 			board.StateStalled:    {board.StateTodo, board.StateInProgress},
 			board.StateNotPlanned: {board.StateTodo},
@@ -368,20 +368,18 @@ func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
 	_, err = svc.PatchCard(ctx, project, sub2.ID, PatchCardInput{State: &s2ip})
 	require.NoError(t, err)
 
+	// Set parent via direct storage update before transitioning to stalled,
+	// so the parent field is in place. The state transition itself goes through
+	// PatchCard (in_progress → stalled is now in the test project's transitions).
 	s2card, err := svc.GetCard(ctx, project, sub2.ID)
 	require.NoError(t, err)
 
 	s2card.Parent = parent1.ID
-	s2card.State = board.StateStalled
-	// Add a state_changed entry so sparkline reconstruction sees stalled at today's end.
-	// Timestamp must be after the PatchCard in_progress entry (which used now = 12:00).
-	s2card.ActivityLog = append(s2card.ActivityLog, board.ActivityEntry{
-		Agent:     "system",
-		Timestamp: now.Add(1 * time.Hour),
-		Action:    stateChangedAction,
-		Message:   "in_progress -> stalled",
-	})
 	require.NoError(t, svc.store.UpdateCard(ctx, project, s2card))
+
+	s2stalled := board.StateStalled
+	_, err = svc.PatchCard(ctx, project, sub2.ID, PatchCardInput{State: &s2stalled})
+	require.NoError(t, err)
 
 	// Subtask3: done today (has parent = parent1, Updated = today).
 	sub3, err := svc.CreateCard(ctx, project, CreateCardInput{

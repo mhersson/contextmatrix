@@ -107,4 +107,65 @@ describe('MetricsRibbon', () => {
     );
     expect(screen.queryByText(/^\+\d+ sub$/)).not.toBeInTheDocument();
   });
+
+  // SubCount helper behaviour verified through MetricsRibbon props.
+  // (The helper is file-private and not directly exportable.)
+  it('SubCount: renders nothing for undefined n', () => {
+    render(
+      <MetricsRibbon
+        activeAgents={1}
+        inFlight={5}
+        inFlightSubtasks={undefined}
+        stalled={0}
+        shippedToday={2}
+      />
+    );
+    expect(screen.queryByText(/^\+\d+ sub$/)).not.toBeInTheDocument();
+  });
+
+  it('SubCount: renders nothing for n=0', () => {
+    render(
+      <MetricsRibbon
+        activeAgents={1}
+        inFlight={5}
+        inFlightSubtasks={0}
+        stalled={0}
+        shippedToday={2}
+      />
+    );
+    expect(screen.queryByText(/^\+\d+ sub$/)).not.toBeInTheDocument();
+  });
+
+  it('SubCount: renders "+N sub" for positive n', () => {
+    render(
+      <MetricsRibbon
+        activeAgents={1}
+        inFlight={5}
+        inFlightSubtasks={3}
+        stalled={0}
+        shippedToday={2}
+      />
+    );
+    expect(screen.getByText('+3 sub')).toBeInTheDocument();
+  });
+
+  it('suppresses +N sub spans when stateCountsParents is undefined even if inFlightSubtasks would be positive', () => {
+    // This simulates the Board.tsx fix: when stateCountsParents is undefined,
+    // Board.tsx passes inFlightSubtasks=undefined so no "+N sub" renders yet.
+    render(
+      <MetricsRibbon
+        activeAgents={2}
+        inFlight={5}
+        inFlightSubtasks={undefined}
+        stalled={1}
+        stalledSubtasks={undefined}
+        shippedToday={3}
+        shippedTodaySubtasks={undefined}
+        shipped7d={10}
+        shipped7dSubtasks={undefined}
+        shipped7dPrior={8}
+      />
+    );
+    expect(screen.queryByText(/^\+\d+ sub$/)).not.toBeInTheDocument();
+  });
 });
