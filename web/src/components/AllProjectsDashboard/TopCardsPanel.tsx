@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type { CardCost } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
 import { projectForCardId } from './utils';
@@ -13,7 +13,6 @@ const TOP_N = 5;
 
 export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
   const [search, setSearch] = useState('');
-  const navigate = useNavigate();
 
   const sorted = useMemo(
     () => [...cardCosts].sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd),
@@ -29,8 +28,6 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
   const headBadge = q
     ? `${top.length} / ${filtered.length}`
     : `${top.length} / ${sorted.length}`;
-
-  const fullBreakdownProject = top.length > 0 ? projectForCardId(top[0].card_id, prefixMap) : null;
 
   const rowStyle = {
     display: 'grid',
@@ -55,41 +52,19 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
       }}
     >
       <div
-        className="flex items-center justify-between"
+        className="flex items-baseline gap-2.5"
         style={{
           padding: '16px 20px 14px',
           borderBottom: '1px solid var(--bg2)',
         }}
       >
-        <div className="flex items-baseline gap-2.5">
-          <h2 className="apd-section-title">Top cards</h2>
-          <span
-            className="apd-count"
-            style={{ color: 'var(--grey1)', fontFamily: 'var(--font-mono)' }}
-          >
-            {headBadge}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (fullBreakdownProject) navigate(`/projects/${fullBreakdownProject}/dashboard`);
-          }}
-          disabled={!fullBreakdownProject}
-          className="apd-link"
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            color: fullBreakdownProject ? 'var(--grey2)' : 'var(--grey0)',
-            background: 'transparent',
-            border: 'none',
-            cursor: fullBreakdownProject ? 'pointer' : 'not-allowed',
-            padding: 0,
-            letterSpacing: '-0.01em',
-          }}
+        <h2 className="apd-section-title">Top cards</h2>
+        <span
+          className="apd-count"
+          style={{ color: 'var(--grey1)', fontFamily: 'var(--font-mono)' }}
         >
-          Full breakdown →
-        </button>
+          {headBadge}
+        </span>
       </div>
       <div
         style={{
@@ -187,7 +162,7 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
             return project ? (
               <Link
                 key={c.card_id}
-                to={`/projects/${project}/dashboard`}
+                to={`/projects/${project}?card=${c.card_id}`}
                 className="apd-card-row"
                 style={rowStyle}
               >
