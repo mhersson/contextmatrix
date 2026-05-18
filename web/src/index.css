@@ -2785,11 +2785,13 @@ input, select, textarea {
     background: rgba(0, 0, 0, 0.5);
   }
 
-  /* BoardFooter: tighter padding, wrap, truncate middle text. The rail toggle
-     must remain tappable while the drawer is open, so the footer sits above
-     the backdrop (z-index 40) and below the rail (z-index 50). */
+  /* BoardFooter: tighter padding, wrap, truncate middle text. Sticky so the
+     rail toggle stays reachable while the Board page scrolls vertically. The
+     z-index keeps it above the .now-rail-backdrop (z-40) and below the rail
+     itself (z-50) when the drawer is open. */
   .board-footer {
-    position: relative;
+    position: sticky;
+    bottom: 0;
     z-index: 41;
     padding: 8px 14px;
     gap: 8px;

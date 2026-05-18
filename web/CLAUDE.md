@@ -563,6 +563,18 @@ the flex tree. **Do not change height constraints to minimum-height constraints*
 — doing so allows the page to grow beyond the viewport and causes the entire
 page to scroll instead of only the board columns.
 
+This rule applies to the desktop layout (≥ `md`). On phone-sized viewports
+(< `768px`) the Board page intentionally relaxes the constraint so the chrome
+above the kanban (BoardBand · MetricsRibbon · SpotlightStrip · FilterChipBar)
+can scroll out of the way, letting the columns claim the viewport. The
+relaxation is local to the Board page: the Board root adds `overflow-y-auto`
+on mobile (kept as `md:overflow-hidden` on desktop), the columns wrapper
+gets `min-h-[calc(100dvh-3rem)]` on mobile (kept as `flex-1 min-h-0` on
+desktop), and `.board-footer` becomes `position: sticky; bottom: 0` inside
+the `@media (max-width: 768px)` block so the rail-toggle stays reachable
+throughout the scroll. No other height in the chain (root, App, ProjectShell)
+is touched — they all remain pinned to viewport height.
+
 ### Height chain (top → bottom)
 
 | Layer | Element / File | Class / Rule |
@@ -719,7 +731,7 @@ the rail stays a 280 px sidecar in the flex row.
 |---|---|
 | `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. Initial-only: `useState(!isMobile)` captures the viewport once at mount so later orientation changes do not auto-toggle the rail (desktop→mobile leaves the rail open as a drawer; mobile→desktop preserves the user's last toggle). Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
 | `web/src/components/Board/NowRail.tsx` | Accepts `className?: string` and merges it onto `<aside class="now-rail">`. The desktop layout never receives a className, so the slide-in animation only runs on the mobile breakpoint. |
-| `web/src/index.css` (`@media (max-width: 768px)`) | Switches `.now-rail` to `position: fixed; right: 0; width: min(320px, 88vw); z-index: 50`. Adds `.now-rail-backdrop` (`position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5)`). Raises `.board-footer` to `z-index: 41` so the rail-toggle button stays tappable above the backdrop. |
+| `web/src/index.css` (`@media (max-width: 768px)`) | Switches `.now-rail` to `position: fixed; right: 0; width: min(320px, 88vw); z-index: 50`. Adds `.now-rail-backdrop` (`position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5)`). Makes `.board-footer` `position: sticky; bottom: 0; z-index: 41` so the rail-toggle stays reachable both above the backdrop and during the page's vertical scroll. |
 
 ### Behaviour
 

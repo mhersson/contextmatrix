@@ -231,7 +231,7 @@ export function Board({
   const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-y-auto md:overflow-hidden">
       <BoardBand
         projectName={config.name}
         displayName={config.display_name}
@@ -281,7 +281,7 @@ export function Board({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex flex-1 min-h-0">
+        <div className="flex md:flex-1 md:min-h-0 min-h-[calc(100dvh-3rem)]">
           <div className="flex-1 overflow-x-auto overflow-y-hidden">
             <div className="flex gap-3 p-3 sm:gap-4 sm:p-4 h-full min-w-max">
               {config.states.filter((s) => s !== 'stalled').map((state) => (
