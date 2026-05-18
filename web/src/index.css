@@ -1819,19 +1819,6 @@ input, select, textarea {
     vertical-align: bottom;
   }
 }
-.apd-hamburger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: opacity 140ms ease, background-color 140ms ease;
-  flex-shrink: 0;
-}
-.apd-hamburger:hover { background-color: var(--bg1); opacity: 0.9; }
 
 .apd-page-header {
   display: grid;
@@ -2192,7 +2179,6 @@ input, select, textarea {
 /* ----- Focus-visible affordances for keyboard users -----
    Mirrors the convention used elsewhere (see web/src/index.css:1426): a thin
    aqua outline with negative offset so it sits inside the element's border. */
-.apd-hamburger:focus-visible,
 .apd-chip:focus-visible,
 .apd-tab-btn:focus-visible,
 .apd-card-row:focus-visible,

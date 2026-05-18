@@ -71,7 +71,7 @@ export function UtilityBar({ syncStatus, version }: UtilityBarProps) {
           type="button"
           onClick={toggle}
           aria-label="Open menu"
-          className="apd-hamburger md:hidden"
+          className="md:hidden shrink-0 inline-flex items-center justify-center p-1.5 border-0 bg-transparent cursor-pointer rounded transition-[opacity,background-color] hover:opacity-90 hover:bg-[var(--bg1)] focus-visible:ring-2 focus-visible:ring-[var(--aqua)] focus-visible:outline-none"
           style={{ color: 'var(--grey2)' }}
         >
           <svg
