@@ -722,23 +722,24 @@ Tailwind color classes, consistent with the project-wide convention.
 
 On viewports narrower than `768px` the board's right-hand `NowRail` (agents ·
 capacity · activity feed) collapses into a slide-in drawer triggered by the
-existing **Show rail** button in `BoardFooter`. Desktop layout is unchanged —
-the rail stays a 280 px sidecar in the flex row.
+existing **Show rail** button in `BoardFooter`. On desktop the rail is a 280 px
+sidecar in the flex row. The rail is hidden by default on every viewport — the
+user opens it via the toggle in `BoardFooter`.
 
 ### Architecture
 
 | File | Role |
 |---|---|
-| `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. Initial-only: `useState(!isMobile)` captures the viewport once at mount so later orientation changes do not auto-toggle the rail (desktop→mobile leaves the rail open as a drawer; mobile→desktop preserves the user's last toggle). Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
+| `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. The rail starts hidden at every viewport (`useState(false)`); the user opens it via the **Show rail** button. Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
 | `web/src/components/Board/NowRail.tsx` | Accepts `className?: string` and merges it onto `<aside class="now-rail">`. The desktop layout never receives a className, so the slide-in animation only runs on the mobile breakpoint. |
 | `web/src/index.css` (`@media (max-width: 768px)`) | Switches `.now-rail` to `position: fixed; right: 0; width: min(320px, 88vw); z-index: 50`. Adds `.now-rail-backdrop` (`position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5)`). Makes `.board-footer` `position: sticky; bottom: 0; z-index: 41` so the rail-toggle stays reachable both above the backdrop and during the page's vertical scroll. |
 
 ### Behaviour
 
 - **Desktop (≥ `md`):** Rail is the 280 px sidecar inside the flex row.
-  Defaults to open; toggled via the **Hide rail** / **Show rail** button in
+  Hidden by default; toggled via the **Hide rail** / **Show rail** button in
   `BoardFooter`.
-- **Mobile (< `md`):** Rail is hidden on first mount (`useState(!isMobile)`).
+- **Mobile (< `md`):** Rail is hidden on first mount.
   Tapping the rail toggle opens the drawer over the kanban with a darkened
   backdrop. The backdrop or the rail toggle (now at `z-index: 41`) both
   close it.

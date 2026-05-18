@@ -302,10 +302,7 @@ describe('Board — mobile NowRail drawer', () => {
     expect(container.querySelector('.now-rail-backdrop')).not.toBeNull();
   });
 
-  // Negative control: proves the initial-closed behaviour is tied to the
-  // (max-width: 768px) query, not to some unrelated default. On a desktop
-  // viewport the rail must be open on mount and no backdrop should render.
-  it('renders the NowRail open on mount when (max-width: 768px) does not match', () => {
+  it('hides the NowRail on initial mount on desktop and shows no backdrop', () => {
     mockMatchMediaTrueFor('(min-width: 99999px)'); // any query the component does not read
     const { container } = render(
       <Board
@@ -320,6 +317,27 @@ describe('Board — mobile NowRail drawer', () => {
         currentAgent={null}
       />
     );
+    expect(container.querySelector('.now-rail')).toBeNull();
+    expect(container.querySelector('.now-rail-backdrop')).toBeNull();
+  });
+
+  it('shows the NowRail without a backdrop after clicking the rail toggle on desktop', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const { container } = render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        lastSyncLabel=""
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    const toggle = screen.getByRole('button', { name: /show rail/i });
+    fireEvent.click(toggle);
     expect(container.querySelector('.now-rail')).not.toBeNull();
     expect(container.querySelector('.now-rail-backdrop')).toBeNull();
   });

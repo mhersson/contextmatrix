@@ -101,10 +101,7 @@ export function Board({
   const [filter, setFilter] = useState<CardFilter>({});
   const [searchQuery, setSearchQuery] = useState('');
   const isMobile = useMediaQuery('(max-width: 768px)');
-  // Initial-only: later viewport changes do not auto-toggle the rail.
-  // - Desktop→mobile resize: rail stays open and becomes a drawer (CSS @media + animation).
-  // - Mobile→desktop resize: the user's last toggle state persists into the desktop layout.
-  const [nowRailOpen, setNowRailOpen] = useState(!isMobile);
+  const [nowRailOpen, setNowRailOpen] = useState(false);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
