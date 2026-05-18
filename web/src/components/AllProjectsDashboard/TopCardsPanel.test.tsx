@@ -122,4 +122,12 @@ describe('TopCardsPanel project filter', () => {
     expect(screen.queryByText('Second')).toBeNull();
     expect(screen.queryByText('Orphan card')).toBeNull();
   });
+
+  it('unknown ?project=<slug> falls back to "All projects" with the full list', () => {
+    renderPanel({ initialUrl: '/?project=ghost' });
+    const select = screen.getByRole('combobox', { name: /project/i }) as HTMLSelectElement;
+    expect(select.value).toBe('');
+    expect(screen.getByText('Top card')).toBeInTheDocument();
+    expect(screen.getByText('Orphan card')).toBeInTheDocument();
+  });
 });

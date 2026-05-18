@@ -130,8 +130,7 @@ export function ProjectShell() {
   }, []);
 
   // Fetch dashboard data for the board route (board reads active_agents +
-  // cards_completed_today). Polls at the same cadence as the Dashboard
-  // component for parity.
+  // cards_completed_today). Polls every REFRESH_INTERVAL.
   useEffect(() => {
     if (!project) return;
     let cancelled = false;

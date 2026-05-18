@@ -937,15 +937,19 @@ the decomposition is left to the MetricsRibbon underneath.
 ## URL state (query params)
 
 The app uses `useSearchParams` for a small number of bookmarkable / shareable
-UI states. All writers use the updater-callback form
-(`setSearchParams((prev) => { … return prev; }, { replace: true })`) so the
-back button isn't polluted and concurrent writers don't clobber each other's
-keys.
+UI states. All writers pass `{ replace: true }` so the back button isn't
+polluted. **Prefer the updater-callback form**
+(`setSearchParams((prev) => { … return prev; }, { replace: true })`) so
+concurrent writers don't clobber each other's keys. The snapshot form
+(`setSearchParams(new URLSearchParams(snapshot), { replace: true })`) exists
+in some legacy call sites and is functional but should be migrated when
+touched.
 
-| Param | Owner | Route | Meaning |
-|---|---|---|---|
-| `?card=<id>` | `useDeepLinkCard` (`web/src/components/ProjectShell/useDeepLinkCard.ts`) | `/projects/:project` | Opens `CardPanel` for the given card ID on mount; cleared when the panel closes. |
-| `?project=<name>` | `TopCardsPanel` (`web/src/components/AllProjectsDashboard/TopCardsPanel.tsx`) | `/`, `/all` | Filters `TopCardsPanel` to one project. Value is the project's `name` (slug), not `display_name`. Unknown / stale slugs are treated as no filter (the dropdown stays on "All projects" and the full top-5 is shown). |
+| Param | Owner | Route | Form | Meaning |
+|---|---|---|---|---|
+| `?card=<id>` | `useDeepLinkCard` (`web/src/components/ProjectShell/useDeepLinkCard.ts`) | `/projects/:project` | updater | Opens `CardPanel` for the given card ID on mount; cleared when the panel closes. |
+| `?project=<name>` | `TopCardsPanel` (`web/src/components/AllProjectsDashboard/TopCardsPanel.tsx`) | `/`, `/all` | updater | Filters `TopCardsPanel` to one project. Value is the project's `name` (slug), not `display_name`. Unknown / stale slugs are treated as no filter (the dropdown stays on "All projects" and the full top-5 is shown). |
+| `?new=1` | `ChatPage.closeDialog` (`web/src/pages/Chat/ChatPage.tsx`) | `/chat` | snapshot (legacy) | Opens the `NewChatDialog` on mount; cleared when the dialog closes. |
 
 When adding a new URL-state param: use `useSearchParams` with the updater
 form, validate the value against the known set (or fall back gracefully on

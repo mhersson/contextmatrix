@@ -18,14 +18,13 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
   const [searchParams, setSearchParams] = useSearchParams();
   const urlProject = searchParams.get(PROJECT_PARAM) ?? '';
 
-  // Treat the URL value as inactive when projects have loaded but the slug
-  // doesn't match a known project. While the project list is still loading
-  // (length 0), trust the URL so pre-population on first render works.
-  const projectIsKnown =
-    !urlProject ||
-    projects.length === 0 ||
-    projects.some((p) => p.name === urlProject);
-  const selectedProject = projectIsKnown ? urlProject : '';
+  // Treat the URL value as inactive unless it matches a known project. This
+  // keeps the controlled <select> coherent (Round 1: avoids the unmatched-
+  // value warning) and prevents crafted slugs from echoing into footer /
+  // empty-state text.
+  const selectedProject = projects.some((p) => p.name === urlProject)
+    ? urlProject
+    : '';
 
   const handleProjectChange = (next: string) => {
     setSearchParams(
