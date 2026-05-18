@@ -706,6 +706,57 @@ the rest of the app. No new CSS was added.
 The trigger button uses `style` props (CSS custom properties) rather than
 Tailwind color classes, consistent with the project-wide convention.
 
+## Mobile NowRail drawer
+
+On viewports narrower than `768px` the board's right-hand `NowRail` (agents ·
+capacity · activity feed) collapses into a slide-in drawer triggered by the
+existing **Show rail** button in `BoardFooter`. Desktop layout is unchanged —
+the rail stays a 280 px sidecar in the flex row.
+
+### Architecture
+
+| File | Role |
+|---|---|
+| `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. Initial-only: `useState(!isMobile)` captures the viewport once at mount so later orientation changes do not auto-toggle the rail (desktop→mobile leaves the rail open as a drawer; mobile→desktop preserves the user's last toggle). Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
+| `web/src/components/Board/NowRail.tsx` | Accepts `className?: string` and merges it onto `<aside class="now-rail">`. The desktop layout never receives a className, so the slide-in animation only runs on the mobile breakpoint. |
+| `web/src/index.css` (`@media (max-width: 768px)`) | Switches `.now-rail` to `position: fixed; right: 0; width: min(320px, 88vw); z-index: 50`. Adds `.now-rail-backdrop` (`position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5)`). Raises `.board-footer` to `z-index: 41` so the rail-toggle button stays tappable above the backdrop. |
+
+### Behaviour
+
+- **Desktop (≥ `md`):** Rail is the 280 px sidecar inside the flex row.
+  Defaults to open; toggled via the **Hide rail** / **Show rail** button in
+  `BoardFooter`.
+- **Mobile (< `md`):** Rail is hidden on first mount (`useState(!isMobile)`).
+  Tapping the rail toggle opens the drawer over the kanban with a darkened
+  backdrop. The backdrop or the rail toggle (now at `z-index: 41`) both
+  close it.
+
+### Closing the drawer
+
+- Tap the backdrop (`onClick` calls `setNowRailOpen(false)`)
+- Tap the rail toggle in `BoardFooter` again (same handler)
+- No Escape-key handler — consistent with `MobileDocSheet` and the mobile
+  sidebar; the explicit toggle is the dedicated affordance.
+
+### CSS conventions
+
+The slide-in is the existing `animate-panel-slide-in` class — same animation
+used by `MobileDocSheet` and `CardPanel`. The `@media` block only handles
+layout shape (`position: fixed`, sizing, z-index, padding); motion stays
+keyed off the shared class so future tweaks (e.g. `prefers-reduced-motion`)
+apply to all panels at once.
+
+### Test coverage gap
+
+Vitest + jsdom does not apply CSS, so the `@media (max-width: 768px)` block
+itself is functionally untested. The Board.test.tsx cases mock `matchMedia`
+and assert DOM-level open/close state only — they do **not** verify that
+`.now-rail` is `position: fixed` at the mobile breakpoint or that the
+backdrop's z-index is below the rail. A future Playwright smoke at
+375 × 667 would close this gap; until then, the layout is verified by
+manual QA per `docs/superpowers/specs/2026-05-18-board-mobile-design.md`
+§ Testing.
+
 ## Subtask parent navigation
 
 Subtask cards display their parent card ID as a clickable badge. Clicking it

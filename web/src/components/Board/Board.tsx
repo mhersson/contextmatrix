@@ -15,6 +15,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
 import { useCollapsedCards } from '../../hooks/useCollapsedCards';
 import { Column } from './Column';
@@ -99,7 +100,11 @@ export function Board({
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [nowRailOpen, setNowRailOpen] = useState(true);
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  // Initial-only: later viewport changes do not auto-toggle the rail.
+  // - Desktop→mobile resize: rail stays open and becomes a drawer (CSS @media + animation).
+  // - Mobile→desktop resize: the user's last toggle state persists into the desktop layout.
+  const [nowRailOpen, setNowRailOpen] = useState(!isMobile);
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
@@ -299,12 +304,20 @@ export function Board({
               ))}
             </div>
           </div>
+          {isMobile && nowRailOpen && (
+            <div
+              className="now-rail-backdrop"
+              onClick={() => setNowRailOpen(false)}
+              aria-hidden="true"
+            />
+          )}
           {nowRailOpen && (
             <NowRail
               agents={activeAgents}
               activityEntries={activityEntries}
               maxAgents={runnerMaxAgents}
               hasBackfill={activityBackfillLoaded}
+              className={isMobile ? 'animate-panel-slide-in' : undefined}
             />
           )}
         </div>
