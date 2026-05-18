@@ -447,7 +447,7 @@ disconnects on `enabled=false` or component unmount.
 ### AppHeader integration
 
 When `runnerEnabled` is true, a **Console** button (`>_` icon) is rendered
-inside the VIEWS pill group between **Board** and **Dashboard**. It behaves
+inside the VIEWS pill group between **Board** and **Knowledge**. It behaves
 like a toggle, not a NavLink — it calls `onToggleConsole` rather than
 navigating. Props added to `AppHeaderProps`:
 
@@ -484,7 +484,7 @@ during active drag to avoid lag).
 ```
 <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
   <div style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}>
-    {/* Board / Dashboard / Settings routes */}
+    {/* Board / Settings / Knowledge routes */}
   </div>
   {consoleOpen && (
     <>
@@ -901,10 +901,10 @@ color: var(--grey1);` — mirrors `.metric-tile__delta`. Computed and wired in
 
 The `+N sub` glyph itself is rendered by the **`SubCount`** helper exported
 from `MetricsRibbon.tsx`. Other surfaces that need the muted-suffix idiom
-(e.g. `SummaryCards.tsx`) should import `SubCount` from there rather than
-duplicating the JSX or the `.metric-tile__sub` class wiring. The helper
-absorbs the guard (`n === undefined || n <= 0 → null`) so callers only need
-to compute the diff.
+should import `SubCount` from there rather than duplicating the JSX or the
+`.metric-tile__sub` class wiring. The helper absorbs the guard
+(`n === undefined || n <= 0 → null`) so callers only need to compute the
+diff.
 
 **Active Agents** is intentionally NOT filtered — an agent on a subtask is real
 activity.
@@ -934,21 +934,6 @@ passes `cards_completed_*_parents` directly for the shipped figures. No `+N
 sub` suffix is rendered — the band is a glanceable headline, not a tile, so
 the decomposition is left to the MetricsRibbon underneath.
 
-### Project Dashboard SummaryCards (`SummaryCards.tsx`)
-
-The **Done Today** tile follows the MetricsRibbon pattern: the headline number
-is `cards_completed_today_parents` and a muted `+N sub` suffix is rendered when
-subtasks have completed today (`completedToday − completedTodayParents > 0`).
-The `+N sub` rendering reuses the `SubCount` helper exported from
-`MetricsRibbon.tsx` so the suffix logic and styling stay in one place.
-
-**Open Tasks** and **In Progress** continue to use `state_counts` (all cards)
-because the per-project SummaryCards predates the delivery-unit split; revisit
-if the inconsistency becomes a complaint. Note also that SummaryCards' "Open
-Tasks" excludes `stalled` (alongside `done` and `not_planned`), whereas
-BoardBand's `open` counts stalled cards as open — the two surfaces have always
-disagreed on this, the delivery-unit work did not change it.
-
 ## 404 / Not Found handling
 
 ContextMatrix is a SPA served by a Go backend that returns `index.html` for all
@@ -963,7 +948,7 @@ Unknown URL handling therefore lives entirely in React Router, not the backend.
 | File | Scope |
 |---|---|
 | `web/src/App.tsx` | Top-level routes (`/`, `/all`, `/projects/:project/*`) |
-| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/dashboard`, `/settings`) |
+| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/settings`, `/knowledge`) |
 
 Both levels must have the catch-all so that:
 - `/unknown-top-level` is caught by `App.tsx`
