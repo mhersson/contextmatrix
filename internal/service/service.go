@@ -67,7 +67,7 @@ type CardService struct {
 	lock              *lock.Manager
 	bus               *events.Bus
 	boardsDir         string
-	tokenCosts        map[string]ModelCost
+	tokenCosts        map[string]ModelRate
 	gitAutoCommit     bool
 	gitDeferredCommit bool
 
@@ -149,7 +149,7 @@ func NewCardService(
 	lockMgr *lock.Manager,
 	bus *events.Bus,
 	boardsDir string,
-	tokenCosts map[string]ModelCost,
+	tokenCosts map[string]ModelRate,
 	gitAutoCommit bool,
 	gitDeferredCommit bool,
 ) *CardService {

@@ -184,11 +184,11 @@ func main() {
 	slog.Info("lock manager initialized", "timeout", heartbeatTimeout)
 
 	// Convert token costs from config to service types
-	var tokenCosts map[string]service.ModelCost
+	var tokenCosts map[string]service.ModelRate
 	if cfg.TokenCosts != nil {
-		tokenCosts = make(map[string]service.ModelCost, len(cfg.TokenCosts))
+		tokenCosts = make(map[string]service.ModelRate, len(cfg.TokenCosts))
 		for model, cost := range cfg.TokenCosts {
-			tokenCosts[model] = service.ModelCost{Prompt: cost.Prompt, Completion: cost.Completion}
+			tokenCosts[model] = service.ModelRate{Prompt: cost.Prompt, Completion: cost.Completion}
 		}
 	}
 

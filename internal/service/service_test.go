@@ -1596,7 +1596,7 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 	bus := events.NewBus()
 	lockMgr := lock.NewManager(store, 30*time.Minute)
 
-	tokenCosts := map[string]ModelCost{
+	tokenCosts := map[string]ModelRate{
 		"claude-haiku-4-5":  {Prompt: 0.000001, Completion: 0.000005},
 		"claude-sonnet-4-6": {Prompt: 0.000003, Completion: 0.000015},
 		"claude-opus-4-6":   {Prompt: 0.000005, Completion: 0.000025},
@@ -2975,7 +2975,7 @@ func TestReportUsageUnknownModelEndToEnd(t *testing.T) {
 	bus2 := events.NewBus()
 	lockMgr2 := lock.NewManager(store2, 30*time.Minute)
 
-	costsWithOpus := map[string]ModelCost{
+	costsWithOpus := map[string]ModelRate{
 		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
 	}
 

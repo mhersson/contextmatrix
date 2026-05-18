@@ -15,8 +15,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// ModelCost defines per-token cost rates for a model.
-type ModelCost struct {
+// ModelRate defines per-token cost rates for a model.
+type ModelRate struct {
 	Prompt     float64
 	Completion float64
 }
