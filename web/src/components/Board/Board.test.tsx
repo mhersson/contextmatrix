@@ -164,7 +164,6 @@ describe('Board — touch device drag-and-drop', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />
@@ -215,7 +214,6 @@ describe('Board — pointer device drag-and-drop', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />
@@ -272,7 +270,6 @@ describe('Board — mobile NowRail drawer', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />
@@ -291,7 +288,6 @@ describe('Board — mobile NowRail drawer', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />
@@ -312,7 +308,6 @@ describe('Board — mobile NowRail drawer', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />
@@ -331,7 +326,6 @@ describe('Board — mobile NowRail drawer', () => {
         error={null}
         activeAgents={[]}
         cardsCompletedToday={0}
-        lastSyncLabel=""
         activityEntries={[]}
         currentAgent={null}
       />

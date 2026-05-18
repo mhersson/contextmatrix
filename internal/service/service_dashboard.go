@@ -29,6 +29,16 @@ type AgentCost struct {
 	CardCount        int     `json:"card_count"`
 }
 
+// ModelCost contains per-model cost aggregation. Cards whose TokenUsage has
+// no Model set are bucketed under "unknown" so totals reconcile.
+type ModelCost struct {
+	Model            string  `json:"model"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	CardCount        int     `json:"card_count"`
+}
+
 // CardCost contains per-card cost summary.
 type CardCost struct {
 	CardID           string  `json:"card_id"`
@@ -68,6 +78,7 @@ type DashboardData struct {
 	CardsCompletedPrior7d int            `json:"cards_completed_prior_7d"`
 	MetricSeries          MetricSeries   `json:"metric_series"`
 	AgentCosts            []AgentCost    `json:"agent_costs"`
+	ModelCosts            []ModelCost    `json:"model_costs"`
 	CardCosts             []CardCost     `json:"card_costs"`
 }
 
@@ -87,6 +98,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		StateCounts:  make(map[string]int),
 		ActiveAgents: make([]ActiveAgent, 0),
 		AgentCosts:   make([]AgentCost, 0),
+		ModelCosts:   make([]ModelCost, 0),
 		CardCosts:    make([]CardCost, 0),
 		MetricSeries: MetricSeries{
 			ActiveAgents: make([]int, MetricSeriesDays),
@@ -109,6 +121,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	agentCostMap := make(map[string]*AgentCost)
+	modelCostMap := make(map[string]*ModelCost)
 
 	for _, card := range cards {
 		data.StateCounts[card.State]++
@@ -206,12 +219,64 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 			ac.CompletionTokens += card.TokenUsage.CompletionTokens
 			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
 			ac.CardCount++
+
+			model := card.TokenUsage.Model
+			if model == "" {
+				model = "unknown"
+			}
+
+			// Skip cards with no measurable usage. Zero-token, zero-cost
+			// entries (e.g. cards that recorded a TokenUsage struct but
+			// never accumulated anything) would otherwise inflate the
+			// "unknown" bucket's card_count without contributing real
+			// cost. The agent bucket above keeps them because agent
+			// attribution is meaningful even at zero, but the model
+			// rollup is purely a cost view.
+			if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
+				continue
+			}
+
+			mc, ok := modelCostMap[model]
+			if !ok {
+				mc = &ModelCost{Model: model}
+				modelCostMap[model] = mc
+			}
+
+			mc.PromptTokens += card.TokenUsage.PromptTokens
+			mc.CompletionTokens += card.TokenUsage.CompletionTokens
+			mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			mc.CardCount++
 		}
 	}
 
 	for _, ac := range agentCostMap {
 		data.AgentCosts = append(data.AgentCosts, *ac)
 	}
+
+	for _, mc := range modelCostMap {
+		data.ModelCosts = append(data.ModelCosts, *mc)
+	}
+
+	// Stable wire ordering: cost desc, identifier asc on ties. Map
+	// iteration is randomized, so without this the API response — and
+	// any snapshot test built on it — would differ run-to-run. The
+	// frontend re-sorts for display; this is purely a determinism
+	// guarantee at the API boundary.
+	sort.Slice(data.AgentCosts, func(i, j int) bool {
+		if data.AgentCosts[i].EstimatedCostUSD != data.AgentCosts[j].EstimatedCostUSD {
+			return data.AgentCosts[i].EstimatedCostUSD > data.AgentCosts[j].EstimatedCostUSD
+		}
+
+		return data.AgentCosts[i].AgentID < data.AgentCosts[j].AgentID
+	})
+
+	sort.Slice(data.ModelCosts, func(i, j int) bool {
+		if data.ModelCosts[i].EstimatedCostUSD != data.ModelCosts[j].EstimatedCostUSD {
+			return data.ModelCosts[i].EstimatedCostUSD > data.ModelCosts[j].EstimatedCostUSD
+		}
+
+		return data.ModelCosts[i].Model < data.ModelCosts[j].Model
+	})
 
 	return data, nil
 }

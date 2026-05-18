@@ -20,6 +20,7 @@ import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput, DashboardData } from '../../types';
 import type { ActivityEntry } from '../Board/NowRail';
 import { useSSEBus } from '../../hooks/useSSEBus';
+import { useDeepLinkCard } from './useDeepLinkCard';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
 const Dashboard = lazy(() =>
@@ -31,16 +32,6 @@ const ProjectSettings = lazy(() =>
 const KnowledgeBase = lazy(() =>
   import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
 );
-
-function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  return `${h}h ago`;
-}
 
 const REFRESH_INTERVAL = 30000;
 
@@ -235,10 +226,6 @@ export function ProjectShell() {
     return () => { cancelled = true; };
   }, [project]);
 
-  const syncLabel = syncStatus?.last_sync_time
-    ? `git sync · ${relativeTime(syncStatus.last_sync_time)}`
-    : 'git sync · idle';
-
   const handleCardCreated = useCallback((event: BoardEvent) => {
     if (event.data?.source_system === 'github') {
       const title = (event.data?.title as string) || event.card_id;
@@ -247,6 +234,10 @@ export function ProjectShell() {
   }, [showToast]);
 
   const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+
+  // Deep-link handling for ?card=ID — see useDeepLinkCard for full rationale.
+  // Click-driven panel opens deliberately do NOT write to the URL.
+  useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
@@ -370,7 +361,7 @@ export function ProjectShell() {
   return (
     <>
       <AppHeader
-        project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync}
+        project={project || ''}
         hasActiveRunners={hasActiveRunners}
         onStopAll={handleStopAll}
         runnerEnabled={!!config?.remote_execution?.enabled}
@@ -397,13 +388,15 @@ export function ProjectShell() {
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}
                       runningContainers={runningContainers}
-                      lastSyncLabel={syncLabel}
+                      syncStatus={syncStatus}
+                      connected={connected}
                       activityEntries={liveActivity}
                       activityBackfillLoaded={backfillLoaded}
                       currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
+                      onSyncClick={triggerSync}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full">

@@ -2071,26 +2071,6 @@ input, select, textarea {
   font-variant-numeric: tabular-nums;
 }
 
-.apd-status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 11px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-.apd-status-pill-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .apd-search-input {
   width: 100%;
   padding: 7px 11px;
@@ -2658,8 +2638,60 @@ input, select, textarea {
   border-top: 1px solid var(--bg3);
   background: color-mix(in oklab, var(--bg-dim) 60%, transparent);
 }
-.board-footer__pulse {
-  display: inline-flex; align-items: center; gap: 8px;
+.board-footer__sync-label {
+  background: transparent;
+  border: none;
+  color: var(--grey0);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color .15s;
+}
+.board-footer__sync-label:hover {
+  color: var(--fg);
+}
+.board-footer__sync-label--syncing {
+  color: var(--aqua);
+  cursor: default;
+}
+.board-footer__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.board-footer__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.board-footer__conn--ok { color: var(--grey0); }
+.board-footer__conn--off { color: var(--red); }
+.board-footer__sync-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.board-footer__sync-dot--aqua {
+  background: var(--aqua);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--aqua) 25%, transparent);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+.board-footer__sync-dot--red {
+  background: var(--red);
+}
+.board-footer__sync-dot--green {
+  background: var(--green);
 }
 .board-footer__rail-toggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -2682,13 +2714,6 @@ input, select, textarea {
   color: var(--aqua);
   border-color: color-mix(in srgb, var(--aqua) 40%, transparent);
   background: color-mix(in srgb, var(--aqua) 12%, transparent);
-}
-.board-footer__pulse::before {
-  content: "";
-  width: 5px; height: 5px; border-radius: 99px;
-  background: var(--green);
-  box-shadow: 0 0 6px color-mix(in oklab, var(--green) 50%, transparent);
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* ── Now-rail capacity meter ─────────────────────────────────────────── */
@@ -2803,5 +2828,11 @@ input, select, textarea {
     white-space: nowrap;
     flex: 1;
     min-width: 0;
+  }
+  /* Hide the verbose online/offline label on phone-sized viewports — the
+     coloured dot still surfaces SSE connection status without crowding the
+     footer. */
+  .board-footer__conn-label {
+    display: none;
   }
 }

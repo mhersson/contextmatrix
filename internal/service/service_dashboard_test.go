@@ -225,6 +225,85 @@ func backdateDone(ctx context.Context, t *testing.T, svc *CardService, project, 
 	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
 }
 
+// createCardWithUsage creates a card and writes a TokenUsage block to it via
+// direct storage update. The plan-given signature uses agent_id and a
+// SaveCard method; the real service exposes CreateCard(ctx, project, input)
+// and the storage interface uses UpdateCard for in-place writes.
+func createCardWithUsage(
+	ctx context.Context, t *testing.T, svc *CardService, project, idHint, model string,
+	promptTokens, completionTokens int64, costUSD float64,
+) string {
+	t.Helper()
+
+	card, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title:    "test card " + idHint,
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, project, card.ID)
+	require.NoError(t, err)
+
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            model,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		EstimatedCostUSD: costUSD,
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	return card.ID
+}
+
+func TestGetDashboard_ModelCosts_EmptyBoard(t *testing.T) {
+	ctx := context.Background()
+	svc, project, cleanup := setupDashboardServiceAt(t, time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC))
+	t.Cleanup(cleanup)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+	assert.Empty(t, data.ModelCosts)
+}
+
+func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Two cards on opus, one on haiku, one with no model (-> "unknown").
+	createCardWithUsage(ctx, t, svc, project, "opus-1", "claude-opus-4-7", 100, 50, 1.50)
+	createCardWithUsage(ctx, t, svc, project, "opus-2", "claude-opus-4-7", 200, 60, 2.00)
+	createCardWithUsage(ctx, t, svc, project, "hai-1", "claude-haiku-4-5", 50, 30, 0.10)
+	createCardWithUsage(ctx, t, svc, project, "untagged", "", 10, 5, 0.05)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	byModel := map[string]ModelCost{}
+	for _, mc := range data.ModelCosts {
+		byModel[mc.Model] = mc
+	}
+
+	opus, ok := byModel["claude-opus-4-7"]
+	require.True(t, ok, "expected opus row")
+	assert.Equal(t, int64(300), opus.PromptTokens)
+	assert.Equal(t, int64(110), opus.CompletionTokens)
+	assert.InDelta(t, 3.50, opus.EstimatedCostUSD, 1e-9)
+	assert.Equal(t, 2, opus.CardCount)
+
+	haiku, ok := byModel["claude-haiku-4-5"]
+	require.True(t, ok, "expected haiku row")
+	assert.Equal(t, 1, haiku.CardCount)
+	assert.InDelta(t, 0.10, haiku.EstimatedCostUSD, 1e-9)
+
+	unknown, ok := byModel["unknown"]
+	require.True(t, ok, "expected unknown bucket for untagged card")
+	assert.Equal(t, 1, unknown.CardCount)
+	assert.InDelta(t, 0.05, unknown.EstimatedCostUSD, 1e-9)
+}
+
 func TestExtractStateChanges_Empty(t *testing.T) {
 	card := &board.Card{State: board.StateTodo}
 	changes, baseline := extractStateChanges(card)

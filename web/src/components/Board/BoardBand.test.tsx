@@ -10,7 +10,6 @@ describe('BoardBand', () => {
     openCount: 23,
     inReviewCount: 7,
     shippedToday: 3,
-    lastUpdated: 'Updated 18s ago',
     onCreateCard: vi.fn(),
   };
 
@@ -47,7 +46,7 @@ describe('BoardBand', () => {
     render(
       <BoardBand
         projectName="p" displayName="P" activeAgents={1} openCount={1} inReviewCount={0} shippedToday={0}
-        lastUpdated="" onCreateCard={() => {}}
+        onCreateCard={() => {}}
         shippedLast7d={14} shippedPrior7d={11}
       />
     );
