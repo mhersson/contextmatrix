@@ -2667,10 +2667,51 @@ input, select, textarea {
   letter-spacing: 0.08em;
   cursor: pointer;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   transition: color .15s;
 }
 .board-footer__sync-label:hover {
   color: var(--fg);
+}
+.board-footer__sync-label--syncing {
+  color: var(--aqua);
+  cursor: default;
+}
+.board-footer__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.board-footer__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.board-footer__conn--ok { color: var(--grey0); }
+.board-footer__conn--off { color: var(--red); }
+.board-footer__sync-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.board-footer__sync-dot--aqua {
+  background: var(--aqua);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--aqua) 25%, transparent);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+.board-footer__sync-dot--red {
+  background: var(--red);
+}
+.board-footer__sync-dot--green {
+  background: var(--green);
 }
 .board-footer__rail-toggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -2807,5 +2848,11 @@ input, select, textarea {
     white-space: nowrap;
     flex: 1;
     min-width: 0;
+  }
+  /* Hide the verbose online/offline label on phone-sized viewports — the
+     coloured dot still surfaces SSE connection status without crowding the
+     footer. */
+  .board-footer__conn-label {
+    display: none;
   }
 }

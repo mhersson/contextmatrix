@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig } from '../../types';
+import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig, SyncStatus } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -65,7 +65,8 @@ interface BoardProps {
   cardsCompletedPrior7d?: number;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
-  lastSyncLabel: string;
+  syncStatus?: SyncStatus | null;
+  connected?: boolean;
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
   currentAgent: string | null;
@@ -88,7 +89,8 @@ export function Board({
   cardsCompletedPrior7d,
   metricSeries,
   runnerMaxAgents,
-  lastSyncLabel,
+  syncStatus,
+  connected,
   activityEntries,
   activityBackfillLoaded,
   currentAgent,
@@ -328,7 +330,8 @@ export function Board({
       </DndContext>
 
       <BoardFooter
-        lastSyncLabel={lastSyncLabel}
+        syncStatus={syncStatus}
+        connected={connected}
         cardCount={cards.length}
         columnCount={config.states.filter((s) => s !== 'stalled').length}
         nowRailOpen={nowRailOpen}
