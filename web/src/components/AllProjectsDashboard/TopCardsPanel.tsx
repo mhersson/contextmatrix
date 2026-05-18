@@ -1,33 +1,80 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import type { CardCost } from '../../types';
+import { useCallback, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import type { CardCost, ProjectConfig } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
 import { projectForCardId } from './utils';
 
 interface TopCardsPanelProps {
   cardCosts: CardCost[];
   prefixMap: Map<string, string>;
+  projects: ProjectConfig[];
 }
 
 const TOP_N = 5;
 
-export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
+export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelProps) {
   const [search, setSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedProject = searchParams.get('project') ?? '';
+
+  const handleProjectChange = useCallback(
+    (next: string) => {
+      const params = new URLSearchParams(searchParams);
+      if (next) params.set('project', next);
+      else params.delete('project');
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const projectOptions = useMemo(
+    () =>
+      [...projects].sort((a, b) =>
+        (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name),
+      ),
+    [projects],
+  );
+
+  const selectedLabel = useMemo(() => {
+    if (!selectedProject) return '';
+    const p = projects.find((x) => x.name === selectedProject);
+    return p?.display_name ?? selectedProject;
+  }, [selectedProject, projects]);
 
   const sorted = useMemo(
     () => [...cardCosts].sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd),
     [cardCosts],
   );
-  const filtered = useMemo(() => filterCardCosts(sorted, search), [sorted, search]);
+  const projectFiltered = useMemo(
+    () =>
+      selectedProject
+        ? sorted.filter((c) => projectForCardId(c.card_id, prefixMap) === selectedProject)
+        : sorted,
+    [sorted, selectedProject, prefixMap],
+  );
+  const filtered = useMemo(
+    () => filterCardCosts(projectFiltered, search),
+    [projectFiltered, search],
+  );
   const top = filtered.slice(0, TOP_N);
   const q = search.trim();
 
   const footerLabel = q
     ? `Top ${top.length} of ${filtered.length} matching · ${sorted.length} total`
-    : `Top ${top.length} of ${sorted.length} cards`;
+    : selectedProject
+      ? `Top ${top.length} of ${filtered.length} in ${selectedLabel} · ${sorted.length} total`
+      : `Top ${top.length} of ${sorted.length} cards`;
   const headBadge = q
     ? `${top.length} / ${filtered.length}`
-    : `${top.length} / ${sorted.length}`;
+    : selectedProject
+      ? `${top.length} / ${filtered.length}`
+      : `${top.length} / ${sorted.length}`;
+
+  const emptyCopy = q
+    ? 'No matching cards'
+    : selectedProject
+      ? `No cards in ${selectedLabel} yet`
+      : 'No card costs reported yet';
 
   const rowStyle = {
     display: 'grid',
@@ -67,11 +114,35 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
         </span>
       </div>
       <div
+        className="flex items-center gap-2"
         style={{
           padding: '12px 16px 10px',
           borderBottom: '1px solid var(--bg2)',
         }}
       >
+        <label className="sr-only" htmlFor="topcards-project-filter">
+          Project
+        </label>
+        <select
+          id="topcards-project-filter"
+          aria-label="Project"
+          value={selectedProject}
+          onChange={(e) => handleProjectChange(e.target.value)}
+          className="apd-search-input"
+          style={{
+            backgroundColor: 'var(--bg2)',
+            color: 'var(--fg)',
+            border: '1px solid var(--bg3)',
+            flexShrink: 0,
+          }}
+        >
+          <option value="">All projects</option>
+          {projectOptions.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.display_name ?? p.name}
+            </option>
+          ))}
+        </select>
         <input
           type="search"
           value={search}
@@ -84,6 +155,8 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
             backgroundColor: 'var(--bg2)',
             color: 'var(--fg)',
             border: '1px solid var(--bg3)',
+            flex: 1,
+            minWidth: 0,
           }}
         />
       </div>
@@ -98,7 +171,7 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
               fontStyle: 'italic',
             }}
           >
-            {q ? 'No matching cards' : 'No card costs reported yet'}
+            {emptyCopy}
           </div>
         ) : (
           top.map((c) => {

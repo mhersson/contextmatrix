@@ -116,7 +116,7 @@ describe('TopCardsPanel project filter', () => {
   it('search input and project filter compose', () => {
     renderPanel({ initialUrl: '/?project=alpha' });
     const search = screen.getByPlaceholderText(/Search by card ID/i);
-    fireEvent.change(search, { target: { value: 'Top' } });
+    fireEvent.change(search, { target: { value: 'ALPHA-1' } });
     expect(screen.getByText('Top card')).toBeInTheDocument();
     expect(screen.queryByText('Second')).toBeNull();
     expect(screen.queryByText('Orphan card')).toBeNull();
