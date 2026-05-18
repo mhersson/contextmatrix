@@ -33,6 +33,8 @@ const KnowledgeBase = lazy(() =>
   import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
 );
 
+const REFRESH_INTERVAL = 30000;
+
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-full" style={{ color: 'var(--grey1)' }}>
@@ -69,6 +71,7 @@ export function ProjectShell() {
   const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
   const [backfillLoaded, setBackfillLoaded] = useState(false);
   const [runnerMaxAgents, setRunnerMaxAgents] = useState<number | undefined>(undefined);
+  const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
   const bus = useSSEBus();
 
   // In-render reset on project change. This pattern (a `prev*` state marker
@@ -84,14 +87,49 @@ export function ProjectShell() {
     setBackfillLoaded(false);
   }
 
-  // Fetch the runner's global max_concurrent from /api/runner/health.
-  // Runner disabled or unreachable → leave undefined (NowRail degrades).
+  // Poll /api/runner/health every 30 s to keep running_containers and
+  // max_concurrent current. On failure, leave previous values in place so
+  // a transient runner blip doesn't flicker the NowRail capacity meter.
+  // Skip the poll while the tab is hidden (saves background traffic) and
+  // refetch immediately when it becomes visible again. The initial fetch
+  // also defers when the app is opened in a backgrounded tab — values fill
+  // in on first visibility, consistent with the polling gate.
+  // An AbortController guards against a stale-overwrite race: if a slow
+  // fetch is in flight when the tab is re-shown, the new fetch aborts the
+  // old one so a late response can't overwrite fresh values.
   useEffect(() => {
     let cancelled = false;
-    api.getRunnerHealth()
-      .then((h) => { if (!cancelled) setRunnerMaxAgents(h.max_concurrent); })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    let inFlight: AbortController | null = null;
+    const fetchRunnerHealth = () => {
+      if (cancelled) return;
+      if (document.visibilityState !== 'visible') return;
+      if (inFlight) inFlight.abort();
+      const ctrl = new AbortController();
+      inFlight = ctrl;
+      api.getRunnerHealth(ctrl.signal)
+        .then((h) => {
+          if (cancelled || ctrl.signal.aborted) return;
+          setRunnerMaxAgents(h.max_concurrent);
+          setRunningContainers(h.running_containers);
+        })
+        .catch((err) => {
+          if (ctrl.signal.aborted) return;
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          console.warn('runner health poll failed:', err);
+        });
+    };
+    fetchRunnerHealth();
+    const interval = setInterval(fetchRunnerHealth, REFRESH_INTERVAL);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchRunnerHealth();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      if (inFlight) inFlight.abort();
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   // Fetch dashboard data for the board route (board reads active_agents +
@@ -108,7 +146,7 @@ export function ProjectShell() {
       });
     };
     fetchDashboard();
-    const interval = setInterval(fetchDashboard, 30000);
+    const interval = setInterval(fetchDashboard, REFRESH_INTERVAL);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -349,6 +387,7 @@ export function ProjectShell() {
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}
+                      runningContainers={runningContainers}
                       syncStatus={syncStatus}
                       connected={connected}
                       activityEntries={liveActivity}

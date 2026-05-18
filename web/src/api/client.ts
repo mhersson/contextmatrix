@@ -254,8 +254,8 @@ class APIClient {
     return this.request<ActivityFeedResponse>(`/projects/${project}/activity?limit=${limit}`);
   }
 
-  async getRunnerHealth(): Promise<RunnerHealth> {
-    return this.request<RunnerHealth>(`/runner/health`);
+  async getRunnerHealth(signal?: AbortSignal): Promise<RunnerHealth> {
+    return this.request<RunnerHealth>(`/runner/health`, { signal });
   }
 
   // App config
