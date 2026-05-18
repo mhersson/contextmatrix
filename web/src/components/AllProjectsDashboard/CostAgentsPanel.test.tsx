@@ -26,11 +26,6 @@ function renderPanel() {
 }
 
 describe('CostAgentsPanel', () => {
-  it('panel header references "Cost by model"', () => {
-    renderPanel();
-    expect(screen.getByText(/Cost by model/i)).toBeInTheDocument();
-  });
-
   it('first tab renders one row per model, sorted by cost desc', () => {
     renderPanel();
     expect(screen.getByText('claude-opus-4-7')).toBeInTheDocument();
@@ -46,11 +41,49 @@ describe('CostAgentsPanel', () => {
     expect(rowModels).toEqual(['claude-opus-4-7', 'claude-haiku-4-5', 'unknown']);
   });
 
-  it('includes the "last model wins" tooltip text', () => {
+  it('models tab badge shows the full count, not the truncated TOP_MODEL_COSTS', () => {
+    const many: ModelCost[] = Array.from({ length: 12 }, (_, i) => ({
+      model: `model-${i}`,
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      estimated_cost_usd: 1 + i,
+      card_count: 1,
+    }));
+    render(
+      <MemoryRouter>
+        <CostAgentsPanel
+          modelCosts={many}
+          activeAgents={[]}
+          stalledCount={0}
+          prefixMap={new Map()}
+        />
+      </MemoryRouter>,
+    );
+    const modelsTab = document.getElementById('apd-tab-models-btn');
+    expect(modelsTab).not.toBeNull();
+    const badge = modelsTab!.querySelector('.apd-tab-count');
+    expect(badge?.textContent).toBe('12');
+  });
+
+  it('uses the renamed "models" tab id and panel id', () => {
+    renderPanel();
+    expect(document.getElementById('apd-tab-models-btn')).not.toBeNull();
+    expect(document.getElementById('apd-tab-models-panel')).not.toBeNull();
+    // The old id should not exist anymore.
+    expect(document.getElementById('apd-tab-cost-btn')).toBeNull();
+    expect(document.getElementById('apd-tab-cost-panel')).toBeNull();
+  });
+
+  it('includes the "last model wins" tooltip text on a focusable element', () => {
     renderPanel();
     const tooltipHosts = document.querySelectorAll(
       '[title*="most-recently-used model" i], [aria-label*="most-recently-used model" i]',
     );
     expect(tooltipHosts.length).toBeGreaterThan(0);
+    // Must be keyboard-focusable: rendered as <button>, which is natively focusable.
+    const focusable = Array.from(tooltipHosts).some(
+      (el) => el.tagName === 'BUTTON',
+    );
+    expect(focusable).toBe(true);
   });
 });

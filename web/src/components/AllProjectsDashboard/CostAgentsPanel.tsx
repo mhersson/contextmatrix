@@ -18,11 +18,11 @@ interface CostAgentsPanelProps {
   prefixMap: Map<string, string>;
 }
 
-type Tab = 'cost' | 'agents';
+type Tab = 'models' | 'agents';
 
 const TOP_MODEL_COSTS = 5;
 const TAB_IDS: Record<Tab, { btn: string; panel: string }> = {
-  cost: { btn: 'apd-tab-cost-btn', panel: 'apd-tab-cost-panel' },
+  models: { btn: 'apd-tab-models-btn', panel: 'apd-tab-models-panel' },
   agents: { btn: 'apd-tab-agents-btn', panel: 'apd-tab-agents-panel' },
 };
 
@@ -300,15 +300,15 @@ export function CostAgentsPanel({
   stalledCount,
   prefixMap,
 }: CostAgentsPanelProps) {
-  const [tab, setTab] = useState<Tab>('cost');
+  const [tab, setTab] = useState<Tab>('models');
   const tabListRef = useRef<HTMLDivElement>(null);
 
   const tabs = useMemo<{ id: Tab; label: string; count: number }[]>(
     () => [
       {
-        id: 'cost',
+        id: 'models',
         label: 'Models',
-        count: Math.min(modelCosts.length, TOP_MODEL_COSTS),
+        count: modelCosts.length,
       },
       { id: 'agents', label: 'Agents on duty', count: activeAgents.length },
     ],
@@ -358,21 +358,6 @@ export function CostAgentsPanel({
         overflow: 'hidden',
       }}
     >
-      <h2
-        style={{
-          margin: 0,
-          padding: '12px 20px',
-          fontSize: 12.5,
-          fontWeight: 600,
-          color: 'var(--grey2)',
-          letterSpacing: '0.02em',
-          textTransform: 'uppercase',
-          borderBottom: '1px solid var(--bg2)',
-          backgroundColor: 'var(--bg1)',
-        }}
-      >
-        Cost by model · Agents on duty
-      </h2>
       <div
         ref={tabListRef}
         className="apd-tab-strip"
@@ -386,56 +371,71 @@ export function CostAgentsPanel({
       >
         {tabs.map((t) => {
           const on = tab === t.id;
-          const isCost = t.id === 'cost';
+          const isModels = t.id === 'models';
           return (
-            <button
+            <div
               key={t.id}
-              id={TAB_IDS[t.id].btn}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              aria-controls={TAB_IDS[t.id].panel}
-              tabIndex={on ? 0 : -1}
-              onClick={() => setTab(t.id)}
-              onKeyDown={onTabKeyDown}
-              className="apd-tab-btn"
-              style={{
-                color: on ? 'var(--fg)' : 'var(--grey1)',
-                borderBottomColor: on ? 'var(--aqua)' : 'transparent',
-              }}
+              style={{ display: 'inline-flex', alignItems: 'center' }}
             >
-              <span>{t.label}</span>
-              {isCost && (
-                <span
-                  title="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
-                  aria-label="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
-                  style={{ marginLeft: 6, color: 'var(--grey1)', cursor: 'help' }}
-                >
-                  <span aria-hidden="true">&#9432;</span>
-                </span>
-              )}
-              <span
-                className="apd-tab-count"
+              <button
+                id={TAB_IDS[t.id].btn}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                aria-controls={TAB_IDS[t.id].panel}
+                tabIndex={on ? 0 : -1}
+                onClick={() => setTab(t.id)}
+                onKeyDown={onTabKeyDown}
+                className="apd-tab-btn"
                 style={{
-                  color: on ? 'var(--aqua)' : 'var(--grey1)',
-                  backgroundColor: on ? 'var(--bg-aqua)' : 'var(--bg2)',
-                  border: on ? '1px solid transparent' : '1px solid var(--bg3)',
+                  color: on ? 'var(--fg)' : 'var(--grey1)',
+                  borderBottomColor: on ? 'var(--aqua)' : 'transparent',
                 }}
               >
-                {t.count}
-              </span>
-            </button>
+                <span>{t.label}</span>
+                <span
+                  className="apd-tab-count"
+                  style={{
+                    color: on ? 'var(--aqua)' : 'var(--grey1)',
+                    backgroundColor: on ? 'var(--bg-aqua)' : 'var(--bg2)',
+                    border: on ? '1px solid transparent' : '1px solid var(--bg3)',
+                  }}
+                >
+                  {t.count}
+                </span>
+              </button>
+              {isModels && (
+                <button
+                  type="button"
+                  aria-label="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
+                  title="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
+                  style={{
+                    marginLeft: 6,
+                    marginRight: 4,
+                    color: 'var(--grey1)',
+                    cursor: 'help',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    lineHeight: 1,
+                  }}
+                >
+                  <span aria-hidden="true">&#9432;</span>
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
       <div
         role="tabpanel"
-        id={TAB_IDS.cost.panel}
-        aria-labelledby={TAB_IDS.cost.btn}
-        hidden={tab !== 'cost'}
+        id={TAB_IDS.models.panel}
+        aria-labelledby={TAB_IDS.models.btn}
+        hidden={tab !== 'models'}
         tabIndex={0}
       >
-        {tab === 'cost' && <CostByModel modelCosts={modelCosts} />}
+        {tab === 'models' && <CostByModel modelCosts={modelCosts} />}
       </div>
       <div
         role="tabpanel"
