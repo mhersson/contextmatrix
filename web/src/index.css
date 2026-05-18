@@ -2071,26 +2071,6 @@ input, select, textarea {
   font-variant-numeric: tabular-nums;
 }
 
-.apd-status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 11px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-.apd-status-pill-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .apd-search-input {
   width: 100%;
   padding: 7px 11px;

@@ -11,7 +11,6 @@ export interface ProjectRow {
   data: DashboardData | undefined;
   total: number;
   cost: number;
-  status: 'on_track' | 'attention' | 'stalled' | 'idle' | 'unavailable';
 }
 
 export interface DistributionSegment {
@@ -157,19 +156,10 @@ export function totalCardCount(counts: Record<string, number>): number {
 export function projectRow(
   config: ProjectConfig,
   data: DashboardData | undefined,
-  failed: boolean = false,
 ): ProjectRow {
   const total = data ? totalCardCount(data.state_counts) : 0;
-  const stalled = data?.state_counts.stalled ?? 0;
-  const blocked = data?.state_counts.blocked ?? 0;
   const cost = data?.total_cost_usd ?? 0;
-  let status: ProjectRow['status'];
-  if (failed) status = 'unavailable';
-  else if (stalled > 0) status = 'stalled';
-  else if (blocked > 0) status = 'attention';
-  else if (total === 0) status = 'idle';
-  else status = 'on_track';
-  return { config, data, total, cost, status };
+  return { config, data, total, cost };
 }
 
 export function isHumanAgent(agentId: string): boolean {
