@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SyncStatus } from '../../types';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { formatRelativeTime } from '../CardPanel/utils';
+import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 
 interface UtilityBarProps {
   syncStatus: SyncStatus | null;
@@ -115,7 +116,7 @@ export function UtilityBar({ syncStatus, version }: UtilityBarProps) {
         </span>
         {version && (
           <span className="hidden md:inline" style={{ color: 'var(--grey1)' }}>
-            Build <span style={{ color: 'var(--fg)', fontWeight: 500 }}>v{version}</span>
+            Build <span style={{ color: 'var(--fg)', fontWeight: 500 }}>v{formatVersionWithLocalTime(version)}</span>
           </span>
         )}
         <span className="hidden md:inline" style={{ color: 'var(--grey1)' }}>
