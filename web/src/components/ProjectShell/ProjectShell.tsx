@@ -23,9 +23,6 @@ import { useSSEBus } from '../../hooks/useSSEBus';
 import { useDeepLinkCard } from './useDeepLinkCard';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
-const Dashboard = lazy(() =>
-  import('../Dashboard').then((m) => ({ default: m.Dashboard }))
-);
 const ProjectSettings = lazy(() =>
   import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
@@ -133,8 +130,7 @@ export function ProjectShell() {
   }, []);
 
   // Fetch dashboard data for the board route (board reads active_agents +
-  // cards_completed_today). Polls at the same cadence as the Dashboard
-  // component for parity.
+  // cards_completed_today). Polls every REFRESH_INTERVAL.
   useEffect(() => {
     if (!project) return;
     let cancelled = false;
@@ -345,7 +341,6 @@ export function ProjectShell() {
       () => [
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
-        { key: 'd', handler: () => { if (!panelOpen) navigate(`/projects/${project}/dashboard`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
         { key: 'k', handler: () => { if (!panelOpen) navigate(`/projects/${project}/knowledge`); } },
         { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) setConsoleOpen((prev) => !prev); } },
@@ -412,7 +407,6 @@ export function ProjectShell() {
                   )
                 }
               />
-              <Route path="dashboard" element={<Dashboard project={project || ''} />} />
               <Route
                 path="settings"
                 element={

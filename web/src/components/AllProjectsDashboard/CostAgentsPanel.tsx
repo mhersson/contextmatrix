@@ -228,7 +228,7 @@ function AgentsOnDuty({
             return project ? (
               <Link
                 key={`${a.agent_id}-${a.card_id}`}
-                to={`/projects/${project}/dashboard`}
+                to={`/projects/${project}`}
                 className="apd-agent-row"
                 style={agentRowStyle}
               >

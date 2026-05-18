@@ -447,7 +447,7 @@ disconnects on `enabled=false` or component unmount.
 ### AppHeader integration
 
 When `runnerEnabled` is true, a **Console** button (`>_` icon) is rendered
-inside the VIEWS pill group between **Board** and **Dashboard**. It behaves
+inside the VIEWS pill group between **Board** and **Knowledge**. It behaves
 like a toggle, not a NavLink — it calls `onToggleConsole` rather than
 navigating. Props added to `AppHeaderProps`:
 
@@ -484,7 +484,7 @@ during active drag to avoid lag).
 ```
 <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
   <div style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}>
-    {/* Board / Dashboard / Settings routes */}
+    {/* Board / Settings / Knowledge routes */}
   </div>
   {consoleOpen && (
     <>
@@ -901,10 +901,10 @@ color: var(--grey1);` — mirrors `.metric-tile__delta`. Computed and wired in
 
 The `+N sub` glyph itself is rendered by the **`SubCount`** helper exported
 from `MetricsRibbon.tsx`. Other surfaces that need the muted-suffix idiom
-(e.g. `SummaryCards.tsx`) should import `SubCount` from there rather than
-duplicating the JSX or the `.metric-tile__sub` class wiring. The helper
-absorbs the guard (`n === undefined || n <= 0 → null`) so callers only need
-to compute the diff.
+should import `SubCount` from there rather than duplicating the JSX or the
+`.metric-tile__sub` class wiring. The helper absorbs the guard
+(`n === undefined || n <= 0 → null`) so callers only need to compute the
+diff.
 
 **Active Agents** is intentionally NOT filtered — an agent on a subtask is real
 activity.
@@ -934,20 +934,26 @@ passes `cards_completed_*_parents` directly for the shipped figures. No `+N
 sub` suffix is rendered — the band is a glanceable headline, not a tile, so
 the decomposition is left to the MetricsRibbon underneath.
 
-### Project Dashboard SummaryCards (`SummaryCards.tsx`)
+## URL state (query params)
 
-The **Done Today** tile follows the MetricsRibbon pattern: the headline number
-is `cards_completed_today_parents` and a muted `+N sub` suffix is rendered when
-subtasks have completed today (`completedToday − completedTodayParents > 0`).
-The `+N sub` rendering reuses the `SubCount` helper exported from
-`MetricsRibbon.tsx` so the suffix logic and styling stay in one place.
+The app uses `useSearchParams` for a small number of bookmarkable / shareable
+UI states. All writers pass `{ replace: true }` so the back button isn't
+polluted. **Prefer the updater-callback form**
+(`setSearchParams((prev) => { … return prev; }, { replace: true })`) so
+concurrent writers don't clobber each other's keys. The snapshot form
+(`setSearchParams(new URLSearchParams(snapshot), { replace: true })`) exists
+in some legacy call sites and is functional but should be migrated when
+touched.
 
-**Open Tasks** and **In Progress** continue to use `state_counts` (all cards)
-because the per-project SummaryCards predates the delivery-unit split; revisit
-if the inconsistency becomes a complaint. Note also that SummaryCards' "Open
-Tasks" excludes `stalled` (alongside `done` and `not_planned`), whereas
-BoardBand's `open` counts stalled cards as open — the two surfaces have always
-disagreed on this, the delivery-unit work did not change it.
+| Param | Owner | Route | Form | Meaning |
+|---|---|---|---|---|
+| `?card=<id>` | `useDeepLinkCard` (`web/src/components/ProjectShell/useDeepLinkCard.ts`) | `/projects/:project` | updater | Opens `CardPanel` for the given card ID on mount; cleared when the panel closes. |
+| `?project=<name>` | `TopCardsPanel` (`web/src/components/AllProjectsDashboard/TopCardsPanel.tsx`) | `/`, `/all` | updater | Filters `TopCardsPanel` to one project. Value is the project's `name` (slug), not `display_name`. Unknown / stale slugs are treated as no filter (the dropdown stays on "All projects" and the full top-5 is shown). |
+| `?new=1` | `ChatPage.closeDialog` (`web/src/pages/Chat/ChatPage.tsx`) | `/chat` | snapshot (legacy) | Opens the `NewChatDialog` on mount; cleared when the dialog closes. |
+
+When adding a new URL-state param: use `useSearchParams` with the updater
+form, validate the value against the known set (or fall back gracefully on
+unknown), and add a row to this table.
 
 ## 404 / Not Found handling
 
@@ -963,7 +969,7 @@ Unknown URL handling therefore lives entirely in React Router, not the backend.
 | File | Scope |
 |---|---|
 | `web/src/App.tsx` | Top-level routes (`/`, `/all`, `/projects/:project/*`) |
-| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/dashboard`, `/settings`) |
+| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/settings`, `/knowledge`) |
 
 Both levels must have the catch-all so that:
 - `/unknown-top-level` is caught by `App.tsx`
