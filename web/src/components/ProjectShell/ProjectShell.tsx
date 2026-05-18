@@ -23,9 +23,6 @@ import { useSSEBus } from '../../hooks/useSSEBus';
 import { useDeepLinkCard } from './useDeepLinkCard';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
-const Dashboard = lazy(() =>
-  import('../Dashboard').then((m) => ({ default: m.Dashboard }))
-);
 const ProjectSettings = lazy(() =>
   import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
@@ -412,7 +409,6 @@ export function ProjectShell() {
                   )
                 }
               />
-              <Route path="dashboard" element={<Dashboard project={project || ''} />} />
               <Route
                 path="settings"
                 element={
