@@ -876,6 +876,47 @@ adding new destructive confirmations, mirror that pattern (a local
 `confirm*Open` boolean, open on click, run the action in `onConfirm`, close
 in `onCancel`).
 
+## MetricsRibbon and KpiRow — delivery-unit counters
+
+Cards where `parent === ""` are **delivery units** (standalone tasks and parent
+tasks). Subtasks are excluded from the headline metrics because they inflate
+throughput counts when work is decomposed into fine-grained steps.
+
+### Board MetricsRibbon (`MetricsRibbon.tsx`)
+
+The four affected tiles — **In flight**, **Stalled**, **Shipped today**, and
+**Shipped · 7d** — compute their headlines, delta percentages, and sparklines
+from the `*_parents` fields in `DashboardData` and `MetricSeries`:
+
+- `state_counts_parents`, `in_flight_parents`, `stalled_parents`, `shipped_parents`
+- `cards_completed_today_parents`, `cards_completed_last_7d_parents`,
+  `cards_completed_prior_7d_parents`
+
+When subtasks add to the all-cards count (i.e. `total − parents > 0`), the tile
+renders a muted secondary figure: `<span class="metric-tile__sub">+N sub</span>`.
+CSS for `.metric-tile__sub`: `font-family: var(--font-mono); font-size: 10.5px;
+color: var(--grey1);` — mirrors `.metric-tile__delta`. Computed and wired in
+`Board.tsx` before being passed as `inFlightSubtasks`, `stalledSubtasks`,
+`shippedTodaySubtasks`, `shipped7dSubtasks` props.
+
+**Active Agents** is intentionally NOT filtered — an agent on a subtask is real
+activity.
+
+Backend source: `internal/service/service_dashboard.go`.
+
+### All Projects KpiRow (`KpiRow.tsx`)
+
+The three affected tiles — **Open tasks**, **In progress**, and **Done today** —
+derive from `state_counts_parents` and `cards_completed_today_parents` summed
+across projects by `aggregateDashboards` in
+`web/src/components/AllProjectsDashboard/utils.ts`.
+
+No `+N sub` figure is shown (All Projects is a glanceable operations view). Each
+of the three tiles carries a `title` tooltip: "Counts delivery units (standalone
+tasks + parents). Subtasks are excluded."
+
+**Total cost** is intentionally NOT filtered — subtask cost is real money spent.
+
 ## 404 / Not Found handling
 
 ContextMatrix is a SPA served by a Go backend that returns `index.html` for all
