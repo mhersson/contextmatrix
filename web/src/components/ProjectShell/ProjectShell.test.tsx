@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
 import { ProjectShell } from './ProjectShell';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
@@ -495,5 +495,44 @@ describe('ProjectShell — ?card= deep-link', () => {
     });
 
     expect(screen.getByTestId('loc-search').textContent).toBe('');
+  });
+
+  it('strips ?card= from the URL when the deep-linked card does not exist', async () => {
+    // Dead-link: ?card=NONEXISTENT-999 with no matching card. The hook must
+    // strip the URL once cards have loaded so the dead link does not stay
+    // in the URL forever and interfere with future interactions.
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+
+    function LocationProbe() {
+      const [params] = useSearchParams();
+      return <span data-testid="loc-search">{params.toString()}</span>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=NONEXISTENT-999']}>
+        <Routes>
+          <Route
+            path="/projects/:project/*"
+            element={
+              <>
+                <ProjectShell />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // No card panel should open for the missing id.
+    expect(screen.queryByTestId('card-panel-NONEXISTENT-999')).not.toBeInTheDocument();
+    // The matching deep-link card panel must also stay closed.
+    expect(screen.queryByTestId('card-panel-TEST-1')).not.toBeInTheDocument();
+
+    // The dead `?card=` param must be stripped from the URL.
+    await waitFor(() => {
+      expect(screen.getByTestId('loc-search').textContent).toBe('');
+    });
   });
 });

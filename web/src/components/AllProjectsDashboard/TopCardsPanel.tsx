@@ -162,7 +162,7 @@ export function TopCardsPanel({ cardCosts, prefixMap }: TopCardsPanelProps) {
             return project ? (
               <Link
                 key={c.card_id}
-                to={`/projects/${project}?card=${c.card_id}`}
+                to={`/projects/${encodeURIComponent(project)}?card=${encodeURIComponent(c.card_id)}`}
                 className="apd-card-row"
                 style={rowStyle}
               >
