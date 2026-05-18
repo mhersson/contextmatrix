@@ -16,7 +16,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
-  const { projects, connected } = useProjects();
+  const { projects } = useProjects();
   const { version } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -155,7 +155,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         )}
       </nav>
 
-      <div className="px-3 py-3 border-t space-y-2" style={{ borderColor: 'var(--bg3)' }}>
+      <div className="px-3 py-3 border-t" style={{ borderColor: 'var(--bg3)' }}>
         <button
           onClick={onNewProject}
           className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors hover:opacity-80"
@@ -166,15 +166,6 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
           </svg>
           New Project
         </button>
-        <div className="flex items-center gap-2 px-1">
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
-          />
-          <span className="text-xs" style={{ color: 'var(--grey0)' }}>
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
-        </div>
       </div>
     </>
   );

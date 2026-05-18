@@ -2,16 +2,11 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 import { PaletteSelector } from './PaletteSelector';
-import { SyncIndicator } from './SyncIndicator';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
-import type { SyncStatus } from '../../types';
 
 interface AppHeaderProps {
   project: string;
-  connected: boolean;
-  syncStatus?: SyncStatus | null;
-  onSyncClick?: () => void;
   hasActiveRunners?: boolean;
   onStopAll?: () => void;
   runnerEnabled?: boolean;
@@ -26,7 +21,7 @@ const VIEWS = [
   { label: 'Settings', to: '/settings' },
 ] as const;
 
-export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
+export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
   const [confirmStopAllOpen, setConfirmStopAllOpen] = useState(false);
@@ -112,16 +107,6 @@ export function AppHeader({ project, connected, syncStatus, onSyncClick, hasActi
         )}
         <PaletteSelector />
         <ThemeToggle />
-        <SyncIndicator status={syncStatus} onClick={onSyncClick} />
-        <div className="flex items-center gap-2">
-          <span
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: connected ? 'var(--green)' : 'var(--red)' }}
-          />
-          <span className="text-sm hidden sm:inline" style={{ color: 'var(--grey1)' }}>
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
-        </div>
       </div>
     </header>
 

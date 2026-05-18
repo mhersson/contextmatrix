@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SyncStatus, BoardEvent } from '../types';
 import { api } from '../api/client';
 
@@ -10,6 +10,7 @@ interface UseSyncResult {
 
 export function useSync(): UseSyncResult {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const inFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
     api.getSyncStatus().then(setSyncStatus).catch(() => {
@@ -18,6 +19,10 @@ export function useSync(): UseSyncResult {
   }, []);
 
   const triggerSync = useCallback(async () => {
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
     setSyncStatus((prev) => (prev ? { ...prev, syncing: true } : prev));
     try {
       const status = await api.triggerSync();
@@ -25,6 +30,8 @@ export function useSync(): UseSyncResult {
     } catch {
       // Refresh status on error.
       api.getSyncStatus().then(setSyncStatus).catch(() => {});
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 

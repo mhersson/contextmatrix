@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig } from '../../types';
+import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig, SyncStatus } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -65,7 +65,8 @@ interface BoardProps {
   cardsCompletedPrior7d?: number;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
-  lastSyncLabel: string;
+  syncStatus?: SyncStatus | null;
+  connected?: boolean;
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
   currentAgent: string | null;
@@ -74,6 +75,7 @@ interface BoardProps {
   onCreateCard?: (state: string) => void;
   flashCardId?: string | null;
   onParentClick?: (cardId: string) => void;
+  onSyncClick?: () => void;
 }
 
 export function Board({
@@ -87,7 +89,8 @@ export function Board({
   cardsCompletedPrior7d,
   metricSeries,
   runnerMaxAgents,
-  lastSyncLabel,
+  syncStatus,
+  connected,
   activityEntries,
   activityBackfillLoaded,
   currentAgent,
@@ -96,6 +99,7 @@ export function Board({
   onCreateCard,
   flashCardId,
   onParentClick,
+  onSyncClick,
 }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
@@ -238,7 +242,6 @@ export function Board({
         shippedToday={cardsCompletedToday}
         shippedLast7d={cardsCompletedLast7d}
         shippedPrior7d={cardsCompletedPrior7d}
-        lastUpdated={lastSyncLabel}
         onCreateCard={() => onCreateCard?.(config.states[0])}
       />
 
@@ -327,11 +330,13 @@ export function Board({
       </DndContext>
 
       <BoardFooter
-        lastSyncLabel={lastSyncLabel}
+        syncStatus={syncStatus}
+        connected={connected}
         cardCount={cards.length}
         columnCount={config.states.filter((s) => s !== 'stalled').length}
         nowRailOpen={nowRailOpen}
         onToggleNowRail={() => setNowRailOpen((v) => !v)}
+        onSyncClick={onSyncClick}
       />
     </div>
   );

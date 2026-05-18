@@ -33,16 +33,6 @@ const KnowledgeBase = lazy(() =>
   import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
 );
 
-function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  return `${h}h ago`;
-}
-
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-full" style={{ color: 'var(--grey1)' }}>
@@ -198,10 +188,6 @@ export function ProjectShell() {
     return () => { cancelled = true; };
   }, [project]);
 
-  const syncLabel = syncStatus?.last_sync_time
-    ? `git sync · ${relativeTime(syncStatus.last_sync_time)}`
-    : 'git sync · idle';
-
   const handleCardCreated = useCallback((event: BoardEvent) => {
     if (event.data?.source_system === 'github') {
       const title = (event.data?.title as string) || event.card_id;
@@ -337,7 +323,7 @@ export function ProjectShell() {
   return (
     <>
       <AppHeader
-        project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync}
+        project={project || ''}
         hasActiveRunners={hasActiveRunners}
         onStopAll={handleStopAll}
         runnerEnabled={!!config?.remote_execution?.enabled}
@@ -363,13 +349,15 @@ export function ProjectShell() {
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}
-                      lastSyncLabel={syncLabel}
+                      syncStatus={syncStatus}
+                      connected={connected}
                       activityEntries={liveActivity}
                       activityBackfillLoaded={backfillLoaded}
                       currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
+                      onSyncClick={triggerSync}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full">
