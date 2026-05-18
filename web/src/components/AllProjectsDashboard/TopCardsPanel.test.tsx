@@ -30,12 +30,18 @@ function SearchParamsProbe() {
   return <div data-testid="search-params">{params.toString()}</div>;
 }
 
-function renderPanel(opts: { initialUrl?: string; cards?: CardCost[] } = {}) {
+function renderPanel(
+  opts: {
+    initialUrl?: string;
+    cards?: CardCost[];
+    prefixMap?: Map<string, string>;
+  } = {},
+) {
   return render(
     <MemoryRouter initialEntries={[opts.initialUrl ?? '/']}>
       <TopCardsPanel
         cardCosts={opts.cards ?? cardCosts}
-        prefixMap={prefixMap}
+        prefixMap={opts.prefixMap ?? prefixMap}
         projects={projects}
       />
       <SearchParamsProbe />
@@ -57,13 +63,8 @@ describe('TopCardsPanel', () => {
   });
 
   it('does not wrap rows with unmapped prefix in a link', () => {
-    // Remove ZETA from the prefix map for this test so ZETA-1 is unmapped.
-    const localPrefix = new Map<string, string>([['ALPHA', 'alpha']]);
-    render(
-      <MemoryRouter>
-        <TopCardsPanel cardCosts={cardCosts} prefixMap={localPrefix} projects={projects} />
-      </MemoryRouter>,
-    );
+    // Drop ZETA from the prefix map so ZETA-1 is unmapped.
+    renderPanel({ prefixMap: new Map<string, string>([['ALPHA', 'alpha']]) });
     const orphan = screen.getByText('Orphan card');
     expect(orphan.closest('a')).toBeNull();
   });

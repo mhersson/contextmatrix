@@ -934,6 +934,23 @@ passes `cards_completed_*_parents` directly for the shipped figures. No `+N
 sub` suffix is rendered — the band is a glanceable headline, not a tile, so
 the decomposition is left to the MetricsRibbon underneath.
 
+## URL state (query params)
+
+The app uses `useSearchParams` for a small number of bookmarkable / shareable
+UI states. All writers use the updater-callback form
+(`setSearchParams((prev) => { … return prev; }, { replace: true })`) so the
+back button isn't polluted and concurrent writers don't clobber each other's
+keys.
+
+| Param | Owner | Route | Meaning |
+|---|---|---|---|
+| `?card=<id>` | `useDeepLinkCard` (`web/src/components/ProjectShell/useDeepLinkCard.ts`) | `/projects/:project` | Opens `CardPanel` for the given card ID on mount; cleared when the panel closes. |
+| `?project=<name>` | `TopCardsPanel` (`web/src/components/AllProjectsDashboard/TopCardsPanel.tsx`) | `/`, `/all` | Filters `TopCardsPanel` to one project. Value is the project's `name` (slug), not `display_name`. Unknown / stale slugs are treated as no filter (the dropdown stays on "All projects" and the full top-5 is shown). |
+
+When adding a new URL-state param: use `useSearchParams` with the updater
+form, validate the value against the known set (or fall back gracefully on
+unknown), and add a row to this table.
+
 ## 404 / Not Found handling
 
 ContextMatrix is a SPA served by a Go backend that returns `index.html` for all

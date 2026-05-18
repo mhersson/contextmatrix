@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CardCost, ProjectConfig } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
@@ -11,21 +11,32 @@ interface TopCardsPanelProps {
 }
 
 const TOP_N = 5;
+const PROJECT_PARAM = 'project';
 
 export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelProps) {
   const [search, setSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedProject = searchParams.get('project') ?? '';
+  const urlProject = searchParams.get(PROJECT_PARAM) ?? '';
 
-  const handleProjectChange = useCallback(
-    (next: string) => {
-      const params = new URLSearchParams(searchParams);
-      if (next) params.set('project', next);
-      else params.delete('project');
-      setSearchParams(params, { replace: true });
-    },
-    [searchParams, setSearchParams],
-  );
+  // Treat the URL value as inactive when projects have loaded but the slug
+  // doesn't match a known project. While the project list is still loading
+  // (length 0), trust the URL so pre-population on first render works.
+  const projectIsKnown =
+    !urlProject ||
+    projects.length === 0 ||
+    projects.some((p) => p.name === urlProject);
+  const selectedProject = projectIsKnown ? urlProject : '';
+
+  const handleProjectChange = (next: string) => {
+    setSearchParams(
+      (prev) => {
+        if (next) prev.set(PROJECT_PARAM, next);
+        else prev.delete(PROJECT_PARAM);
+        return prev;
+      },
+      { replace: true },
+    );
+  };
 
   const projectOptions = useMemo(
     () =>
@@ -58,17 +69,16 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
   );
   const top = filtered.slice(0, TOP_N);
   const q = search.trim();
+  const isFiltered = !!q || !!selectedProject;
 
   const footerLabel = q
     ? `Top ${top.length} of ${filtered.length} matching · ${sorted.length} total`
     : selectedProject
       ? `Top ${top.length} of ${filtered.length} in ${selectedLabel} · ${sorted.length} total`
       : `Top ${top.length} of ${sorted.length} cards`;
-  const headBadge = q
+  const headBadge = isFiltered
     ? `${top.length} / ${filtered.length}`
-    : selectedProject
-      ? `${top.length} / ${filtered.length}`
-      : `${top.length} / ${sorted.length}`;
+    : `${top.length} / ${sorted.length}`;
 
   const emptyCopy = q
     ? 'No matching cards'
@@ -120,19 +130,20 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
           borderBottom: '1px solid var(--bg2)',
         }}
       >
-        <label className="sr-only" htmlFor="topcards-project-filter">
+        <label htmlFor="topcards-project-filter" className="sr-only">
           Project
         </label>
         <select
           id="topcards-project-filter"
-          aria-label="Project"
           value={selectedProject}
           onChange={(e) => handleProjectChange(e.target.value)}
-          className="apd-search-input"
           style={{
             backgroundColor: 'var(--bg2)',
             color: 'var(--fg)',
             border: '1px solid var(--bg3)',
+            borderRadius: 4,
+            padding: '7px 11px',
+            fontSize: 12,
             flexShrink: 0,
           }}
         >
