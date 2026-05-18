@@ -7,34 +7,13 @@ import {
   formatUsd,
   isHumanAgent,
   projectRow,
-  type ProjectRow,
 } from './utils';
 import type { DashboardData } from '../../types';
 
 interface ProjectsTableProps {
   projects: ProjectConfig[];
   summaries: Map<string, DashboardData>;
-  errors: Set<string>;
 }
-
-const STATUS_LABEL: Record<ProjectRow['status'], string> = {
-  on_track: 'On track',
-  attention: 'Attention',
-  stalled: 'Stalled',
-  idle: 'Idle',
-  unavailable: 'Unavailable',
-};
-
-const STATUS_COLORS: Record<
-  ProjectRow['status'],
-  { bg: string; fg: string; dot: string }
-> = {
-  on_track: { bg: 'var(--bg-green)', fg: 'var(--green)', dot: 'var(--green)' },
-  attention: { bg: 'var(--bg-yellow)', fg: 'var(--yellow)', dot: 'var(--yellow)' },
-  stalled: { bg: 'var(--bg-red)', fg: 'var(--red)', dot: 'var(--red)' },
-  idle: { bg: 'var(--bg2)', fg: 'var(--grey1)', dot: 'var(--bg4)' },
-  unavailable: { bg: 'var(--bg-red)', fg: 'var(--red)', dot: 'var(--red)' },
-};
 
 const MAX_AVATARS = 3;
 
@@ -119,29 +98,12 @@ function DistributionBar({
   );
 }
 
-function StatusPill({ status }: { status: ProjectRow['status'] }) {
-  const c = STATUS_COLORS[status];
-  return (
-    <span
-      className="apd-status-pill"
-      style={{ backgroundColor: c.bg, color: c.fg }}
-    >
-      <span
-        aria-hidden="true"
-        className="apd-status-pill-dot"
-        style={{ backgroundColor: c.dot }}
-      />
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
-
-export function ProjectsTable({ projects, summaries, errors }: ProjectsTableProps) {
+export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
   const rows = useMemo(() => {
-    const out = projects.map((p) => projectRow(p, summaries.get(p.name), errors.has(p.name)));
-    out.sort((a, b) => b.total - a.total);
+    const out = projects.map((p) => projectRow(p, summaries.get(p.name)));
+    out.sort((a, b) => a.config.name.localeCompare(b.config.name));
     return out;
-  }, [projects, summaries, errors]);
+  }, [projects, summaries]);
 
   return (
     <section
@@ -168,7 +130,7 @@ export function ProjectsTable({ projects, summaries, errors }: ProjectsTableProp
         <span
           style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--grey1)' }}
         >
-          Sort: cards ↓
+          Sort: A→Z
         </span>
       </div>
       {rows.length === 0 ? (
@@ -196,7 +158,6 @@ export function ProjectsTable({ projects, summaries, errors }: ProjectsTableProp
                 <th style={{ color: 'var(--grey1)' }} className="apd-num">
                   Cost
                 </th>
-                <th style={{ color: 'var(--grey1)' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -209,14 +170,14 @@ export function ProjectsTable({ projects, summaries, errors }: ProjectsTableProp
                   <tr key={name} className="apd-project-row">
                     <td>
                       <Link
-                        to={`/projects/${name}/dashboard`}
+                        to={`/projects/${name}`}
                         className="apd-project-link"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span
                             className="apd-project-dot"
                             style={{
-                              backgroundColor: STATUS_COLORS[row.status].dot,
+                              backgroundColor: 'var(--bg4)',
                             }}
                           />
                           <span className="min-w-0">
@@ -276,9 +237,6 @@ export function ProjectsTable({ projects, summaries, errors }: ProjectsTableProp
                       }}
                     >
                       {formatUsd(row.cost)}
-                    </td>
-                    <td>
-                      <StatusPill status={row.status} />
                     </td>
                   </tr>
                 );

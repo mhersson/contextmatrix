@@ -186,12 +186,12 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
           />
         </div>
         <div className="apd-section-pad apd-grid-asym">
-          <ProjectsTable projects={projects} summaries={summaries} errors={errors} />
+          <ProjectsTable projects={projects} summaries={summaries} />
           <TopCardsPanel cardCosts={aggregated.card_costs} prefixMap={prefixMap} />
         </div>
         <div className="apd-section-pad apd-grid-asym">
           <CostAgentsPanel
-            agentCosts={aggregated.agent_costs}
+            modelCosts={aggregated.model_costs}
             activeAgents={aggregated.active_agents}
             stalledCount={stalled}
             prefixMap={prefixMap}

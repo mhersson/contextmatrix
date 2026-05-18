@@ -624,6 +624,15 @@ Returns dashboard metrics for a project.
       "card_count": 5
     }
   ],
+  "model_costs": [
+    {
+      "model": "claude-sonnet-4-5",
+      "prompt_tokens": 25000,
+      "completion_tokens": 6000,
+      "estimated_cost_usd": 0.18,
+      "card_count": 4
+    }
+  ],
   "card_costs": [
     {
       "card_id": "ALPHA-003",
@@ -638,6 +647,11 @@ Returns dashboard metrics for a project.
 ```
 
 `assigned_agent` is omitted when no agent currently owns the card.
+
+`model_costs` aggregates token usage and cost per model across the project.
+Cards whose token-usage records have an empty `model` string are bucketed
+under `"unknown"`. Each card is attributed to its most-recently-used model
+(cards that used multiple models show under the last one).
 
 `cards_completed_last_7d` counts cards whose `updated` falls inside the
 trailing 7-day window ending at "now"; `cards_completed_prior_7d` counts the

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, act, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
 import { ProjectShell } from './ProjectShell';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 
@@ -136,8 +136,11 @@ vi.mock('../Board', () => ({
 }));
 
 vi.mock('../CardPanel', () => ({
-  CardPanel: ({ card }: { card: Card }) => (
-    <div data-testid={`card-panel-${card.id}`} />
+  CardPanel: ({ card, onClose }: { card: Card; onClose: () => void }) => (
+    <div data-testid={`card-panel-${card.id}`}>
+      <span data-testid="card-panel-title">{card.title}</span>
+      <button onClick={onClose}>Close</button>
+    </div>
   ),
 }));
 
@@ -322,5 +325,214 @@ describe('ProjectShell — onCreateCard', () => {
 
     // On runner error, the panel should not open.
     expect(screen.queryByTestId('card-panel-TEST-001')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deep-link tests — ?card=ID opens the CardPanel; closing strips ?card=
+// ---------------------------------------------------------------------------
+
+describe('ProjectShell — ?card= deep-link', () => {
+  const deepLinkCard: Card = {
+    id: 'TEST-1',
+    title: 'Deep-linked card',
+    project: 'test',
+    type: 'task',
+    state: 'todo',
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+  };
+
+  const useBoardReturn = {
+    config: {
+      name: 'test',
+      prefix: 'TEST',
+      next_id: 1,
+      states: ['todo', 'done'],
+      types: ['task'],
+      priorities: ['medium'],
+      transitions: { todo: ['done'], done: [] },
+      remote_execution: { enabled: false },
+    } as ProjectConfig,
+    cards: [deepLinkCard],
+    loading: false,
+    error: null,
+    connected: true,
+    refresh: vi.fn(),
+    updateCardLocally: vi.fn(),
+    removeCardLocally: vi.fn(),
+    suppressSSE: vi.fn(),
+    unsuppressSSE: vi.fn(),
+  };
+
+  it('opens the CardPanel for ?card=ID when cards are loaded', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('card-panel-TEST-1')).toBeInTheDocument();
+    expect(screen.getByTestId('card-panel-title').textContent).toBe('Deep-linked card');
+  });
+
+  it('re-opens the panel after cross-project SPA navigation', async () => {
+    // Regression test for the cross-project deep-link bug: when the user
+    // navigates from /projects/A?card=A-1 to /projects/B?card=B-2 without
+    // remounting ProjectShell (SPA nav reuses the :project route segment),
+    // the in-render reset on project change must clear the
+    // deep-link-consumed marker. Without the reset, the inbound branch's
+    // `!deepLinkConsumed` guard stays false and the panel never opens for
+    // the second project's deep link.
+    const secondCard: Card = {
+      id: 'TEST-2',
+      title: 'Second project card',
+      project: 'test',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue({
+      ...useBoardReturn,
+      cards: [deepLinkCard, secondCard],
+    } as unknown as ReturnType<typeof useBoard>);
+
+    function NavProbe() {
+      const navigate = useNavigate();
+      const [params] = useSearchParams();
+      return (
+        <>
+          <button
+            data-testid="cross-project-nav"
+            onClick={() => navigate('/projects/other?card=TEST-2')}
+          >
+            go
+          </button>
+          <span data-testid="nav-probe-search">{params.toString()}</span>
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route
+            path="/projects/:project/*"
+            element={
+              <>
+                <ProjectShell />
+                <NavProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // First project's panel opens from the URL.
+    expect(await screen.findByTestId('card-panel-TEST-1')).toBeInTheDocument();
+
+    // Simulate sidebar navigation to a new project with a different ?card=.
+    // The Routes match the same path pattern so ProjectShell does NOT remount.
+    await act(async () => {
+      screen.getByTestId('cross-project-nav').click();
+    });
+
+    // The deep-link branch must re-fire for the new project: the panel
+    // for the second card should be mounted.
+    expect(await screen.findByTestId('card-panel-TEST-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('card-panel-TEST-1')).not.toBeInTheDocument();
+
+    // The new project's ?card= must survive — without the prev-project
+    // reset of deepLinkConsumed/pendingUrlStrip, the outbound branch
+    // would trip in the gap between the inbound rejection and the
+    // self-healing re-fire, stripping the URL as a side effect.
+    expect(screen.getByTestId('nav-probe-search').textContent).toBe('card=TEST-2');
+  });
+
+  it('strips ?card= from the URL when the panel closes', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+
+    function LocationProbe() {
+      const [params] = useSearchParams();
+      return <span data-testid="loc-search">{params.toString()}</span>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route
+            path="/projects/:project/*"
+            element={
+              <>
+                <ProjectShell />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('card-panel-TEST-1')).toBeInTheDocument();
+    expect(screen.getByTestId('loc-search').textContent).toBe('card=TEST-1');
+
+    const close = screen.getByRole('button', { name: /close/i });
+    await act(async () => {
+      close.click();
+    });
+
+    expect(screen.getByTestId('loc-search').textContent).toBe('');
+  });
+
+  it('strips ?card= from the URL when the deep-linked card does not exist', async () => {
+    // Dead-link: ?card=NONEXISTENT-999 with no matching card. The hook must
+    // strip the URL once cards have loaded so the dead link does not stay
+    // in the URL forever and interfere with future interactions.
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+
+    function LocationProbe() {
+      const [params] = useSearchParams();
+      return <span data-testid="loc-search">{params.toString()}</span>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=NONEXISTENT-999']}>
+        <Routes>
+          <Route
+            path="/projects/:project/*"
+            element={
+              <>
+                <ProjectShell />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // No card panel should open for the missing id.
+    expect(screen.queryByTestId('card-panel-NONEXISTENT-999')).not.toBeInTheDocument();
+    // The matching deep-link card panel must also stay closed.
+    expect(screen.queryByTestId('card-panel-TEST-1')).not.toBeInTheDocument();
+
+    // The dead `?card=` param must be stripped from the URL.
+    await waitFor(() => {
+      expect(screen.getByTestId('loc-search').textContent).toBe('');
+    });
   });
 });

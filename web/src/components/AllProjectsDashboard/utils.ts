@@ -3,6 +3,7 @@ import type {
   AgentCost,
   CardCost,
   DashboardData,
+  ModelCost,
   ProjectConfig,
 } from '../../types';
 
@@ -11,7 +12,6 @@ export interface ProjectRow {
   data: DashboardData | undefined;
   total: number;
   cost: number;
-  status: 'on_track' | 'attention' | 'stalled' | 'idle' | 'unavailable';
 }
 
 export interface DistributionSegment {
@@ -98,6 +98,7 @@ export function aggregateDashboards(
   let completedPrior7d = 0;
   const allAgents: ActiveAgent[] = [];
   const agentCostMap = new Map<string, AgentCost>();
+  const modelCostMap = new Map<string, ModelCost>();
   const allCardCosts: CardCost[] = [];
 
   for (const data of summaries.values()) {
@@ -121,6 +122,17 @@ export function aggregateDashboards(
         agentCostMap.set(ac.agent_id, { ...ac });
       }
     }
+    for (const mc of data.model_costs) {
+      const existing = modelCostMap.get(mc.model);
+      if (existing) {
+        existing.prompt_tokens += mc.prompt_tokens;
+        existing.completion_tokens += mc.completion_tokens;
+        existing.estimated_cost_usd += mc.estimated_cost_usd;
+        existing.card_count += mc.card_count;
+      } else {
+        modelCostMap.set(mc.model, { ...mc });
+      }
+    }
   }
 
   return {
@@ -137,6 +149,7 @@ export function aggregateDashboards(
       shipped: [],
     },
     agent_costs: Array.from(agentCostMap.values()),
+    model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
   };
 }
@@ -157,19 +170,10 @@ export function totalCardCount(counts: Record<string, number>): number {
 export function projectRow(
   config: ProjectConfig,
   data: DashboardData | undefined,
-  failed: boolean = false,
 ): ProjectRow {
   const total = data ? totalCardCount(data.state_counts) : 0;
-  const stalled = data?.state_counts.stalled ?? 0;
-  const blocked = data?.state_counts.blocked ?? 0;
   const cost = data?.total_cost_usd ?? 0;
-  let status: ProjectRow['status'];
-  if (failed) status = 'unavailable';
-  else if (stalled > 0) status = 'stalled';
-  else if (blocked > 0) status = 'attention';
-  else if (total === 0) status = 'idle';
-  else status = 'on_track';
-  return { config, data, total, cost, status };
+  return { config, data, total, cost };
 }
 
 export function isHumanAgent(agentId: string): boolean {

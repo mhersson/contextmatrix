@@ -223,6 +223,14 @@ export interface AgentCost {
   card_count: number;
 }
 
+export interface ModelCost {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  estimated_cost_usd: number;
+  card_count: number;
+}
+
 export interface CardCost {
   card_id: string;
   card_title: string;
@@ -248,6 +256,7 @@ export interface DashboardData {
   cards_completed_prior_7d: number;
   metric_series: MetricSeries;
   agent_costs: AgentCost[];
+  model_costs: ModelCost[];
   card_costs: CardCost[];
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { ActiveAgent, AgentCost } from '../../types';
+import type { ActiveAgent, ModelCost } from '../../types';
 import { formatRelativeTime } from '../CardPanel/utils';
 import {
   agentInitials,
@@ -12,28 +12,28 @@ import {
 } from './utils';
 
 interface CostAgentsPanelProps {
-  agentCosts: AgentCost[];
+  modelCosts: ModelCost[];
   activeAgents: ActiveAgent[];
   stalledCount: number;
   prefixMap: Map<string, string>;
 }
 
-type Tab = 'cost' | 'agents';
+type Tab = 'models' | 'agents';
 
-const TOP_AGENT_COSTS = 5;
+const TOP_MODEL_COSTS = 5;
 const TAB_IDS: Record<Tab, { btn: string; panel: string }> = {
-  cost: { btn: 'apd-tab-cost-btn', panel: 'apd-tab-cost-panel' },
+  models: { btn: 'apd-tab-models-btn', panel: 'apd-tab-models-panel' },
   agents: { btn: 'apd-tab-agents-btn', panel: 'apd-tab-agents-panel' },
 };
 
-function CostByAgent({ agentCosts }: { agentCosts: AgentCost[] }) {
+function CostByModel({ modelCosts }: { modelCosts: ModelCost[] }) {
   const sorted = useMemo(
-    () => [...agentCosts].sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd),
-    [agentCosts],
+    () => [...modelCosts].sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd),
+    [modelCosts],
   );
-  const top = sorted.slice(0, TOP_AGENT_COSTS);
+  const top = sorted.slice(0, TOP_MODEL_COSTS);
   const max = top.reduce(
-    (acc, a) => (a.estimated_cost_usd > acc ? a.estimated_cost_usd : acc),
+    (acc, m) => (m.estimated_cost_usd > acc ? m.estimated_cost_usd : acc),
     0,
   );
 
@@ -55,12 +55,11 @@ function CostByAgent({ agentCosts }: { agentCosts: AgentCost[] }) {
 
   return (
     <div style={{ padding: '14px 20px 18px' }}>
-      {top.map((a) => {
-        const human = isHumanAgent(a.agent_id);
-        const pct = max > 0 ? Math.max(2, (a.estimated_cost_usd / max) * 100) : 0;
+      {top.map((mc) => {
+        const pct = max > 0 ? Math.max(2, (mc.estimated_cost_usd / max) * 100) : 0;
         return (
           <div
-            key={a.agent_id}
+            key={mc.model}
             className="apd-cost-row"
             style={{ borderBottom: '1px solid var(--bg2)' }}
           >
@@ -69,19 +68,19 @@ function CostByAgent({ agentCosts }: { agentCosts: AgentCost[] }) {
               style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 11.5,
-                color: human ? 'var(--blue)' : 'var(--aqua)',
+                color: 'var(--aqua)',
                 letterSpacing: '-0.01em',
               }}
-              title={a.agent_id}
+              title={mc.model}
             >
-              {a.agent_id}
+              {mc.model}
             </span>
             <div className="apd-bar-wrap" style={{ backgroundColor: 'var(--bg2)' }}>
               <div
                 className="apd-bar"
                 style={{
                   width: `${pct}%`,
-                  backgroundColor: human ? 'var(--blue)' : 'var(--aqua)',
+                  backgroundColor: 'var(--aqua)',
                 }}
               />
             </div>
@@ -95,7 +94,7 @@ function CostByAgent({ agentCosts }: { agentCosts: AgentCost[] }) {
                 letterSpacing: '-0.01em',
               }}
             >
-              ${a.estimated_cost_usd.toFixed(2)}
+              ${mc.estimated_cost_usd.toFixed(2)}
             </span>
             <span
               style={{
@@ -106,7 +105,7 @@ function CostByAgent({ agentCosts }: { agentCosts: AgentCost[] }) {
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {a.card_count}c
+              {mc.card_count}c
             </span>
           </div>
         );
@@ -296,24 +295,24 @@ function FooterCell({
 }
 
 export function CostAgentsPanel({
-  agentCosts,
+  modelCosts,
   activeAgents,
   stalledCount,
   prefixMap,
 }: CostAgentsPanelProps) {
-  const [tab, setTab] = useState<Tab>('cost');
+  const [tab, setTab] = useState<Tab>('models');
   const tabListRef = useRef<HTMLDivElement>(null);
 
   const tabs = useMemo<{ id: Tab; label: string; count: number }[]>(
     () => [
       {
-        id: 'cost',
-        label: 'Cost by agent',
-        count: Math.min(agentCosts.length, TOP_AGENT_COSTS),
+        id: 'models',
+        label: 'Models',
+        count: modelCosts.length,
       },
       { id: 'agents', label: 'Agents on duty', count: activeAgents.length },
     ],
-    [agentCosts.length, activeAgents.length],
+    [modelCosts.length, activeAgents.length],
   );
 
   // ARIA tabs keyboard pattern: Left/Right cycle, Home/End jump to ends.
@@ -372,46 +371,71 @@ export function CostAgentsPanel({
       >
         {tabs.map((t) => {
           const on = tab === t.id;
+          const isModels = t.id === 'models';
           return (
-            <button
+            <div
               key={t.id}
-              id={TAB_IDS[t.id].btn}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              aria-controls={TAB_IDS[t.id].panel}
-              tabIndex={on ? 0 : -1}
-              onClick={() => setTab(t.id)}
-              onKeyDown={onTabKeyDown}
-              className="apd-tab-btn"
-              style={{
-                color: on ? 'var(--fg)' : 'var(--grey1)',
-                borderBottomColor: on ? 'var(--aqua)' : 'transparent',
-              }}
+              style={{ display: 'inline-flex', alignItems: 'center' }}
             >
-              <span>{t.label}</span>
-              <span
-                className="apd-tab-count"
+              <button
+                id={TAB_IDS[t.id].btn}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                aria-controls={TAB_IDS[t.id].panel}
+                tabIndex={on ? 0 : -1}
+                onClick={() => setTab(t.id)}
+                onKeyDown={onTabKeyDown}
+                className="apd-tab-btn"
                 style={{
-                  color: on ? 'var(--aqua)' : 'var(--grey1)',
-                  backgroundColor: on ? 'var(--bg-aqua)' : 'var(--bg2)',
-                  border: on ? '1px solid transparent' : '1px solid var(--bg3)',
+                  color: on ? 'var(--fg)' : 'var(--grey1)',
+                  borderBottomColor: on ? 'var(--aqua)' : 'transparent',
                 }}
               >
-                {t.count}
-              </span>
-            </button>
+                <span>{t.label}</span>
+                <span
+                  className="apd-tab-count"
+                  style={{
+                    color: on ? 'var(--aqua)' : 'var(--grey1)',
+                    backgroundColor: on ? 'var(--bg-aqua)' : 'var(--bg2)',
+                    border: on ? '1px solid transparent' : '1px solid var(--bg3)',
+                  }}
+                >
+                  {t.count}
+                </span>
+              </button>
+              {isModels && (
+                <button
+                  type="button"
+                  aria-label="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
+                  title="Each card is attributed to its most-recently-used model. Cards that used multiple models show under the last one."
+                  style={{
+                    marginLeft: 6,
+                    marginRight: 4,
+                    color: 'var(--grey1)',
+                    cursor: 'help',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    lineHeight: 1,
+                  }}
+                >
+                  <span aria-hidden="true">&#9432;</span>
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
       <div
         role="tabpanel"
-        id={TAB_IDS.cost.panel}
-        aria-labelledby={TAB_IDS.cost.btn}
-        hidden={tab !== 'cost'}
+        id={TAB_IDS.models.panel}
+        aria-labelledby={TAB_IDS.models.btn}
+        hidden={tab !== 'models'}
         tabIndex={0}
       >
-        {tab === 'cost' && <CostByAgent agentCosts={agentCosts} />}
+        {tab === 'models' && <CostByModel modelCosts={modelCosts} />}
       </div>
       <div
         role="tabpanel"

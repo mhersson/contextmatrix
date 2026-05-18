@@ -20,6 +20,7 @@ import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput, DashboardData } from '../../types';
 import type { ActivityEntry } from '../Board/NowRail';
 import { useSSEBus } from '../../hooks/useSSEBus';
+import { useDeepLinkCard } from './useDeepLinkCard';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
 const Dashboard = lazy(() =>
@@ -209,6 +210,10 @@ export function ProjectShell() {
   }, [showToast]);
 
   const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+
+  // Deep-link handling for ?card=ID — see useDeepLinkCard for full rationale.
+  // Click-driven panel opens deliberately do NOT write to the URL.
+  useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
