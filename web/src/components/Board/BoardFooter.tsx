@@ -4,6 +4,7 @@ interface BoardFooterProps {
   columnCount: number;
   nowRailOpen?: boolean;
   onToggleNowRail?: () => void;
+  onSyncClick?: () => void;
 }
 
 export function BoardFooter({
@@ -12,11 +13,23 @@ export function BoardFooter({
   columnCount,
   nowRailOpen,
   onToggleNowRail,
+  onSyncClick,
 }: BoardFooterProps) {
   return (
     <div className="board-footer">
-      <span className="board-footer__pulse">{lastSyncLabel}</span>
-      <span>{cardCount} cards · {columnCount} columns · 1 board</span>
+      {onSyncClick ? (
+        <button
+          type="button"
+          onClick={onSyncClick}
+          className="board-footer__sync-label"
+          title="Click to sync now"
+        >
+          {lastSyncLabel}
+        </button>
+      ) : (
+        <span>{lastSyncLabel}</span>
+      )}
+      <span>{cardCount} cards · {columnCount} columns</span>
       {onToggleNowRail ? (
         <button
           type="button"

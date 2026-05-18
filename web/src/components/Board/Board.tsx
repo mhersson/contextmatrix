@@ -74,6 +74,7 @@ interface BoardProps {
   onCreateCard?: (state: string) => void;
   flashCardId?: string | null;
   onParentClick?: (cardId: string) => void;
+  onSyncClick?: () => void;
 }
 
 export function Board({
@@ -96,6 +97,7 @@ export function Board({
   onCreateCard,
   flashCardId,
   onParentClick,
+  onSyncClick,
 }: BoardProps) {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [filter, setFilter] = useState<CardFilter>({});
@@ -238,7 +240,6 @@ export function Board({
         shippedToday={cardsCompletedToday}
         shippedLast7d={cardsCompletedLast7d}
         shippedPrior7d={cardsCompletedPrior7d}
-        lastUpdated={lastSyncLabel}
         onCreateCard={() => onCreateCard?.(config.states[0])}
       />
 
@@ -332,6 +333,7 @@ export function Board({
         columnCount={config.states.filter((s) => s !== 'stalled').length}
         nowRailOpen={nowRailOpen}
         onToggleNowRail={() => setNowRailOpen((v) => !v)}
+        onSyncClick={onSyncClick}
       />
     </div>
   );

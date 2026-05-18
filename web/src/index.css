@@ -2658,8 +2658,19 @@ input, select, textarea {
   border-top: 1px solid var(--bg3);
   background: color-mix(in oklab, var(--bg-dim) 60%, transparent);
 }
-.board-footer__pulse {
-  display: inline-flex; align-items: center; gap: 8px;
+.board-footer__sync-label {
+  background: transparent;
+  border: none;
+  color: var(--grey0);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 0;
+  transition: color .15s;
+}
+.board-footer__sync-label:hover {
+  color: var(--fg);
 }
 .board-footer__rail-toggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -2682,13 +2693,6 @@ input, select, textarea {
   color: var(--aqua);
   border-color: color-mix(in srgb, var(--aqua) 40%, transparent);
   background: color-mix(in srgb, var(--aqua) 12%, transparent);
-}
-.board-footer__pulse::before {
-  content: "";
-  width: 5px; height: 5px; border-radius: 99px;
-  background: var(--green);
-  box-shadow: 0 0 6px color-mix(in oklab, var(--green) 50%, transparent);
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* ── Now-rail capacity meter ─────────────────────────────────────────── */

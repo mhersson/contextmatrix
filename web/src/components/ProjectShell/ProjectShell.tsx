@@ -208,7 +208,7 @@ export function ProjectShell() {
     }
   }, [showToast]);
 
-  const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+  const { config, cards, loading, error, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
@@ -332,7 +332,7 @@ export function ProjectShell() {
   return (
     <>
       <AppHeader
-        project={project || ''} connected={connected} syncStatus={syncStatus} onSyncClick={triggerSync}
+        project={project || ''}
         hasActiveRunners={hasActiveRunners}
         onStopAll={handleStopAll}
         runnerEnabled={!!config?.remote_execution?.enabled}
@@ -365,6 +365,7 @@ export function ProjectShell() {
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
+                      onSyncClick={triggerSync}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full">

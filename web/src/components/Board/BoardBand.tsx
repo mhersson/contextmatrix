@@ -5,7 +5,6 @@ interface BoardBandProps {
   openCount: number;
   inReviewCount: number;
   shippedToday: number;
-  lastUpdated: string;
   onCreateCard: () => void;
   shippedLast7d?: number;
   shippedPrior7d?: number;
@@ -23,7 +22,6 @@ export function BoardBand({
   openCount,
   inReviewCount,
   shippedToday,
-  lastUpdated,
   onCreateCard,
   shippedLast7d,
   shippedPrior7d,
@@ -66,8 +64,6 @@ export function BoardBand({
               </span>
             </>
           )}
-          <span className="board-band__sep">·</span>
-          <span>{lastUpdated}</span>
         </div>
       </div>
       <div>
