@@ -3,6 +3,7 @@ import type {
   AgentCost,
   CardCost,
   DashboardData,
+  ModelCost,
   ProjectConfig,
 } from '../../types';
 
@@ -97,6 +98,7 @@ export function aggregateDashboards(
   let completedPrior7d = 0;
   const allAgents: ActiveAgent[] = [];
   const agentCostMap = new Map<string, AgentCost>();
+  const modelCostMap = new Map<string, ModelCost>();
   const allCardCosts: CardCost[] = [];
 
   for (const data of summaries.values()) {
@@ -120,6 +122,17 @@ export function aggregateDashboards(
         agentCostMap.set(ac.agent_id, { ...ac });
       }
     }
+    for (const mc of data.model_costs) {
+      const existing = modelCostMap.get(mc.model);
+      if (existing) {
+        existing.prompt_tokens += mc.prompt_tokens;
+        existing.completion_tokens += mc.completion_tokens;
+        existing.estimated_cost_usd += mc.estimated_cost_usd;
+        existing.card_count += mc.card_count;
+      } else {
+        modelCostMap.set(mc.model, { ...mc });
+      }
+    }
   }
 
   return {
@@ -136,6 +149,7 @@ export function aggregateDashboards(
       shipped: [],
     },
     agent_costs: Array.from(agentCostMap.values()),
+    model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
   };
 }
