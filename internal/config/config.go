@@ -13,8 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ModelCost defines per-token cost rates for a model.
-type ModelCost struct {
+// ModelRate defines per-token cost rates for a model.
+type ModelRate struct {
 	Prompt     float64 `yaml:"prompt"`
 	Completion float64 `yaml:"completion"`
 }
@@ -187,7 +187,7 @@ type Config struct {
 	WorkflowSkillsDir    string               `yaml:"workflow_skills_dir"`
 	TaskSkills           TaskSkillsConfig     `yaml:"task_skills"`
 	Theme                string               `yaml:"theme"`
-	TokenCosts           map[string]ModelCost `yaml:"token_costs"`
+	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
 	Runner               RunnerConfig         `yaml:"runner"`
 	GitHub               GitHubConfig         `yaml:"github"`
