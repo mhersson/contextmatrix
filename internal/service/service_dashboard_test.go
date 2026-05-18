@@ -167,7 +167,7 @@ func setupDashboardServiceAt(t *testing.T, now time.Time) (*CardService, string,
 		Priorities: []string{"low", "medium", "high"},
 		Transitions: map[string][]string{
 			board.StateTodo:       {board.StateInProgress, board.StateNotPlanned},
-			board.StateInProgress: {board.StateDone, board.StateTodo},
+			board.StateInProgress: {board.StateDone, board.StateTodo, board.StateStalled},
 			board.StateDone:       {board.StateTodo},
 			board.StateStalled:    {board.StateTodo, board.StateInProgress},
 			board.StateNotPlanned: {board.StateTodo},
@@ -302,6 +302,156 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 	require.True(t, ok, "expected unknown bucket for untagged card")
 	assert.Equal(t, 1, unknown.CardCount)
 	assert.InDelta(t, 0.05, unknown.EstimatedCostUSD, 1e-9)
+}
+
+func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Parent1: in_progress (no parent).
+	parent1, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "parent1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	p1 := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, parent1.ID, PatchCardInput{State: &p1})
+	require.NoError(t, err)
+
+	// Parent2: done, updated 3 days ago (counts in CardsCompletedLast7d*).
+	parent2, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "parent2", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	p2ip := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, parent2.ID, PatchCardInput{State: &p2ip})
+	require.NoError(t, err)
+
+	p2done := board.StateDone
+	_, err = svc.PatchCard(ctx, project, parent2.ID, PatchCardInput{State: &p2done})
+	require.NoError(t, err)
+
+	p2card, err := svc.GetCard(ctx, project, parent2.ID)
+	require.NoError(t, err)
+
+	p2card.Updated = now.Add(-3 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, p2card))
+
+	// Subtask1: in_progress (has parent = parent1).
+	sub1, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask1", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	s1ip := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, sub1.ID, PatchCardInput{State: &s1ip})
+	require.NoError(t, err)
+
+	s1card, err := svc.GetCard(ctx, project, sub1.ID)
+	require.NoError(t, err)
+
+	s1card.Parent = parent1.ID
+	require.NoError(t, svc.store.UpdateCard(ctx, project, s1card))
+
+	// Subtask2: stalled (has parent = parent1).
+	sub2, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask2", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	s2ip := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, sub2.ID, PatchCardInput{State: &s2ip})
+	require.NoError(t, err)
+
+	// Set parent via direct storage update before transitioning to stalled,
+	// so the parent field is in place. The state transition itself goes through
+	// PatchCard (in_progress → stalled is now in the test project's transitions).
+	s2card, err := svc.GetCard(ctx, project, sub2.ID)
+	require.NoError(t, err)
+
+	s2card.Parent = parent1.ID
+	require.NoError(t, svc.store.UpdateCard(ctx, project, s2card))
+
+	s2stalled := board.StateStalled
+	_, err = svc.PatchCard(ctx, project, sub2.ID, PatchCardInput{State: &s2stalled})
+	require.NoError(t, err)
+
+	// Subtask3: done today (has parent = parent1, Updated = today).
+	sub3, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask3-today", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	s3ip := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, sub3.ID, PatchCardInput{State: &s3ip})
+	require.NoError(t, err)
+
+	s3done := board.StateDone
+	_, err = svc.PatchCard(ctx, project, sub3.ID, PatchCardInput{State: &s3done})
+	require.NoError(t, err)
+
+	s3card, err := svc.GetCard(ctx, project, sub3.ID)
+	require.NoError(t, err)
+
+	s3card.Parent = parent1.ID
+	s3card.Updated = todayStart.Add(1 * time.Hour) // today
+	require.NoError(t, svc.store.UpdateCard(ctx, project, s3card))
+
+	// Subtask4: done 10 days ago (has parent = parent2; counts in CardsCompletedPrior7d but NOT *Parents).
+	sub4, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask4-old", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	s4ip := board.StateInProgress
+	_, err = svc.PatchCard(ctx, project, sub4.ID, PatchCardInput{State: &s4ip})
+	require.NoError(t, err)
+
+	s4done := board.StateDone
+	_, err = svc.PatchCard(ctx, project, sub4.ID, PatchCardInput{State: &s4done})
+	require.NoError(t, err)
+
+	s4card, err := svc.GetCard(ctx, project, sub4.ID)
+	require.NoError(t, err)
+
+	s4card.Parent = parent2.ID
+	s4card.Updated = now.Add(-10 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, s4card))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	// StateCounts includes all cards; StateCountsParents only top-level cards.
+	assert.Equal(t, 2, data.StateCounts[board.StateInProgress], "in_progress total")
+	assert.Equal(t, 1, data.StateCountsParents[board.StateInProgress], "in_progress parents only")
+	assert.Equal(t, 1, data.StateCounts[board.StateStalled], "stalled total")
+	assert.Equal(t, 0, data.StateCountsParents[board.StateStalled], "stalled parents only")
+	assert.Equal(t, 3, data.StateCounts[board.StateDone], "done total")
+	assert.Equal(t, 1, data.StateCountsParents[board.StateDone], "done parents only")
+
+	// Completed counters.
+	assert.Equal(t, 1, data.CardsCompletedToday, "completed today total (sub3)")
+	assert.Equal(t, 0, data.CardsCompletedTodayParents, "completed today parents (sub3 is a subtask)")
+	assert.Equal(t, 2, data.CardsCompletedLast7d, "completed last7d total (sub3 + parent2)")
+	assert.Equal(t, 1, data.CardsCompletedLast7dParents, "completed last7d parents (parent2)")
+	assert.Equal(t, 1, data.CardsCompletedPrior7d, "completed prior7d total (sub4)")
+	assert.Equal(t, 0, data.CardsCompletedPrior7dParents, "completed prior7d parents (sub4 is a subtask)")
+
+	// Sparkline: last slot (index MetricSeriesDays-1) is today.
+	lastIdx := MetricSeriesDays - 1
+	assert.Equal(t, 2, data.MetricSeries.InFlight[lastIdx], "in_flight today (parent1 + sub1)")
+	assert.Equal(t, 1, data.MetricSeries.InFlightParents[lastIdx], "in_flight_parents today (parent1 only)")
+	assert.Equal(t, 1, data.MetricSeries.Stalled[lastIdx], "stalled today (sub2)")
+	assert.Equal(t, 0, data.MetricSeries.StalledParents[lastIdx], "stalled_parents today (sub2 is subtask)")
+	assert.Equal(t, 1, data.MetricSeries.Shipped[lastIdx], "shipped today (sub3)")
+	assert.Equal(t, 0, data.MetricSeries.ShippedParents[lastIdx], "shipped_parents today (sub3 is subtask)")
+	// ActiveAgents unchanged.
+	assert.GreaterOrEqual(t, data.MetricSeries.ActiveAgents[lastIdx], 0)
 }
 
 func TestExtractStateChanges_Empty(t *testing.T) {

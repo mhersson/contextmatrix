@@ -1,10 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 interface KpiRowProps {
-  openTasks: number;
-  inProgress: number;
-  doneToday: number;
   totalCostUsd: number;
+  stateCountsParents: Record<string, number>;
+  doneTodayParents: number;
 }
 
 interface KpiTileProps {
@@ -13,6 +12,7 @@ interface KpiTileProps {
   value: ReactNode;
   source: string;
   accent: 'blue' | 'yellow' | 'green' | 'purple';
+  tooltip?: string;
 }
 
 const ACCENT_TO_VAR: Record<KpiTileProps['accent'], string> = {
@@ -22,7 +22,7 @@ const ACCENT_TO_VAR: Record<KpiTileProps['accent'], string> = {
   purple: 'var(--purple)',
 };
 
-function KpiTile({ label, badge, value, source, accent }: KpiTileProps) {
+function KpiTile({ label, badge, value, source, accent, tooltip }: KpiTileProps) {
   const numStyle: CSSProperties = {
     fontFamily: 'var(--font-sans)',
     fontWeight: 500,
@@ -36,6 +36,8 @@ function KpiTile({ label, badge, value, source, accent }: KpiTileProps) {
   return (
     <div
       className="apd-card apd-kpi"
+      title={tooltip}
+      aria-label={tooltip}
       style={{
         borderColor: 'var(--bg3)',
         backgroundColor: 'var(--bg1)',
@@ -94,7 +96,12 @@ function CostValue({ amount }: { amount: number }) {
   );
 }
 
-export function KpiRow({ openTasks, inProgress, doneToday, totalCostUsd }: KpiRowProps) {
+const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
+
+export function KpiRow({ totalCostUsd, stateCountsParents, doneTodayParents }: KpiRowProps) {
+  const openParents = stateCountsParents['todo'] ?? 0;
+  const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
+
   return (
     <div
       className="apd-kpi-row"
@@ -103,23 +110,26 @@ export function KpiRow({ openTasks, inProgress, doneToday, totalCostUsd }: KpiRo
       <KpiTile
         label="Open tasks"
         badge="ALL"
-        value={openTasks}
-        source="state_counts (open)"
+        value={openParents}
+        source="state_counts_parents (todo)"
         accent="blue"
+        tooltip={DELIVERY_UNIT_TOOLTIP}
       />
       <KpiTile
         label="In progress"
         badge="ACTIVE"
-        value={inProgress}
-        source="state_counts.in_progress"
+        value={inProgressParents}
+        source="state_counts_parents (in_progress+review)"
         accent="yellow"
+        tooltip={DELIVERY_UNIT_TOOLTIP}
       />
       <KpiTile
         label="Done today"
         badge="UTC"
-        value={doneToday}
-        source="cards_completed_today"
+        value={doneTodayParents}
+        source="cards_completed_today_parents"
         accent="green"
+        tooltip={DELIVERY_UNIT_TOOLTIP}
       />
       <KpiTile
         label="Total cost"

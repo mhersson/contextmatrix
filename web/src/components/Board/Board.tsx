@@ -61,8 +61,13 @@ interface BoardProps {
   error: string | null;
   activeAgents: ActiveAgent[];
   cardsCompletedToday: number;
+  cardsCompletedTodayParents?: number;
   cardsCompletedLast7d?: number;
+  cardsCompletedLast7dParents?: number;
   cardsCompletedPrior7d?: number;
+  cardsCompletedPrior7dParents?: number;
+  stateCounts?: Record<string, number>;
+  stateCountsParents?: Record<string, number>;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
   runningContainers?: number;
@@ -86,8 +91,13 @@ export function Board({
   error,
   activeAgents,
   cardsCompletedToday,
+  cardsCompletedTodayParents,
   cardsCompletedLast7d,
+  cardsCompletedLast7dParents,
   cardsCompletedPrior7d,
+  cardsCompletedPrior7dParents,
+  stateCounts,
+  stateCountsParents,
   metricSeries,
   runnerMaxAgents,
   runningContainers,
@@ -229,9 +239,75 @@ export function Board({
     );
   }
 
-  const inFlight = (cardsByState['in_progress']?.length ?? 0) + (cardsByState['review']?.length ?? 0);
-  const stalledCount = cardsByState['stalled']?.length ?? cards.filter((c) => c.state === 'stalled').length;
-  const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
+  // MetricsRibbon fallback contracts when source data is partial:
+  //   - inFlight/stalled: total falls back to cards-derived count so the headline
+  //     is populated during initial mount; *Subtasks is undefined when stateCountsParents
+  //     is missing (suffix suppressed until parent data arrives).
+  //   - openCount: total falls back to cards.filter() (never mixes cardsByState lengths
+  //     with unfiltered cards.length).
+  //   - shippedToday: total is provided by the caller; *Subtasks is undefined when
+  //     cardsCompletedTodayParents is missing.
+  //   - shipped7d: total and *Subtasks are both undefined when cardsCompletedLast7d/
+  //     Parents are missing (the tile hides its delta+suffix entirely).
+
+  // inFlightTotal / stalledTotal: prefer server-side stateCounts (unfiltered, so they
+  // agree with stateCountsParents); fall back to a cards-derived count so the headline
+  // is populated during the initial mount before the dashboard fetch resolves.
+  const inFlightTotal = stateCounts
+    ? (stateCounts['in_progress'] ?? 0) + (stateCounts['review'] ?? 0)
+    : cards.filter((c) => c.state === 'in_progress' || c.state === 'review').length;
+  const stalledTotal = stateCounts
+    ? (stateCounts['stalled'] ?? 0)
+    : cards.filter((c) => c.state === 'stalled').length;
+
+  // openCount + inReviewCount: prefer stateCounts when available to avoid mixing
+  // unfiltered cards.length with filtered cardsByState lengths; fall back to
+  // cards.filter() (not cardsByState). openCount keeps the pre-PR semantics —
+  // stalled counts as open (only done/not_planned are excluded).
+  const openCount = stateCounts
+    ? Object.entries(stateCounts).reduce(
+        (sum, [state, n]) =>
+          state === 'done' || state === 'not_planned' ? sum : sum + n,
+        0,
+      )
+    : cards.filter(
+        (c) => c.state !== 'done' && c.state !== 'not_planned',
+      ).length;
+  const inReviewCount = stateCounts
+    ? stateCounts['review'] ?? 0
+    : cards.filter((c) => c.state === 'review').length;
+
+  // Parent-only headline counts for MetricsRibbon. Fall back to totals when
+  // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
+  const inFlightParents = stateCountsParents !== undefined
+    ? (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0)
+    : inFlightTotal;
+  const stalledParents = stateCountsParents !== undefined
+    ? (stateCountsParents['stalled'] ?? 0)
+    : stalledTotal;
+
+  // Compute *Subtasks only when stateCountsParents is available (inFlightTotal is
+  // always a number now). Otherwise pass undefined — suppresses the muted "+N sub"
+  // suffix until parent data is ready.
+  const inFlightSubtasks =
+    stateCountsParents !== undefined
+      ? inFlightTotal - inFlightParents
+      : undefined;
+  const stalledSubtasks =
+    stateCountsParents !== undefined
+      ? stalledTotal - stalledParents
+      : undefined;
+
+  const shippedTodayParents = cardsCompletedTodayParents ?? cardsCompletedToday;
+  const shippedTodaySubtasks =
+    cardsCompletedTodayParents !== undefined
+      ? cardsCompletedToday - shippedTodayParents
+      : undefined;
+
+  const shippedLast7dParents = cardsCompletedLast7dParents ?? cardsCompletedLast7d;
+  const shipped7dSubtasks = cardsCompletedLast7d !== undefined && shippedLast7dParents !== undefined
+    ? cardsCompletedLast7d - shippedLast7dParents
+    : undefined;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto md:overflow-hidden">
@@ -240,7 +316,7 @@ export function Board({
         displayName={config.display_name}
         activeAgents={activeAgents.length}
         openCount={openCount}
-        inReviewCount={cardsByState['review']?.length ?? 0}
+        inReviewCount={inReviewCount}
         shippedToday={cardsCompletedToday}
         shippedLast7d={cardsCompletedLast7d}
         shippedPrior7d={cardsCompletedPrior7d}
@@ -249,15 +325,19 @@ export function Board({
 
       <MetricsRibbon
         activeAgents={activeAgents.length}
-        inFlight={inFlight}
-        stalled={stalledCount}
-        shippedToday={cardsCompletedToday}
-        shipped7d={cardsCompletedLast7d}
-        shipped7dPrior={cardsCompletedPrior7d}
+        inFlight={inFlightParents}
+        inFlightSubtasks={inFlightSubtasks}
+        stalled={stalledParents}
+        stalledSubtasks={stalledSubtasks}
+        shippedToday={shippedTodayParents}
+        shippedTodaySubtasks={shippedTodaySubtasks}
+        shipped7d={shippedLast7dParents}
+        shipped7dSubtasks={shipped7dSubtasks}
+        shipped7dPrior={cardsCompletedPrior7dParents ?? cardsCompletedPrior7d}
         activeAgentsSeries={metricSeries?.active_agents}
-        inFlightSeries={metricSeries?.in_flight}
-        stalledSeries={metricSeries?.stalled}
-        shippedSeries={metricSeries?.shipped}
+        inFlightSeries={metricSeries?.in_flight_parents}
+        stalledSeries={metricSeries?.stalled_parents}
+        shippedSeries={metricSeries?.shipped_parents}
       />
 
       <SpotlightStrip

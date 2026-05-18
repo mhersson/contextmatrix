@@ -58,11 +58,18 @@ type CardCost struct {
 // current state. ActiveAgents counts cards where the reconstructed state
 // is in_progress/review and the card currently has an assigned agent
 // (claim history isn't tracked, so per-day agent presence is approximate).
+// The *Parents variants (InFlightParents, StalledParents, ShippedParents)
+// mirror the above but exclude subtasks (cards with a non-empty Parent field).
+// ActiveAgents has no parents variant by design — an agent working a subtask
+// is still real activity.
 type MetricSeries struct {
-	ActiveAgents []int `json:"active_agents"`
-	InFlight     []int `json:"in_flight"`
-	Stalled      []int `json:"stalled"`
-	Shipped      []int `json:"shipped"`
+	ActiveAgents    []int `json:"active_agents"`
+	InFlight        []int `json:"in_flight"`
+	Stalled         []int `json:"stalled"`
+	Shipped         []int `json:"shipped"`
+	InFlightParents []int `json:"in_flight_parents"`
+	StalledParents  []int `json:"stalled_parents"`
+	ShippedParents  []int `json:"shipped_parents"`
 }
 
 // MetricSeriesDays is the number of daily samples in each MetricSeries slice.
@@ -70,16 +77,20 @@ const MetricSeriesDays = 8
 
 // DashboardData contains all data needed for the project dashboard view.
 type DashboardData struct {
-	StateCounts           map[string]int `json:"state_counts"`
-	ActiveAgents          []ActiveAgent  `json:"active_agents"`
-	TotalCostUSD          float64        `json:"total_cost_usd"`
-	CardsCompletedToday   int            `json:"cards_completed_today"`
-	CardsCompletedLast7d  int            `json:"cards_completed_last_7d"`
-	CardsCompletedPrior7d int            `json:"cards_completed_prior_7d"`
-	MetricSeries          MetricSeries   `json:"metric_series"`
-	AgentCosts            []AgentCost    `json:"agent_costs"`
-	ModelCosts            []ModelCost    `json:"model_costs"`
-	CardCosts             []CardCost     `json:"card_costs"`
+	StateCounts                  map[string]int `json:"state_counts"`
+	StateCountsParents           map[string]int `json:"state_counts_parents"`
+	ActiveAgents                 []ActiveAgent  `json:"active_agents"`
+	TotalCostUSD                 float64        `json:"total_cost_usd"`
+	CardsCompletedToday          int            `json:"cards_completed_today"`
+	CardsCompletedTodayParents   int            `json:"cards_completed_today_parents"`
+	CardsCompletedLast7d         int            `json:"cards_completed_last_7d"`
+	CardsCompletedLast7dParents  int            `json:"cards_completed_last_7d_parents"`
+	CardsCompletedPrior7d        int            `json:"cards_completed_prior_7d"`
+	CardsCompletedPrior7dParents int            `json:"cards_completed_prior_7d_parents"`
+	MetricSeries                 MetricSeries   `json:"metric_series"`
+	AgentCosts                   []AgentCost    `json:"agent_costs"`
+	ModelCosts                   []ModelCost    `json:"model_costs"`
+	CardCosts                    []CardCost     `json:"card_costs"`
 }
 
 // GetDashboard computes aggregated dashboard data for a project.
@@ -95,16 +106,20 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	prior7dStart := now.Add(-14 * 24 * time.Hour)
 
 	data := &DashboardData{
-		StateCounts:  make(map[string]int),
-		ActiveAgents: make([]ActiveAgent, 0),
-		AgentCosts:   make([]AgentCost, 0),
-		ModelCosts:   make([]ModelCost, 0),
-		CardCosts:    make([]CardCost, 0),
+		StateCounts:        make(map[string]int),
+		StateCountsParents: make(map[string]int),
+		ActiveAgents:       make([]ActiveAgent, 0),
+		AgentCosts:         make([]AgentCost, 0),
+		ModelCosts:         make([]ModelCost, 0),
+		CardCosts:          make([]CardCost, 0),
 		MetricSeries: MetricSeries{
-			ActiveAgents: make([]int, MetricSeriesDays),
-			InFlight:     make([]int, MetricSeriesDays),
-			Stalled:      make([]int, MetricSeriesDays),
-			Shipped:      make([]int, MetricSeriesDays),
+			ActiveAgents:    make([]int, MetricSeriesDays),
+			InFlight:        make([]int, MetricSeriesDays),
+			Stalled:         make([]int, MetricSeriesDays),
+			Shipped:         make([]int, MetricSeriesDays),
+			InFlightParents: make([]int, MetricSeriesDays),
+			StalledParents:  make([]int, MetricSeriesDays),
+			ShippedParents:  make([]int, MetricSeriesDays),
 		},
 	}
 
@@ -125,6 +140,9 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 
 	for _, card := range cards {
 		data.StateCounts[card.State]++
+		if card.Parent == "" {
+			data.StateCountsParents[card.State]++
+		}
 
 		// Active agents: cards with an assigned agent not in terminal states.
 		if card.AssignedAgent != "" && card.State != board.StateDone && card.State != board.StateStalled && card.State != board.StateNotPlanned {
@@ -146,12 +164,21 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		if card.State == board.StateDone {
 			if !card.Updated.Before(todayStart) {
 				data.CardsCompletedToday++
+				if card.Parent == "" {
+					data.CardsCompletedTodayParents++
+				}
 			}
 
 			if !card.Updated.Before(last7dStart) {
 				data.CardsCompletedLast7d++
+				if card.Parent == "" {
+					data.CardsCompletedLast7dParents++
+				}
 			} else if !card.Updated.Before(prior7dStart) {
 				data.CardsCompletedPrior7d++
+				if card.Parent == "" {
+					data.CardsCompletedPrior7dParents++
+				}
 			}
 
 			// Shipped sparkline: bucket each done card by the day it
@@ -161,6 +188,9 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 			for i := range MetricSeriesDays {
 				if !card.Updated.Before(dayStarts[i]) && card.Updated.Before(dayEnds[i]) {
 					data.MetricSeries.Shipped[i]++
+					if card.Parent == "" {
+						data.MetricSeries.ShippedParents[i]++
+					}
 
 					break
 				}
@@ -183,11 +213,18 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 			switch state {
 			case board.StateInProgress, board.StateReview:
 				data.MetricSeries.InFlight[i]++
+				if card.Parent == "" {
+					data.MetricSeries.InFlightParents[i]++
+				}
+
 				if card.AssignedAgent != "" {
 					data.MetricSeries.ActiveAgents[i]++
 				}
 			case board.StateStalled:
 				data.MetricSeries.Stalled[i]++
+				if card.Parent == "" {
+					data.MetricSeries.StalledParents[i]++
+				}
 			}
 		}
 

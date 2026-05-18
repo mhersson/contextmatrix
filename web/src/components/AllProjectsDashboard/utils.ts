@@ -92,10 +92,14 @@ export function aggregateDashboards(
   summaries: Map<string, DashboardData>,
 ): DashboardData {
   const stateCounts: Record<string, number> = {};
+  const stateCountsParents: Record<string, number> = {};
   let totalCost = 0;
   let completedToday = 0;
+  let completedTodayParents = 0;
   let completedLast7d = 0;
+  let completedLast7dParents = 0;
   let completedPrior7d = 0;
+  let completedPrior7dParents = 0;
   const allAgents: ActiveAgent[] = [];
   const agentCostMap = new Map<string, AgentCost>();
   const modelCostMap = new Map<string, ModelCost>();
@@ -105,10 +109,16 @@ export function aggregateDashboards(
     for (const [state, count] of Object.entries(data.state_counts)) {
       stateCounts[state] = (stateCounts[state] ?? 0) + count;
     }
+    for (const [state, count] of Object.entries(data.state_counts_parents ?? {})) {
+      stateCountsParents[state] = (stateCountsParents[state] ?? 0) + count;
+    }
     totalCost += data.total_cost_usd;
     completedToday += data.cards_completed_today;
+    completedTodayParents += data.cards_completed_today_parents ?? 0;
     completedLast7d += data.cards_completed_last_7d ?? 0;
+    completedLast7dParents += data.cards_completed_last_7d_parents ?? 0;
     completedPrior7d += data.cards_completed_prior_7d ?? 0;
+    completedPrior7dParents += data.cards_completed_prior_7d_parents ?? 0;
     allAgents.push(...data.active_agents);
     allCardCosts.push(...data.card_costs);
     for (const ac of data.agent_costs) {
@@ -137,30 +147,28 @@ export function aggregateDashboards(
 
   return {
     state_counts: stateCounts,
+    state_counts_parents: stateCountsParents,
     active_agents: allAgents,
     total_cost_usd: totalCost,
     cards_completed_today: completedToday,
+    cards_completed_today_parents: completedTodayParents,
     cards_completed_last_7d: completedLast7d,
+    cards_completed_last_7d_parents: completedLast7dParents,
     cards_completed_prior_7d: completedPrior7d,
+    cards_completed_prior_7d_parents: completedPrior7dParents,
     metric_series: {
       active_agents: [],
       in_flight: [],
       stalled: [],
       shipped: [],
+      in_flight_parents: [],
+      stalled_parents: [],
+      shipped_parents: [],
     },
     agent_costs: Array.from(agentCostMap.values()),
     model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
   };
-}
-
-export function openTaskCount(counts: Record<string, number>): number {
-  let sum = 0;
-  for (const [state, count] of Object.entries(counts)) {
-    if (state === 'done' || state === 'stalled' || state === 'not_planned') continue;
-    sum += count;
-  }
-  return sum;
 }
 
 export function totalCardCount(counts: Record<string, number>): number {

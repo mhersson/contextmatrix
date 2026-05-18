@@ -245,15 +245,22 @@ export interface MetricSeries {
   in_flight: number[];
   stalled: number[];
   shipped: number[];
+  in_flight_parents: number[];
+  stalled_parents: number[];
+  shipped_parents: number[];
 }
 
 export interface DashboardData {
   state_counts: Record<string, number>;
+  state_counts_parents: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
   cards_completed_today: number;
+  cards_completed_today_parents: number;
   cards_completed_last_7d: number;
+  cards_completed_last_7d_parents: number;
   cards_completed_prior_7d: number;
+  cards_completed_prior_7d_parents: number;
   metric_series: MetricSeries;
   agent_costs: AgentCost[];
   model_costs: ModelCost[];

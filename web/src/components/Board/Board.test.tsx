@@ -336,3 +336,140 @@ describe('Board — mobile NowRail drawer', () => {
     expect(container.querySelector('.now-rail-backdrop')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board — MetricsRibbon headline fallback during initial mount
+// ---------------------------------------------------------------------------
+
+describe('Board — MetricsRibbon inFlight fallback', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('passes cards-derived inFlight count to MetricsRibbon when stateCounts is undefined', () => {
+    // Simulate initial mount: stateCounts not yet available, but cards are loaded.
+    // Before the fix, inFlightTotal was undefined so inFlightParents fell back to 0.
+    // After the fix, inFlightTotal falls back to cards.filter count (3 here).
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const inProgressConfig: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done'],
+      transitions: {
+        todo: ['in_progress'],
+        in_progress: ['review'],
+        review: ['done'],
+        done: [],
+      },
+    };
+    const makeCard = (id: string, state: string): Card => ({
+      id,
+      title: `Card ${id}`,
+      project: 'test-project',
+      type: 'task',
+      state,
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    });
+    const cards = [
+      makeCard('TEST-001', 'in_progress'),
+      makeCard('TEST-002', 'in_progress'),
+      makeCard('TEST-003', 'in_progress'),
+      makeCard('TEST-004', 'todo'),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={inProgressConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        // stateCounts and stateCountsParents deliberately omitted (undefined)
+        // to simulate the dashboard fetch still in flight.
+      />
+    );
+    // The "In flight" tile should show 3 (cards-derived), not 0.
+    const inFlightTile = screen.getByText('In flight').closest('.metric-tile');
+    expect(inFlightTile).not.toBeNull();
+    const numSpan = inFlightTile!.querySelector('.metric-tile__num');
+    expect(numSpan?.textContent).toBe('3');
+  });
+
+  it('derives openCount and inReviewCount from stateCounts when present (stalled stays open)', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const config: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done', 'stalled', 'not_planned'],
+      transitions: { todo: [], in_progress: [], review: [], done: [], stalled: [], not_planned: [] },
+    };
+    render(
+      <Board
+        cards={[]}
+        config={config}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={5}
+        activityEntries={[]}
+        currentAgent={null}
+        stateCounts={{ todo: 4, in_progress: 3, review: 2, stalled: 1, done: 7, not_planned: 2 }}
+      />,
+    );
+    // BoardBand renders "{openCount} open · {inReviewCount} in review · {shippedToday} shipped today".
+    // openCount = todo + in_progress + review + stalled = 4 + 3 + 2 + 1 = 10
+    // inReviewCount = review = 2
+    expect(screen.getByText(/10 open · 2 in review · 5 shipped today/)).toBeInTheDocument();
+  });
+
+  it('derives openCount and inReviewCount from cards when stateCounts is undefined', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const config: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done', 'stalled'],
+      transitions: { todo: [], in_progress: [], review: [], done: [], stalled: [] },
+    };
+    const makeCard = (id: string, state: string): Card => ({
+      id,
+      title: id,
+      project: 'test-project',
+      type: 'task',
+      state,
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    });
+    const cards = [
+      makeCard('A1', 'todo'),
+      makeCard('A2', 'in_progress'),
+      makeCard('A3', 'review'),
+      makeCard('A4', 'review'),
+      makeCard('A5', 'stalled'),
+      makeCard('A6', 'done'),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={config}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+    // openCount fallback excludes done/not_planned; stalled stays open. = 1+1+2+1 = 5
+    // inReviewCount fallback = 2
+    expect(screen.getByText(/5 open · 2 in review · 0 shipped today/)).toBeInTheDocument();
+  });
+});
