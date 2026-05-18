@@ -13,6 +13,7 @@ interface NowRailProps {
   agents: ActiveAgent[];
   activityEntries: ActivityEntry[];
   maxAgents?: number;
+  runningContainers?: number;
   hasBackfill?: boolean;
   className?: string;
 }
@@ -97,12 +98,16 @@ function relativeTime(iso: string): string {
  * Live agent list + capacity meter + activity feed. Phase 2 wired:
  * `maxAgents` shows the capacity section; `hasBackfill` switches the
  * activity label once the one-shot /activity backfill has loaded.
+ * The Capacity meter shows `runningContainers / maxAgents` (runner-container
+ * counts), not agent counts — the "Now · agents" section is the canonical
+ * place for active-agent display.
  */
 const ACTIVITY_MAX = 8;
 
-export function NowRail({ agents, activityEntries, maxAgents, hasBackfill, className }: NowRailProps) {
+export function NowRail({ agents, activityEntries, maxAgents, runningContainers, hasBackfill, className }: NowRailProps) {
   const hasMax = maxAgents !== undefined && maxAgents > 0;
-  const capacityPct = hasMax ? Math.min(100, Math.round((agents.length / maxAgents!) * 100)) : 0;
+  const containerCount = runningContainers ?? 0;
+  const capacityPct = hasMax ? Math.min(100, Math.round((containerCount / maxAgents!) * 100)) : 0;
   const agentsCount = hasMax ? `${agents.length} / ${maxAgents}` : `${agents.length}`;
   const visibleActivity = activityEntries.slice(0, ACTIVITY_MAX);
 
@@ -138,7 +143,7 @@ export function NowRail({ agents, activityEntries, maxAgents, hasBackfill, class
       <div className="now-rail__section">
         <div className="now-rail__head">
           <span className="label">Capacity</span>
-          <span className="count">{agents.length} running</span>
+          <span className="count">{containerCount} running</span>
         </div>
         {hasMax ? (
           <>
@@ -146,13 +151,13 @@ export function NowRail({ agents, activityEntries, maxAgents, hasBackfill, class
               <div className="cap-fill" style={{ width: `${capacityPct}%` }} />
             </div>
             <div className="cap-meta">
-              <span>{agents.length} / {maxAgents} agents</span>
+              <span>{containerCount} / {maxAgents} containers</span>
               <span>{capacityPct}%</span>
             </div>
           </>
         ) : (
           <div className="cap-meta">
-            <span>{agents.length} active · no cap set</span>
+            <span>{containerCount} active · no cap set</span>
             <span>—</span>
           </div>
         )}

@@ -78,6 +78,7 @@ export function ProjectShell() {
   const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
   const [backfillLoaded, setBackfillLoaded] = useState(false);
   const [runnerMaxAgents, setRunnerMaxAgents] = useState<number | undefined>(undefined);
+  const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
   const bus = useSSEBus();
 
   // In-render reset on project change. This pattern (a `prev*` state marker
@@ -93,14 +94,29 @@ export function ProjectShell() {
     setBackfillLoaded(false);
   }
 
-  // Fetch the runner's global max_concurrent from /api/runner/health.
-  // Runner disabled or unreachable → leave undefined (NowRail degrades).
+  // Poll /api/runner/health every 30 s to keep running_containers and
+  // max_concurrent current. On failure, leave previous values in place so
+  // a transient runner blip doesn't flicker the NowRail capacity meter.
   useEffect(() => {
     let cancelled = false;
-    api.getRunnerHealth()
-      .then((h) => { if (!cancelled) setRunnerMaxAgents(h.max_concurrent); })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const fetchRunnerHealth = () => {
+      api.getRunnerHealth()
+        .then((h) => {
+          if (!cancelled) {
+            setRunnerMaxAgents(h.max_concurrent);
+            setRunningContainers(h.running_containers);
+          }
+        })
+        .catch(() => {
+          // Non-fatal: keep previous values on failure.
+        });
+    };
+    fetchRunnerHealth();
+    const interval = setInterval(fetchRunnerHealth, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   // Fetch dashboard data for the board route (board reads active_agents +
@@ -358,6 +374,7 @@ export function ProjectShell() {
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}
+                      runningContainers={runningContainers}
                       lastSyncLabel={syncLabel}
                       activityEntries={liveActivity}
                       activityBackfillLoaded={backfillLoaded}

@@ -65,6 +65,7 @@ interface BoardProps {
   cardsCompletedPrior7d?: number;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
+  runningContainers?: number;
   lastSyncLabel: string;
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
@@ -87,6 +88,7 @@ export function Board({
   cardsCompletedPrior7d,
   metricSeries,
   runnerMaxAgents,
+  runningContainers,
   lastSyncLabel,
   activityEntries,
   activityBackfillLoaded,
@@ -313,6 +315,7 @@ export function Board({
               agents={activeAgents}
               activityEntries={activityEntries}
               maxAgents={runnerMaxAgents}
+              runningContainers={runningContainers}
               hasBackfill={activityBackfillLoaded}
               className={isMobile ? 'animate-panel-slide-in' : undefined}
             />

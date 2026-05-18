@@ -39,17 +39,26 @@ describe('NowRail', () => {
     expect(screen.getByText('haiku-4.5')).toBeInTheDocument();
   });
 
-  it('renders capacity X / max when maxAgents is provided', () => {
-    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} />);
-    // "2 / 8" appears in both the agents header and the capacity meta strip.
-    expect(screen.getAllByText(/2 \/ 8/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/25%/)).toBeInTheDocument();
+  it('renders capacity X / max containers when maxAgents and runningContainers are provided', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
+    // Capacity meta strip shows container count, not agent count.
+    expect(screen.getByText(/3 \/ 8 containers/)).toBeInTheDocument();
+    // 3/8 = 37.5 → rounds to 38%
+    expect(screen.getByText(/38%/)).toBeInTheDocument();
+  });
+
+  it('renders capacity head-row with runningContainers count independent of agents length', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
+    // Head-row shows "3 running" (runningContainers), not "2 running" (agents.length).
+    expect(screen.getByText('3 running')).toBeInTheDocument();
   });
 
   it('renders capacity section in degraded form when maxAgents is absent', () => {
-    render(<NowRail agents={agents} activityEntries={[]} />);
+    render(<NowRail agents={agents} activityEntries={[]} runningContainers={2} />);
     expect(screen.getByText('Capacity')).toBeInTheDocument();
     expect(screen.getByText(/no cap set/i)).toBeInTheDocument();
+    // Fallback uses container count, not agents.length-based copy.
+    expect(screen.getByText(/2 active · no cap set/i)).toBeInTheDocument();
   });
 
   it('caps the activity feed at 8 entries', () => {
