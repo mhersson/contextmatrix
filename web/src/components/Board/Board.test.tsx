@@ -404,7 +404,7 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
     expect(numSpan?.textContent).toBe('3');
   });
 
-  it('derives openCount and inReviewCount from stateCounts when present (stalled stays open)', () => {
+  it('derives openCount and inReviewCount from stateCountsParents when present (stalled stays open)', () => {
     mockMatchMediaTrueFor('(min-width: 99999px)');
     const config: ProjectConfig = {
       ...baseConfig,
@@ -418,32 +418,36 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
         loading={false}
         error={null}
         activeAgents={[]}
-        cardsCompletedToday={5}
+        cardsCompletedToday={9}
+        cardsCompletedTodayParents={5}
         activityEntries={[]}
         currentAgent={null}
         stateCounts={{ todo: 4, in_progress: 3, review: 2, stalled: 1, done: 7, not_planned: 2 }}
+        stateCountsParents={{ todo: 2, in_progress: 2, review: 1, stalled: 1, done: 4, not_planned: 1 }}
       />,
     );
     // BoardBand renders "{openCount} open · {inReviewCount} in review · {shippedToday} shipped today".
-    // openCount = todo + in_progress + review + stalled = 4 + 3 + 2 + 1 = 10
-    // inReviewCount = review = 2
-    expect(screen.getByText(/10 open · 2 in review · 5 shipped today/)).toBeInTheDocument();
+    // openCount uses stateCountsParents: 2 + 2 + 1 + 1 = 6 (excludes done + not_planned).
+    // inReviewCount uses stateCountsParents['review'] = 1.
+    // shippedToday uses cardsCompletedTodayParents = 5.
+    expect(screen.getByText(/6 open · 1 in review · 5 shipped today/)).toBeInTheDocument();
   });
 
-  it('derives openCount and inReviewCount from cards when stateCounts is undefined', () => {
+  it('derives openCount and inReviewCount from cards (parents only) when stateCountsParents is undefined', () => {
     mockMatchMediaTrueFor('(min-width: 99999px)');
     const config: ProjectConfig = {
       ...baseConfig,
       states: ['todo', 'in_progress', 'review', 'done', 'stalled'],
       transitions: { todo: [], in_progress: [], review: [], done: [], stalled: [] },
     };
-    const makeCard = (id: string, state: string): Card => ({
+    const makeCard = (id: string, state: string, parent?: string): Card => ({
       id,
       title: id,
       project: 'test-project',
-      type: 'task',
+      type: parent ? 'subtask' : 'task',
       state,
       priority: 'medium',
+      parent,
       created: '2026-01-01T00:00:00Z',
       updated: '2026-01-01T00:00:00Z',
       body: '',
@@ -455,6 +459,9 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
       makeCard('A4', 'review'),
       makeCard('A5', 'stalled'),
       makeCard('A6', 'done'),
+      // Subtasks below — should be excluded from open / in review counts.
+      makeCard('A7', 'todo', 'A1'),
+      makeCard('A8', 'review', 'A1'),
     ];
     render(
       <Board
@@ -468,8 +475,40 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
         currentAgent={null}
       />,
     );
-    // openCount fallback excludes done/not_planned; stalled stays open. = 1+1+2+1 = 5
-    // inReviewCount fallback = 2
+    // openCount fallback excludes done/not_planned + subtasks. = 1+1+2+1 = 5
+    // inReviewCount fallback = 2 (subtask A8 excluded)
     expect(screen.getByText(/5 open · 2 in review · 0 shipped today/)).toBeInTheDocument();
+  });
+
+  it('uses parent-only shippedLast7d in BoardBand subheader', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const { container } = render(
+      <Board
+        cards={[]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={20}
+        cardsCompletedTodayParents={4}
+        cardsCompletedLast7d={50}
+        cardsCompletedLast7dParents={12}
+        cardsCompletedPrior7d={40}
+        cardsCompletedPrior7dParents={10}
+        stateCounts={{ todo: 0, done: 0 }}
+        stateCountsParents={{ todo: 0, done: 0 }}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+    // BoardBand subheader carries parent-only numbers.
+    // shippedToday = cardsCompletedTodayParents = 4.
+    // shippedLast7d = cardsCompletedLast7dParents = 12.
+    expect(screen.getByText(/4 shipped today/)).toBeInTheDocument();
+    expect(screen.getByText(/12 shipped this week/)).toBeInTheDocument();
+    // The delta is rendered both in BoardBand (parent-only baseline) and in
+    // MetricsRibbon; scope to the BoardBand subheader to assert the +20% origin.
+    const band = container.querySelector('.board-band__sub');
+    expect(band?.textContent).toMatch(/\+20%/);
   });
 });

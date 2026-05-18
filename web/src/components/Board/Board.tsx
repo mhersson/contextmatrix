@@ -243,8 +243,6 @@ export function Board({
   //   - inFlight/stalled: total falls back to cards-derived count so the headline
   //     is populated during initial mount; *Subtasks is undefined when stateCountsParents
   //     is missing (suffix suppressed until parent data arrives).
-  //   - openCount: total falls back to cards.filter() (never mixes cardsByState lengths
-  //     with unfiltered cards.length).
   //   - shippedToday: total is provided by the caller; *Subtasks is undefined when
   //     cardsCompletedTodayParents is missing.
   //   - shipped7d: total and *Subtasks are both undefined when cardsCompletedLast7d/
@@ -260,22 +258,23 @@ export function Board({
     ? (stateCounts['stalled'] ?? 0)
     : cards.filter((c) => c.state === 'stalled').length;
 
-  // openCount + inReviewCount: prefer stateCounts when available to avoid mixing
-  // unfiltered cards.length with filtered cardsByState lengths; fall back to
-  // cards.filter() (not cardsByState). openCount keeps the pre-PR semantics —
-  // stalled counts as open (only done/not_planned are excluded).
-  const openCount = stateCounts
-    ? Object.entries(stateCounts).reduce(
+  // openCount + inReviewCount: BoardBand subheader counts delivery units only
+  // (parents + standalone cards), so subtasks do not inflate the rolling
+  // headline. Prefer server-side stateCountsParents; fall back to filtering
+  // cards by !parent. openCount keeps the pre-PR semantics — stalled counts
+  // as open (only done/not_planned are excluded).
+  const openCount = stateCountsParents !== undefined
+    ? Object.entries(stateCountsParents).reduce(
         (sum, [state, n]) =>
           state === 'done' || state === 'not_planned' ? sum : sum + n,
         0,
       )
     : cards.filter(
-        (c) => c.state !== 'done' && c.state !== 'not_planned',
+        (c) => !c.parent && c.state !== 'done' && c.state !== 'not_planned',
       ).length;
-  const inReviewCount = stateCounts
-    ? stateCounts['review'] ?? 0
-    : cards.filter((c) => c.state === 'review').length;
+  const inReviewCount = stateCountsParents !== undefined
+    ? stateCountsParents['review'] ?? 0
+    : cards.filter((c) => !c.parent && c.state === 'review').length;
 
   // Parent-only headline counts for MetricsRibbon. Fall back to totals when
   // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
@@ -309,6 +308,8 @@ export function Board({
     ? cardsCompletedLast7d - shippedLast7dParents
     : undefined;
 
+  const shippedPrior7dParents = cardsCompletedPrior7dParents ?? cardsCompletedPrior7d;
+
   return (
     <div className="flex flex-col h-full overflow-y-auto md:overflow-hidden">
       <BoardBand
@@ -317,9 +318,9 @@ export function Board({
         activeAgents={activeAgents.length}
         openCount={openCount}
         inReviewCount={inReviewCount}
-        shippedToday={cardsCompletedToday}
-        shippedLast7d={cardsCompletedLast7d}
-        shippedPrior7d={cardsCompletedPrior7d}
+        shippedToday={shippedTodayParents}
+        shippedLast7d={shippedLast7dParents}
+        shippedPrior7d={shippedPrior7dParents}
         onCreateCard={() => onCreateCard?.(config.states[0])}
       />
 
@@ -333,7 +334,7 @@ export function Board({
         shippedTodaySubtasks={shippedTodaySubtasks}
         shipped7d={shippedLast7dParents}
         shipped7dSubtasks={shipped7dSubtasks}
-        shipped7dPrior={cardsCompletedPrior7dParents ?? cardsCompletedPrior7d}
+        shipped7dPrior={shippedPrior7dParents}
         activeAgentsSeries={metricSeries?.active_agents}
         inFlightSeries={metricSeries?.in_flight_parents}
         stalledSeries={metricSeries?.stalled_parents}

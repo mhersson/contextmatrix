@@ -15,7 +15,7 @@ interface MetricsRibbonProps {
   shippedSeries?: number[];
 }
 
-function SubCount({ n }: { n?: number }) {
+export function SubCount({ n }: { n?: number }) {
   if (n === undefined || n <= 0) return null;
   return <span className="metric-tile__sub">+{n} sub</span>;
 }

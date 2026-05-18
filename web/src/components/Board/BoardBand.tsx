@@ -14,6 +14,10 @@ interface BoardBandProps {
  * Header band for the project board. Editorial-engineering style: mono
  * crumb, Fraunces hero title, sub-line with rolling stats, +New Card
  * primary action. Hairline aqua tick fades under the title.
+ *
+ * Subheader stats count delivery units only (cards where `!parent`);
+ * subtasks are excluded so decomposition does not inflate the rolling
+ * headline. The caller passes parent-only counts.
  */
 export function BoardBand({
   projectName,
