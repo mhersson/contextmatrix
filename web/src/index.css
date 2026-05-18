@@ -2339,6 +2339,12 @@ input, select, textarea {
 }
 .metric-tile__delta--up { color: var(--green); }
 .metric-tile__delta--down { color: var(--red); }
+.metric-tile__sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+  margin-left: 4px;
+}
 .spark {
   display: block;
   width: 80px;

@@ -1,9 +1,13 @@
 interface MetricsRibbonProps {
   activeAgents: number;
   inFlight: number;
+  inFlightSubtasks?: number;
   stalled: number;
+  stalledSubtasks?: number;
   shippedToday: number;
+  shippedTodaySubtasks?: number;
   shipped7d?: number;
+  shipped7dSubtasks?: number;
   shipped7dPrior?: number;
   activeAgentsSeries?: number[];
   inFlightSeries?: number[];
@@ -32,18 +36,23 @@ function Sparkline({ values, color }: { values?: number[]; color: string }) {
 }
 
 /**
- * Metric tiles surfaced from DashboardData fields. The 7d tile is shown only
- * when both shipped7d and shipped7dPrior are provided (Phase 2 backend
- * additions); the delta renders +X% / -X% colored green/red. Sparklines
- * mirror the playground 7-day series; the shipped series is accurate while
- * the other three are best-effort approximations (see service_dashboard.go).
+ * Metric tiles surfaced from DashboardData fields. Headlines and sparklines
+ * consume parent-only counts so subtasks do not inflate the headline numbers.
+ * When subtasks exist (total − parents > 0), a muted "+N sub" suffix is shown
+ * next to the headline. The 7d tile is shown only when shipped7d is provided;
+ * the delta renders +X% / -X% colored green/red using parent-only prior values.
+ * Active agents tile is unchanged.
  */
 export function MetricsRibbon({
   activeAgents,
   inFlight,
+  inFlightSubtasks,
   stalled,
+  stalledSubtasks,
   shippedToday,
+  shippedTodaySubtasks,
   shipped7d,
+  shipped7dSubtasks,
   shipped7dPrior,
   activeAgentsSeries,
   inFlightSeries,
@@ -68,6 +77,9 @@ export function MetricsRibbon({
         <span className="metric-tile__label">In flight</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{inFlight}</span>
+          {inFlightSubtasks !== undefined && inFlightSubtasks > 0 && (
+            <span className="metric-tile__sub">+{inFlightSubtasks} sub</span>
+          )}
         </span>
         <Sparkline values={inFlightSeries} color="var(--blue)" />
       </div>
@@ -75,6 +87,9 @@ export function MetricsRibbon({
         <span className="metric-tile__label">Stalled</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{stalled}</span>
+          {stalledSubtasks !== undefined && stalledSubtasks > 0 && (
+            <span className="metric-tile__sub">+{stalledSubtasks} sub</span>
+          )}
         </span>
         <Sparkline values={stalledSeries} color="var(--red)" />
       </div>
@@ -88,6 +103,9 @@ export function MetricsRibbon({
         <span className="metric-tile__label">Shipped today</span>
         <span className="metric-tile__value">
           <span className="metric-tile__num">{shippedToday}</span>
+          {shippedTodaySubtasks !== undefined && shippedTodaySubtasks > 0 && (
+            <span className="metric-tile__sub">+{shippedTodaySubtasks} sub</span>
+          )}
         </span>
       </div>
       {showShipped7d && (
@@ -95,6 +113,9 @@ export function MetricsRibbon({
           <span className="metric-tile__label">Shipped · 7d</span>
           <span className="metric-tile__value">
             <span className="metric-tile__num">{shipped7d}</span>
+            {shipped7dSubtasks !== undefined && shipped7dSubtasks > 0 && (
+              <span className="metric-tile__sub">+{shipped7dSubtasks} sub</span>
+            )}
             {hasDelta && (
               <span className={`metric-tile__delta ${deltaUp ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}>
                 {deltaUp ? '+' : ''}{deltaPct}%

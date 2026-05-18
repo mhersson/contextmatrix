@@ -383,8 +383,12 @@ export function ProjectShell() {
                       cards={cards} config={config} loading={loading} error={error}
                       activeAgents={dashboard?.active_agents ?? []}
                       cardsCompletedToday={dashboard?.cards_completed_today ?? 0}
+                      cardsCompletedTodayParents={dashboard?.cards_completed_today_parents}
                       cardsCompletedLast7d={dashboard?.cards_completed_last_7d}
+                      cardsCompletedLast7dParents={dashboard?.cards_completed_last_7d_parents}
                       cardsCompletedPrior7d={dashboard?.cards_completed_prior_7d}
+                      cardsCompletedPrior7dParents={dashboard?.cards_completed_prior_7d_parents}
+                      stateCountsParents={dashboard?.state_counts_parents}
                       metricSeries={dashboard?.metric_series}
                       runnerMaxAgents={runnerMaxAgents}
                       runningContainers={runningContainers}

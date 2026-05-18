@@ -61,8 +61,12 @@ interface BoardProps {
   error: string | null;
   activeAgents: ActiveAgent[];
   cardsCompletedToday: number;
+  cardsCompletedTodayParents?: number;
   cardsCompletedLast7d?: number;
+  cardsCompletedLast7dParents?: number;
   cardsCompletedPrior7d?: number;
+  cardsCompletedPrior7dParents?: number;
+  stateCountsParents?: Record<string, number>;
   metricSeries?: MetricSeries;
   runnerMaxAgents?: number;
   runningContainers?: number;
@@ -86,8 +90,12 @@ export function Board({
   error,
   activeAgents,
   cardsCompletedToday,
+  cardsCompletedTodayParents,
   cardsCompletedLast7d,
+  cardsCompletedLast7dParents,
   cardsCompletedPrior7d,
+  cardsCompletedPrior7dParents,
+  stateCountsParents,
   metricSeries,
   runnerMaxAgents,
   runningContainers,
@@ -229,9 +237,28 @@ export function Board({
     );
   }
 
-  const inFlight = (cardsByState['in_progress']?.length ?? 0) + (cardsByState['review']?.length ?? 0);
-  const stalledCount = cardsByState['stalled']?.length ?? cards.filter((c) => c.state === 'stalled').length;
+  const inFlightTotal = (cardsByState['in_progress']?.length ?? 0) + (cardsByState['review']?.length ?? 0);
+  const stalledTotal = cardsByState['stalled']?.length ?? cards.filter((c) => c.state === 'stalled').length;
   const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
+
+  // Parent-only headline counts for MetricsRibbon. Fall back to totals when
+  // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
+  const inFlightParents = stateCountsParents !== undefined
+    ? (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0)
+    : inFlightTotal;
+  const stalledParents = stateCountsParents !== undefined
+    ? (stateCountsParents['stalled'] ?? 0)
+    : stalledTotal;
+  const inFlightSubtasks = inFlightTotal - inFlightParents;
+  const stalledSubtasks = stalledTotal - stalledParents;
+
+  const shippedTodayParents = cardsCompletedTodayParents ?? cardsCompletedToday;
+  const shippedTodaySubtasks = cardsCompletedToday - shippedTodayParents;
+
+  const shippedLast7dParents = cardsCompletedLast7dParents ?? cardsCompletedLast7d;
+  const shipped7dSubtasks = cardsCompletedLast7d !== undefined && shippedLast7dParents !== undefined
+    ? cardsCompletedLast7d - shippedLast7dParents
+    : undefined;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto md:overflow-hidden">
@@ -249,15 +276,19 @@ export function Board({
 
       <MetricsRibbon
         activeAgents={activeAgents.length}
-        inFlight={inFlight}
-        stalled={stalledCount}
-        shippedToday={cardsCompletedToday}
-        shipped7d={cardsCompletedLast7d}
-        shipped7dPrior={cardsCompletedPrior7d}
+        inFlight={inFlightParents}
+        inFlightSubtasks={inFlightSubtasks}
+        stalled={stalledParents}
+        stalledSubtasks={stalledSubtasks}
+        shippedToday={shippedTodayParents}
+        shippedTodaySubtasks={shippedTodaySubtasks}
+        shipped7d={shippedLast7dParents}
+        shipped7dSubtasks={shipped7dSubtasks}
+        shipped7dPrior={cardsCompletedPrior7dParents ?? cardsCompletedPrior7d}
         activeAgentsSeries={metricSeries?.active_agents}
-        inFlightSeries={metricSeries?.in_flight}
-        stalledSeries={metricSeries?.stalled}
-        shippedSeries={metricSeries?.shipped}
+        inFlightSeries={metricSeries?.in_flight_parents}
+        stalledSeries={metricSeries?.stalled_parents}
+        shippedSeries={metricSeries?.shipped_parents}
       />
 
       <SpotlightStrip
