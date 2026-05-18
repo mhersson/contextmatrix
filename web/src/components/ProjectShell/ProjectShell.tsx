@@ -342,7 +342,6 @@ export function ProjectShell() {
       () => [
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
-        { key: 'd', handler: () => { if (!panelOpen) navigate(`/projects/${project}/dashboard`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
         { key: 'k', handler: () => { if (!panelOpen) navigate(`/projects/${project}/knowledge`); } },
         { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) setConsoleOpen((prev) => !prev); } },
