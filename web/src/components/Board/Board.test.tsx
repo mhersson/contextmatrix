@@ -403,4 +403,73 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
     const numSpan = inFlightTile!.querySelector('.metric-tile__num');
     expect(numSpan?.textContent).toBe('3');
   });
+
+  it('derives openCount and inReviewCount from stateCounts when present (stalled stays open)', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const config: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done', 'stalled', 'not_planned'],
+      transitions: { todo: [], in_progress: [], review: [], done: [], stalled: [], not_planned: [] },
+    };
+    render(
+      <Board
+        cards={[]}
+        config={config}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={5}
+        activityEntries={[]}
+        currentAgent={null}
+        stateCounts={{ todo: 4, in_progress: 3, review: 2, stalled: 1, done: 7, not_planned: 2 }}
+      />,
+    );
+    // BoardBand renders "{openCount} open · {inReviewCount} in review · {shippedToday} shipped today".
+    // openCount = todo + in_progress + review + stalled = 4 + 3 + 2 + 1 = 10
+    // inReviewCount = review = 2
+    expect(screen.getByText(/10 open · 2 in review · 5 shipped today/)).toBeInTheDocument();
+  });
+
+  it('derives openCount and inReviewCount from cards when stateCounts is undefined', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const config: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done', 'stalled'],
+      transitions: { todo: [], in_progress: [], review: [], done: [], stalled: [] },
+    };
+    const makeCard = (id: string, state: string): Card => ({
+      id,
+      title: id,
+      project: 'test-project',
+      type: 'task',
+      state,
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    });
+    const cards = [
+      makeCard('A1', 'todo'),
+      makeCard('A2', 'in_progress'),
+      makeCard('A3', 'review'),
+      makeCard('A4', 'review'),
+      makeCard('A5', 'stalled'),
+      makeCard('A6', 'done'),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={config}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+    // openCount fallback excludes done/not_planned; stalled stays open. = 1+1+2+1 = 5
+    // inReviewCount fallback = 2
+    expect(screen.getByText(/5 open · 2 in review · 0 shipped today/)).toBeInTheDocument();
+  });
 });

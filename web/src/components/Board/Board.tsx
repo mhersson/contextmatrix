@@ -260,22 +260,22 @@ export function Board({
     ? (stateCounts['stalled'] ?? 0)
     : cards.filter((c) => c.state === 'stalled').length;
 
-  // openCount: prefer stateCounts when available to avoid mixing unfiltered cards.length
-  // with filtered cardsByState lengths; fall back to cards.filter() (not cardsByState).
+  // openCount + inReviewCount: prefer stateCounts when available to avoid mixing
+  // unfiltered cards.length with filtered cardsByState lengths; fall back to
+  // cards.filter() (not cardsByState). openCount keeps the pre-PR semantics —
+  // stalled counts as open (only done/not_planned are excluded).
   const openCount = stateCounts
     ? Object.entries(stateCounts).reduce(
         (sum, [state, n]) =>
-          state === 'done' || state === 'not_planned' || state === 'stalled'
-            ? sum
-            : sum + n,
+          state === 'done' || state === 'not_planned' ? sum : sum + n,
         0,
       )
     : cards.filter(
-        (c) =>
-          c.state !== 'done' &&
-          c.state !== 'not_planned' &&
-          c.state !== 'stalled',
+        (c) => c.state !== 'done' && c.state !== 'not_planned',
       ).length;
+  const inReviewCount = stateCounts
+    ? stateCounts['review'] ?? 0
+    : cards.filter((c) => c.state === 'review').length;
 
   // Parent-only headline counts for MetricsRibbon. Fall back to totals when
   // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
@@ -316,7 +316,7 @@ export function Board({
         displayName={config.display_name}
         activeAgents={activeAgents.length}
         openCount={openCount}
-        inReviewCount={cardsByState['review']?.length ?? 0}
+        inReviewCount={inReviewCount}
         shippedToday={cardsCompletedToday}
         shippedLast7d={cardsCompletedLast7d}
         shippedPrior7d={cardsCompletedPrior7d}
