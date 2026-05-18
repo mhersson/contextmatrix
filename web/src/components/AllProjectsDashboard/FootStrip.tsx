@@ -1,5 +1,6 @@
 import type { SyncStatus } from '../../types';
 import { formatRelativeTime } from '../CardPanel/utils';
+import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 
 interface FootStripProps {
   version: string | null;
@@ -45,7 +46,7 @@ export function FootStrip({ version, syncStatus }: FootStripProps) {
       <div className="flex items-center gap-4 flex-wrap">
         <span>
           <span style={{ color: 'var(--grey2)', fontWeight: 500 }}>ContextMatrix</span>{' '}
-          {version ? `v${version}` : 'dev'}
+          {version ? `v${formatVersionWithLocalTime(version)}` : 'dev'}
         </span>
       </div>
       <div className="flex items-center gap-4 flex-wrap">
