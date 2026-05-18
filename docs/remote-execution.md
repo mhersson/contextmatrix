@@ -897,8 +897,9 @@ ContextMatrix retries failed webhooks with exponential backoff:
 2. Pulls Docker image (base image or per-project override from `runner_image`)
 3. Starts container with:
    - Claude Code CLI pre-installed
-   - Secrets delivered via tmpfs bind-mount at `/run/cm-secrets/env` (not plain
-     environment variables) — the entrypoint sources this file at startup
+   - Secrets delivered via a read-only directory bind-mount at
+     `/run/cm-secrets/` — the entrypoint sources `/run/cm-secrets/env` at
+     startup; credential helpers re-source it on every invocation
    - `--allowed-tools` with an explicit tool allowlist replaces
      `--dangerously-skip-permissions`. Two allowlist arrays are defined:
      - `ALLOWED_TOOLS_COMMON` — used for both HITL and autonomous runs
@@ -976,6 +977,28 @@ outside of tests — the event path is best-effort (events.Bus drops events on
 subscriber buffer overflow, and events published during CM restart are never
 delivered), so without the sweep a single dropped event can leak a container for
 the full `container_timeout` window.
+
+### GitHub Token Refresh
+
+The runner mints a GitHub App installation token at startup and writes it
+(together with the Claude credentials) to `$SecretsDir/shared/env` on the
+host. Every worker bind-mounts that directory read-only at `/run/cm-secrets/`.
+A singleton goroutine in the runner rewrites the file atomically
+(`rename(env.tmp, env)`) before the installation token's `expires_at`, with a
+10-minute safety buffer.
+
+The worker's git credential helper and a small `gh` wrapper at
+`$HOME/.local/bin/gh` re-source `/run/cm-secrets/env` on every invocation, so
+any `git` or `gh` call that starts after the rewrite sees the fresh token
+without the worker needing to restart. The mount is a **directory** bind-mount
+(not a file bind-mount) so the host-side atomic rename is immediately visible
+on the next path lookup inside the container.
+
+Card-scoped secrets (`CM_MCP_API_KEY`) ride in `Container.Env`; they do not
+rotate. In env-var fallback mode (`secrets_dir` unset, used by unit tests) the
+token is not refreshed — runs longer than the installation token's 1-hour TTL
+will fail at `git push`. Set `secrets_dir` for any long-running production
+setup.
 
 ## Worker Safety
 
