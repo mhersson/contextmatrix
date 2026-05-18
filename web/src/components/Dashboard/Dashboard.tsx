@@ -96,6 +96,7 @@ export function Dashboard({ project }: DashboardProps) {
         stateCounts={data.state_counts}
         totalCost={data.total_cost_usd}
         completedToday={data.cards_completed_today}
+        completedTodayParents={data.cards_completed_today_parents}
       />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ActiveAgentsFeed agents={data.active_agents} />

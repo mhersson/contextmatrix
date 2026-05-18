@@ -899,6 +899,13 @@ color: var(--grey1);` — mirrors `.metric-tile__delta`. Computed and wired in
 `Board.tsx` before being passed as `inFlightSubtasks`, `stalledSubtasks`,
 `shippedTodaySubtasks`, `shipped7dSubtasks` props.
 
+The `+N sub` glyph itself is rendered by the **`SubCount`** helper exported
+from `MetricsRibbon.tsx`. Other surfaces that need the muted-suffix idiom
+(e.g. `SummaryCards.tsx`) should import `SubCount` from there rather than
+duplicating the JSX or the `.metric-tile__sub` class wiring. The helper
+absorbs the guard (`n === undefined || n <= 0 → null`) so callers only need
+to compute the diff.
+
 **Active Agents** is intentionally NOT filtered — an agent on a subtask is real
 activity.
 
@@ -916,6 +923,31 @@ of the three tiles carries a `title` tooltip: "Counts delivery units (standalone
 tasks + parents). Subtasks are excluded."
 
 **Total cost** is intentionally NOT filtered — subtask cost is real money spent.
+
+### Board subheader BoardBand (`BoardBand.tsx`)
+
+The rolling stats line (`N agents live · N open · N in review · N shipped today
+· N shipped this week · ±N%`) is **strict parent-only**. `Board.tsx` derives
+`openCount` and `inReviewCount` from `state_counts_parents` (falling back to
+`cards.filter(c => !c.parent && …)` when parent counts have not loaded yet) and
+passes `cards_completed_*_parents` directly for the shipped figures. No `+N
+sub` suffix is rendered — the band is a glanceable headline, not a tile, so
+the decomposition is left to the MetricsRibbon underneath.
+
+### Project Dashboard SummaryCards (`SummaryCards.tsx`)
+
+The **Done Today** tile follows the MetricsRibbon pattern: the headline number
+is `cards_completed_today_parents` and a muted `+N sub` suffix is rendered when
+subtasks have completed today (`completedToday − completedTodayParents > 0`).
+The `+N sub` rendering reuses the `SubCount` helper exported from
+`MetricsRibbon.tsx` so the suffix logic and styling stay in one place.
+
+**Open Tasks** and **In Progress** continue to use `state_counts` (all cards)
+because the per-project SummaryCards predates the delivery-unit split; revisit
+if the inconsistency becomes a complaint. Note also that SummaryCards' "Open
+Tasks" excludes `stalled` (alongside `done` and `not_planned`), whereas
+BoardBand's `open` counts stalled cards as open — the two surfaces have always
+disagreed on this, the delivery-unit work did not change it.
 
 ## 404 / Not Found handling
 
