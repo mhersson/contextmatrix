@@ -239,34 +239,62 @@ export function Board({
     );
   }
 
-  // inFlightTotal / stalledTotal are derived from server-side stateCounts (unfiltered)
-  // so they agree with the parent-only stateCountsParents that come from the same source.
-  // Using filtered cardsByState would yield negative subtask counts under any active filter.
+  // MetricsRibbon fallback contracts when source data is partial:
+  //   - inFlight/stalled: total falls back to cards-derived count so the headline
+  //     is populated during initial mount; *Subtasks is undefined when stateCountsParents
+  //     is missing (suffix suppressed until parent data arrives).
+  //   - openCount: total falls back to cards.filter() (never mixes cardsByState lengths
+  //     with unfiltered cards.length).
+  //   - shippedToday: total is provided by the caller; *Subtasks is undefined when
+  //     cardsCompletedTodayParents is missing.
+  //   - shipped7d: total and *Subtasks are both undefined when cardsCompletedLast7d/
+  //     Parents are missing (the tile hides its delta+suffix entirely).
+
+  // inFlightTotal / stalledTotal: prefer server-side stateCounts (unfiltered, so they
+  // agree with stateCountsParents); fall back to a cards-derived count so the headline
+  // is populated during the initial mount before the dashboard fetch resolves.
   const inFlightTotal = stateCounts
     ? (stateCounts['in_progress'] ?? 0) + (stateCounts['review'] ?? 0)
-    : undefined;
+    : cards.filter((c) => c.state === 'in_progress' || c.state === 'review').length;
   const stalledTotal = stateCounts
     ? (stateCounts['stalled'] ?? 0)
-    : undefined;
-  const openCount = cards.length - (cardsByState['done']?.length ?? 0) - (cardsByState['not_planned']?.length ?? 0);
+    : cards.filter((c) => c.state === 'stalled').length;
+
+  // openCount: prefer stateCounts when available to avoid mixing unfiltered cards.length
+  // with filtered cardsByState lengths; fall back to cards.filter() (not cardsByState).
+  const openCount = stateCounts
+    ? Object.entries(stateCounts).reduce(
+        (sum, [state, n]) =>
+          state === 'done' || state === 'not_planned' || state === 'stalled'
+            ? sum
+            : sum + n,
+        0,
+      )
+    : cards.filter(
+        (c) =>
+          c.state !== 'done' &&
+          c.state !== 'not_planned' &&
+          c.state !== 'stalled',
+      ).length;
 
   // Parent-only headline counts for MetricsRibbon. Fall back to totals when
   // stateCountsParents is not yet available (e.g. dashboard not loaded yet).
   const inFlightParents = stateCountsParents !== undefined
     ? (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0)
-    : inFlightTotal ?? 0;
+    : inFlightTotal;
   const stalledParents = stateCountsParents !== undefined
     ? (stateCountsParents['stalled'] ?? 0)
-    : stalledTotal ?? 0;
+    : stalledTotal;
 
-  // Compute *Subtasks only when both the total and the parents value are available.
-  // Otherwise pass undefined — suppresses the muted "+N sub" suffix until data is ready.
+  // Compute *Subtasks only when stateCountsParents is available (inFlightTotal is
+  // always a number now). Otherwise pass undefined — suppresses the muted "+N sub"
+  // suffix until parent data is ready.
   const inFlightSubtasks =
-    inFlightTotal !== undefined && stateCountsParents !== undefined
+    stateCountsParents !== undefined
       ? inFlightTotal - inFlightParents
       : undefined;
   const stalledSubtasks =
-    stalledTotal !== undefined && stateCountsParents !== undefined
+    stateCountsParents !== undefined
       ? stalledTotal - stalledParents
       : undefined;
 

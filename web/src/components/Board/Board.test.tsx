@@ -336,3 +336,71 @@ describe('Board — mobile NowRail drawer', () => {
     expect(container.querySelector('.now-rail-backdrop')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board — MetricsRibbon headline fallback during initial mount
+// ---------------------------------------------------------------------------
+
+describe('Board — MetricsRibbon inFlight fallback', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('passes cards-derived inFlight count to MetricsRibbon when stateCounts is undefined', () => {
+    // Simulate initial mount: stateCounts not yet available, but cards are loaded.
+    // Before the fix, inFlightTotal was undefined so inFlightParents fell back to 0.
+    // After the fix, inFlightTotal falls back to cards.filter count (3 here).
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const inProgressConfig: ProjectConfig = {
+      ...baseConfig,
+      states: ['todo', 'in_progress', 'review', 'done'],
+      transitions: {
+        todo: ['in_progress'],
+        in_progress: ['review'],
+        review: ['done'],
+        done: [],
+      },
+    };
+    const makeCard = (id: string, state: string): Card => ({
+      id,
+      title: `Card ${id}`,
+      project: 'test-project',
+      type: 'task',
+      state,
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    });
+    const cards = [
+      makeCard('TEST-001', 'in_progress'),
+      makeCard('TEST-002', 'in_progress'),
+      makeCard('TEST-003', 'in_progress'),
+      makeCard('TEST-004', 'todo'),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={inProgressConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        // stateCounts and stateCountsParents deliberately omitted (undefined)
+        // to simulate the dashboard fetch still in flight.
+      />
+    );
+    // The "In flight" tile should show 3 (cards-derived), not 0.
+    const inFlightTile = screen.getByText('In flight').closest('.metric-tile');
+    expect(inFlightTile).not.toBeNull();
+    const numSpan = inFlightTile!.querySelector('.metric-tile__num');
+    expect(numSpan?.textContent).toBe('3');
+  });
+});
