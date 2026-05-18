@@ -183,6 +183,8 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
             inProgress={inProgress}
             doneToday={aggregated.cards_completed_today}
             totalCostUsd={aggregated.total_cost_usd}
+            stateCountsParents={aggregated.state_counts_parents}
+            doneTodayParents={aggregated.cards_completed_today_parents}
           />
         </div>
         <div className="apd-section-pad apd-grid-asym">

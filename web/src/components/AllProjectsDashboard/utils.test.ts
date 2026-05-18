@@ -5,11 +5,15 @@ import { aggregateDashboards } from './utils';
 function summary(overrides: Partial<DashboardData> = {}): DashboardData {
   return {
     state_counts: {},
+    state_counts_parents: {},
     active_agents: [],
     total_cost_usd: 0,
     cards_completed_today: 0,
+    cards_completed_today_parents: 0,
     cards_completed_last_7d: 0,
+    cards_completed_last_7d_parents: 0,
     cards_completed_prior_7d: 0,
+    cards_completed_prior_7d_parents: 0,
     metric_series: {
       active_agents: [],
       in_flight: [],
@@ -111,5 +115,88 @@ describe('aggregateDashboards model_costs fold', () => {
       ]),
     );
     expect(input.model_costs[0]).toEqual(snapshot);
+  });
+});
+
+describe('aggregateDashboards parent-only fields', () => {
+  it('sums state_counts_parents across projects', () => {
+    const a = summary({
+      state_counts: { todo: 10, in_progress: 3 },
+      state_counts_parents: { todo: 4, in_progress: 1 },
+      cards_completed_today: 2,
+      cards_completed_today_parents: 1,
+      cards_completed_last_7d: 8,
+      cards_completed_last_7d_parents: 3,
+      cards_completed_prior_7d: 12,
+      cards_completed_prior_7d_parents: 5,
+    });
+    const b = summary({
+      state_counts: { todo: 5, review: 2 },
+      state_counts_parents: { todo: 2, review: 1 },
+      cards_completed_today: 1,
+      cards_completed_today_parents: 0,
+      cards_completed_last_7d: 4,
+      cards_completed_last_7d_parents: 2,
+      cards_completed_prior_7d: 6,
+      cards_completed_prior_7d_parents: 2,
+    });
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    // Parent-only state counts summed correctly
+    expect(result.state_counts_parents['todo']).toBe(6);
+    expect(result.state_counts_parents['in_progress']).toBe(1);
+    expect(result.state_counts_parents['review']).toBe(1);
+
+    // Parent-only completion counters summed correctly
+    expect(result.cards_completed_today_parents).toBe(1);
+    expect(result.cards_completed_last_7d_parents).toBe(5);
+    expect(result.cards_completed_prior_7d_parents).toBe(7);
+  });
+
+  it('preserves all-cards aggregations alongside parent-only fields', () => {
+    const a = summary({
+      state_counts: { todo: 10, in_progress: 3 },
+      state_counts_parents: { todo: 4, in_progress: 1 },
+      cards_completed_today: 2,
+      cards_completed_today_parents: 1,
+    });
+    const b = summary({
+      state_counts: { todo: 5, review: 2 },
+      state_counts_parents: { todo: 2, review: 1 },
+      cards_completed_today: 1,
+      cards_completed_today_parents: 0,
+    });
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    // All-cards aggregations unchanged
+    expect(result.state_counts['todo']).toBe(15);
+    expect(result.state_counts['in_progress']).toBe(3);
+    expect(result.state_counts['review']).toBe(2);
+    expect(result.cards_completed_today).toBe(3);
+
+    // Parent-only totals are lower (subset)
+    expect(result.state_counts_parents['todo']).toBe(6);
+    expect(result.cards_completed_today_parents).toBe(1);
+  });
+
+  it('handles missing state_counts_parents gracefully (treats as empty)', () => {
+    // Old-format data that might not have the parents field
+    const a = summary({ state_counts: { todo: 5 } });
+    // Force the field to be missing to simulate old data
+    (a as Record<string, unknown>)['state_counts_parents'] = undefined;
+
+    const result = aggregateDashboards(new Map([['a', a]]));
+    expect(result.state_counts_parents).toEqual({});
+    expect(result.cards_completed_today_parents).toBe(0);
+  });
+
+  it('returns empty parent counts for empty input', () => {
+    const result = aggregateDashboards(new Map());
+    expect(result.state_counts_parents).toEqual({});
+    expect(result.cards_completed_today_parents).toBe(0);
+    expect(result.cards_completed_last_7d_parents).toBe(0);
+    expect(result.cards_completed_prior_7d_parents).toBe(0);
   });
 });
