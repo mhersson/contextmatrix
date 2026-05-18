@@ -132,7 +132,7 @@ describe('AutomationCheckboxes — inline status hints', () => {
 
   it('renders the review-attempts line when reviewAttempts > 0', () => {
     render(<AutomationCheckboxes {...baseProps} reviewAttempts={1} />);
-    expect(screen.getByText(/1 review attempt · max 2/)).toBeInTheDocument();
+    expect(screen.getByText(/1 review attempt · max 5/)).toBeInTheDocument();
   });
 
   it('renders the locked banner when disabled', () => {
