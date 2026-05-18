@@ -1,6 +1,7 @@
 import { isSafeHttpUrl } from './utils';
 
-const MAX_REVIEW_ATTEMPTS = 2;
+const REVIEW_ATTEMPTS_WARN_THRESHOLD = 4;
+const REVIEW_ATTEMPTS_HALT = 5;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
@@ -49,7 +50,7 @@ interface AutomationCheckboxesProps {
  *   [☐ Feature branch]            ctxmax-456/foo
  *   [☐ Create pull request]       PR #482 ↗
  *   Base branch                   [main ▾]
- *   1 review attempt · max 2
+ *   1 review attempt · max 5
  *   🔒 Automation locked during remote run        (when disabled)
  *
  * Run-status info lives inline with each row — no separate "Run status"
@@ -200,11 +201,11 @@ export function AutomationCheckboxes({
         <div
           className="font-mono"
           style={{
-            color: reviewAttempts >= MAX_REVIEW_ATTEMPTS ? 'var(--yellow)' : 'var(--grey1)',
+            color: reviewAttempts >= REVIEW_ATTEMPTS_WARN_THRESHOLD ? 'var(--yellow)' : 'var(--grey1)',
             fontSize: '11.5px',
           }}
         >
-          {reviewAttempts} review attempt{reviewAttempts === 1 ? '' : 's'} · max {MAX_REVIEW_ATTEMPTS}
+          {reviewAttempts} review attempt{reviewAttempts === 1 ? '' : 's'} · max {REVIEW_ATTEMPTS_HALT}
         </div>
       )}
 

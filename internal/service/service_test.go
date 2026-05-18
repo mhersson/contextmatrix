@@ -4472,8 +4472,8 @@ func TestIncrementReviewAttempts_Capped(t *testing.T) {
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
-	// Increment to the cap (5)
-	for i := range 5 {
+	// Increment to the cap (7)
+	for i := range 7 {
 		_, err := svc.IncrementReviewAttempts(ctx, "test-project", card.ID, "agent-1")
 		require.NoError(t, err, "increment %d should succeed", i+1)
 	}
@@ -4483,10 +4483,10 @@ func TestIncrementReviewAttempts_Capped(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrReviewAttemptsCapped)
 
-	// Verify counter stayed at 5
+	// Verify counter stayed at 7
 	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.Equal(t, 5, reloaded.ReviewAttempts)
+	assert.Equal(t, 7, reloaded.ReviewAttempts)
 }
 
 func TestRecordPush_Atomic(t *testing.T) {

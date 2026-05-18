@@ -224,17 +224,17 @@ Based on the card's current state and body content:
 17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
-      - If **< 3**: Increment `review_attempts` by updating the card.
+      - If **< 5**: Increment `review_attempts` by updating the card.
         Transition parent back to `in_progress`:
         `transition_card(card_id='<card_id>', new_state='in_progress')`.
         Create new "fix" subtasks based on the review findings. Go to Phase 3
         for the fix subtasks only, then return to Phase 4 (Documentation),
         then Phase 5 (Review).
-      - If **>= 3**: **STOP.** Call `report_usage` with your remaining token consumption, then print:
+      - If **>= 5**: **STOP.** Call `report_usage` with your remaining token consumption, then print:
         ```
         AUTONOMOUS_HALTED
         card_id: <card_id>
-        reason: 3 review cycles completed without approval
+        reason: 5 review cycles completed without approval
         action_required: human review
         ```
 

@@ -9,6 +9,11 @@
 You run the review phase inline. You hold the claim from earlier phases — do not
 release it.
 
+This is a **production-ready gate**. Code passes review only when it is ready
+to ship: spec-complete, tested, and free of Critical, Important, or Minor
+defects. Polish-level Nits do not block. When in doubt, send the work back —
+a revise cycle is cheaper than a regression in main.
+
 ## Step 1: Confirm claim and load context
 
 `claim_card(card_id, agent_id)` is idempotent — call it to re-affirm. Reclaim if
@@ -42,6 +47,11 @@ Spawn three `Agent` calls in a **single message**. Each:
 Do not pre-read files and embed content in the prompts — specialists read what
 they need.
 
+A missing or malformed specialist report (nothing returned, or output that
+fails to parse against the schema below) is a Pass 2 failure: record the
+gap in Step 4 and force the synthesis recommendation to `revise`. Do not
+silently drop the missing specialty's coverage.
+
 ### Common context (in every specialist prompt)
 
 - `card_id`, `project`, and **your `agent_id`** (specialists call `report_usage`
@@ -64,9 +74,13 @@ Specialist hard constraints:
 
 - No `claim_card`, `release_card`, `update_card`, or `transition_card`.
 - No `REVIEW_FINDINGS` print.
-- Stay strictly within your topic.
+- Stay strictly within your topic. Do not opine outside your specialty — the
+  synthesizer handles cross-cutting concerns.
 - Commit status is not a review concern; do not flag uncommitted files.
 - Every finding must cite a file in the change set.
+- Severity must follow the 4-tier scale below. Use Nits sparingly — only for
+  pure polish (spelling, formatting, naming preference) with no functional or
+  design impact. When uncertain between Minor and Nit, choose Minor.
 
 ### Specialist A — Correctness
 
@@ -120,7 +134,11 @@ Specialist hard constraints:
 
 - **Where:** ... — **What:** ... — **Why:** ... — **Fix:** ...
 
-### Minor (Nice to Have)
+### Minor (Should Fix)
+
+- **Where:** ... — **What:** ... — **Why:** ... — **Fix:** ...
+
+### Nits (Nice to Have)
 
 - **Where:** ... — **What:** ... — **Why:** ... (Optional fix.)
 
@@ -133,9 +151,6 @@ One sentence: this specialty's overall verdict.
 
 Call `report_usage` **before** emitting the block. Nothing follows it.
 
-If a specialist returns nothing or malformed output, note it in Step 4 and
-proceed with the other two.
-
 ## Step 4: Synthesize
 
 - Merge Strengths; deduplicate.
@@ -143,11 +158,15 @@ proceed with the other two.
   assessment; list each finding once under its most natural specialty.
 - Hunt cross-cutting issues no single specialist owned (e.g., new flag without
   test, docs, or migration path).
-- Decide the recommendation:
-  - Any Critical → `revise`.
-  - Important without Critical → `revise` unless purely cosmetic →
-    `approve_with_notes`.
-  - Only Minor or none → `approve` or `approve_with_notes`.
+- If any specialist returned nothing or malformed output (per Step 3),
+  record the missing specialty as a gap under Concerns and force the
+  recommendation to `revise` regardless of the other tiers.
+- Decide the recommendation using this strict rule:
+  - **Any Critical, Important, or Minor concern → `revise`.** Specialists
+    flagged real production-blockers; the work must be revised.
+  - **Only Nits, no other tiers → `approve_with_notes`.** Ship as-is, but
+    record the polish items for follow-up.
+  - **No concerns at any tier → `approve`.**
 
 Cite specific files, subtasks, and decisions. Every concern must be actionable.
 
@@ -175,7 +194,11 @@ Append to the parent card body via `update_card`:
 
 - **[Where]:** [What] — [Why]. Fix: [How].
 
-#### Minor (Nice to Have)
+#### Minor (Should Fix)
+
+- **[Where]:** [What] — [Why]. Fix: [How].
+
+#### Nits (Nice to Have)
 
 - **[Where]:** [What] — [Why]. (Optional fix.)
 
@@ -213,6 +236,8 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - All three specialists in one message; sequential spawning is wrong.
 - Pass 1 failure short-circuits Pass 2.
 - MCP tools only — never curl, wget, or HTTP.
-- Categorize severity honestly. Critical = broken or unsafe. Not everything is
-  Critical.
+- Categorize severity honestly. Critical = broken or unsafe. Important = real
+  design or correctness defect with non-trivial impact. Minor = a real defect
+  with limited blast radius. Nits = pure polish only. Not everything is
+  Critical, and not everything below Critical is a Nit.
 - Commit status is never a review issue. Pass this into every specialist prompt.

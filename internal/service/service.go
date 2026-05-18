@@ -43,10 +43,10 @@ const (
 	maxActivityLogEntries = 50
 
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
-	// The autonomous skill halts at 3 cycles (initial review + 2 rejections).
+	// The autonomous skill halts at 5 cycles (initial review + 4 rejections).
 	// This server-side cap is higher to allow manual overrides while still
 	// preventing runaway agents.
-	maxReviewAttempts = 5
+	maxReviewAttempts = 7
 
 	// Field length limits to prevent abuse.
 	maxTitleLen   = 500
