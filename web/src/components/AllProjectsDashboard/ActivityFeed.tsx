@@ -250,7 +250,7 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
             return project ? (
               <Link
                 key={entry.id}
-                to={`/projects/${project}/dashboard`}
+                to={`/projects/${project}`}
                 className="apd-activity-row"
                 style={rowStyle}
                 aria-label={`${entry.event.card_id} ${body.prefix} ${body.agent}`}
