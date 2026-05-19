@@ -1377,9 +1377,12 @@ this route alone — 1 MB headroom for the multipart envelope).
 
 Server-side processing (`internal/images/processor.go`):
 
-- Accepts `image/png`, `image/jpeg`, `image/gif` (single-frame), `image/webp`
-  (single-frame).
-- Rejects animated GIFs with `IMAGE_ANIMATED` / 415.
+- Accepts `image/png`, `image/jpeg`, `image/gif` (single-frame), `image/webp`.
+- Rejects animated GIFs explicitly with `IMAGE_ANIMATED` / 415 via a
+  pre-decode header walk (`gifHasMultipleFrames`).
+- Animated WebPs reject as `IMAGE_UNSUPPORTED` / 415 because the stdlib
+  `webp.Decode` is still-only and returns an invalid-format error on
+  animated inputs; there is no dedicated animated-WebP gate.
 - Rejects anything else (video, octet-stream, …) with `IMAGE_UNSUPPORTED` / 415.
 - Rejects payloads larger than 10 MB with `CONTENT_TOO_LARGE` / 413.
 - Resizes to fit within 1024x768 preserving aspect ratio (CatmullRom).
@@ -1428,7 +1431,12 @@ image bytes are loaded from the image store and attached to the tool response
 as MCP `ImageContent` blocks alongside the JSON `TextContent` block, so agents
 can *see* screenshots, not just URL strings.
 
-- Capped at 10 images per call to bound context.
+- Capped at **10 images per call** to bound context.
+- Capped at **~20 MiB cumulative raw image bytes per call**. The server walks
+  references in order and stops attaching as soon as the next image would
+  exceed the budget; remaining refs are kept in the body but not inlined.
+  Truncation is logged with the tool name and originating card id so an
+  operator can correlate.
 - Unknown IDs (e.g. dangling references after migration) are silently skipped.
 - Pass `include_images: false` to opt out and get a text-only result.
 - `get_task_context` only scans the primary card body — sibling cards stay

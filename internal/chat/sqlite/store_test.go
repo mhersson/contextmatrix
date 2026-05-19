@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +113,81 @@ func TestDeleteSession_CascadesMessages(t *testing.T) {
 	msgs, err := s.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
 	assert.Empty(t, msgs)
+}
+
+// TestSqliteDSN_PathFormats guards against a regression where url.URL.String()
+// places a relative path in the authority component (e.g. `file://chats.db`),
+// causing modernc.org/sqlite to error at first query with
+// "invalid uri authority". Both absolute and relative paths must produce a
+// DSN with no authority component, and must carry the synchronous=NORMAL
+// pragma alongside journal_mode=WAL. Mirrors the images package guard.
+func TestSqliteDSN_PathFormats(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"absolute path", "/tmp/chats.db", "file:/tmp/chats.db?"},
+		{"relative path", "chats.db", "file:chats.db?"},
+		{"nested relative path", "data/chats.db", "file:data/chats.db?"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dsn := sqliteDSN(tc.path)
+
+			// Reject the broken `file://...` (authority) form.
+			assert.False(t, strings.HasPrefix(dsn, "file://"),
+				"DSN must not place path in authority component: %q", dsn)
+			assert.True(t, strings.HasPrefix(dsn, tc.want),
+				"DSN must start with %q, got %q", tc.want, dsn)
+			assert.Contains(t, dsn, "_pragma=foreign_keys(1)")
+			assert.Contains(t, dsn, "_pragma=journal_mode(WAL)")
+			assert.Contains(t, dsn, "_pragma=synchronous(NORMAL)")
+			assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
+		})
+	}
+}
+
+// TestStore_OpenRelativePath verifies the store opens cleanly when given a
+// path relative to the current working directory. This is the scenario that
+// a url.URL-based DSN would break (it would produce `file://chats.db?...`,
+// which modernc/sqlite rejects at first query).
+func TestStore_OpenRelativePath(t *testing.T) {
+	// Not parallel: mutates the process-wide working directory.
+	dir := t.TempDir()
+
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+
+	require.NoError(t, os.Chdir(dir))
+
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	s, err := Open("chats.db")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = s.Close() })
+
+	// Smoke-test that the database is actually usable, not just open.
+	ctx := context.Background()
+	sess := chat.Session{
+		ID:         chat.NewID(),
+		Title:      "relpath",
+		Status:     chat.StatusCold,
+		CreatedAt:  time.Now().UTC().Truncate(time.Second),
+		LastActive: time.Now().UTC().Truncate(time.Second),
+		CreatedBy:  "human:test",
+	}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	got, err := s.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sess.ID, got.ID)
 }
 
 func TestStore_ListMessagesTail_ReturnsNewestNInChronologicalOrder(t *testing.T) {

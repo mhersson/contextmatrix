@@ -90,7 +90,9 @@ and CSP, `cors` (only registered when `cors_origin` is non-empty) emits the CORS
 preamble, `requestID` mints or accepts an `X-Request-ID` and stashes a
 request-scoped `*slog.Logger` in context via `ctxlog.WithRequestID`, `observe`
 records RED metrics + emits the per-request log line, `bodyLimit` caps inbound
-bodies at 5 MB, and `csrfGuard` rejects state-changing requests that lack
+bodies at 5 MB (with per-route overrides via `bodyLimitOverrides` — currently
+`POST /api/images` gets the 11 MB image-upload envelope so screenshots fit),
+and `csrfGuard` rejects state-changing requests that lack
 `X-Requested-With: contextmatrix` (with narrow exemptions: GET/HEAD/OPTIONS,
 `/healthz`, `/readyz`, `/api/runner/*`, and `/mcp`).
 
@@ -261,8 +263,9 @@ and commit completion. The service layer closes that gap on failure:
   files) via Streamable HTTP on `/mcp` (registered for `POST`, `GET`, and
   `DELETE`). Registered on the same `http.ServeMux` as the REST API, so it
   inherits the shared middleware chain (recovery, security headers, CORS,
-  requestID, observe, bodyLimit, csrfGuard) with no special wrapping — the
-  body-limit (5 MB) is applied uniformly across all routes.
+  requestID, observe, bodyLimit, csrfGuard) with no special wrapping. The
+  body-limit defaults to 5 MB; `bodyLimitOverrides` in `internal/api/router.go`
+  raises the cap for file-bearing routes (`POST /api/images` gets 11 MB).
 - **Context-aware logger** (`ctxlog`): stores a `*slog.Logger` enriched with a
   `request_id` attribute in the request context. The `requestID` middleware in
   `internal/api/` calls `ctxlog.WithRequestID(ctx, id)` on every incoming

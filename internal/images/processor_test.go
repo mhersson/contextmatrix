@@ -8,7 +8,6 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,6 +143,7 @@ func TestProcess(t *testing.T) {
 				// http.DetectContentType looks at the first 512 bytes.
 				raw := make([]byte, 12)
 				copy(raw[4:], "ftyp")
+
 				return raw
 			},
 			wantErr: ErrUnsupportedFormat,
@@ -151,7 +151,7 @@ func TestProcess(t *testing.T) {
 		{
 			name: ">10MB blob rejected with ErrTooLarge",
 			input: func(t *testing.T) []byte {
-				return make([]byte, maxBytes+1)
+				return make([]byte, MaxUploadBytes+1)
 			},
 			wantErr: ErrTooLarge,
 		},
@@ -162,7 +162,7 @@ func TestProcess(t *testing.T) {
 			checkOutput: func(t *testing.T, out []byte, _ string) {
 				t.Helper()
 
-				assert.False(t, strings.Contains(string(out), "Exif\x00\x00"),
+				assert.NotContains(t, string(out), "Exif\x00\x00",
 					"re-encoded JPEG must not contain EXIF marker")
 			},
 		},
@@ -192,6 +192,42 @@ func TestProcess(t *testing.T) {
 			},
 			wantErr: ErrTooLarge,
 		},
+		{
+			// Per-dimension cap: a 20000x1 PNG has only 20000 pixels (well
+			// below maxPixels), but a 20000-wide dimension still exceeds
+			// maxDim. The dimension guard rejects this independently of the
+			// pixel-area guard.
+			name: "single oversized dimension rejected",
+			input: func(t *testing.T) []byte {
+				return makePNG(t, 20000, 1)
+			},
+			wantErr: ErrTooLarge,
+		},
+		{
+			// Multi-frame GIF DoS: a tiny encoded GIF with many small frames
+			// can decode to gigabytes of resident *image.Paletted buffers via
+			// gif.DecodeAll before the post-decode multi-frame check runs.
+			// The header walker must reject it before DecodeAll executes.
+			name: "100-frame GIF rejected via header walker",
+			input: func(t *testing.T) []byte {
+				return makeAnimatedGIF(t, 100)
+			},
+			wantErr: ErrAnimated,
+		},
+		{
+			// Truncated PNG: header parses (DecodeConfig reads IHDR) so the
+			// dim guard passes, but png.Decode fails to find IDAT. The
+			// failure must surface as ErrUnsupportedFormat (handler → 415),
+			// not as a wrapped internal-error that the handler maps to 500.
+			name: "truncated PNG rejected as unsupported format",
+			input: func(t *testing.T) []byte {
+				full := makePNG(t, 4, 4)
+				// 8-byte signature + 25-byte IHDR chunk = 33 bytes. Keep
+				// just enough for DecodeConfig to succeed; drop the rest.
+				return full[:33]
+			},
+			wantErr: ErrUnsupportedFormat,
+		},
 	}
 
 	for _, tc := range tests {
@@ -202,6 +238,7 @@ func TestProcess(t *testing.T) {
 
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, err, tc.wantErr)
+
 				return
 			}
 

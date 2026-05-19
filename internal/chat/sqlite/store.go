@@ -23,6 +23,19 @@ type Store struct {
 	db *sql.DB
 }
 
+// sqliteDSN builds a `file:` URI for the modernc.org/sqlite driver, passing
+// PRAGMA settings via the query string. The `file:` prefix selects the URI
+// VFS rather than the implicit filename VFS; we concatenate path directly
+// (rather than via url.URL) because url.URL.String() places a relative path
+// in the authority component (e.g. `file://chats.db`), which modernc/sqlite
+// rejects as an invalid URI authority. synchronous=NORMAL is the recommended
+// pairing for WAL — durable across process crashes, only weakens behaviour
+// under power loss, acceptable for cached chat data. Mirrors
+// internal/images/sqlite.go:sqliteDSN; keep the two in sync.
+func sqliteDSN(path string) string {
+	return "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+}
+
 // Open opens (or creates) the SQLite database at path and applies the
 // schema migrations. Parent directories are created as needed.
 func Open(path string) (*Store, error) {
@@ -30,7 +43,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("chat: ensure db dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("chat: open sqlite: %w", err)
 	}

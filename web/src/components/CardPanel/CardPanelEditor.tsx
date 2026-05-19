@@ -1,8 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
-import { api } from '../../api/client';
+import { useImageUpload } from '../../hooks/useImageUpload';
 
 const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
@@ -28,11 +28,10 @@ interface CardPanelEditorProps {
  *   "Close editor" button appears next to the Description eyebrow. Callers
  *   that always want the editor open (CreateCardPanel) omit it.
  *
- * Paste + drag-drop image upload: in edit mode the MDEditor textarea accepts
- * pasted clipboard images and dropped files. Each one is uploaded via
- * `api.uploadImage` and the resulting `![](url)` snippet is spliced into the
- * controlled body at the textarea's current selection. Inline status banner
- * surfaces upload progress / error.
+ * Paste / drag-drop / click-to-upload image handling lives in
+ * `useImageUpload`. This component owns the cursor-aware splice (inserting
+ * `![](url)` at the current selection) and renders the hidden file input +
+ * status banner.
  *
  * The visible label is associated via `aria-labelledby` on a wrapping
  * `role="group"` element — MDEditor does not expose a way to set an `id` on
@@ -41,11 +40,9 @@ interface CardPanelEditorProps {
 export function CardPanelEditor({ body, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {
   const { theme } = useTheme();
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const labelId = useId();
   const editorHeight = useEditorHeight();
-
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Ref captures the latest body so async upload handlers always splice into
   // the current value even after intervening edits. Updated in an effect to
@@ -94,65 +91,7 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
     [onChange],
   );
 
-  const uploadAndInsert = useCallback(
-    async (file: File) => {
-      setUploading(true);
-      setUploadError(null);
-      try {
-        const result = await api.uploadImage(file);
-        insertImageRef(result.url);
-      } catch (err) {
-        const message =
-          err && typeof err === 'object' && 'error' in err && typeof (err as { error: unknown }).error === 'string'
-            ? (err as { error: string }).error
-            : 'Upload failed';
-        setUploadError(message);
-      } finally {
-        setUploading(false);
-      }
-    },
-    [insertImageRef],
-  );
-
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
-          const f = item.getAsFile();
-          if (f) files.push(f);
-        }
-      }
-      if (files.length === 0) return;
-      e.preventDefault();
-      for (const f of files) {
-        void uploadAndInsert(f);
-      }
-    },
-    [uploadAndInsert],
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    // Block the browser's default "open file" navigation only when image
-    // files are being dragged. Non-image drags fall through.
-    if (e.dataTransfer?.types?.includes('Files')) {
-      e.preventDefault();
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
-      if (files.length === 0) return;
-      e.preventDefault();
-      for (const f of files) {
-        void uploadAndInsert(f);
-      }
-    },
-    [uploadAndInsert],
-  );
+  const upload = useImageUpload(insertImageRef);
 
   return (
     <section ref={editorContainerRef} data-color-mode={theme}>
@@ -160,24 +99,48 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
         <div id={labelId} className="section-eyebrow">
           Description
         </div>
-        {showToggle && (
-          <button
-            type="button"
-            onClick={onToggleEditing}
-            className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
-          >
-            {editing ? 'Close editor' : 'Open in editor'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {inEditMode && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={upload.uploading}
+              aria-label="Upload image"
+              className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Upload image
+            </button>
+          )}
+          {showToggle && (
+            <button
+              type="button"
+              onClick={onToggleEditing}
+              className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
+            >
+              {editing ? 'Close editor' : 'Open in editor'}
+            </button>
+          )}
+        </div>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        className="sr-only"
+        onChange={upload.handleFileSelect}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
       <div role="group" aria-labelledby={labelId}>
         {inEditMode ? (
-          <div onDragOver={handleDragOver} onDrop={handleDrop}>
+          <div onDragOver={upload.handleDragOver} onDrop={upload.handleDrop}>
             <Suspense
               fallback={
                 <textarea
                   value={body}
                   onChange={(e) => onChange(e.target.value)}
+                  onPaste={upload.handlePaste}
                   style={{ height: editorHeight }}
                   className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
                   aria-label="Description (loading rich editor...)"
@@ -192,18 +155,18 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
                 height={editorHeight}
                 visibleDragbar
                 previewOptions={{ skipHtml: true }}
-                textareaProps={{ onPaste: handlePaste }}
+                textareaProps={{ onPaste: upload.handlePaste }}
                 className="bf-mdeditor"
               />
             </Suspense>
-            {(uploading || uploadError) && (
+            {(upload.uploading || upload.uploadError) && (
               <div
                 role="status"
                 aria-live="polite"
                 className="mt-2 text-xs"
-                style={{ color: uploadError ? 'var(--red)' : 'var(--grey2)' }}
+                style={{ color: upload.uploadError ? 'var(--red)' : 'var(--grey2)' }}
               >
-                {uploadError ? `Upload failed: ${uploadError}` : 'Uploading image…'}
+                {upload.uploadError ? `Upload failed: ${upload.uploadError}` : 'Uploading image…'}
               </div>
             )}
           </div>

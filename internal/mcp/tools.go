@@ -15,11 +15,23 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+// registerToolsConfig bundles the dependencies for registerTools. Mirrors the
+// ServerConfig pattern used by NewServer so the registration surface can grow
+// without churning callers.
+type registerToolsConfig struct {
+	Server            *mcp.Server
+	Service           *service.CardService
+	WorkflowSkillsDir string
+	ImageStore        images.Store
+}
+
 // registerTools adds all MCP tools to the server.
-func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string, imageStore images.Store) {
+func registerTools(cfg registerToolsConfig) {
+	server, svc := cfg.Server, cfg.Service
+
 	registerListProjects(server, svc)
 	registerListCards(server, svc)
-	registerGetCard(server, svc, imageStore)
+	registerGetCard(server, svc, cfg.ImageStore)
 	registerCreateCard(server, svc)
 	registerUpdateCard(server, svc)
 	registerTransitionCard(server, svc)
@@ -27,7 +39,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerReleaseCard(server, svc)
 	registerHeartbeat(server, svc)
 	registerAddLog(server, svc)
-	registerGetTaskContext(server, svc, imageStore)
+	registerGetTaskContext(server, svc, cfg.ImageStore)
 	registerCompleteTask(server, svc)
 	registerGetSubtaskSummary(server, svc)
 	registerCheckAgentHealth(server, svc)
@@ -37,9 +49,9 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerCreateProject(server, svc)
 	registerUpdateProject(server, svc)
 	registerDeleteProject(server, svc)
-	registerStartWorkflow(server, svc, workflowSkillsDir)
-	registerStartReview(server, svc, workflowSkillsDir)
-	registerGetSkill(server, svc, workflowSkillsDir)
+	registerStartWorkflow(server, svc, cfg.WorkflowSkillsDir)
+	registerStartReview(server, svc, cfg.WorkflowSkillsDir)
+	registerGetSkill(server, svc, cfg.WorkflowSkillsDir)
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
@@ -93,7 +105,7 @@ type getCardInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
 	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
-	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call)"`
+	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
 }
 
 type createCardInput struct {
@@ -146,7 +158,7 @@ type getTaskContextInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID"`
 	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
-	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call; siblings stay text-only)"`
+	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget; siblings stay text-only)"`
 }
 type getTaskContextOutput struct {
 	Card     *board.Card          `json:"card"`
@@ -257,7 +269,7 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_card",
-		Description: "Get a single card by ID, including its full body and metadata. By default, attaches inline image bytes for any cm-server-hosted markdown images in the body (capped at 10); pass include_images=false to skip.",
+		Description: "Get a single card by ID, including its full body and metadata. By default, attaches inline image bytes for any cm-server-hosted markdown images in the body (capped at 10); pass include_images=false to skip. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -273,7 +285,10 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 		// payloads from imported external cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
-		result := attachImagesToResult(ctx, imageStore, card, card.Body, input.IncludeImages)
+		result := attachImagesToResult(ctx, imageStore,
+			attachContext{Tool: "get_card", CardID: card.ID},
+			card, card.Body, input.IncludeImages, 0,
+		)
 
 		return result, card, nil
 	})
@@ -487,7 +502,7 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
-		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only.",
+		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getTaskContextInput) (*mcp.CallToolResult, getTaskContextOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -538,7 +553,10 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			}
 		}
 
-		result := attachImagesToResult(ctx, imageStore, out, primary.Body, input.IncludeImages)
+		result := attachImagesToResult(ctx, imageStore,
+			attachContext{Tool: "get_task_context", CardID: primary.ID},
+			out, primary.Body, input.IncludeImages, 0,
+		)
 
 		return result, out, nil
 	})

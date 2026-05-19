@@ -466,8 +466,9 @@ class APIClient {
   // Images — POST /api/images with multipart/form-data. The request() helper
   // hard-codes Content-Type: application/json, so this method talks to fetch
   // directly and threads the same X-Agent-ID / X-Requested-With headers used
-  // by mutation endpoints.
-  async uploadImage(file: File): Promise<{ id: string; url: string }> {
+  // by mutation endpoints. `signal` lets callers (e.g. useImageUpload) cancel
+  // an in-flight upload when the editor unmounts.
+  async uploadImage(file: File, signal?: AbortSignal): Promise<{ id: string; url: string }> {
     const headers: Record<string, string> = {
       'X-Requested-With': 'contextmatrix',
     };
@@ -482,6 +483,7 @@ class APIClient {
       method: 'POST',
       headers,
       body,
+      signal,
     });
 
     if (!response.ok) {

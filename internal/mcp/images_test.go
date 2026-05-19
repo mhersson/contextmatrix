@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +134,10 @@ func setupMCPImages(t *testing.T) *mcpImageEnv {
 	imgStore, err := images.Open(filepath.Join(tmpDir, "images.db"))
 	require.NoError(t, err)
 
-	server := NewServer(svc, "", nil, imgStore)
+	server := NewServer(ServerConfig{
+		Service:    svc,
+		ImageStore: imgStore,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -159,6 +163,7 @@ func makeTinyPNG(t *testing.T) []byte {
 	t.Helper()
 
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+
 	for y := 0; y < 4; y++ {
 		for x := 0; x < 4; x++ {
 			img.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
@@ -298,6 +303,120 @@ func TestGetCard_UnknownImageIDsSkipped(t *testing.T) {
 
 	_, isImg := result.Content[1].(*mcp.ImageContent)
 	assert.True(t, isImg)
+}
+
+// TestAttachImagesPinsSDKShape guards the manual json.Marshal path in
+// attachImagesToResult against drift from the SDK's auto-marshal path. The
+// TextContent JSON for the same card must be JSON-equivalent (semantics,
+// not bytes — the SDK auto-path re-marshals via map[string]any with
+// alphabetical keys) regardless of whether images are attached. Any
+// divergence in field names or values means the structured-output contract
+// silently differs for image-bearing cards.
+func TestAttachImagesPinsSDKShape(t *testing.T) {
+	env := setupMCPImages(t)
+
+	cardID, _ := createImageCard(t, env)
+	ctx := context.Background()
+
+	withImages, err := env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_card",
+		Arguments: map[string]any{"project": "test-project", "card_id": cardID},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, withImages.Content)
+
+	withoutImages, err := env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_card",
+		Arguments: map[string]any{
+			"project":        "test-project",
+			"card_id":        cardID,
+			"include_images": false,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, withoutImages.Content)
+
+	withText, ok := withImages.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "first block in image-bearing response should be TextContent")
+
+	withoutText, ok := withoutImages.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "auto-marshalled SDK response should be TextContent")
+
+	require.JSONEq(t, withoutText.Text, withText.Text,
+		"manual json.Marshal in attachImagesToResult must match SDK auto-marshal")
+}
+
+// TestLoadImageContent_ByteCapTruncates exercises the cumulative byte cap by
+// passing a byteCap argument just large enough for the first image and not
+// the second. The encoded PNG sizes vary slightly with the image content, so
+// the cap is computed from real stored bytes — the test is robust against
+// future encoder tweaks.
+func TestLoadImageContent_ByteCapTruncates(t *testing.T) {
+	env := setupMCPImages(t)
+
+	ctx := context.Background()
+
+	id1, _, err := env.store.Put(ctx, makeTinyPNG(t))
+	require.NoError(t, err)
+
+	// Second image with distinct bytes so it gets a different content hash.
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	img.Set(0, 0, color.RGBA{R: 7, G: 11, B: 13, A: 255})
+
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+
+	id2, _, err := env.store.Put(ctx, buf.Bytes())
+	require.NoError(t, err)
+
+	// Measure the actual stored size of the first image so we can size the
+	// cap exactly: first fits (total + size1 <= cap), second does not
+	// (size1 + size2 > cap).
+	data1, _, err := env.store.Get(ctx, id1)
+	require.NoError(t, err)
+
+	attach := attachContext{Tool: "get_card", CardID: "TEST-1"}
+
+	// Capture slog output so we can assert that the truncation log counts the
+	// image that broke the cap (not just the strictly-after positions).
+	var logBuf bytes.Buffer
+
+	origLogger := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(origLogger) })
+
+	got := loadImageContent(ctx, env.store, attach, []string{id1, id2}, len(data1))
+	require.Len(t, got, 1, "the byte cap must truncate the second image")
+
+	logOut := logBuf.String()
+	assert.Contains(t, logOut, "mcp: image attachment truncated by byte cap")
+	assert.Contains(t, logOut, "dropped_by_cap=1",
+		"the cap fires on the second of two images, so dropped_by_cap must be 1, not 0")
+}
+
+// TestLoadImageContent_ByteCapFits is the symmetric case: with the default
+// cap, two tiny images both make it through. Guards against a regression
+// flipping the comparator or breaking the accumulator.
+func TestLoadImageContent_ByteCapFits(t *testing.T) {
+	env := setupMCPImages(t)
+
+	ctx := context.Background()
+
+	id1, _, err := env.store.Put(ctx, makeTinyPNG(t))
+	require.NoError(t, err)
+
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	img.Set(0, 0, color.RGBA{R: 7, G: 11, B: 13, A: 255})
+
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+
+	id2, _, err := env.store.Put(ctx, buf.Bytes())
+	require.NoError(t, err)
+
+	got := loadImageContent(ctx, env.store, attachContext{Tool: "get_card", CardID: "TEST-1"}, []string{id1, id2}, 0)
+	require.Len(t, got, 2)
 }
 
 func TestGetTaskContext_AttachesImageContent(t *testing.T) {

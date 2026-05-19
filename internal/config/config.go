@@ -544,16 +544,25 @@ func resolvePaths(cfg *Config, configPath string) error {
 	return nil
 }
 
+// defaultSQLiteDBPath returns the conventional XDG-compliant location for a
+// per-contextmatrix SQLite database with the given filename. Honors
+// $XDG_STATE_HOME first, then falls back to ~/.local/state. Shared between
+// every applyXxxDefaults helper so the on-disk layout has a single source of
+// truth.
+func defaultSQLiteDBPath(filename string) string {
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, _ := os.UserHomeDir()
+		state = filepath.Join(home, ".local", "state")
+	}
+
+	return filepath.Join(state, "contextmatrix", filename)
+}
+
 // applyImagesDefaults sets Images fields that were not supplied by YAML.
 func applyImagesDefaults(cfg *Config) {
 	if cfg.Images.DBPath == "" {
-		state := os.Getenv("XDG_STATE_HOME")
-		if state == "" {
-			home, _ := os.UserHomeDir()
-			state = filepath.Join(home, ".local", "state")
-		}
-
-		cfg.Images.DBPath = filepath.Join(state, "contextmatrix", "images.db")
+		cfg.Images.DBPath = defaultSQLiteDBPath("images.db")
 	}
 }
 
@@ -568,13 +577,7 @@ func applyChatDefaults(cfg *Config) {
 	}
 
 	if cfg.Chat.DBPath == "" {
-		state := os.Getenv("XDG_STATE_HOME")
-		if state == "" {
-			home, _ := os.UserHomeDir()
-			state = filepath.Join(home, ".local", "state")
-		}
-
-		cfg.Chat.DBPath = filepath.Join(state, "contextmatrix", "chats.db")
+		cfg.Chat.DBPath = defaultSQLiteDBPath("chats.db")
 	}
 
 	if cfg.Chat.ResumeBudgetTokens == 0 {
