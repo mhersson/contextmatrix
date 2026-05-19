@@ -125,6 +125,14 @@ type TaskSkillsConfig struct {
 	GitRemoteURL    string `yaml:"git_remote_url"`
 }
 
+// ImagesConfig configures the image upload + storage subsystem.
+type ImagesConfig struct {
+	// DBPath is the SQLite file path for stored images.
+	// Defaults to <XDG_STATE_HOME>/contextmatrix/images.db, falling back to
+	// ~/.local/state/contextmatrix/images.db.
+	DBPath string `yaml:"db_path"`
+}
+
 // ChatConfig configures the global chat panel feature.
 type ChatConfig struct {
 	// DBPath is the SQLite file path for chat sessions and transcripts.
@@ -196,6 +204,7 @@ type Config struct {
 	AdminPort            int                  `yaml:"admin_port"`      // 0 = disabled
 	AdminBindAddr        string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 	Chat                 ChatConfig           `yaml:"chat"`
+	Images               ImagesConfig         `yaml:"images"`
 }
 
 // defaults returns a Config with default values.
@@ -391,6 +400,7 @@ func (c *Config) Validate() error {
 	// session immediately and a negative MaxConcurrent would reject every
 	// open.
 	applyChatDefaults(c)
+	applyImagesDefaults(c)
 
 	if c.Chat.IdleTTL <= 0 {
 		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
@@ -464,6 +474,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyChatDefaults(cfg)
+			applyImagesDefaults(cfg)
 			applyEnvOverrides(cfg)
 
 			if err := resolvePaths(cfg, path); err != nil {
@@ -485,6 +496,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyChatDefaults(cfg)
+	applyImagesDefaults(cfg)
 	applyEnvOverrides(cfg)
 
 	if err := resolvePaths(cfg, path); err != nil {
@@ -530,6 +542,19 @@ func resolvePaths(cfg *Config, configPath string) error {
 	}
 
 	return nil
+}
+
+// applyImagesDefaults sets Images fields that were not supplied by YAML.
+func applyImagesDefaults(cfg *Config) {
+	if cfg.Images.DBPath == "" {
+		state := os.Getenv("XDG_STATE_HOME")
+		if state == "" {
+			home, _ := os.UserHomeDir()
+			state = filepath.Join(home, ".local", "state")
+		}
+
+		cfg.Images.DBPath = filepath.Join(state, "contextmatrix", "images.db")
+	}
 }
 
 // applyChatDefaults sets Chat fields that were not supplied by YAML.
@@ -737,6 +762,10 @@ func applyEnvOverrides(cfg *Config) {
 
 	if v := os.Getenv("CONTEXTMATRIX_CHAT_DB_PATH"); v != "" {
 		cfg.Chat.DBPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_IMAGES_DB_PATH"); v != "" {
+		cfg.Images.DBPath = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CHAT_IDLE_TTL"); v != "" {

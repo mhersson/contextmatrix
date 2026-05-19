@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/refresh"
@@ -100,6 +101,7 @@ type RouterConfig struct {
 	ChatManager         *chat.Manager       // optional; enables /api/chats routes
 	ChatHub             *chat.SSEHub        // optional; required when ChatManager is set
 	ChatConfig          *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
+	ImageStore          images.Store        // optional; enables /api/images routes
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -238,6 +240,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
+	}
+
+	// Image upload + retrieval — registered only when a store is wired.
+	if cfg.ImageStore != nil {
+		ih := newImageHandlers(cfg.ImageStore)
+		mux.HandleFunc("POST /api/images", ih.upload)
+		mux.HandleFunc("GET /api/images/{id}", ih.get)
 	}
 
 	// MCP server routes — registered on the inner mux so they share the
@@ -477,18 +486,27 @@ func securityHeaders(next http.Handler) http.Handler {
 // For streaming requests without Content-Length, http.MaxBytesReader enforces the
 // limit when the body is read; bodyLimitN wraps the ResponseWriter to intercept the
 // first write after a body-too-large error and ensure a 413 status is sent.
+//
+// POST /api/images carries multipart image uploads and gets the larger
+// imageUploadMaxBytes envelope so screenshots up to 10 MB fit through the
+// global guard. Every other route stays at maxBytes.
 func bodyLimitN(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			limit := maxBytes
+			if r.Method == http.MethodPost && r.URL.Path == "/api/images" {
+				limit = imageUploadMaxBytes
+			}
+
 			// Reject immediately when Content-Length is declared and over limit.
-			if r.ContentLength > maxBytes {
+			if r.ContentLength > limit {
 				writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "request body too large", "")
 
 				return
 			}
 
 			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+				r.Body = http.MaxBytesReader(w, r.Body, limit)
 			}
 
 			next.ServeHTTP(w, r)

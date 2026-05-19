@@ -33,6 +33,7 @@ import (
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
@@ -286,6 +287,17 @@ func main() {
 		slog.Info("end-session subscriber started")
 	}
 
+	// Images: SQLite blob store for paste/drop screenshot uploads.
+	imageStore, err := images.Open(cfg.Images.DBPath)
+	if err != nil {
+		slog.Error("failed to open image store", "path", cfg.Images.DBPath, "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+	defer imageStore.Close()
+
+	slog.Info("image store opened", "path", cfg.Images.DBPath)
+
 	// Chat: SQLite store + manager + SSE hub + idle reaper + warm-idle grace timer.
 	chatStore, err := chatsqlite.Open(cfg.Chat.DBPath)
 	if err != nil {
@@ -482,6 +494,7 @@ func main() {
 		ChatManager:         chatMgr,
 		ChatHub:             chatHub,
 		ChatConfig:          &cfg.Chat,
+		ImageStore:          imageStore,
 	})
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")

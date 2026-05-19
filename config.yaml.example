@@ -263,6 +263,14 @@ chat:
       label: "Haiku 4.5"
       max_tokens: 200000
 
+# Image upload + retrieval (paste / drag-drop screenshots into cards).
+images:
+  # SQLite database for stored images. Content-hashed IDs make this
+  # cache-friendly and naturally deduplicate identical uploads.
+  # CONTEXTMATRIX_IMAGES_DB_PATH overrides this.
+  # Default: $XDG_STATE_HOME/contextmatrix/images.db
+  # db_path: /var/lib/contextmatrix/images.db
+
 # GitHub authentication and integration.
 # Used for boards git, task-skills git, issue importing, and branch listing.
 github:
