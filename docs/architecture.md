@@ -242,6 +242,16 @@ and commit completion. The service layer closes that gap on failure:
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
   `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
   calls don't panic.
+- **images.Store** (`internal/images`): content-hashed image blob store backing
+  the paste / drag-drop screenshot upload flow. SQLite-backed (`images.db`,
+  separate from the board and chat DBs). IDs are
+  `sha256(processed_bytes)[:16]` so identical uploads dedup naturally and URLs
+  are stable. The processor enforces a 10 MB cap, resizes to fit 1024x768
+  preserving aspect ratio (CatmullRom from `golang.org/x/image/draw`),
+  re-encodes in the same format (strips EXIF naturally), and rejects animated
+  GIFs / non-image MIME types. Wired into `api.NewRouter` for `POST /api/images`
+  + `GET /api/images/{id}` and into `mcp.NewServer` for the inline image
+  attachments on `get_card` / `get_task_context`.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
   `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
@@ -360,6 +370,7 @@ internal/
   chat/              # chat.Manager + Store + SSEHub + IdleReaper + runner bridge
     sqlite/          # SQLite-backed chat persistence + versioned migrations
     transcript/      # pure transcript-shaping for cold-reopen resume payloads
+  images/            # content-hashed image blob store + processor (resize/EXIF strip)
   refresh/           # in-flight knowledge-base refresh registry + janitor
   github/            # GitHub client + issue parser + import syncer
   gitsync/           # boards repo background pull/push syncer

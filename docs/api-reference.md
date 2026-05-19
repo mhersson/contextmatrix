@@ -1358,6 +1358,59 @@ the server-wide `WriteTimeout`. Subscribing to an unknown session returns
 `404 CHAT_NOT_FOUND` (the handler validates the session exists before reaching
 the hub).
 
+## Image Endpoints
+
+Backs the paste / drag-drop image upload flow in `CardPanelEditor` and the
+inline image attachments on the MCP `get_card` / `get_task_context` tools.
+Images live in a separate SQLite DB (`images.db`, configurable via
+`images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`). IDs are the first 16 hex
+chars of `sha256(processed_bytes)` — identical uploads dedup naturally and
+URLs are stable.
+
+### POST /api/images
+
+Multipart form upload. Single field `file`. Returns the content-hashed id and
+the canonical URL for embedding in markdown via `![](...)`.
+
+Body size cap: 10 MB (the global 5 MB `bodyLimit` is overridden to 11 MB on
+this route alone — 1 MB headroom for the multipart envelope).
+
+Server-side processing (`internal/images/processor.go`):
+
+- Accepts `image/png`, `image/jpeg`, `image/gif` (single-frame), `image/webp`
+  (single-frame).
+- Rejects animated GIFs with `IMAGE_ANIMATED` / 415.
+- Rejects anything else (video, octet-stream, …) with `IMAGE_UNSUPPORTED` / 415.
+- Rejects payloads larger than 10 MB with `CONTENT_TOO_LARGE` / 413.
+- Resizes to fit within 1024x768 preserving aspect ratio (CatmullRom).
+- Re-encodes in the same format (PNG / JPEG q85). Single-frame GIF and WebP
+  are re-encoded as PNG since stdlib lacks a WebP encoder. The re-encode
+  strips EXIF naturally — no separate parser.
+
+```bash
+curl -X POST http://localhost:8080/api/images \
+  -H 'X-Requested-With: contextmatrix' \
+  -H 'X-Agent-ID: human:alice' \
+  -F 'file=@screenshot.png'
+```
+
+Response 201:
+
+```json
+{ "id": "aabbccddeeff0011", "url": "/api/images/aabbccddeeff0011" }
+```
+
+Error codes: `CONTENT_TOO_LARGE` (413), `IMAGE_UNSUPPORTED` / `IMAGE_ANIMATED`
+(415), `IMAGE_MISSING_FILE` / `IMAGE_INVALID_PAYLOAD` (400).
+
+### GET /api/images/{id}
+
+Serves the stored blob with the original `Content-Type` and
+`Cache-Control: public, max-age=31536000, immutable`. Content-hashed IDs
+guarantee bytes never change for a given URL, so aggressive caching is safe.
+
+Returns 404 with `IMAGE_NOT_FOUND` when no row matches.
+
 ## MCP Endpoints
 
 The MCP (Model Context Protocol) server is mounted at `/mcp` when an MCP API key
@@ -1366,6 +1419,20 @@ is configured. The same handler is registered for `POST /mcp`, `GET /mcp`, and
 `Bearer <api-key>` `Authorization` header. The path is exempt from the CSRF
 guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
 catalogue.
+
+### `get_card` / `get_task_context` — inline image attachments
+
+Both tools scan the primary card body for markdown image refs of the form
+`![](/api/images/<16-hex>)` (relative or absolute against this server). Matching
+image bytes are loaded from the image store and attached to the tool response
+as MCP `ImageContent` blocks alongside the JSON `TextContent` block, so agents
+can *see* screenshots, not just URL strings.
+
+- Capped at 10 images per call to bound context.
+- Unknown IDs (e.g. dangling references after migration) are silently skipped.
+- Pass `include_images: false` to opt out and get a text-only result.
+- `get_task_context` only scans the primary card body — sibling cards stay
+  text-only. `list_cards` is unaffected (it does not return full bodies).
 
 ### `chat_rehydration_complete`
 
