@@ -460,6 +460,42 @@ describe('useRunnerLogs — usage entry filtering', () => {
     expect(result.current.logs[0].type).toBe('text');
     expect(result.current.logs[0].content).toBe('hello after usage');
   });
+
+  it('usage frame advances seq cursor — interleaved text→usage→text does not trigger gap marker', () => {
+    // Regression: usage entries must advance lastSeqRef before returning,
+    // otherwise the next renderable frame sees an apparent seq gap and inserts
+    // a spurious gap marker (seq was e.g. 1, usage consumed seq=2, next text
+    // arrives at seq=3 — without the fix the hook sees 3 > 1+1 and fires).
+    const { result } = renderHook(() =>
+      useRunnerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+
+    // text at seq=1
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'before', card_id: 'C-1', ts, seq: 1 });
+    });
+    // usage at seq=2 — dropped but must advance lastSeqRef to 2
+    act(() => {
+      latestES().simulateMessage({ type: 'usage', card_id: 'C-1', ts, seq: 2, content: '' });
+    });
+    // text at seq=3 — must NOT trigger a gap marker (3 === 2+1)
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'after', card_id: 'C-1', ts, seq: 3 });
+    });
+
+    const logs = result.current.logs;
+    expect(logs).toHaveLength(2);
+    expect(logs[0].type).toBe('text');
+    expect(logs[0].content).toBe('before');
+    expect(logs[1].type).toBe('text');
+    expect(logs[1].content).toBe('after');
+    // No gap entry between them
+    expect(logs.every((e) => e.type !== 'gap')).toBe(true);
+  });
 });
 
 describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
