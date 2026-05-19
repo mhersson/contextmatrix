@@ -1125,6 +1125,31 @@ input, select, textarea {
 }
 
 /*
+ * Tailwind v4 preflight resets ul/ol to list-style: none globally. The
+ * @uiw/react-md-editor library CSS does not restore markers within
+ * .wmde-markdown, so bulleted and numbered lists render flat. Restore
+ * the standard disc → circle → square cascade here, scoped to the
+ * markdown preview surface only. !important is needed because the
+ * library's own CSS may load at equal specificity and win without it.
+ */
+.wmde-markdown ul {
+  list-style: disc !important;
+  padding-left: 2em !important;
+}
+.wmde-markdown ol {
+  list-style: decimal !important;
+  padding-left: 2em !important;
+}
+.wmde-markdown ul ul,
+.wmde-markdown ol ul {
+  list-style: circle !important;
+}
+.wmde-markdown ul ul ul,
+.wmde-markdown ol ul ul {
+  list-style: square !important;
+}
+
+/*
  * Card-panel read-only markdown: render prose in the display font so the
  * body text flows visually from the panel title (which also uses
  * var(--font-display)). Scoped via the `.bf-markdown` class applied in
