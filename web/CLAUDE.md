@@ -300,6 +300,25 @@ SSE `/api/chats/{id}/stream` subscription with a REST bootstrap from
 3. Replay overlap (SSE events whose `seq` falls inside the REST window) is
    deduped on the client — the seam is gapless without double messages.
 
+The hook also listens on the `session_updated` named SSE channel and merges the
+payload into `sessionUpdate: ChatSessionUpdate | null` state. When the incoming
+payload contains a `status` field that differs from the previous value, the hook
+calls `notifyChatSessionsChanged()` to trigger a sidebar refetch — this is how
+lifecycle transitions (`warm-idle → active`, `active → warm-idle`) propagate to
+the sidebar status dot without a full page reload.
+
+`ChatSessionUpdate` (`web/src/types/index.ts`):
+
+```typescript
+export interface ChatSessionUpdate {
+  context_tokens?: number;
+  context_tokens_updated_at?: string;
+  model?: string;
+  rehydration_active?: boolean;
+  status?: ChatStatus;  // present only when the lifecycle state changed
+}
+```
+
 `last_chat_id` localStorage key tracks the focused pane's chat. In the
 multi-pane layout (see next section), `useChatLayout` writes the key
 whenever focus moves; `ChatThread` only writes it in non-embedded (mobile

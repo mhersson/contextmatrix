@@ -236,9 +236,13 @@ and commit completion. The service layer closes that gap on failure:
   per-session hub so memory does not grow with session churn. Two event kinds
   share the hub: `message` (a new transcript row, with seq + role + content) and
   `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
-  model — with no transcript content). The browser's `useChatStream` hook routes
-  `session_updated` events into the header state, separate from the message ring
-  buffer.
+  model, and `status` for lifecycle transitions — with no transcript content). The
+  `status` field uses a pointer so `omitempty` distinguishes "no lifecycle change"
+  from a deliberate transition (e.g. `warm-idle → active` when a browser subscriber
+  attaches or the user sends a message). The browser's `useChatStream` hook routes
+  `session_updated` events into the header state; when the `status` field changes it
+  also fires `notifyChatSessionsChanged` so the sidebar refetches `/api/chats` and
+  updates the status dot, separate from the message ring buffer.
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
   `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
   calls don't panic.

@@ -1345,9 +1345,22 @@ kinds share the wire:
   turns distinctly from normal traffic.
 
 - **`session_updated` event** — emitted with `event: session_updated` so the
-  browser can listen on a named channel. Carries the same shape as the `Session`
-  row (or `{}` when the manager has no update to attach). Used to push status /
-  context-token changes without a full re-fetch.
+  browser can listen on a named channel. The payload is a `SessionUpdate` object
+  (zero-valued fields omitted via `omitempty`; merge into your local session view):
+
+  | Field                        | Type      | Description                                                                  |
+  |------------------------------|-----------|------------------------------------------------------------------------------|
+  | `context_tokens`             | integer   | Updated context-window token count.                                          |
+  | `context_tokens_updated_at`  | timestamp | When `context_tokens` was last updated.                                      |
+  | `model`                      | string    | Model name, set on first usage event.                                        |
+  | `rehydration_active`         | boolean   | `false` once `chat_rehydration_complete` is called.                          |
+  | `status`                     | string    | Lifecycle transition (`active`, `warm-idle`, `cold`). Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. |
+
+  Lifecycle transitions that publish a `status` field: `warm-idle → active` (when
+  a browser subscriber attaches or the user sends a message), `active → warm-idle`
+  (30 s grace timer after last subscriber departs), `warm-idle → cold` (idle reaper
+  or explicit end). Clients should refetch `GET /api/chats` when `status` changes
+  to update sidebar indicators.
 
 Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
 server-side 128-entry ring buffer before tailing live events). The handler
