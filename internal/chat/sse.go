@@ -20,8 +20,10 @@ const maxSubscribersPerSession = 32
 const (
 	// SSEKindMessage is a transcript message append; Seq/Role/Content carry it.
 	SSEKindMessage SSEEventKind = "message"
-	// SSEKindSessionUpdate is a session metadata change (context_tokens,
-	// rehydration_active, model). SessionUpdate carries the payload.
+	// SSEKindSessionUpdate is a session metadata change. SessionUpdate carries
+	// the payload. Fields: context_tokens, context_tokens_updated_at, model,
+	// rehydration_active, status. Zero-valued fields are omitted (omitempty);
+	// the client merges received fields into its local session view.
 	SSEKindSessionUpdate SSEEventKind = "session_updated"
 )
 
@@ -46,11 +48,16 @@ type SSEEvent struct {
 
 // SessionUpdate is the payload of an SSEKindSessionUpdate event. Zero-valued
 // fields mean "unchanged" — the client merges these into its session view.
+// Fields: ContextTokens, ContextTokensUpdatedAt, Model, RehydrationActive,
+// Status.
 type SessionUpdate struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at,omitempty"`
 	Model                  string    `json:"model,omitempty"`
 	RehydrationActive      *bool     `json:"rehydration_active,omitempty"`
+	// Status carries an explicit lifecycle transition. Use a pointer so that
+	// omitempty can distinguish "no status change" from a deliberate value.
+	Status *Status `json:"status,omitempty"`
 }
 
 type subscriber struct {

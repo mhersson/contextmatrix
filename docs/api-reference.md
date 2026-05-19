@@ -1345,9 +1345,33 @@ kinds share the wire:
   turns distinctly from normal traffic.
 
 - **`session_updated` event** — emitted with `event: session_updated` so the
-  browser can listen on a named channel. Carries the same shape as the `Session`
-  row (or `{}` when the manager has no update to attach). Used to push status /
-  context-token changes without a full re-fetch.
+  browser can listen on a named channel. The payload is a `SessionUpdate` object
+  (zero-valued fields omitted via `omitempty`; merge into your local session view):
+
+  | Field                        | Type      | Description                                                                  |
+  |------------------------------|-----------|------------------------------------------------------------------------------|
+  | `context_tokens`             | integer   | Updated context-window token count.                                          |
+  | `context_tokens_updated_at`  | timestamp | When `context_tokens` was last updated.                                      |
+  | `model`                      | string    | Model name, set on first usage event.                                        |
+  | `rehydration_active`         | boolean   | `false` once `chat_rehydration_complete` is called.                          |
+  | `status`                     | string    | Lifecycle transition. Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. See `ChatStatus` values below. |
+
+  **`ChatStatus` values:**
+
+  | Value       | Description                                                                                          |
+  |-------------|------------------------------------------------------------------------------------------------------|
+  | `cold`      | Session is idle; no runner container. Starting state and the state after `EndSession`.               |
+  | `active`    | Runner container is running and a browser subscriber is present.                                     |
+  | `warm-idle` | Container still running but no browser subscriber (grace window). Reverts to `active` on resubscribe. |
+  | `ending`    | Reserved; not emitted in the current implementation.                                                 |
+
+  **Lifecycle transitions that emit a `status` field:**
+  - `cold → active` via `OpenSession` (POST `/open`)
+  - `warm-idle → active` when a browser subscriber attaches (OnSubscribe) or `OpenSession` is called
+  - `active → warm-idle` after the 30 s grace timer fires following last-subscriber departure
+  - `active/warm-idle → cold` via `EndSession` (POST `/end`) or the idle reaper
+
+  Clients should refetch `GET /api/chats` when `status` changes to update sidebar indicators.
 
 Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
 server-side 128-entry ring buffer before tailing live events). The handler
