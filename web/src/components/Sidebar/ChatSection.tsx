@@ -12,7 +12,7 @@ import { CHAT_DRAG_START_EVENT, CHAT_DRAG_END_EVENT } from '../ChatLayout/dragPr
 function statusDotColor(status: ChatStatus): string | null {
   switch (status) {
     case 'active':
-      return 'var(--aqua)';
+      return 'var(--green)';
     case 'warm-idle':
       return 'var(--yellow)';
     default:
