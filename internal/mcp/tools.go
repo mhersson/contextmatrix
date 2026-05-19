@@ -10,15 +10,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // registerTools adds all MCP tools to the server.
-func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
+func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsDir string, imageStore images.Store) {
 	registerListProjects(server, svc)
 	registerListCards(server, svc)
-	registerGetCard(server, svc)
+	registerGetCard(server, svc, imageStore)
 	registerCreateCard(server, svc)
 	registerUpdateCard(server, svc)
 	registerTransitionCard(server, svc)
@@ -26,7 +27,7 @@ func registerTools(server *mcp.Server, svc *service.CardService, workflowSkillsD
 	registerReleaseCard(server, svc)
 	registerHeartbeat(server, svc)
 	registerAddLog(server, svc)
-	registerGetTaskContext(server, svc)
+	registerGetTaskContext(server, svc, imageStore)
 	registerCompleteTask(server, svc)
 	registerGetSubtaskSummary(server, svc)
 	registerCheckAgentHealth(server, svc)
@@ -89,9 +90,10 @@ type listCardsOutput struct {
 }
 
 type getCardInput struct {
-	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID  string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID        string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call)"`
 }
 
 type createCardInput struct {
@@ -141,9 +143,10 @@ type addLogInput struct {
 }
 
 type getTaskContextInput struct {
-	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID  string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID        string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call; siblings stay text-only)"`
 }
 type getTaskContextOutput struct {
 	Card     *board.Card          `json:"card"`
@@ -251,10 +254,10 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 	})
 }
 
-func registerGetCard(server *mcp.Server, svc *service.CardService) {
+func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_card",
-		Description: "Get a single card by ID, including its full body and metadata.",
+		Description: "Get a single card by ID, including its full body and metadata. By default, attaches inline image bytes for any cm-server-hosted markdown images in the body (capped at 10); pass include_images=false to skip.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -270,7 +273,9 @@ func registerGetCard(server *mcp.Server, svc *service.CardService) {
 		// payloads from imported external cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
-		return nil, card, nil
+		result := attachImagesToResult(ctx, imageStore, card, card.Body, input.IncludeImages)
+
+		return result, card, nil
 	})
 }
 
@@ -479,10 +484,10 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 	})
 }
 
-func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
+func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
-		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips.",
+		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getTaskContextInput) (*mcp.CallToolResult, getTaskContextOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -499,11 +504,13 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
 
+		// Redact unvetted card body for non-human callers — get_task_context
+		// is the primary prompt-injection vector because its response is fed
+		// straight into agent context.
+		primary := redactCardForAgent(card, input.AgentID)
+
 		out := getTaskContextOutput{
-			// Redact unvetted card body for non-human callers — get_task_context
-			// is the primary prompt-injection vector because its response is fed
-			// straight into agent context.
-			Card:   redactCardForAgent(card, input.AgentID),
+			Card:   primary,
 			Config: cfg,
 		}
 
@@ -531,7 +538,9 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService) {
 			}
 		}
 
-		return nil, out, nil
+		result := attachImagesToResult(ctx, imageStore, out, primary.Body, input.IncludeImages)
+
+		return result, out, nil
 	})
 }
 

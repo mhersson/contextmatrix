@@ -16,14 +16,16 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
 // chatMgr may be nil when chat is disabled; chat-specific tools register only
-// when it is non-nil.
-func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat.Manager) *mcp.Server {
+// when it is non-nil. imageStore may be nil when image support is disabled;
+// get_card and get_task_context return text-only results in that case.
+func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat.Manager, imageStore images.Store) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "contextmatrix",
@@ -32,7 +34,7 @@ func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat
 		nil,
 	)
 
-	registerTools(server, svc, workflowSkillsDir)
+	registerTools(server, svc, workflowSkillsDir, imageStore)
 	registerPrompts(server, svc, workflowSkillsDir)
 
 	if chatMgr != nil {
