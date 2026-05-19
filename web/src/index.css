@@ -1125,6 +1125,44 @@ input, select, textarea {
 }
 
 /*
+ * Tailwind v4 preflight resets ul/ol to list-style: none globally.
+ * @uiw/react-markdown-preview loads markdown.css but omits list-style on
+ * the base ul/ol rule, so bulleted and numbered lists render flat. Our
+ * !important on the depth-1 rules is required to beat Tailwind preflight.
+ * The complementary nested rules below restore the library's intended
+ * lower-roman → lower-alpha cascade for ordered lists, which our base-rule
+ * !important would otherwise clobber (the library sets those without
+ * !important, so they lose to our depth-1 declaration without extra help).
+ */
+.wmde-markdown ul {
+  list-style: disc !important;
+  padding-left: 2em !important;
+}
+.wmde-markdown ol {
+  list-style: decimal !important;
+  padding-left: 2em !important;
+}
+.wmde-markdown ul ul,
+.wmde-markdown ol ul {
+  list-style: circle !important;
+}
+.wmde-markdown ul ul ul,
+.wmde-markdown ul ol ul,
+.wmde-markdown ol ul ul {
+  list-style: square !important;
+}
+.wmde-markdown ol ol,
+.wmde-markdown ul ol {
+  list-style: lower-roman !important;
+}
+.wmde-markdown ul ul ol,
+.wmde-markdown ul ol ol,
+.wmde-markdown ol ul ol,
+.wmde-markdown ol ol ol {
+  list-style: lower-alpha !important;
+}
+
+/*
  * Card-panel read-only markdown: render prose in the display font so the
  * body text flows visually from the panel title (which also uses
  * var(--font-display)). Scoped via the `.bf-markdown` class applied in
