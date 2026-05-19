@@ -260,17 +260,19 @@ func (m *Manager) statusLock(sessionID string) *sync.Mutex {
 	return mu
 }
 
-// publishStatus fans out a lifecycle-status change event on the SSE hub.
+// publishSessionUpdate fans out a session-update event on the SSE hub.
 // The publish runs in a goroutine so callers that hold a sessionHub lock
 // (e.g. OnSubscribe, which fires inside SSEHub.Subscribe while sh.mu is
 // held) do not deadlock when MarkActive calls back into the hub. Nil-hub
 // guard is included so callers never need to check m.hub themselves.
-func (m *Manager) publishStatus(sessionID string, s Status) {
+// NOTE: handleUsageEntry does NOT use this helper — usage events are
+// synchronous, non-status publishes that need no goroutine dispatch.
+func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 	if m.hub == nil {
 		return
 	}
 
-	go m.hub.PublishSessionUpdate(sessionID, SessionUpdate{Status: &s})
+	go m.hub.PublishSessionUpdate(sessionID, u)
 }
 
 // consumerHandle is the per-session lifecycle handle for a runner-log consumer
@@ -806,16 +808,28 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 		return sess, nil
 
 	case StatusWarmIdle:
+		// Hold the per-session status lock across the read-modify-write window
+		// so a concurrent MarkWarmIdle (grace timer firing just before the user
+		// re-opens) cannot interleave and leave the row in the wrong state.
+		mu := m.statusLock(sess.ID)
+		mu.Lock()
+
 		sess.Status = StatusActive
 
 		sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 		if err := m.store.UpdateSession(ctx, sess); err != nil {
+			mu.Unlock()
+
 			return Session{}, fmt.Errorf("chat: warm reattach: %w", err)
 		}
 
+		mu.Unlock()
+
 		m.logger.Info("chat: warm-idle reattached", "session_id", sess.ID)
 		m.startConsumer(sess.ID)
-		m.publishStatus(sess.ID, StatusActive)
+
+		s := StatusActive
+		m.publishSessionUpdate(sess.ID, SessionUpdate{Status: &s})
 
 		return sess, nil
 
@@ -934,7 +948,14 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		sess.Workspace = append(sess.Workspace, sess.Project)
 	}
 
+	// Hold the per-session status lock across the status write + publish
+	// window so a concurrent MarkWarmIdle cannot interleave between the
+	// active persist and the SSE fan-out.
+	statusMu := m.statusLock(sess.ID)
+	statusMu.Lock()
+
 	if err := m.store.UpdateSession(ctx, sess); err != nil {
+		statusMu.Unlock()
 		// Roll back the container start so we don't leak.
 		if rbErr := m.runner.EndChat(context.Background(), sess.ID); rbErr != nil {
 			m.logger.Warn("chat: rollback EndChat failed after persist failure",
@@ -943,6 +964,8 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		return Session{}, fmt.Errorf("chat: persist active: %w", err)
 	}
+
+	statusMu.Unlock()
 
 	if resume != nil {
 		// Pre-arm the in-memory cache so concurrent log writes during
@@ -991,7 +1014,9 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	m.logger.Info("chat: cold session active",
 		"session_id", sess.ID, "container_id", containerID)
 	m.startConsumer(sess.ID)
-	m.publishStatus(sess.ID, StatusActive)
+
+	s := StatusActive
+	m.publishSessionUpdate(sess.ID, SessionUpdate{Status: &s})
 
 	return sess, nil
 }
@@ -1141,12 +1166,8 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 // cold and ending sessions, which have no live runner container to
 // bridge to.
 //
-// Status is intentionally left untouched: Reattach is infrastructure-only
-// (runner-log bridge + last-active refresh). Lifecycle promotion (warm-idle
-// → active) is handled separately by MarkActive, which is called from the
-// OnSubscribe callback after Reattach completes. Keeping the two concerns
-// separate lets OnSubscribe decide whether promotion is warranted (e.g. only
-// when the session is warm-idle) without Reattach duplicating that logic.
+// Status is intentionally left untouched; lifecycle promotion is
+// MarkActive's job, called separately from OnSubscribe.
 //
 // Idempotent and safe for concurrent callers — startConsumer guards
 // against duplicate consumer goroutines internally.
@@ -1177,18 +1198,18 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 // session is not active. Tolerant of ErrSessionNotFound — a grace timer
 // fired against a session that was already deleted (DeleteSession,
 // reconcile sweep) is a benign race, not an error.
-func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
+func (m *Manager) MarkWarmIdle(ctx context.Context, sessionID string) error {
 	// Hold the per-session status lock across the read-modify-write window
 	// so a concurrent MarkActive (fired from OnSubscribe) serialises cleanly
 	// rather than interleaving with last-write-wins semantics.
-	mu := m.statusLock(id)
+	mu := m.statusLock(sessionID)
 	mu.Lock()
 	defer mu.Unlock()
 
-	sess, err := m.store.GetSession(ctx, id)
+	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
-			m.logger.Debug("chat: MarkWarmIdle: session not found, ignoring", "session_id", id)
+			m.logger.Debug("chat: MarkWarmIdle: session not found, ignoring", "session_id", sessionID)
 
 			return nil
 		}
@@ -1207,7 +1228,8 @@ func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
 		return fmt.Errorf("chat: MarkWarmIdle persist: %w", err)
 	}
 
-	m.publishStatus(id, StatusWarmIdle)
+	s := StatusWarmIdle
+	m.publishSessionUpdate(sessionID, SessionUpdate{Status: &s})
 
 	return nil
 }
@@ -1250,7 +1272,8 @@ func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
 
 	m.logger.Info("chat: session promoted to active", "session_id", sessionID)
 
-	m.publishStatus(sessionID, StatusActive)
+	s := StatusActive
+	m.publishSessionUpdate(sessionID, SessionUpdate{Status: &s})
 
 	return nil
 }
@@ -1287,6 +1310,11 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 			"session_id", sess.ID, "error", err)
 	}
 
+	// Hold the per-session status lock across the status read + cold persist
+	// window so a concurrent MarkWarmIdle cannot interleave.
+	statusMu := m.statusLock(sess.ID)
+	statusMu.Lock()
+
 	// Single store write: transition directly to cold without an intermediate
 	// status=ending persist. Collapsing to one write means a failure here
 	// leaves the row in its original state (active/warm-idle/ending) rather
@@ -1296,26 +1324,33 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 
 	if err := m.store.UpdateSession(ctx, sess); err != nil {
+		statusMu.Unlock()
+
 		return fmt.Errorf("chat: mark cold: %w", err)
 	}
 
+	statusMu.Unlock()
+
 	// Reset any leftover rehydration flag so a subsequent reopen starts
 	// from a clean state. setRehydrationActive is idempotent and tolerant
-	// of an already-false value.
-	if err := m.setRehydrationActive(ctx, sess.ID, false); err != nil {
+	// of an already-false value. Only include RehydrationActive in the SSE
+	// event if the persist succeeded — if it failed the on-disk row still
+	// has rehydration_active=true, and reporting false would contradict it.
+	rehyErr := m.setRehydrationActive(ctx, sess.ID, false)
+	if rehyErr != nil {
 		m.logger.Warn("chat: EndSession: clear rehydration flag failed",
-			"session_id", sess.ID, "error", err)
+			"session_id", sess.ID, "error", rehyErr)
 	}
 
-	if m.hub != nil {
-		cold := StatusCold
+	cold := StatusCold
+	update := SessionUpdate{Status: &cold}
 
+	if rehyErr == nil {
 		falseVal := false
-		go m.hub.PublishSessionUpdate(sess.ID, SessionUpdate{
-			Status:            &cold,
-			RehydrationActive: &falseVal,
-		})
+		update.RehydrationActive = &falseVal
 	}
+
+	m.publishSessionUpdate(sess.ID, update)
 
 	m.logger.Info("chat: session cold", "session_id", sess.ID)
 

@@ -238,15 +238,22 @@ and commit completion. The service layer closes that gap on failure:
   `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
   model, and `status` for lifecycle transitions — with no transcript content). The
   `status` field uses a pointer so `omitempty` distinguishes "no lifecycle change"
-  from a deliberate transition. All active-transition entry points emit it: `OpenSession`
-  (cold→active and warm-idle→active), `OnSubscribe` callback (warm-idle→active),
-  `MarkWarmIdle` (active→warm-idle), and `EndSession` (any→cold, always paired with
-  `RehydrationActive: false`). Publishes run in a goroutine so callers don't block on the
-  hub mutex. The browser's `useChatStream` hook routes `session_updated` events into the
-  header state; when the `status` field changes, it dispatches `notifyChatSessionsChanged`
-  via `queueMicrotask` (so StrictMode double-invokes don't double-dispatch) — `useChatSessions`
-  debounces that event with a 100 ms window to coalesce fan-out from multiple open panes into
-  a single `/api/chats` refetch that updates the sidebar status dot.
+  from a deliberate transition.
+
+  Server-side, `publishSessionUpdate` fans out the event in a goroutine so callers
+  holding a sessionHub lock don't deadlock. Lifecycle entry points that emit `status`:
+  - `OpenSession` — cold→active and warm-idle→active
+  - `OnSubscribe` callback — warm-idle→active
+  - `MarkWarmIdle` — active→warm-idle
+  - `EndSession` — any→cold (paired with `RehydrationActive: false` when the
+    persist succeeded)
+
+  Client-side, `useChatStream` routes `session_updated` events into header state.
+  When the `status` field changes, a `prevStatusRef` ref (scoped to the SSE handler)
+  detects the transition exactly once per real event and calls
+  `notifyChatSessionsChanged()` directly — `useChatSessions` debounces that event
+  with a 100 ms window to coalesce fan-out from multiple open panes into a single
+  `/api/chats` refetch that updates the sidebar status dot.
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
   `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
   calls don't panic.

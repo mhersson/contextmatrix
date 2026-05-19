@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import type { ChatMessage, ChatSessionUpdate, LogEntry } from '../types';
+import type { ChatMessage, ChatSessionUpdate, ChatStatus, LogEntry } from '../types';
 import { useRingBuffer } from './useRingBuffer';
 import { notifyChatSessionsChanged } from './useChatSessions';
 
@@ -86,12 +86,16 @@ export function useChatStream(sessionID: string): UseChatStream {
   const { logs, append, clear } = useRingBuffer(CHAT_LOG_RING_CAPACITY);
   const [connected, setConnected] = useState(false);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
+  // prevStatusRef tracks the last-seen status value so the comparison runs
+  // once per real SSE event (not twice under StrictMode setter double-invoke).
+  const prevStatusRef = useRef<ChatStatus | undefined>(undefined);
 
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);
     setConnected(false);
     setSessionUpdate(null);
+    prevStatusRef.current = undefined;
     clear();
   }
 
@@ -128,14 +132,14 @@ export function useChatStream(sessionID: string): UseChatStream {
       es.addEventListener('session_updated', (ev) => {
         try {
           const data = JSON.parse((ev as MessageEvent).data) as ChatSessionUpdate;
-          setSessionUpdate((prev) => {
-            if (data.status !== undefined && data.status !== prev?.status) {
-              // Fire after React commits so StrictMode's setter double-invoke
-              // doesn't double-dispatch the side-effect notification.
-              queueMicrotask(notifyChatSessionsChanged);
-            }
-            return { ...(prev ?? {}), ...data };
-          });
+          // Compare status once per real event using a ref — avoids the
+          // double-dispatch that would occur if the comparison lived inside
+          // the setSessionUpdate setter (which StrictMode invokes twice).
+          if (data.status !== undefined && data.status !== prevStatusRef.current) {
+            prevStatusRef.current = data.status;
+            notifyChatSessionsChanged();
+          }
+          setSessionUpdate((prev) => ({ ...(prev ?? {}), ...data }));
         } catch {
           // malformed payload — skip
         }

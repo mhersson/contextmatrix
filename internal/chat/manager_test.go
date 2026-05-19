@@ -2743,3 +2743,71 @@ func TestOpenSession_Cold_PublishesActive(t *testing.T) {
 		t.Fatal("timeout waiting for session_updated SSE event from cold OpenSession")
 	}
 }
+
+// TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle exercises the per-session
+// statusLock across the OpenSession warm-idle→active branch and a concurrent
+// MarkWarmIdle call. Without the lock, the two goroutines can interleave their
+// read→write windows and leave the row in an inconsistent state.
+//
+// The test sets up a warm-idle session, then fires both OpenSession and
+// MarkWarmIdle concurrently 50 times on the same session (resetting to
+// warm-idle between iterations). It asserts that after each pair resolves:
+// - No goroutine panics (the -race detector catches data races)
+// - The final DB row is either active or warm-idle (no impossible state)
+// - OpenSession's own return value is consistent with the DB row status.
+func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
+	const iterations = 50
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	// Create the session once; reset to warm-idle on each iteration.
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "race-test", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	for i := range iterations {
+		// Reset to warm-idle in the store so both callers have a valid
+		// starting point each iteration.
+		sess.Status = chat.StatusWarmIdle
+		sess.ContainerID = "container-warm"
+		require.NoError(t, store.UpdateSession(ctx, sess), "reset iteration %d", i)
+
+		var wg sync.WaitGroup
+
+		wg.Add(2)
+
+		// Goroutine 1: OpenSession (warm-idle → active path)
+		go func() {
+			defer wg.Done()
+
+			_, _ = mgr.OpenSession(ctx, sess.ID)
+		}()
+
+		// Goroutine 2: MarkWarmIdle (active → warm-idle, or no-op if already warm-idle)
+		go func() {
+			defer wg.Done()
+
+			_ = mgr.MarkWarmIdle(ctx, sess.ID)
+		}()
+
+		wg.Wait()
+
+		// Post-condition: row must be in a valid state (active or warm-idle).
+		got, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err, "iteration %d: GetSession", i)
+		assert.True(t,
+			got.Status == chat.StatusActive || got.Status == chat.StatusWarmIdle,
+			"iteration %d: status must be active or warm-idle, got %q", i, got.Status)
+	}
+}

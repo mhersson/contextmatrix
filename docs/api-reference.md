@@ -1365,7 +1365,13 @@ kinds share the wire:
   | `warm-idle` | Container still running but no browser subscriber (grace window). Reverts to `active` on resubscribe. |
   | `ending`    | Reserved; not emitted in the current implementation.                                                 |
 
-  **Lifecycle transitions that emit a `status` field:** `cold → active` via `OpenSession` (POST `/open`); `warm-idle → active` when a browser subscriber attaches (OnSubscribe) or `OpenSession` is called; `active → warm-idle` after the 30 s grace timer fires following last-subscriber departure; `active/warm-idle → cold` via `EndSession` (POST `/end`) or the idle reaper. Clients should refetch `GET /api/chats` when `status` changes to update sidebar indicators.
+  **Lifecycle transitions that emit a `status` field:**
+  - `cold → active` via `OpenSession` (POST `/open`)
+  - `warm-idle → active` when a browser subscriber attaches (OnSubscribe) or `OpenSession` is called
+  - `active → warm-idle` after the 30 s grace timer fires following last-subscriber departure
+  - `active/warm-idle → cold` via `EndSession` (POST `/end`) or the idle reaper
+
+  Clients should refetch `GET /api/chats` when `status` changes to update sidebar indicators.
 
 Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
 server-side 128-entry ring buffer before tailing live events). The handler
