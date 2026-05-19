@@ -41,7 +41,7 @@ export function FilterChipBar({
         <input
           type="search"
           aria-label="Search cards"
-          placeholder="Search cards, agents, branches…"
+          placeholder="Search cards (ID, title, label)…"
           value={searchQuery}
           onChange={(e) => onSearchChange?.(e.target.value)}
         />
