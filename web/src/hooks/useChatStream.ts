@@ -129,11 +129,12 @@ export function useChatStream(sessionID: string): UseChatStream {
         try {
           const data = JSON.parse((ev as MessageEvent).data) as ChatSessionUpdate;
           setSessionUpdate((prev) => {
-            const next = { ...(prev ?? {}), ...data };
             if (data.status !== undefined && data.status !== prev?.status) {
-              notifyChatSessionsChanged();
+              // Fire after React commits so StrictMode's setter double-invoke
+              // doesn't double-dispatch the side-effect notification.
+              queueMicrotask(notifyChatSessionsChanged);
             }
-            return next;
+            return { ...(prev ?? {}), ...data };
           });
         } catch {
           // malformed payload — skip

@@ -1354,13 +1354,18 @@ kinds share the wire:
   | `context_tokens_updated_at`  | timestamp | When `context_tokens` was last updated.                                      |
   | `model`                      | string    | Model name, set on first usage event.                                        |
   | `rehydration_active`         | boolean   | `false` once `chat_rehydration_complete` is called.                          |
-  | `status`                     | string    | Lifecycle transition (`active`, `warm-idle`, `cold`). Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. |
+  | `status`                     | string    | Lifecycle transition. Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. See `ChatStatus` values below. |
 
-  Lifecycle transitions that publish a `status` field: `warm-idle → active` (when
-  a browser subscriber attaches or the user sends a message), `active → warm-idle`
-  (30 s grace timer after last subscriber departs), `warm-idle → cold` (idle reaper
-  or explicit end). Clients should refetch `GET /api/chats` when `status` changes
-  to update sidebar indicators.
+  **`ChatStatus` values:**
+
+  | Value       | Description                                                                                          |
+  |-------------|------------------------------------------------------------------------------------------------------|
+  | `cold`      | Session is idle; no runner container. Starting state and the state after `EndSession`.               |
+  | `active`    | Runner container is running and a browser subscriber is present.                                     |
+  | `warm-idle` | Container still running but no browser subscriber (grace window). Reverts to `active` on resubscribe. |
+  | `ending`    | Reserved; not emitted in the current implementation.                                                 |
+
+  **Lifecycle transitions that emit a `status` field:** `cold → active` via `OpenSession` (POST `/open`); `warm-idle → active` when a browser subscriber attaches (OnSubscribe) or `OpenSession` is called; `active → warm-idle` after the 30 s grace timer fires following last-subscriber departure; `active/warm-idle → cold` via `EndSession` (POST `/end`) or the idle reaper. Clients should refetch `GET /api/chats` when `status` changes to update sidebar indicators.
 
 Query parameter: `since_seq=<N>` (replay events where `seq > N` from the
 server-side 128-entry ring buffer before tailing live events). The handler

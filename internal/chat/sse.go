@@ -20,8 +20,10 @@ const maxSubscribersPerSession = 32
 const (
 	// SSEKindMessage is a transcript message append; Seq/Role/Content carry it.
 	SSEKindMessage SSEEventKind = "message"
-	// SSEKindSessionUpdate is a session metadata change (context_tokens,
-	// rehydration_active, model). SessionUpdate carries the payload.
+	// SSEKindSessionUpdate is a session metadata change. SessionUpdate carries
+	// the payload. Fields: context_tokens, context_tokens_updated_at, model,
+	// rehydration_active, status. Zero-valued fields are omitted (omitempty);
+	// the client merges received fields into its local session view.
 	SSEKindSessionUpdate SSEEventKind = "session_updated"
 )
 

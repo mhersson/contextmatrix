@@ -181,6 +181,14 @@ type Manager struct {
 	appendLocksMu sync.Mutex
 	appendLocks   map[string]*sync.Mutex
 
+	// statusLocks holds a per-session mutex used by MarkActive and
+	// MarkWarmIdle to serialise the read-modify-write window so a racing
+	// grace-timer goroutine and a new-subscriber callback cannot produce
+	// an interleaved final state. Follows the same lazy-allocation pattern
+	// as appendLocks.
+	statusLocksMu sync.Mutex
+	statusLocks   map[string]*sync.Mutex
+
 	closeOnce sync.Once
 }
 
@@ -212,6 +220,7 @@ func NewManager(cfg Config) *Manager {
 		consumers:          make(map[string]*consumerHandle),
 		rehydrationActive:  make(map[string]bool),
 		appendLocks:        map[string]*sync.Mutex{},
+		statusLocks:        map[string]*sync.Mutex{},
 	}
 }
 
@@ -231,6 +240,37 @@ func (m *Manager) appendLock(sessionID string) *sync.Mutex {
 	}
 
 	return mu
+}
+
+// statusLock returns the per-session status mutex, creating it on first use.
+// Held across the read-modify-write window in MarkActive and MarkWarmIdle so
+// a racing grace-timer goroutine and a new-subscriber OnSubscribe callback
+// cannot interleave and produce an inconsistent final state. Lazily allocated
+// on first use; cleaned up by DeleteSession.
+func (m *Manager) statusLock(sessionID string) *sync.Mutex {
+	m.statusLocksMu.Lock()
+	defer m.statusLocksMu.Unlock()
+
+	mu, ok := m.statusLocks[sessionID]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.statusLocks[sessionID] = mu
+	}
+
+	return mu
+}
+
+// publishStatus fans out a lifecycle-status change event on the SSE hub.
+// The publish runs in a goroutine so callers that hold a sessionHub lock
+// (e.g. OnSubscribe, which fires inside SSEHub.Subscribe while sh.mu is
+// held) do not deadlock when MarkActive calls back into the hub. Nil-hub
+// guard is included so callers never need to check m.hub themselves.
+func (m *Manager) publishStatus(sessionID string, s Status) {
+	if m.hub == nil {
+		return
+	}
+
+	go m.hub.PublishSessionUpdate(sessionID, SessionUpdate{Status: &s})
 }
 
 // consumerHandle is the per-session lifecycle handle for a runner-log consumer
@@ -775,6 +815,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 
 		m.logger.Info("chat: warm-idle reattached", "session_id", sess.ID)
 		m.startConsumer(sess.ID)
+		m.publishStatus(sess.ID, StatusActive)
 
 		return sess, nil
 
@@ -950,6 +991,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	m.logger.Info("chat: cold session active",
 		"session_id", sess.ID, "container_id", containerID)
 	m.startConsumer(sess.ID)
+	m.publishStatus(sess.ID, StatusActive)
 
 	return sess, nil
 }
@@ -1099,34 +1141,36 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 // cold and ending sessions, which have no live runner container to
 // bridge to.
 //
-// Status is intentionally left untouched: warm-idle stays warm-idle.
-// Flipping to active would require a session_updated SSE push to keep
-// the sidebar in sync, but SessionUpdate carries no Status field today.
-// Leaving status as-is means the chat still works (SendUserMessage
-// accepts warm-idle), the sidebar stays consistent, and the next
-// natural transition (user types a message, or the grace timer fires
-// after disconnect) keeps the state machine clean.
+// Status is intentionally left untouched: Reattach is infrastructure-only
+// (runner-log bridge + last-active refresh). Lifecycle promotion (warm-idle
+// → active) is handled separately by MarkActive, which is called from the
+// OnSubscribe callback after Reattach completes. Keeping the two concerns
+// separate lets OnSubscribe decide whether promotion is warranted (e.g. only
+// when the session is warm-idle) without Reattach duplicating that logic.
 //
 // Idempotent and safe for concurrent callers — startConsumer guards
 // against duplicate consumer goroutines internally.
-func (m *Manager) Reattach(ctx context.Context, sessionID string) error {
+//
+// Returns the loaded Session so callers (e.g. OnSubscribe) can inspect
+// the current status without a redundant GetSession round-trip.
+func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return fmt.Errorf("chat: Reattach: %w", err)
+		return Session{}, fmt.Errorf("chat: Reattach: %w", err)
 	}
 
 	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
-		return nil
+		return sess, nil
 	}
 
 	sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 	if err := m.store.UpdateSession(ctx, sess); err != nil {
-		return fmt.Errorf("chat: Reattach: persist last-active: %w", err)
+		return Session{}, fmt.Errorf("chat: Reattach: persist last-active: %w", err)
 	}
 
 	m.startConsumer(sess.ID)
 
-	return nil
+	return sess, nil
 }
 
 // MarkWarmIdle transitions an active session to warm-idle. No-op if the
@@ -1134,6 +1178,13 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) error {
 // fired against a session that was already deleted (DeleteSession,
 // reconcile sweep) is a benign race, not an error.
 func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
+	// Hold the per-session status lock across the read-modify-write window
+	// so a concurrent MarkActive (fired from OnSubscribe) serialises cleanly
+	// rather than interleaving with last-write-wins semantics.
+	mu := m.statusLock(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	sess, err := m.store.GetSession(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
@@ -1156,10 +1207,7 @@ func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
 		return fmt.Errorf("chat: MarkWarmIdle persist: %w", err)
 	}
 
-	if m.hub != nil {
-		warmIdle := StatusWarmIdle
-		m.hub.PublishSessionUpdate(id, SessionUpdate{Status: &warmIdle})
-	}
+	m.publishStatus(id, StatusWarmIdle)
 
 	return nil
 }
@@ -1168,6 +1216,16 @@ func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
 // is not warm-idle. Tolerant of ErrSessionNotFound — the same benign-race
 // reasoning as MarkWarmIdle.
 func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
+	// Hold the per-session status lock so this serialises with MarkWarmIdle.
+	// The lock is intentionally taken before the store read so the
+	// read-modify-write is atomic: a racing MarkWarmIdle that has already
+	// committed its write will be visible to us (status will be warm-idle)
+	// and we correctly overwrite it; a MarkWarmIdle that hasn't committed
+	// yet waits and then sees status=active from our write and no-ops.
+	mu := m.statusLock(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
@@ -1192,10 +1250,7 @@ func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
 
 	m.logger.Info("chat: session promoted to active", "session_id", sessionID)
 
-	if m.hub != nil {
-		active := StatusActive
-		m.hub.PublishSessionUpdate(sessionID, SessionUpdate{Status: &active})
-	}
+	m.publishStatus(sessionID, StatusActive)
 
 	return nil
 }
@@ -1254,7 +1309,12 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 
 	if m.hub != nil {
 		cold := StatusCold
-		m.hub.PublishSessionUpdate(sess.ID, SessionUpdate{Status: &cold})
+
+		falseVal := false
+		go m.hub.PublishSessionUpdate(sess.ID, SessionUpdate{
+			Status:            &cold,
+			RehydrationActive: &falseVal,
+		})
 	}
 
 	m.logger.Info("chat: session cold", "session_id", sess.ID)
@@ -1309,6 +1369,11 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	m.appendLocksMu.Lock()
 	delete(m.appendLocks, id)
 	m.appendLocksMu.Unlock()
+
+	// Drop the per-session status lock entry.
+	m.statusLocksMu.Lock()
+	delete(m.statusLocks, id)
+	m.statusLocksMu.Unlock()
 
 	return nil
 }

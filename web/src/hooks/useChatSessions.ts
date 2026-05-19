@@ -27,6 +27,10 @@ export function notifyChatSessionsChanged() {
  * any mounted component fires CHAT_SESSIONS_CHANGED_EVENT (via
  * notifyChatSessionsChanged). Also exposes a manual `refresh()` for cases
  * where a component already owns the hook instance.
+ *
+ * The event listener debounces N rapid-fire notifications (e.g. up to 4 panes
+ * each calling notifyChatSessionsChanged on the same status transition) into a
+ * single refetch within a 100 ms window.
  */
 export function useChatSessions(): UseChatSessions {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -55,9 +59,19 @@ export function useChatSessions(): UseChatSessions {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const handler = () => setTick((n) => n + 1);
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handler = () => {
+      if (debounceTimer !== null) return; // already pending — coalesce
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        setTick((n) => n + 1);
+      }, 100);
+    };
     window.addEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
-    return () => window.removeEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+    };
   }, []);
 
   return {

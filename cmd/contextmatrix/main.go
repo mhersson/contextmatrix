@@ -378,17 +378,23 @@ func main() {
 		// Reattach the runner-log consumer if one isn't already bridging
 		// /logs for this session — covers the case where CM restarted
 		// while runner containers stayed alive, stranding their consumer
-		// goroutines. No-op on cold/ending sessions.
-		if err := chatMgr.Reattach(ctx, sessionID); err != nil {
+		// goroutines. No-op on cold/ending sessions. The returned Session
+		// tells us the current status so we can skip a redundant GetSession
+		// inside MarkActive when the session is already active.
+		sess, err := chatMgr.Reattach(ctx, sessionID)
+		if err != nil {
 			slog.Warn("chat: reattach on subscribe failed",
 				"session_id", sessionID, "error", err)
 		}
-		// A real browser subscriber means the user is viewing the chat.
 		// Promote warm-idle back to active so the sidebar dot turns green.
+		// Only needed when the session is warm-idle; skip when already active
+		// to avoid a redundant GetSession round-trip inside MarkActive.
 		// Best-effort: failure must never break the SSE handshake.
-		if err := chatMgr.MarkActive(ctx, sessionID); err != nil {
-			slog.Warn("chat: mark-active on subscribe failed",
-				"session_id", sessionID, "error", err)
+		if err == nil && sess.Status == chat.StatusWarmIdle {
+			if err := chatMgr.MarkActive(ctx, sessionID); err != nil {
+				slog.Warn("chat: mark-active on subscribe failed",
+					"session_id", sessionID, "error", err)
+			}
 		}
 	}
 
@@ -415,7 +421,7 @@ func main() {
 			}
 
 			for _, s := range sessions {
-				if err := chatMgr.Reattach(rctx, s.ID); err != nil {
+				if _, err := chatMgr.Reattach(rctx, s.ID); err != nil {
 					slog.Warn("chat: startup reattach failed",
 						"session_id", s.ID, "error", err)
 				}

@@ -227,7 +227,8 @@ func TestManager_Reattach_Active(t *testing.T) {
 	sess.ContainerID = "container-x"
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
 		return runner.streamCalls.Load() == 1
@@ -241,8 +242,9 @@ func TestManager_Reattach_Active(t *testing.T) {
 
 // TestManager_Reattach_WarmIdle starts a consumer for a warm-idle session
 // and refreshes LastActive so the idle reaper doesn't end it. Status is
-// intentionally left at warm-idle — the SessionUpdate SSE type has no
-// Status field yet, so a flip-to-active here would desync the sidebar.
+// intentionally left at warm-idle — Reattach is infrastructure-only;
+// lifecycle promotion (warm-idle → active) is handled separately by
+// MarkActive, called from the OnSubscribe callback.
 func TestManager_Reattach_WarmIdle(t *testing.T) {
 	mgr, runner, store := newManagerWithStubs(t)
 	ctx := context.Background()
@@ -255,7 +257,8 @@ func TestManager_Reattach_WarmIdle(t *testing.T) {
 	sess.LastActive = old
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
 		return runner.streamCalls.Load() == 1
@@ -276,7 +279,8 @@ func TestManager_Reattach_Cold(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
 
 	// Give any (incorrect) goroutine spawn time to call StreamLogs.
 	time.Sleep(50 * time.Millisecond)
@@ -296,9 +300,12 @@ func TestManager_Reattach_Idempotent(t *testing.T) {
 	sess.ContainerID = "container-x"
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
-	require.NoError(t, mgr.Reattach(ctx, sess.ID))
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
+	_, err = mgr.Reattach(ctx, sess.ID)
+	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
 		return runner.streamCalls.Load() == 1
@@ -577,14 +584,30 @@ func TestManager_EndSession_PublishesSessionUpdate(t *testing.T) {
 
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
 
-	select {
-	case e := <-ch:
-		require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
-		require.NotNil(t, e.SessionUpdate)
-		require.NotNil(t, e.SessionUpdate.Status)
-		assert.Equal(t, chat.StatusCold, *e.SessionUpdate.Status)
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected session_updated event for cold transition")
+	// publishStatus runs in a goroutine, so we may receive status events
+	// from earlier transitions (e.g. active from OpenSession) before cold.
+	// Drain until we find the cold event or time out.
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
+			require.NotNil(t, e.SessionUpdate)
+			require.NotNil(t, e.SessionUpdate.Status)
+
+			if *e.SessionUpdate.Status == chat.StatusCold {
+				// Check that RehydrationActive is also set to false.
+				require.NotNil(t, e.SessionUpdate.RehydrationActive,
+					"EndSession session_updated must include RehydrationActive")
+				assert.False(t, *e.SessionUpdate.RehydrationActive)
+
+				return
+			}
+			// Any other status (e.g. active from OpenSession's goroutine) — keep draining.
+		case <-deadline:
+			t.Fatal("expected session_updated event for cold transition")
+		}
 	}
 }
 
@@ -606,9 +629,9 @@ func TestManager_MarkActive_WarmIdleToActive_PublishesUpdate(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
 
-	// Drain the warm-idle event published before subscribe.
-	// (subscribe happened after MarkWarmIdle, so the ring buffer has no
-	// replayed events — the channel is empty now.)
+	// publishStatus runs in a goroutine, so the warm-idle event from
+	// MarkWarmIdle may race with our subscribe. We snapshot LastActive
+	// before calling MarkActive and drain events until we find active.
 
 	// Snapshot LastActive before MarkActive.
 	before, err := store.GetSession(ctx, sess.ID)
@@ -624,14 +647,24 @@ func TestManager_MarkActive_WarmIdleToActive_PublishesUpdate(t *testing.T) {
 	assert.Equal(t, chat.StatusActive, got.Status)
 	assert.True(t, got.LastActive.After(before.LastActive), "LastActive must be refreshed")
 
-	select {
-	case e := <-ch:
-		require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
-		require.NotNil(t, e.SessionUpdate)
-		require.NotNil(t, e.SessionUpdate.Status)
-		assert.Equal(t, chat.StatusActive, *e.SessionUpdate.Status)
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected session_updated event for active promotion")
+	// Drain until we find the active event (may be preceded by the warm-idle
+	// goroutine racing the subscribe).
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
+			require.NotNil(t, e.SessionUpdate)
+			require.NotNil(t, e.SessionUpdate.Status)
+
+			if *e.SessionUpdate.Status == chat.StatusActive {
+				return // found it
+			}
+			// warm-idle event from the earlier goroutine — keep draining.
+		case <-deadline:
+			t.Fatal("expected session_updated event for active promotion")
+		}
 	}
 }
 
@@ -1090,14 +1123,29 @@ func TestManager_OpenSession_BridgesRunnerLogs(t *testing.T) {
 		t.Fatal("StreamLogs onEntry never invoked")
 	}
 
-	select {
-	case e := <-ch:
-		assert.Equal(t, chat.RoleAssistantText, e.Role)
-		assert.Equal(t, "Hello back.", e.Content)
-		assert.Equal(t, int64(1), e.Seq)
-	case <-time.After(2 * time.Second):
-		t.Fatal("hub did not receive assistant_text event")
+	// Drain until we find the assistant_text message event. The goroutine-based
+	// publishStatus from OpenSession (cold→active) may deliver a session_updated
+	// event first — skip those.
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			if e.Kind == chat.SSEKindSessionUpdate {
+				continue // skip lifecycle events
+			}
+
+			assert.Equal(t, chat.RoleAssistantText, e.Role)
+			assert.Equal(t, "Hello back.", e.Content)
+			assert.Equal(t, int64(1), e.Seq)
+
+			goto foundMessage
+		case <-deadline:
+			t.Fatal("hub did not receive assistant_text event")
+		}
 	}
+
+foundMessage:
 
 	// EndSession should stop the consumer; verify via streamCalls staying at 1.
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
@@ -1596,23 +1644,36 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	// Wait for the usage event to propagate through the consumer.
+	// Wait for the usage event to propagate through the consumer. Drain any
+	// lifecycle events (e.g. active from cold→active goroutine publish) until
+	// we find a session_updated with ContextTokens set.
 	var got chat.SSEEvent
-	select {
-	case got = <-events:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for session_updated event")
+
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case got = <-events:
+		case <-deadline:
+			t.Fatal("timed out waiting for session_updated event with context_tokens")
+		}
+
+		require.Equal(t, chat.SSEKindSessionUpdate, got.Kind, "event must be a session_updated push")
+		require.NotNil(t, got.SessionUpdate)
+
+		if got.SessionUpdate.ContextTokens > 0 {
+			break // found the usage event
+		}
+		// Skip lifecycle-status events (e.g. active from cold→active publish).
 	}
 
-	require.Equal(t, chat.SSEKindSessionUpdate, got.Kind, "first event must be the session_updated push")
-	require.NotNil(t, got.SessionUpdate)
 	// 1000 + 4000 + 200 = 5200 (output tokens NOT included in context).
 	assert.Equal(t, int64(5200), got.SessionUpdate.ContextTokens,
 		"context_tokens = input + cache_read + cache_create")
 
 	// Wait briefly for the DB write (handleUsageEntry persists then publishes).
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
 		s, err := store.GetSession(ctx, sess.ID)
 		require.NoError(t, err)
 
@@ -2489,4 +2550,196 @@ func TestClearContext_EndingSession(t *testing.T) {
 		"ending session must return ErrSessionNotRunning, got: %v", err)
 
 	assert.Equal(t, int64(0), runner.sendCalls.Load(), "runner must not be called for an ending session")
+}
+
+// TestMarkActive_OnSubscribe_NoDeadlock is a regression test for the
+// OnSubscribe → MarkActive → PublishSessionUpdate deadlock. SSEHub.Subscribe
+// holds the per-session lock (sh.mu) while invoking OnSubscribe. When the
+// session is warm-idle, MarkActive calls publishStatus which now runs the
+// hub.PublishSessionUpdate in a separate goroutine to avoid re-entering
+// sh.mu on the same thread. Without the goroutine-publish fix, this test
+// would hang forever (deadlock) with:
+//
+//	hub.Subscribe → sh.mu.Lock → OnSubscribe → MarkActive →
+//	hub.PublishSessionUpdate → sh.mu.Lock  (deadlock: non-reentrant)
+func TestMarkActive_OnSubscribe_NoDeadlock(t *testing.T) {
+	t.Parallel()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	hub := chat.NewSSEHub(128)
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	ctx := context.Background()
+
+	// Create a session and manually set it to warm-idle (container already running).
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "deadlock-test", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusWarmIdle
+	sess.ContainerID = "container-warm"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	// Wire OnSubscribe to call MarkActive — exactly as main.go does.
+	hub.OnSubscribe = func(sessionID string) {
+		reattachSess, reattachErr := mgr.Reattach(ctx, sessionID)
+		if reattachErr != nil {
+			return
+		}
+
+		if reattachSess.Status == chat.StatusWarmIdle {
+			_ = mgr.MarkActive(ctx, sessionID)
+		}
+	}
+
+	// Subscribe in a goroutine; assert it returns within 2 seconds (no deadlock).
+	done := make(chan struct{})
+
+	var ch <-chan chat.SSEEvent
+
+	go func() {
+		defer close(done)
+
+		var subErr error
+
+		ch, _, subErr = hub.Subscribe(sess.ID, 0)
+		if subErr != nil {
+			t.Errorf("Subscribe returned error: %v", subErr)
+		}
+	}()
+
+	select {
+	case <-done:
+		// Subscribe returned — no deadlock.
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: hub.Subscribe did not return within 2 seconds")
+	}
+
+	// Give the goroutine-publish a moment to land.
+	var gotUpdate *chat.SSEEvent
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case ev := <-ch:
+		gotUpdate = &ev
+	case <-timer.C:
+		t.Fatal("timeout waiting for session_updated SSE event")
+	}
+
+	require.NotNil(t, gotUpdate, "expected a session_updated SSE event")
+	require.NotNil(t, gotUpdate.SessionUpdate, "expected SessionUpdate payload")
+	require.NotNil(t, gotUpdate.SessionUpdate.Status, "expected Status in SessionUpdate")
+	assert.Equal(t, chat.StatusActive, *gotUpdate.SessionUpdate.Status)
+
+	// Confirm the DB row was promoted.
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status, "session must be active after OnSubscribe-triggered MarkActive")
+}
+
+// TestOpenSession_WarmIdle_PublishesActive asserts that OpenSession on a
+// warm-idle session publishes a session_updated SSE event with status=active.
+func TestOpenSession_WarmIdle_PublishesActive(t *testing.T) {
+	t.Parallel()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	hub := chat.NewSSEHub(128)
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusWarmIdle
+	sess.ContainerID = "container-warm"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	// Subscribe before OpenSession to capture the event.
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+
+	got, err := mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status)
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case ev := <-ch:
+		require.NotNil(t, ev.SessionUpdate)
+		require.NotNil(t, ev.SessionUpdate.Status)
+		assert.Equal(t, chat.StatusActive, *ev.SessionUpdate.Status, "warm-idle→active must publish SSE event")
+	case <-timer.C:
+		t.Fatal("timeout waiting for session_updated SSE event from warm-idle OpenSession")
+	}
+}
+
+// TestOpenSession_Cold_PublishesActive asserts that OpenSession on a cold
+// session publishes a session_updated SSE event with status=active after the
+// container is started (cold→active branch in openCold).
+func TestOpenSession_Cold_PublishesActive(t *testing.T) {
+	t.Parallel()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	hub := chat.NewSSEHub(128)
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+	// Leave session cold (default).
+
+	// Subscribe before OpenSession to capture the event.
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+
+	got, err := mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status)
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case ev := <-ch:
+		require.NotNil(t, ev.SessionUpdate)
+		require.NotNil(t, ev.SessionUpdate.Status)
+		assert.Equal(t, chat.StatusActive, *ev.SessionUpdate.Status, "cold→active must publish SSE event")
+	case <-timer.C:
+		t.Fatal("timeout waiting for session_updated SSE event from cold OpenSession")
+	}
 }
