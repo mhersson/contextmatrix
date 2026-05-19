@@ -46,11 +46,16 @@ type SSEEvent struct {
 
 // SessionUpdate is the payload of an SSEKindSessionUpdate event. Zero-valued
 // fields mean "unchanged" — the client merges these into its session view.
+// Fields: ContextTokens, ContextTokensUpdatedAt, Model, RehydrationActive,
+// Status.
 type SessionUpdate struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at,omitempty"`
 	Model                  string    `json:"model,omitempty"`
 	RehydrationActive      *bool     `json:"rehydration_active,omitempty"`
+	// Status carries an explicit lifecycle transition. Use a pointer so that
+	// omitempty can distinguish "no status change" from a deliberate value.
+	Status *Status `json:"status,omitempty"`
 }
 
 type subscriber struct {

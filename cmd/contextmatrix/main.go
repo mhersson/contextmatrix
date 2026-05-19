@@ -383,6 +383,13 @@ func main() {
 			slog.Warn("chat: reattach on subscribe failed",
 				"session_id", sessionID, "error", err)
 		}
+		// A real browser subscriber means the user is viewing the chat.
+		// Promote warm-idle back to active so the sidebar dot turns green.
+		// Best-effort: failure must never break the SSE handshake.
+		if err := chatMgr.MarkActive(ctx, sessionID); err != nil {
+			slog.Warn("chat: mark-active on subscribe failed",
+				"session_id", sessionID, "error", err)
+		}
 	}
 
 	slog.Info("chat manager initialized", "idle_ttl", cfg.Chat.IdleTTL, "max_concurrent", cfg.Chat.MaxConcurrent)

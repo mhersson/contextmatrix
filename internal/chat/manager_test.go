@@ -507,6 +507,216 @@ func TestManager_MarkWarmIdle_ColdNoOp(t *testing.T) {
 	assert.Equal(t, chat.StatusCold, got.Status, "cold sessions stay cold")
 }
 
+// newManagerWithHub creates a Manager wired to a real SSEHub and a FakeClock
+// so tests can advance time and observe SSE events deterministically.
+func newManagerWithHub(t *testing.T) (*chat.Manager, *stubRunner, chat.Store, *chat.SSEHub, *clock.FakeClock) {
+	t.Helper()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	hub := chat.NewSSEHub(128)
+	clk := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clk,
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	return mgr, runner, store, hub, clk
+}
+
+func TestManager_MarkWarmIdle_PublishesSessionUpdate(t *testing.T) {
+	t.Parallel()
+	mgr, _, store, hub, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	require.NoError(t, mgr.MarkWarmIdle(ctx, sess.ID))
+
+	select {
+	case e := <-ch:
+		require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
+		require.NotNil(t, e.SessionUpdate)
+		require.NotNil(t, e.SessionUpdate.Status)
+		assert.Equal(t, chat.StatusWarmIdle, *e.SessionUpdate.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected session_updated event for warm-idle transition")
+	}
+}
+
+func TestManager_EndSession_PublishesSessionUpdate(t *testing.T) {
+	t.Parallel()
+	mgr, _, _, hub, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	select {
+	case e := <-ch:
+		require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
+		require.NotNil(t, e.SessionUpdate)
+		require.NotNil(t, e.SessionUpdate.Status)
+		assert.Equal(t, chat.StatusCold, *e.SessionUpdate.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected session_updated event for cold transition")
+	}
+}
+
+func TestManager_MarkActive_WarmIdleToActive_PublishesUpdate(t *testing.T) {
+	t.Parallel()
+	mgr, _, store, hub, clk := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	require.NoError(t, mgr.MarkWarmIdle(ctx, sess.ID))
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	// Drain the warm-idle event published before subscribe.
+	// (subscribe happened after MarkWarmIdle, so the ring buffer has no
+	// replayed events — the channel is empty now.)
+
+	// Snapshot LastActive before MarkActive.
+	before, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Advance clock so MarkActive stamps a distinct LastActive.
+	clk.Advance(5 * time.Second)
+
+	require.NoError(t, mgr.MarkActive(ctx, sess.ID))
+
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status)
+	assert.True(t, got.LastActive.After(before.LastActive), "LastActive must be refreshed")
+
+	select {
+	case e := <-ch:
+		require.Equal(t, chat.SSEKindSessionUpdate, e.Kind)
+		require.NotNil(t, e.SessionUpdate)
+		require.NotNil(t, e.SessionUpdate.Status)
+		assert.Equal(t, chat.StatusActive, *e.SessionUpdate.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected session_updated event for active promotion")
+	}
+}
+
+func TestManager_MarkActive_AlreadyActive_NoOp(t *testing.T) {
+	t.Parallel()
+	mgr, _, store, hub, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	beforeLastActive := sess.LastActive
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	// MarkActive on an already-active session is a no-op.
+	require.NoError(t, mgr.MarkActive(ctx, sess.ID))
+
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status)
+	assert.Equal(t, beforeLastActive, got.LastActive, "LastActive must not change on no-op")
+
+	// No SSE event should be published.
+	select {
+	case <-ch:
+		t.Fatal("unexpected SSE event for no-op MarkActive on active session")
+	default:
+	}
+}
+
+func TestManager_MarkActive_Cold_NoOp(t *testing.T) {
+	t.Parallel()
+	mgr, _, store, hub, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	// Session is cold by default; MarkActive must not change it.
+	require.NoError(t, mgr.MarkActive(ctx, sess.ID))
+
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, got.Status, "cold session must stay cold")
+
+	// No SSE event.
+	select {
+	case <-ch:
+		t.Fatal("unexpected SSE event for no-op MarkActive on cold session")
+	default:
+	}
+}
+
+func TestManager_SendUserMessage_WarmIdle_PromotesToActive(t *testing.T) {
+	t.Parallel()
+	mgr, _, store, _, _ := newManagerWithHub(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	// Force to warm-idle.
+	sess.Status = chat.StatusWarmIdle
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status, "SendUserMessage must promote warm-idle to active")
+}
+
 // TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU exercises the
 // concurrency cap under a tight race: ten goroutines call OpenSession at
 // once with MaxConcurrent=2. Without the lock fix, the two ListSessions

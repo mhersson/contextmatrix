@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChatMessage, ChatSessionUpdate, LogEntry } from '../types';
 import { useRingBuffer } from './useRingBuffer';
+import { notifyChatSessionsChanged } from './useChatSessions';
 
 interface ChatSSEEvent {
   seq: number;
@@ -127,7 +128,13 @@ export function useChatStream(sessionID: string): UseChatStream {
       es.addEventListener('session_updated', (ev) => {
         try {
           const data = JSON.parse((ev as MessageEvent).data) as ChatSessionUpdate;
-          setSessionUpdate((prev) => ({ ...(prev ?? {}), ...data }));
+          setSessionUpdate((prev) => {
+            const next = { ...(prev ?? {}), ...data };
+            if (data.status !== undefined && data.status !== prev?.status) {
+              notifyChatSessionsChanged();
+            }
+            return next;
+          });
         } catch {
           // malformed payload — skip
         }

@@ -452,4 +452,5 @@ export interface ChatSessionUpdate {
   context_tokens_updated_at?: string;
   model?: string;
   rehydration_active?: boolean;
+  status?: ChatStatus;
 }

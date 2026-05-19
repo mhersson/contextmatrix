@@ -1156,6 +1156,47 @@ func (m *Manager) MarkWarmIdle(ctx context.Context, id string) error {
 		return fmt.Errorf("chat: MarkWarmIdle persist: %w", err)
 	}
 
+	if m.hub != nil {
+		warmIdle := StatusWarmIdle
+		m.hub.PublishSessionUpdate(id, SessionUpdate{Status: &warmIdle})
+	}
+
+	return nil
+}
+
+// MarkActive promotes a warm-idle session back to active. No-op if the session
+// is not warm-idle. Tolerant of ErrSessionNotFound — the same benign-race
+// reasoning as MarkWarmIdle.
+func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			m.logger.Debug("chat: MarkActive: session not found, ignoring", "session_id", sessionID)
+
+			return nil
+		}
+
+		return fmt.Errorf("chat: MarkActive: %w", err)
+	}
+
+	if sess.Status != StatusWarmIdle {
+		return nil
+	}
+
+	sess.Status = StatusActive
+	sess.LastActive = m.clk.Now().UTC().Truncate(time.Second)
+
+	if err := m.store.UpdateSession(ctx, sess); err != nil {
+		return fmt.Errorf("chat: MarkActive persist: %w", err)
+	}
+
+	m.logger.Info("chat: session promoted to active", "session_id", sessionID)
+
+	if m.hub != nil {
+		active := StatusActive
+		m.hub.PublishSessionUpdate(sessionID, SessionUpdate{Status: &active})
+	}
+
 	return nil
 }
 
@@ -1211,9 +1252,10 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 			"session_id", sess.ID, "error", err)
 	}
 
-	// TODO: publish a session_updated SSE event here so the UI refreshes its
-	// status indicator on the cold transition. SessionUpdate currently has no
-	// Status field; add one and call m.hub.PublishSessionUpdate when that lands.
+	if m.hub != nil {
+		cold := StatusCold
+		m.hub.PublishSessionUpdate(sess.ID, SessionUpdate{Status: &cold})
+	}
 
 	m.logger.Info("chat: session cold", "session_id", sess.ID)
 
@@ -1289,9 +1331,15 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		return "", err
 	}
 
-	if sess.Status == StatusCold {
+	switch sess.Status {
+	case StatusCold:
 		if _, err := m.OpenSession(ctx, sessionID); err != nil {
 			return "", err
+		}
+	case StatusWarmIdle:
+		if err := m.MarkActive(ctx, sessionID); err != nil {
+			m.logger.Warn("chat: SendUserMessage: promote warm-idle to active failed",
+				"session_id", sessionID, "error", err)
 		}
 	}
 
