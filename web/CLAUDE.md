@@ -301,14 +301,18 @@ SSE `/api/chats/{id}/stream` subscription with a REST bootstrap from
    deduped on the client — the seam is gapless without double messages.
 
 The hook also listens on the `session_updated` named SSE channel and merges the
-payload into `sessionUpdate: ChatSessionUpdate | null` state. When the incoming
-payload contains a `status` field that differs from the previous value, the hook
-dispatches `notifyChatSessionsChanged()` via `queueMicrotask` (after React commits,
-so StrictMode's setter double-invoke does not double-fire the side-effect) — this is
-how lifecycle transitions (`cold → active`, `warm-idle → active`, `active → warm-idle`)
-propagate to the sidebar status dot without a full page reload. `useChatSessions`
-debounces the resulting `CHAT_SESSIONS_CHANGED_EVENT` with a 100 ms window, coalescing
-fan-out from up to 4 open panes into a single `GET /api/chats` refetch.
+payload into `sessionUpdate: ChatSessionUpdate | null` state. A `prevStatusRef`
+tracks the last-seen `status` value; when an incoming `session_updated` payload
+contains a `status` field that differs from the ref, the hook updates the ref and
+calls `notifyChatSessionsChanged()` — this is how lifecycle transitions
+(`cold → active`, `warm-idle → active`, `active → warm-idle`) propagate to the
+sidebar status dot without a full page reload. Using a ref rather than comparing
+inside the `setSessionUpdate` setter means the side-effect fires exactly once per
+real SSE event even under StrictMode's double-invoke of state setters. The ref is
+reset to `undefined` on `sessionID` change alongside the existing
+`setSessionUpdate(null)` reset. `useChatSessions` debounces the resulting
+`CHAT_SESSIONS_CHANGED_EVENT` with a 100 ms window, coalescing fan-out from up to
+4 open panes into a single `GET /api/chats` refetch.
 
 `ChatSessionUpdate` (`web/src/types/index.ts`):
 

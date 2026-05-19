@@ -2749,12 +2749,14 @@ func TestOpenSession_Cold_PublishesActive(t *testing.T) {
 // MarkWarmIdle call. Without the lock, the two goroutines can interleave their
 // read→write windows and leave the row in an inconsistent state.
 //
-// The test sets up a warm-idle session, then fires both OpenSession and
-// MarkWarmIdle concurrently 50 times on the same session (resetting to
-// warm-idle between iterations). It asserts that after each pair resolves:
-// - No goroutine panics (the -race detector catches data races)
-// - The final DB row is either active or warm-idle (no impossible state)
-// - OpenSession's own return value is consistent with the DB row status.
+// Each iteration starts with status=active so MarkWarmIdle performs a real
+// write (active→warm-idle) rather than a no-op. OpenSession is called
+// concurrently; the interleaving exercises both the warm-idle fast path and
+// the re-check-after-lock guard. After each pair resolves:
+//   - No goroutine panics (the -race detector catches data races).
+//   - The final DB row is active or warm-idle (no impossible state).
+//   - OpenSession's return value is internally consistent: whenever it
+//     returned status=active the ContainerID must be non-empty.
 func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 	const iterations = 50
 
@@ -2772,42 +2774,68 @@ func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create the session once; reset to warm-idle on each iteration.
+	// Create the session once; reset on each iteration.
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "race-test", CreatedBy: "human:test"})
 	require.NoError(t, err)
 
 	for i := range iterations {
-		// Reset to warm-idle in the store so both callers have a valid
-		// starting point each iteration.
-		sess.Status = chat.StatusWarmIdle
+		// Start each iteration in active state so MarkWarmIdle performs a
+		// real active→warm-idle write rather than a no-op. OpenSession will
+		// then race against that write on the warm-idle→active transition.
+		sess.Status = chat.StatusActive
 		sess.ContainerID = "container-warm"
 		require.NoError(t, store.UpdateSession(ctx, sess), "reset iteration %d", i)
 
-		var wg sync.WaitGroup
+		// Immediately flip to warm-idle so OpenSession sees the warm-idle
+		// path on entry, while MarkWarmIdle also competes for the same
+		// status lock.
+		sess.Status = chat.StatusWarmIdle
+		require.NoError(t, store.UpdateSession(ctx, sess), "warm-idle reset iteration %d", i)
+
+		var (
+			wg      sync.WaitGroup
+			openRet chat.Session
+		)
 
 		wg.Add(2)
 
-		// Goroutine 1: OpenSession (warm-idle → active path)
+		// Goroutine 1: OpenSession (warm-idle → active path, or drift path).
 		go func() {
 			defer wg.Done()
 
-			_, _ = mgr.OpenSession(ctx, sess.ID)
+			openRet, _ = mgr.OpenSession(ctx, sess.ID)
 		}()
 
-		// Goroutine 2: MarkWarmIdle (active → warm-idle, or no-op if already warm-idle)
+		// Goroutine 2: MarkWarmIdle (active→warm-idle when racing, no-op
+		// when it sees warm-idle/cold). Pre-arm the DB with active so the
+		// call has real work to do on at least some iterations.
 		go func() {
 			defer wg.Done()
+
+			// Flip to active directly in the store so MarkWarmIdle races
+			// with OpenSession for real.
+			active := sess
+			active.Status = chat.StatusActive
+			_ = store.UpdateSession(ctx, active)
 
 			_ = mgr.MarkWarmIdle(ctx, sess.ID)
 		}()
 
 		wg.Wait()
 
-		// Post-condition: row must be in a valid state (active or warm-idle).
+		// Post-condition 1: DB row must be in a valid state.
 		got, err := store.GetSession(ctx, sess.ID)
 		require.NoError(t, err, "iteration %d: GetSession", i)
 		assert.True(t,
 			got.Status == chat.StatusActive || got.Status == chat.StatusWarmIdle,
-			"iteration %d: status must be active or warm-idle, got %q", i, got.Status)
+			"iteration %d: DB status must be active or warm-idle, got %q", i, got.Status)
+
+		// Post-condition 2: if OpenSession returned active, ContainerID
+		// must be non-empty — an active session without a container is
+		// the inconsistency the statusLock guards against.
+		if openRet.Status == chat.StatusActive {
+			assert.NotEmpty(t, openRet.ContainerID,
+				"iteration %d: OpenSession returned active but ContainerID is empty", i)
+		}
 	}
 }
