@@ -5,6 +5,10 @@ import { useEffect, useState } from 'react';
 // agent section ~50px + description label ~20px + spacing ~33px).
 const MOBILE_ABOVE_EDITOR_PX = 280;
 
+// Small reserve when the soft keyboard is open: editor toolbar + description
+// label that stay visible above the keyboard (~60px).
+const KEYBOARD_OPEN_RESERVE = 60;
+
 // Panel switches to full-width mode at this breakpoint (matches .card-panel CSS).
 const MOBILE_BREAKPOINT = 1024;
 
@@ -17,14 +21,36 @@ function isMobileLayout(): boolean {
 }
 
 /**
+ * Returns true when iOS/Android has opened the on-screen keyboard.
+ * We detect it by comparing visualViewport.height to window.innerHeight —
+ * the viewport shrinks when the keyboard is shown. A 100px tolerance avoids
+ * false-positives from ordinary browser-chrome adjustments.
+ */
+function isKeyboardOpen(): boolean {
+  if (typeof window === 'undefined') return false;
+  const vvh = window.visualViewport?.height ?? window.innerHeight;
+  return vvh < window.innerHeight - 100;
+}
+
+/**
  * Computes the editor height for mobile using the VisualViewport API.
- * VisualViewport.height shrinks when the on-screen keyboard appears, giving us
- * the precise usable height above the keyboard without any extra calculation.
+ *
+ * When the soft keyboard is open, iOS scrolls the focused element into view so
+ * the content above the editor is no longer visible — subtracting
+ * MOBILE_ABOVE_EDITOR_PX would over-correct. Instead we use a small
+ * KEYBOARD_OPEN_RESERVE covering only what remains visible (toolbar + label).
+ *
+ * A floor of 50% of window.innerHeight is applied in both keyboard states so
+ * the editor is never less than half the physical screen height on mobile.
  */
 function computeMobileEditorHeight(): number {
   if (typeof window === 'undefined') return DEFAULT_EDITOR_HEIGHT;
   const vvh = window.visualViewport?.height ?? window.innerHeight;
-  return Math.max(120, vvh - MOBILE_ABOVE_EDITOR_PX);
+  const halfScreen = window.innerHeight * 0.5;
+  if (isKeyboardOpen()) {
+    return Math.max(vvh - KEYBOARD_OPEN_RESERVE, halfScreen);
+  }
+  return Math.max(vvh - MOBILE_ABOVE_EDITOR_PX, halfScreen);
 }
 
 /**
