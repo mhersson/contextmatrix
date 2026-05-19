@@ -73,4 +73,9 @@ describe('ProjectsTable', () => {
     expect(screen.queryByText(/status/i)).toBeNull();
     expect(screen.queryByText(/on track/i)).toBeNull();
   });
+
+  it('does not render an Active agents column', () => {
+    renderTable();
+    expect(screen.queryByText(/active agents/i)).toBeNull();
+  });
 });

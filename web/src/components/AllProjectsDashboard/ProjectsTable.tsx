@@ -1,11 +1,9 @@
 import { Link } from 'react-router-dom';
-import type { ActiveAgent, ProjectConfig } from '../../types';
+import type { ProjectConfig } from '../../types';
 import { useMemo } from 'react';
 import {
-  agentInitials,
   distributionSegments,
   formatUsd,
-  isHumanAgent,
   projectRow,
 } from './utils';
 import type { DashboardData } from '../../types';
@@ -13,58 +11,6 @@ import type { DashboardData } from '../../types';
 interface ProjectsTableProps {
   projects: ProjectConfig[];
   summaries: Map<string, DashboardData>;
-}
-
-const MAX_AVATARS = 3;
-
-function AvatarStack({ agents }: { agents: ActiveAgent[] }) {
-  const unique: ActiveAgent[] = [];
-  const seen = new Set<string>();
-  for (const a of agents) {
-    if (seen.has(a.agent_id)) continue;
-    seen.add(a.agent_id);
-    unique.push(a);
-  }
-  const shown = unique.slice(0, MAX_AVATARS);
-  const overflow = unique.length - shown.length;
-  if (unique.length === 0) {
-    return <span style={{ color: 'var(--grey0)', fontSize: 12 }}>—</span>;
-  }
-  return (
-    <div className="flex items-center">
-      <div className="flex items-center">
-        {shown.map((a, idx) => {
-          const human = isHumanAgent(a.agent_id);
-          return (
-            <span
-              key={a.agent_id}
-              className="apd-avatar"
-              title={a.agent_id}
-              style={{
-                marginLeft: idx === 0 ? 0 : -7,
-                backgroundColor: human ? 'var(--bg-blue)' : 'var(--bg-aqua)',
-                color: human ? 'var(--blue)' : 'var(--aqua)',
-                borderColor: 'var(--bg1)',
-              }}
-            >
-              {agentInitials(a.agent_id)}
-            </span>
-          );
-        })}
-      </div>
-      {overflow > 0 && (
-        <span
-          className="apd-avatar-more"
-          style={{
-            backgroundColor: 'var(--bg2)',
-            color: 'var(--grey1)',
-          }}
-        >
-          +{overflow}
-        </span>
-      )}
-    </div>
-  );
 }
 
 function DistributionBar({
@@ -154,7 +100,6 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                   Cards
                 </th>
                 <th style={{ color: 'var(--grey1)' }}>Distribution</th>
-                <th style={{ color: 'var(--grey1)' }}>Active agents</th>
                 <th style={{ color: 'var(--grey1)' }} className="apd-num">
                   Cost
                 </th>
@@ -165,7 +110,6 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                 const name = row.config.name;
                 const display = row.config.display_name ?? name;
                 const repo = row.config.repo ?? '';
-                const agents = row.data?.active_agents ?? [];
                 return (
                   <tr key={name} className="apd-project-row">
                     <td>
@@ -224,9 +168,6 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                       ) : (
                         <span style={{ color: 'var(--grey0)' }}>—</span>
                       )}
-                    </td>
-                    <td>
-                      <AvatarStack agents={agents} />
                     </td>
                     <td
                       className="apd-num"
