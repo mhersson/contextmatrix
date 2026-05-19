@@ -1125,12 +1125,14 @@ input, select, textarea {
 }
 
 /*
- * Tailwind v4 preflight resets ul/ol to list-style: none globally. The
- * @uiw/react-md-editor library CSS does not restore markers within
- * .wmde-markdown, so bulleted and numbered lists render flat. Restore
- * the standard disc → circle → square cascade here, scoped to the
- * markdown preview surface only. !important is needed because the
- * library's own CSS may load at equal specificity and win without it.
+ * Tailwind v4 preflight resets ul/ol to list-style: none globally.
+ * @uiw/react-markdown-preview loads markdown.css but omits list-style on
+ * the base ul/ol rule, so bulleted and numbered lists render flat. Our
+ * !important on the depth-1 rules is required to beat Tailwind preflight.
+ * The complementary nested rules below restore the library's intended
+ * lower-roman → lower-alpha cascade for ordered lists, which our base-rule
+ * !important would otherwise clobber (the library sets those without
+ * !important, so they lose to our depth-1 declaration without extra help).
  */
 .wmde-markdown ul {
   list-style: disc !important;
@@ -1145,8 +1147,19 @@ input, select, textarea {
   list-style: circle !important;
 }
 .wmde-markdown ul ul ul,
+.wmde-markdown ul ol ul,
 .wmde-markdown ol ul ul {
   list-style: square !important;
+}
+.wmde-markdown ol ol,
+.wmde-markdown ul ol {
+  list-style: lower-roman !important;
+}
+.wmde-markdown ul ul ol,
+.wmde-markdown ul ol ol,
+.wmde-markdown ol ul ol,
+.wmde-markdown ol ol ol {
+  list-style: lower-alpha !important;
 }
 
 /*
