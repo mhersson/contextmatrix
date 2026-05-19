@@ -145,6 +145,18 @@ export function useRunnerLogs({
           return;
         }
 
+        // Drop usage entries — they are token-accounting metadata consumed by
+        // the context-tokens indicator via the session_updated SSE path and
+        // carry no display value for the runner console.
+        // 'usage' is intentionally excluded from LogEntryType (it is filter-only,
+        // never rendered). We must still advance lastSeqRef here because seq is a
+        // unified monotonic counter across all entry types — skipping it would
+        // cause a phantom gap marker on the next renderable frame.
+        if (data.type === 'usage') {
+          if (typeof data.seq === 'number') { lastSeqRef.current = data.seq as number; }
+          return;
+        }
+
         // Normal log entry — check for seq gap before appending.
         const entry = data as unknown as LogEntry;
         const seq = typeof data.seq === 'number' ? (data.seq as number) : null;
