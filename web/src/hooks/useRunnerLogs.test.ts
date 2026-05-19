@@ -406,6 +406,62 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
   });
 });
 
+describe('useRunnerLogs — usage entry filtering', () => {
+  it('silently drops usage entries — they do not appear in logs', () => {
+    const { result } = renderHook(() =>
+      useRunnerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'usage',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+        content: '',
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(0);
+  });
+
+  it('drops usage entries but still delivers subsequent non-usage entries', () => {
+    const { result } = renderHook(() =>
+      useRunnerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts = new Date().toISOString();
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'usage',
+        card_id: 'C-1',
+        ts,
+        seq: 1,
+        content: '',
+      });
+    });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        card_id: 'C-1',
+        ts,
+        seq: 2,
+        content: 'hello after usage',
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].type).toBe('text');
+    expect(result.current.logs[0].content).toBe('hello after usage');
+  });
+});
+
 describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
   it('onerror triggers reconnect after delay when not terminal', () => {
     renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));

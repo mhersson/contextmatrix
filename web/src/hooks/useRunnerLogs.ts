@@ -145,6 +145,13 @@ export function useRunnerLogs({
           return;
         }
 
+        // Drop usage entries — they are token-accounting metadata consumed by
+        // the context-tokens indicator via the session_updated SSE path and
+        // carry no display value for the runner console.
+        if (data.type === 'usage') {
+          return;
+        }
+
         // Normal log entry — check for seq gap before appending.
         const entry = data as unknown as LogEntry;
         const seq = typeof data.seq === 'number' ? (data.seq as number) : null;
