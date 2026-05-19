@@ -36,6 +36,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   setInnerWidth(1440);
   setInnerHeight(900);
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined });
 });
 
 describe('useEditorHeight — desktop', () => {
@@ -94,7 +95,7 @@ describe('useEditorHeight — mobile, keyboard closed', () => {
 });
 
 describe('useEditorHeight — mobile, keyboard open', () => {
-  it('uses vvh - KEYBOARD_OPEN_RESERVE when keyboard is open (large enough)', () => {
+  it('applies 50% innerHeight floor when vvh - KEYBOARD_OPEN_RESERVE dips below it (floor wins)', () => {
     // iPhone SE: innerHeight=667, keyboard shrinks vvh to 377.
     // keyboard open: 667 - 377 = 290 > 100 → yes.
     // 377 - 60 = 317; 50% of 667 = 333.5 → floor 333.5 wins.
@@ -106,12 +107,9 @@ describe('useEditorHeight — mobile, keyboard open', () => {
     expect(result.current).toBe(Math.max(377 - KEYBOARD_OPEN_RESERVE, 667 * 0.5));
   });
 
-  it('uses vvh - KEYBOARD_OPEN_RESERVE when that value exceeds 50% floor', () => {
-    // Large phone: innerHeight=900, keyboard shrinks vvh to 500.
-    // keyboard open: 900 - 500 = 400 > 100 → yes.
-    // 500 - 60 = 440; 50% of 900 = 450 → 440 < 450, floor wins.
-    // Actually test a case where vvh-reserve > halfScreen:
-    // innerHeight=800, vvh=650 (just barely not keyboard: 800-650=150>100 → keyboard open).
+  it('uses vvh - KEYBOARD_OPEN_RESERVE when that value exceeds 50% floor (reserve wins)', () => {
+    // Large phone: innerHeight=800, keyboard shrinks vvh to 650.
+    // keyboard open: 800 - 650 = 150 > 100 → yes.
     // 650 - 60 = 590; 50% of 800 = 400 → 590 wins.
     setInnerWidth(500);
     setInnerHeight(800);
@@ -183,5 +181,28 @@ describe('useEditorHeight — listener cleanup', () => {
     expect(
       windowRemove.mock.calls.some(([event]) => event === 'resize'),
     ).toBe(true);
+  });
+
+  it('removes its resize listener from visualViewport on unmount', () => {
+    setInnerWidth(500);
+    setInnerHeight(900);
+    // Install a real vv mock with a spy on removeEventListener.
+    const removedListeners: EventListenerOrEventListenerObject[] = [];
+    const addedListeners = new Set<EventListenerOrEventListenerObject>();
+    const vv = {
+      height: 900,
+      addEventListener: (_: string, l: EventListenerOrEventListenerObject) => addedListeners.add(l),
+      removeEventListener: (_: string, l: EventListenerOrEventListenerObject) => removedListeners.push(l),
+    } as unknown as VisualViewport;
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv });
+
+    const { unmount } = renderHook(() => useEditorHeight());
+    expect(addedListeners.size).toBe(1);
+
+    unmount();
+
+    // The same listener that was added must have been removed.
+    expect(removedListeners).toHaveLength(1);
+    expect(addedListeners.has(removedListeners[0])).toBe(true);
   });
 });
