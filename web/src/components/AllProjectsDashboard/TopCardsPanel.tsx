@@ -202,30 +202,15 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
               </span>
             );
             const titleCell = (
-              <span className="min-w-0">
-                <span
-                  className="block truncate"
-                  style={{
-                    fontSize: 13,
-                    color: 'var(--fg)',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  {c.card_title}
-                </span>
-                <span
-                  className="block truncate"
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    color: c.assigned_agent ? 'var(--grey1)' : 'var(--grey0)',
-                    fontStyle: c.assigned_agent ? 'normal' : 'italic',
-                    letterSpacing: '-0.01em',
-                    marginTop: 2,
-                  }}
-                >
-                  {c.assigned_agent || 'unassigned'}
-                </span>
+              <span
+                className="block truncate min-w-0"
+                style={{
+                  fontSize: 13,
+                  color: 'var(--fg)',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                {c.card_title}
               </span>
             );
             const costCell = (

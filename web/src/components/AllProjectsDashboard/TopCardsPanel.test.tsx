@@ -68,6 +68,12 @@ describe('TopCardsPanel', () => {
     const orphan = screen.getByText('Orphan card');
     expect(orphan.closest('a')).toBeNull();
   });
+
+  it('does not render the assigned agent name or "unassigned" subtext', () => {
+    renderPanel();
+    expect(screen.queryByText('agent-a')).toBeNull();
+    expect(screen.queryByText(/unassigned/i)).toBeNull();
+  });
 });
 
 describe('TopCardsPanel project filter', () => {
