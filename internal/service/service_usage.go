@@ -59,7 +59,14 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+
+	unlocked := false
+
+	defer func() {
+		if !unlocked {
+			s.writeMu.Unlock()
+		}
+	}()
 
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
@@ -112,18 +119,34 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer). On failure roll back to snapshot so cache +
-	// disk stay consistent with git.
-	if err := s.commitCardChange(ctx, project, id, input.AgentID, "usage reported"); err != nil {
-		return nil, s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+	// Enqueue the commit under writeMu, then release writeMu before awaiting
+	// so a slow commit does not stall other concurrent writers. Per-project
+	// worker ordering still guarantees in-enqueue-order landing.
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, input.AgentID, "usage reported")
+
+	s.writeMu.Unlock()
+
+	unlocked = true
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
 	}
 
 	// If the card has no active agent, flush immediately — there is no
 	// subsequent ReleaseCard call to flush deferred paths (e.g. report_usage
-	// called after complete_task).
+	// called after complete_task). Re-acquire writeMu because
+	// flushDeferredCommit mutates deferredPaths.
 	if card.AssignedAgent == "" {
-		if err := s.flushDeferredCommit(ctx, id, input.AgentID); err != nil {
-			ctxlog.Logger(ctx).Error("flush deferred commit on post-release usage report", "card_id", id, "error", err)
+		s.writeMu.Lock()
+		flushErr := s.flushDeferredCommit(ctx, id, input.AgentID)
+		s.writeMu.Unlock()
+
+		if flushErr != nil {
+			ctxlog.Logger(ctx).Error("flush deferred commit on post-release usage report", "card_id", id, "error", flushErr)
 		}
 	}
 

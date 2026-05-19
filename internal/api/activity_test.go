@@ -27,7 +27,9 @@ func httptestNewRouterServer(svc *service.CardService, bus *events.Bus) *httptes
 // Timestamp preserves the caller's value exactly.
 func appendActivity(ctx context.Context, t *testing.T, svc *service.CardService, cardID string, entry board.ActivityEntry) {
 	t.Helper()
-	require.NoError(t, svc.AddLogEntry(ctx, "test-project", cardID, entry))
+
+	_, err := svc.AddLogEntry(ctx, "test-project", cardID, entry)
+	require.NoError(t, err)
 }
 
 func TestGetActivity_ReturnsChronologicalFlatten(t *testing.T) {

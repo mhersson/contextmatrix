@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
@@ -24,6 +24,16 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
 
+  // Guard against setState after unmount: when HITL→Auto promotion completes,
+  // card.autonomous flips to true and this component unmounts while the await
+  // is still in flight. aliveRef lets the async handler skip the trailing
+  // setState calls after cleanup runs.
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
+
   const hitlActive = card.runner_status === 'running' && !card.autonomous;
 
   const handleSend = async (content: string) => {
@@ -44,9 +54,13 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     setPromoteError(null);
     try {
       await api.promoteCardToAutonomous(card.project, card.id);
+      // Successful promotion flips card.autonomous → true via SSE, which causes
+      // the parent to unmount this component. Skip setState if that already
+      // happened by the time we resume here.
+      if (aliveRef.current) setPromoting(false);
     } catch (err) {
+      if (!aliveRef.current) return;
       setPromoteError(isAPIError(err) ? err.error : 'Failed to promote session');
-    } finally {
       setPromoting(false);
     }
   };

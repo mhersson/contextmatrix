@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +16,18 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/runner"
 )
+
+// sseStreamClient is a package-level HTTP client for long-lived SSE connections.
+// Timeout 0 prevents the per-request deadline from terminating the stream;
+// cancellation is driven by the request context instead.
+var sseStreamClient = &http.Client{Timeout: 0}
+
+// ErrOversizedSSELine is returned by StreamLogs when the scanner encounters a
+// line that exceeds the 1 MiB buffer cap. The bufio.Scanner state is
+// unrecoverable after ErrTooLong, so the connection is closed and this
+// sentinel is returned so the consumer in startConsumer can retry with
+// exponential backoff rather than treating the disconnect as a clean close.
+var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded buffer")
 
 // RunnerClientConfig wires the HMAC-signed webhook client.
 type RunnerClientConfig struct {
@@ -157,10 +171,8 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 	req.Header.Set("X-Signature-256", sig)
 	req.Header.Set("X-Webhook-Timestamp", ts)
 
-	// Use a no-timeout client for the SSE stream; ctx drives cancellation.
-	streamClient := &http.Client{}
-
-	resp, err := streamClient.Do(req)
+	// Use the package-level no-timeout client for the SSE stream; ctx drives cancellation.
+	resp, err := sseStreamClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("chat: /logs request: %w", err)
 	}
@@ -177,12 +189,27 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+
+		// Accept both "data:" and "data: " (with or without trailing space).
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if raw == "" {
 			continue
 		}
 
 		var entry runnerLogEntry
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &entry); err != nil {
+		if err := json.Unmarshal([]byte(raw), &entry); err != nil {
+			// Log at Debug so schema drift is observable without spamming production.
+			preview := raw
+			if len(preview) > 256 {
+				preview = preview[:256]
+			}
+
+			slog.Debug("chat: /logs: unparseable SSE frame", "preview", preview, "err", err)
+
 			continue
 		}
 
@@ -206,6 +233,15 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 	}
 
 	if err := scanner.Err(); err != nil {
+		// If a single SSE line exceeds the 1 MiB buffer cap the scanner state
+		// is unrecoverable — return ErrOversizedSSELine so startConsumer's
+		// retry loop reconnects rather than treating it as a clean close.
+		if errors.Is(err, bufio.ErrTooLong) {
+			slog.Warn("chat: /logs: oversized SSE line; reconnecting", "session_id", sessionID)
+
+			return ErrOversizedSSELine
+		}
+
 		return fmt.Errorf("chat: /logs scan: %w", err)
 	}
 
@@ -240,7 +276,11 @@ func (c *runnerClient) post(ctx context.Context, path string, body []byte) ([]by
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("chat: %s: read response: %w", path, err)
+	}
+
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("chat: %s: status %d: %s", path, resp.StatusCode, string(respBody))
 	}

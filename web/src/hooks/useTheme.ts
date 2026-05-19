@@ -11,8 +11,27 @@ const VALID_PALETTES: readonly Palette[] = ['everforest', 'radix', 'catppuccin']
 const STORAGE_KEY = 'theme';
 const PALETTE_STORAGE_KEY = 'palette';
 
+// Safari Private Browsing and some embedded contexts throw on any localStorage
+// access. ThemeProvider is the outermost provider in App.tsx, so a throw here
+// crashes the entire app. Wrap all reads and writes defensively.
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore — palette/theme preferences are best-effort.
+  }
+}
+
 function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = safeGet(STORAGE_KEY);
   if (stored === 'dark' || stored === 'light') {
     return stored;
   }
@@ -20,7 +39,7 @@ function getInitialTheme(): Theme {
 }
 
 function getStoredPalette(): Palette | null {
-  const stored = localStorage.getItem(PALETTE_STORAGE_KEY);
+  const stored = safeGet(PALETTE_STORAGE_KEY);
   if (stored !== null && VALID_PALETTES.includes(stored as Palette)) {
     return stored as Palette;
   }
@@ -66,13 +85,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       applyPalette(stored);
       return stored;
     }
-    applyPalette('catppuccin');
-    return 'catppuccin';
+    applyPalette('everforest');
+    return 'everforest';
   });
   const [version, setVersion] = useState('');
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, theme);
+    safeSet(STORAGE_KEY, theme);
     applyTheme(theme);
   }, [theme]);
 
@@ -82,7 +101,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (stored === null) {
         const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
           ? (config.theme as Palette)
-          : 'catppuccin';
+          : 'everforest';
         setPaletteState(p);
         applyPalette(p);
       }
@@ -101,7 +120,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPalette = useCallback((p: Palette) => {
     setPaletteState(p);
     applyPalette(p);
-    localStorage.setItem(PALETTE_STORAGE_KEY, p);
+    safeSet(PALETTE_STORAGE_KEY, p);
   }, []);
 
   const value = useMemo<ThemeContextValue>(

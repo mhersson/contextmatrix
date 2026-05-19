@@ -32,14 +32,36 @@ var DefaultAuthor = object.Signature{
 }
 
 // Manager handles git operations for the board repository.
-// All operations are mutex-protected to ensure serialized access.
+//
+// Lock discipline (two mutexes, never nested):
+//
+//   - worktreeMu serializes operations that touch the go-git in-memory
+//     repository (m.repo), the working tree, or the .git/index — i.e. all
+//     stage/commit/reload operations and read accessors that consult m.repo.
+//   - netMu serializes shell-git network operations (push, pull, fetch).
+//     Network ops are slow (remote round-trip) and must not block the
+//     per-project CommitQueue workers, which only need worktreeMu.
+//
+// Methods that need both locks acquire and release netMu first, then
+// briefly take worktreeMu for the post-network reload. They are NEVER
+// nested: holding netMu while acquiring worktreeMu (or vice versa) is a
+// bug — see the doc comment on Pull for the prescribed sequence. This
+// keeps gitsync's upstream svc.writeMu → netMu order clean and prevents
+// any deadlock between the two manager-level locks.
 type Manager struct {
 	repo     *git.Repository
 	repoPath string
 	author   object.Signature
 	label    string                    // short identifier used in log messages
 	provider githubauth.TokenGenerator // REPLACES authMode + token
-	mu       sync.Mutex
+
+	// worktreeMu protects m.repo, m.author, and any operation that stages,
+	// commits, or reads the working tree / .git/index.
+	worktreeMu sync.Mutex
+	// netMu protects shell-git network operations (push, pull, fetch). It
+	// is held only across the network round-trip so concurrent commits
+	// (which take worktreeMu) are not blocked by a slow remote.
+	netMu sync.Mutex
 }
 
 // NewManager opens an existing git repository or initializes a new one.
@@ -138,8 +160,8 @@ func cloneRepo(ctx context.Context, targetDir, url, label string, provider githu
 
 // SetAuthor configures the commit author for all commits.
 func (m *Manager) SetAuthor(name, email string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	m.author = object.Signature{Name: name, Email: email}
 }
@@ -151,8 +173,8 @@ func (m *Manager) CommitFile(ctx context.Context, path, message string) error {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	wt, err := m.repo.Worktree()
 	if err != nil {
@@ -198,8 +220,8 @@ func (m *Manager) CommitFiles(ctx context.Context, paths []string, message strin
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	wt, err := m.repo.Worktree()
 	if err != nil {
@@ -242,8 +264,8 @@ func (m *Manager) CommitAll(ctx context.Context, message string) error {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	wt, err := m.repo.Worktree()
 	if err != nil {
@@ -281,22 +303,36 @@ func (m *Manager) CommitAll(ctx context.Context, message string) error {
 
 // Pull fetches and rebases from the origin remote using shell git.
 // Returns nil if no remote is configured (with a warning logged).
+//
+// Lock sequence: worktreeMu (hasRemote check) → released → netMu (network
+// op) → released → worktreeMu (reload). The two locks are NEVER nested so
+// a slow remote cannot block per-project CommitQueue workers (which only
+// need worktreeMu).
 func (m *Manager) Pull(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	if !m.hasRemote() {
+	if !m.HasRemote() {
 		slog.Warn("no remote 'origin' configured, skipping pull")
 
 		return nil
 	}
 
-	if err := m.runGit(ctx, "pull", "--rebase", "origin"); err != nil {
-		return fmt.Errorf("pull: %w", err)
+	m.netMu.Lock()
+	netErr := m.runGit(ctx, "pull", "--rebase", "origin")
+	m.netMu.Unlock()
+
+	if netErr != nil {
+		return fmt.Errorf("pull: %w", netErr)
 	}
 
-	if err := m.reloadRepo(); err != nil {
-		return fmt.Errorf("reload after pull: %w", err)
+	m.worktreeMu.Lock()
+	reloadErr := m.reloadRepo()
+	m.worktreeMu.Unlock()
+
+	if reloadErr != nil {
+		return fmt.Errorf("reload after pull: %w", reloadErr)
 	}
 
 	return nil
@@ -306,20 +342,32 @@ func (m *Manager) Pull(ctx context.Context) error {
 // shell git. Returns nil immediately if no remote is configured.
 // Non-fast-forward situations (divergent history) return a non-nil error
 // so the caller can log and continue without modifying the working tree.
+//
+// Lock sequence: see Pull. Network round-trip runs under netMu only;
+// reload runs under worktreeMu only; the two are never held together.
 func (m *Manager) PullFastForward(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	if !m.hasRemote() {
+	if !m.HasRemote() {
 		return nil
 	}
 
-	if err := m.runGit(ctx, "pull", "--ff-only", "origin"); err != nil {
-		return fmt.Errorf("pull --ff-only: %w", err)
+	m.netMu.Lock()
+	netErr := m.runGit(ctx, "pull", "--ff-only", "origin")
+	m.netMu.Unlock()
+
+	if netErr != nil {
+		return fmt.Errorf("pull --ff-only: %w", netErr)
 	}
 
-	if err := m.reloadRepo(); err != nil {
-		return fmt.Errorf("reload after pull: %w", err)
+	m.worktreeMu.Lock()
+	reloadErr := m.reloadRepo()
+	m.worktreeMu.Unlock()
+
+	if reloadErr != nil {
+		return fmt.Errorf("reload after pull: %w", reloadErr)
 	}
 
 	return nil
@@ -329,22 +377,35 @@ func (m *Manager) PullFastForward(ctx context.Context) error {
 // Uses "git push --set-upstream origin HEAD" so it works whether or not
 // the current branch already has a tracking upstream configured.
 // Returns nil if no remote is configured (with a warning logged).
+//
+// Lock sequence: see Pull. The network push runs under netMu only so
+// concurrent commits (which need worktreeMu) are not blocked even if the
+// remote is slow or unreachable.
 func (m *Manager) Push(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	if !m.hasRemote() {
+	if !m.HasRemote() {
 		slog.Warn("no remote 'origin' configured, skipping push")
 
 		return nil
 	}
 
-	if err := m.runGit(ctx, "push", "--set-upstream", "origin", "HEAD"); err != nil {
-		return fmt.Errorf("push: %w", err)
+	m.netMu.Lock()
+	netErr := m.runGit(ctx, "push", "--set-upstream", "origin", "HEAD")
+	m.netMu.Unlock()
+
+	if netErr != nil {
+		return fmt.Errorf("push: %w", netErr)
 	}
 
-	if err := m.reloadRepo(); err != nil {
-		return fmt.Errorf("reload after push: %w", err)
+	m.worktreeMu.Lock()
+	reloadErr := m.reloadRepo()
+	m.worktreeMu.Unlock()
+
+	if reloadErr != nil {
+		return fmt.Errorf("reload after push: %w", reloadErr)
 	}
 
 	return nil
@@ -354,9 +415,20 @@ func (m *Manager) Push(ctx context.Context) error {
 // Unlike CommitFiles (which uses go-git), this method is immune to stale
 // in-memory state after shell-based push/rebase operations.
 // Returns nil without committing if no files have staged changes.
+//
+// Holds worktreeMu (not netMu) because the work is local: git add + git
+// commit touch .git/index but never reach the network. A slow remote
+// holding netMu therefore cannot wedge this method on shutdown.
 func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Bail out before acquiring the lock if the caller's context is already
+	// done — e.g. during shutdown when a push held netMu and the call site
+	// has given up. Matches CommitFile/CommitFiles/CommitAll.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	// Stage each file.
 	args := append([]string{"add", "--"}, paths...)
@@ -392,14 +464,14 @@ func (m *Manager) ReloadRepo(ctx context.Context) error {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	return m.reloadRepo()
 }
 
 // reloadRepo is the lock-free implementation of ReloadRepo.
-// Must be called with mu held.
+// Must be called with worktreeMu held.
 func (m *Manager) reloadRepo() error {
 	repo, err := git.PlainOpen(m.repoPath)
 	if err != nil {
@@ -412,10 +484,11 @@ func (m *Manager) reloadRepo() error {
 }
 
 // runGit executes a git command in the repository directory.
-// Must be called without mu held (or from a context that already holds it,
-// as this method does not re-acquire the lock).
-// Auth environment variables (e.g. GIT_CONFIG_* for PAT) are appended
-// automatically from the Manager's provider.
+// This method does not acquire any locks itself; callers are responsible
+// for choosing the appropriate lock (worktreeMu for index-touching ops,
+// netMu for push/pull/fetch). Auth environment variables (e.g.
+// GIT_CONFIG_* for PAT) are appended automatically from the Manager's
+// provider.
 func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
@@ -449,8 +522,8 @@ func (m *Manager) AddRemote(ctx context.Context, name, url string) error {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	_, err := m.repo.CreateRemote(&config.RemoteConfig{
 		Name: name,
@@ -464,7 +537,7 @@ func (m *Manager) AddRemote(ctx context.Context, name, url string) error {
 }
 
 // hasRemote checks if an "origin" remote exists.
-// Must be called with mu held.
+// Must be called with worktreeMu held.
 func (m *Manager) hasRemote() bool {
 	remotes, err := m.repo.Remotes()
 	if err != nil {
@@ -483,16 +556,16 @@ func (m *Manager) RepoPath() string {
 
 // HasRemote reports whether the repository has an "origin" remote configured.
 func (m *Manager) HasRemote() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	return m.hasRemote()
 }
 
 // CurrentBranch returns the short name of the currently checked-out branch.
 func (m *Manager) CurrentBranch() (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	head, err := m.repo.Head()
 	if err != nil {
@@ -504,8 +577,8 @@ func (m *Manager) CurrentBranch() (string, error) {
 
 // HasUncommittedChanges checks if there are staged or unstaged changes.
 func (m *Manager) HasUncommittedChanges() (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	wt, err := m.repo.Worktree()
 	if err != nil {
@@ -523,8 +596,8 @@ func (m *Manager) HasUncommittedChanges() (bool, error) {
 // GetLastCommitMessage returns the message of the most recent commit.
 // Returns empty string if no commits exist.
 func (m *Manager) GetLastCommitMessage() (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	head, err := m.repo.Head()
 	if err != nil {
@@ -543,8 +616,8 @@ func (m *Manager) GetLastCommitMessage() (string, error) {
 // CommitCount returns the total number of commits in the repository.
 // Returns 0 if no commits exist.
 func (m *Manager) CommitCount() (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	head, err := m.repo.Head()
 	if err != nil {
@@ -570,29 +643,41 @@ func (m *Manager) CommitCount() (int, error) {
 }
 
 // DeleteFile removes a file from the working tree and stages the deletion.
+//
+// Ordering: wt.Remove runs first because it both stages the deletion and
+// removes the file from the worktree via go-git's filesystem layer. If
+// it fails (file untracked, repository broken, etc.) we have not yet
+// touched disk, so the working tree stays consistent. If wt.Remove
+// succeeds but the on-disk file is still present (rare — go-git
+// occasionally leaves the file on disk for untracked entries), we
+// best-effort os.Remove as a follow-up and tolerate ErrNotExist.
 func (m *Manager) DeleteFile(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
 
 	wt, err := m.repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("get worktree: %w", err)
 	}
 
-	// Remove the file from the filesystem
+	// Stage the deletion via go-git. This implies removing the file from
+	// the worktree on success; on failure we have NOT touched disk yet,
+	// so the working tree remains consistent.
+	if _, err := wt.Remove(path); err != nil {
+		return fmt.Errorf("stage deletion %s: %w", path, err)
+	}
+
+	// Belt-and-suspenders: if go-git left the file behind on disk (e.g.
+	// for filesystem-specific edge cases), remove it. os.Remove returns
+	// ErrNotExist when the file is already gone, which is the expected
+	// outcome — swallow that error only.
 	fullPath := filepath.Join(m.repoPath, path)
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file: %w", err)
-	}
-
-	// Stage the deletion
-	_, err = wt.Remove(path)
-	if err != nil {
-		return fmt.Errorf("stage deletion %s: %w", path, err)
 	}
 
 	return nil

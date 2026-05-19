@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -141,13 +142,37 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	priorMetaRepo := repoMeta
 	priorMetaRepo.Docs = maps.Clone(repoMeta.Docs)
 
-	// Write each doc.
+	// Write each doc. Track successful writes so a mid-loop failure can
+	// restore the disk to pre-call state — without this, a partial-write
+	// failure that returns before the commit-failure rollback block would
+	// leave some docs written-but-not-committed, diverging from git.
 	humanEdited := in.Source == KnowledgeWriteSourceEdit
 	now := s.clk.Now().UTC()
 	written := make([]string, 0, len(in.Docs))
 
+	rollbackWrittenDocs := func() {
+		for _, name := range written {
+			prior := priorBytes[name]
+			if prior == nil {
+				if delErr := s.store.DeleteKnowledgeDoc(ctx, in.Project, in.Repo, name); delErr != nil {
+					slog.Error("knowledge mid-loop rollback: delete failed", "doc", name, "err", delErr)
+				}
+
+				continue
+			}
+
+			if writeErr := s.store.WriteKnowledgeDoc(ctx, in.Project, in.Repo, name, prior); writeErr != nil {
+				slog.Error("knowledge mid-loop rollback: overwrite failed", "doc", name, "err", writeErr)
+			}
+		}
+	}
+
 	for name, content := range in.Docs {
 		if err := s.store.WriteKnowledgeDoc(ctx, in.Project, in.Repo, name, []byte(content)); err != nil {
+			// A previous iteration may already have landed; roll those back
+			// before returning so caller sees the disk as it was on entry.
+			rollbackWrittenDocs()
+
 			return nil, err
 		}
 
@@ -168,6 +193,10 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	meta.Repos[in.Repo] = repoMeta
 
 	if err := s.store.WriteKnowledgeMeta(ctx, in.Project, meta); err != nil {
+		// Docs were written successfully but meta write failed; restore docs
+		// to their pre-call bytes so disk is not left half-updated.
+		rollbackWrittenDocs()
+
 		return nil, err
 	}
 
@@ -224,11 +253,14 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	// commit_sha to the UI.
 	if in.Source == KnowledgeWriteSourceRefresh && s.refreshRegistry != nil {
 		if err := s.refreshRegistry.MarkCommitted(in.Project, in.Repo, ""); err != nil {
-			// Defensive: MarkCommitted is documented to no-op on missing
-			// jobs, so an error here is a bug. Log but do not fail the
-			// write — the docs already landed.
-			slog.Warn("registry.MarkCommitted failed",
-				"project", in.Project, "repo", in.Repo, "error", err)
+			// ErrJobNotFound is the expected local-mode case: the caller
+			// wrote docs without first acquiring a registry job (no runner
+			// side-channel). Swallow it. Any other error is unexpected —
+			// log but do not fail the write; the docs already landed.
+			if !errors.Is(err, refresh.ErrJobNotFound) {
+				slog.Warn("registry.MarkCommitted failed",
+					"project", in.Project, "repo", in.Repo, "error", err)
+			}
 		}
 	}
 

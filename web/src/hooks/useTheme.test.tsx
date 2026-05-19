@@ -105,7 +105,7 @@ describe('ThemeProvider palette', () => {
     expect(latest!.palette).toBe('everforest');
   });
 
-  it('leaves data-palette="catppuccin" on fetch error', async () => {
+  it('leaves data-palette unset on fetch error (everforest default)', async () => {
     mockFetchError();
 
     await act(async () => {
@@ -114,19 +114,19 @@ describe('ThemeProvider palette', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(document.documentElement.getAttribute('data-palette')).toBe('catppuccin');
-    expect(latest!.palette).toBe('catppuccin');
+    expect(document.documentElement.hasAttribute('data-palette')).toBe(false);
+    expect(latest!.palette).toBe('everforest');
   });
 
-  it('exposes palette="catppuccin" as default before fetch resolves', () => {
+  it('exposes palette="everforest" as default before fetch resolves', () => {
     (fetch as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
 
     act(() => {
       renderWithProvider();
     });
 
-    expect(latest!.palette).toBe('catppuccin');
-    expect(document.documentElement.getAttribute('data-palette')).toBe('catppuccin');
+    expect(latest!.palette).toBe('everforest');
+    expect(document.documentElement.hasAttribute('data-palette')).toBe(false);
   });
 });
 

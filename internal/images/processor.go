@@ -1,3 +1,11 @@
+// Package images provides image processing, content-hash deduplication, and
+// SQLite-backed persistence for uploaded screenshots and images. The package is
+// safe for concurrent use. To bound peak memory under concurrent uploads,
+// decode+encode work is gated by a package-level semaphore (processSem) capped
+// at maxConcurrentDecodes goroutines. Each slot may allocate up to ~128 MiB of
+// RGBA pixel data (maxPixels × 4 bytes), so the worst-case resident increase is
+// maxConcurrentDecodes × ~128 MiB. Callers that exceed the cap block until a
+// slot becomes available — they are not rejected.
 package images
 
 import (
@@ -9,6 +17,7 @@ import (
 	"image/png"
 	"log/slog"
 	"net/http"
+	"runtime"
 
 	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
@@ -42,10 +51,35 @@ const maxPixels int64 = 32 << 20
 // concern about 32-bit integer overflow inside W*H math.
 const maxDim = 16384
 
+// maxConcurrentDecodes is the maximum number of goroutines that may be inside
+// the decode+encode section of Process simultaneously. At maxPixels each slot
+// may allocate ~128 MiB of RGBA data; capping at GOMAXPROCS (floored at 2,
+// ceiling at 8) keeps peak decode memory proportional to available CPUs without
+// starving single-CPU deployments.
+var maxConcurrentDecodes = func() int {
+	n := runtime.GOMAXPROCS(0)
+	if n < 2 {
+		n = 2
+	}
+
+	if n > 8 {
+		n = 8
+	}
+
+	return n
+}()
+
+// processSem is a counting semaphore that limits concurrent decode+encode work
+// inside Process. Acquire by sending, release by receiving.
+var processSem = make(chan struct{}, maxConcurrentDecodes)
+
 // Process validates, optionally resizes, and re-encodes raw image bytes.
 // Supported input formats: image/png, image/jpeg, image/gif (single-frame),
 // image/webp. The output format follows the input except that single-frame
 // GIFs and WebP images are re-encoded as PNG.
+//
+// At most maxConcurrentDecodes calls may be in the decode+encode phase
+// concurrently; excess callers block until a slot is free.
 //
 // Errors returned: ErrTooLarge, ErrUnsupportedFormat, ErrAnimated.
 func Process(raw []byte) (processed []byte, contentType string, err error) {
@@ -54,6 +88,20 @@ func Process(raw []byte) (processed []byte, contentType string, err error) {
 	}
 
 	ct := http.DetectContentType(raw)
+
+	// Reject unsupported formats before acquiring the semaphore so the cheap
+	// format check never queues behind decode work.
+	switch ct {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		return nil, "", ErrUnsupportedFormat
+	}
+
+	// Acquire a decode slot. Blocks when maxConcurrentDecodes goroutines are
+	// already inside the decode+encode path. Released after encode completes.
+	processSem <- struct{}{}
+
+	defer func() { <-processSem }()
 
 	switch ct {
 	case "image/png":

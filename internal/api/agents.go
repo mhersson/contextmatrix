@@ -15,13 +15,10 @@ type agentHandlers struct {
 }
 
 // agentRequest is the JSON body for claim, release, and heartbeat operations.
-type agentRequest struct {
-	AgentID string `json:"agent_id"`
-}
+type agentRequest struct{}
 
 // addLogRequest is the JSON body for adding a log entry.
 type addLogRequest struct {
-	AgentID string `json:"agent_id"`
 	Action  string `json:"action"`
 	Message string `json:"message"`
 }
@@ -174,14 +171,7 @@ func (h *agentHandlers) addLogEntry(w http.ResponseWriter, r *http.Request) {
 		// Timestamp is set by service layer if zero
 	}
 
-	if err := h.svc.AddLogEntry(r.Context(), projectName, cardID, entry); err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	// Return the updated card so caller can see the new activity log
-	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
+	card, err := h.svc.AddLogEntry(r.Context(), projectName, cardID, entry)
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -214,7 +204,6 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 
 // reportUsageRequest is the JSON body for reporting token usage.
 type reportUsageRequest struct {
-	AgentID          string `json:"agent_id"`
 	Model            string `json:"model"`
 	PromptTokens     int64  `json:"prompt_tokens"`
 	CompletionTokens int64  `json:"completion_tokens"`
@@ -262,9 +251,8 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 
 // reportPushRequest is the JSON body for reporting a git push.
 type reportPushRequest struct {
-	AgentID string `json:"agent_id"`
-	Branch  string `json:"branch"`
-	PRUrl   string `json:"pr_url,omitempty"`
+	Branch string `json:"branch"`
+	PRUrl  string `json:"pr_url,omitempty"`
 }
 
 // reportPush handles POST /api/projects/{project}/cards/{id}/report-push

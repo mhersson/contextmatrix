@@ -231,10 +231,14 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     });
   }, [availableIds]);
 
-  // Persist (debounced)
+  // Persist (debounced). On cleanup, flush synchronously so the final state
+  // is not lost when the component unmounts within the debounce window.
   useEffect(() => {
     const t = setTimeout(() => savePersisted(state), PERSIST_DEBOUNCE_MS);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      savePersisted(state);
+    };
   }, [state]);
 
   // Persist focused-pane chat id to last_chat_id. Tab title stays at the

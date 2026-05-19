@@ -128,9 +128,20 @@ func (s *Syncer) syncAll(ctx context.Context) {
 		imported, err := s.syncProject(ctx, &cfg, owner, repo)
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
-				slog.Warn("github sync: rate limited, stopping this cycle")
+				// Rate-limit is per-host (or per-installation token) so a
+				// single rate-limited project must not starve well-quota'd
+				// hosts on subsequent iterations. Skip this one and continue.
+				slog.Warn("github sync: project rate limited; skipping for this cycle",
+					"project", cfg.Name, "owner", owner, "repo", repo)
 
-				return
+				continue
+			}
+
+			if errors.Is(err, ErrPermissionDenied) {
+				slog.Error("github sync: project sync denied by permission/auth check",
+					"project", cfg.Name, "owner", owner, "repo", repo, "error", err)
+
+				continue
 			}
 
 			slog.Error("github sync: project sync failed",
@@ -227,12 +238,30 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owne
 // resolveOwnerRepo determines the GitHub owner/repo for a project.
 // Uses explicit GitHub config if set, otherwise parses the project's repo URL.
 // Returns empty strings if GitHub config is nil (import not enabled).
+//
+// When the explicit Owner/Repo override is used, the project's Repo URL is
+// still validated against allowedHosts so that a misconfigured .board.yaml
+// cannot redirect the PAT to an unexpected host.
 func resolveOwnerRepo(cfg *board.ProjectConfig, allowedHosts []string) (owner, repo string) {
 	if cfg.GitHub == nil {
 		return "", ""
 	}
 
 	if cfg.GitHub.Owner != "" && cfg.GitHub.Repo != "" {
+		// Require that the project's Repo URL parses and belongs to an allowed
+		// host before honouring the explicit override.  This prevents an
+		// operator typo in .board.yaml from sending the PAT to an unintended
+		// host.
+		if cfg.Repo != "" {
+			_, _, _, ok := ParseGitHubRepo(cfg.Repo, allowedHosts)
+			if !ok {
+				slog.Warn("github sync: explicit owner/repo ignored because project repo URL is not an allowed GitHub host",
+					"project", cfg.Name, "repo", cfg.Repo)
+
+				return "", ""
+			}
+		}
+
 		return cfg.GitHub.Owner, cfg.GitHub.Repo
 	}
 

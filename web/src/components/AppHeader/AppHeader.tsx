@@ -35,7 +35,7 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
           type="button"
           onClick={toggle}
           className="md:hidden p-1 rounded hover:opacity-80 transition-opacity"
-          style={{ color: 'var(--fg1)' }}
+          style={{ color: 'var(--fg)' }}
           aria-label="Toggle sidebar"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

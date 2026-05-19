@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { Card } from '../../types';
 
 interface ParentSearchProps {
@@ -10,13 +10,24 @@ interface ParentSearchProps {
 export function ParentSearch({ parent, setParent, cards }: ParentSearchProps) {
   const [parentSearch, setParentSearch] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const blurTimerRef = useRef<number | null>(null);
 
-  const filteredCards = parentSearch
-    ? cards.filter((c) => {
-        const q = parentSearch.toLowerCase();
-        return c.id.toLowerCase().includes(q) || c.title.toLowerCase().includes(q);
-      }).slice(0, 8)
-    : [];
+  // Clear the blur timer on unmount so setState is never called after unmount.
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current !== null) {
+        clearTimeout(blurTimerRef.current);
+      }
+    };
+  }, []);
+
+  const filteredCards = useMemo(() => {
+    if (!parentSearch) return [];
+    const q = parentSearch.toLowerCase();
+    return cards
+      .filter((c) => c.id.toLowerCase().includes(q) || c.title.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [parentSearch, cards]);
 
   const handleClear = useCallback(() => {
     setParent('');
@@ -28,6 +39,14 @@ export function ParentSearch({ parent, setParent, cards }: ParentSearchProps) {
     setParentSearch('');
     setShowDropdown(false);
   }, [setParent]);
+
+  const handleBlur = useCallback(() => {
+    if (blurTimerRef.current !== null) clearTimeout(blurTimerRef.current);
+    blurTimerRef.current = window.setTimeout(() => {
+      blurTimerRef.current = null;
+      setShowDropdown(false);
+    }, 150);
+  }, []);
 
   return (
     <div className="relative">
@@ -48,7 +67,7 @@ export function ParentSearch({ parent, setParent, cards }: ParentSearchProps) {
           value={parentSearch}
           onChange={(e) => { setParentSearch(e.target.value); setShowDropdown(true); }}
           onFocus={() => setShowDropdown(true)}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+          onBlur={handleBlur}
           placeholder="Search by ID or title..."
           className="w-full px-3 py-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] focus:outline-none focus:border-[var(--aqua)]"
         />

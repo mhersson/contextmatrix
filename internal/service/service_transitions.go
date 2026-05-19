@@ -24,6 +24,25 @@ import (
 // runner_status via UpdateRunnerStatus("completed"/"failed"/"killed") once
 // the container has actually exited, which is the authoritative signal.
 //
+// DESIGN TENSION (done state):
+// We deliberately do NOT clear AssignedAgent / LastHeartbeat on
+// board.StateDone here. The current contract is "agent retains claim
+// through done so the subsequent ReleaseCard call can flush any deferred
+// commits accumulated during the session." Several tests encode this
+// contract directly:
+//   - TestDeferredCommitFlushOnDone
+//   - TestDeferredCommitParentManualReviewTransition
+//   - TestDeferredCommitBoardYamlIncluded
+//   - TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted
+//
+// The smell: a card in done with a live claim looks stalled to the lock
+// manager. Defense-in-depth lives in markCardStalled (it skips terminal
+// states even when AssignedAgent is non-empty), and ReleaseCard flushes
+// the deferred-commit queue then drops the claim. The cleaner refactor
+// would have complete_task / ReleaseCard own the claim-clear so done
+// cards never carry a live agent, but that requires rewriting the four
+// tests above and is out of scope here.
+//
 // Safe to call regardless of stateChanged — it only acts when the card's
 // current state is one of the targets. But callers should pass stateChanged
 // so we only mutate when there is actually a transition.

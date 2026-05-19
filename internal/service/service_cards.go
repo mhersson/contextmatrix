@@ -28,6 +28,7 @@ type CreateCardInput struct {
 	Priority            string
 	Labels              []string
 	Parent              string
+	DependsOn           []string
 	Body                string
 	Source              *board.Source // Optional, immutable after creation
 	Autonomous          bool
@@ -372,6 +373,10 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		cardType = board.SubtaskType
 	}
 
+	// Normalize depends_on IDs once so validation, cycle detection, and the
+	// persisted card all see the same canonical form.
+	dependsOn := normalizeIDs(input.DependsOn)
+
 	// Build card
 	now := s.clk.Now()
 	card := &board.Card{
@@ -383,6 +388,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		Priority:            input.Priority,
 		Labels:              input.Labels,
 		Parent:              parentID,
+		DependsOn:           dependsOn,
 		Source:              input.Source,
 		Autonomous:          input.Autonomous,
 		UseOpusOrchestrator: input.UseOpusOrchestrator,
@@ -417,9 +423,22 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, fmt.Errorf("validate card: %w", err)
 	}
 
-	// Validate parent references an existing card
-	if err := s.validateCardReferences(ctx, project, card.Parent, nil); err != nil {
+	// Validate parent and depends_on references in a single pass so callers
+	// (e.g. create_card MCP tool) get a single atomic create+depends_on op
+	// instead of a chained create followed by update.
+	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
 		return nil, err
+	}
+
+	if len(card.DependsOn) > 0 {
+		if cycleID := s.detectDependencyCycle(ctx, project, cardID, card.DependsOn); cycleID != "" {
+			return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrDependenciesNotMet,
+				Field:   "depends_on",
+				Value:   cycleID,
+				Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", cardID, cycleID),
+			})
+		}
 	}
 
 	// Inherit skills from parent when the subtask doesn't specify its own.
@@ -959,17 +978,17 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	return nil
 }
 
-// AddLogEntry appends an activity log entry to a card.
+// AddLogEntry appends an activity log entry to a card and returns the updated card.
 // The activity log is capped at 50 entries (oldest dropped).
-func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) error {
+func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
 	if len(entry.Message) > maxLogMessage {
-		return fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
+		return nil, fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
 	}
 
 	if len(entry.Action) > maxLogAction {
-		return fmt.Errorf("action length %d exceeds limit of %d: %w", len(entry.Action), maxLogAction, ErrFieldTooLong)
+		return nil, fmt.Errorf("action length %d exceeds limit of %d: %w", len(entry.Action), maxLogAction, ErrFieldTooLong)
 	}
 
 	s.writeMu.Lock()
@@ -979,7 +998,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	if err != nil {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("get card: %w", err)
+		return nil, fmt.Errorf("get card: %w", err)
 	}
 
 	// Snapshot for rollback on commit failure (independent deep copy).
@@ -987,14 +1006,14 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	if err != nil {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("get card snapshot: %w", err)
+		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
 	// Verify agent ownership.
 	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
+		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
 	// Set timestamp if not provided
@@ -1012,7 +1031,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("update card: %w", err)
+		return nil, fmt.Errorf("update card: %w", err)
 	}
 
 	// Git commit (or defer)
@@ -1025,7 +1044,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
 
-		return rollbackErr
+		return nil, rollbackErr
 	}
 
 	// Publish event
@@ -1041,7 +1060,9 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		},
 	})
 
-	return nil
+	s.enrichDependenciesMet(ctx, card)
+
+	return card, nil
 }
 
 // GetCardContext returns a card with its project configuration and template.

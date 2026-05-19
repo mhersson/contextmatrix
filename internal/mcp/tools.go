@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"time"
 
@@ -77,6 +78,20 @@ func resolveProject(ctx context.Context, svc *service.CardService, project, card
 	}
 
 	return proj, nil
+}
+
+// requireHumanAgent fails fast when a tool is restricted to human callers and
+// the supplied agent_id does not carry the "human:" prefix. The service layer
+// also enforces this for promote_to_autonomous (defence in depth); the
+// handler-level check matches the style of refresh_knowledge_base /
+// commit_knowledge_docs / update_refresh_progress so every human-only tool
+// rejects in the same way with the same error shape.
+func requireHumanAgent(agentID, toolName string) error {
+	if !board.IsHumanAgentID(agentID) {
+		return fmt.Errorf("%s is human-only (agent_id must start with 'human:' and have a non-empty suffix)", toolName)
+	}
+
+	return nil
 }
 
 // --- Input/Output types ---
@@ -176,6 +191,22 @@ type completeTaskInput struct {
 type completeTaskOutput struct {
 	Card     *board.Card `json:"card"`
 	NextStep string      `json:"next_step,omitempty"`
+}
+
+// claimCardOutput surfaces auto-transition failures via typed fields so MCP
+// callers can inspect them programmatically instead of parsing free-form
+// text from CallToolResult.Content. The embedded *board.Card inlines the
+// usual card fields at the JSON root so existing callers that decoded the
+// claim_card response as board.Card keep working — the new fields just
+// appear alongside.
+//
+// When AutoTransitionFailed is true, the embedded card reflects the
+// post-claim, pre-transition state (todo, agent set) because the
+// transition that would have moved it to in_progress did not succeed.
+type claimCardOutput struct {
+	*board.Card
+	AutoTransitionFailed bool   `json:"auto_transition_failed,omitempty"`
+	AutoTransitionError  string `json:"auto_transition_error,omitempty"`
 }
 
 type getSubtaskSummaryInput struct {
@@ -299,37 +330,23 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 		Name:        "create_card",
 		Description: "Create a new card in a project. Returns the created card with its generated ID. The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *board.Card, error) {
+		// depends_on is part of CreateCardInput so create + dependency wiring
+		// happen as a single atomic operation (one git commit, no race window
+		// between create and follow-up update).
 		svcInput := service.CreateCardInput{
-			Title:    input.Title,
-			Type:     input.Type,
-			Priority: input.Priority,
-			Labels:   input.Labels,
-			Skills:   input.Skills,
-			Body:     input.Body,
-			Parent:   input.Parent,
+			Title:     input.Title,
+			Type:      input.Type,
+			Priority:  input.Priority,
+			Labels:    input.Labels,
+			Skills:    input.Skills,
+			Body:      input.Body,
+			Parent:    input.Parent,
+			DependsOn: input.DependsOn,
 		}
 
 		card, err := svc.CreateCard(ctx, input.Project, svcInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create card: %w", err)
-		}
-
-		// If depends_on was provided, update the card to set them
-		if len(input.DependsOn) > 0 {
-			card, err = svc.UpdateCard(ctx, input.Project, card.ID, service.UpdateCardInput{
-				Title:     card.Title,
-				Type:      card.Type,
-				State:     card.State,
-				Priority:  card.Priority,
-				Labels:    card.Labels,
-				Skills:    card.Skills,
-				Parent:    card.Parent,
-				DependsOn: input.DependsOn,
-				Body:      card.Body,
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("set depends_on: %w", err)
-			}
 		}
 
 		return nil, card, nil
@@ -392,40 +409,38 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "claim_card",
-		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *board.Card, error) {
+		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled. If the auto-transition to in_progress fails (e.g. config forbids it), the claim still succeeds and auto_transition_failed=true plus auto_transition_error are set on the response.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, claimCardOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
-			return nil, nil, err
+			return nil, claimCardOutput{}, err
 		}
 
 		card, err := svc.ClaimCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("claim card %s: %w", input.CardID, err)
+			return nil, claimCardOutput{}, fmt.Errorf("claim card %s: %w", input.CardID, err)
 		}
+
+		out := claimCardOutput{Card: card}
+
 		// Auto-transition to in_progress only from todo — claiming a card
 		// in review/done/blocked should not change its state.
-		var transitionErr error
-
 		if card.State == board.StateTodo {
-			if transitioned, err := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress); err != nil {
-				slog.Warn("claim_card: auto-transition to in_progress failed", "card_id", input.CardID, "error", err)
-				transitionErr = err
-				// Continue — claim succeeded, transition did not
+			transitioned, terr := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress)
+			if terr != nil {
+				slog.Warn("claim_card: auto-transition to in_progress failed", "card_id", input.CardID, "error", terr)
+
+				out.AutoTransitionFailed = true
+				out.AutoTransitionError = terr.Error()
+				// Continue — claim succeeded, transition did not. The embedded
+				// card stays at the post-claim state so callers can see the
+				// claim landed even though the state did not move.
 			} else {
-				card = transitioned
+				out.Card = transitioned
 			}
 		}
 
-		if transitionErr != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Card claimed successfully (note: auto-transition to in_progress failed: %v)", transitionErr)},
-				},
-			}, card, nil
-		}
-
-		return nil, card, nil
+		return nil, out, nil
 	})
 }
 
@@ -474,11 +489,30 @@ func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 func registerAddLog(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'.",
+		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'. Requires an active claim by the caller: unclaimed cards are rejected so attacker-supplied agent_ids cannot land in the activity log.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, *board.Card, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		// Ownership gate: AddLogEntry only verifies ownership when
+		// AssignedAgent is non-empty. For unclaimed cards it would happily
+		// write the caller-supplied agent_id verbatim into the activity log
+		// (audit trail forgery + impersonation surface). Require an active
+		// claim by this caller at the handler boundary so the audit trail
+		// stays trustworthy.
+		preCard, err := svc.GetCard(ctx, project, input.CardID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("add_log: load card %s: %w", input.CardID, err)
+		}
+
+		if preCard.AssignedAgent == "" {
+			return nil, nil, fmt.Errorf("add_log: card %s is not claimed; activity log entries require an active claim (call claim_card first)", input.CardID)
+		}
+
+		if preCard.AssignedAgent != input.AgentID {
+			return nil, nil, fmt.Errorf("add_log: card %s is claimed by %s, not %s", input.CardID, preCard.AssignedAgent, input.AgentID)
 		}
 
 		entry := board.ActivityEntry{
@@ -486,13 +520,10 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 			Action:  input.Action,
 			Message: input.Message,
 		}
-		if err := svc.AddLogEntry(ctx, project, input.CardID, entry); err != nil {
-			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
-		}
 
-		card, err := svc.GetCard(ctx, project, input.CardID)
+		card, err := svc.AddLogEntry(ctx, project, input.CardID, entry)
 		if err != nil {
-			return nil, nil, fmt.Errorf("get card after log: %w", err)
+			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
 		}
 
 		return nil, card, nil
@@ -571,20 +602,34 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		if err != nil {
 			return nil, completeTaskOutput{}, err
 		}
+
+		// Ownership gate: complete_task drives state transitions and releases
+		// the claim, so the caller must currently own the card. AddLogEntry +
+		// TransitionTo skip ownership checks when AssignedAgent is empty, which
+		// would let any caller drive an unclaimed card to done. Reject up front.
+		preCard, err := svc.GetCard(ctx, project, input.CardID)
+		if err != nil {
+			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: load card %s: %w", input.CardID, err)
+		}
+
+		if preCard.AssignedAgent == "" {
+			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: card %s is not claimed; complete_task requires an active claim (call claim_card first)", input.CardID)
+		}
+
+		if preCard.AssignedAgent != input.AgentID {
+			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: card %s is claimed by %s, not %s", input.CardID, preCard.AssignedAgent, input.AgentID)
+		}
+
 		// Add completion log entry
 		entry := board.ActivityEntry{
 			Agent:   input.AgentID,
 			Action:  "completed",
 			Message: input.Summary,
 		}
-		if err := svc.AddLogEntry(ctx, project, input.CardID, entry); err != nil {
-			return nil, completeTaskOutput{}, fmt.Errorf("add completion log: %w", err)
-		}
 
-		// Determine target state: subtasks go to done, main tasks go to review
-		card, err := svc.GetCard(ctx, project, input.CardID)
+		card, err := svc.AddLogEntry(ctx, project, input.CardID, entry)
 		if err != nil {
-			return nil, completeTaskOutput{}, fmt.Errorf("get card: %w", err)
+			return nil, completeTaskOutput{}, fmt.Errorf("add completion log: %w", err)
 		}
 
 		parentID := card.Parent
@@ -815,6 +860,14 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 		Name:        "report_usage",
 		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, and recalculates estimated cost based on the model's configured rates. Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *board.Card, error) {
+		// Reject negative token counts at the handler boundary. The service
+		// layer uses += on the running totals, so a negative value would
+		// silently decrement counters and produce nonsensical totals.
+		if input.PromptTokens < 0 || input.CompletionTokens < 0 {
+			return nil, nil, fmt.Errorf("report usage for %s: tokens must be non-negative (prompt_tokens=%d, completion_tokens=%d)",
+				input.CardID, input.PromptTokens, input.CompletionTokens)
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -1065,7 +1118,11 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 }
 
 type getSkillInput struct {
-	SkillName       string `json:"skill_name" jsonschema:"required,skill name: create-task, create-plan, execute-task, review-task, document-task, init-project, run-autonomous, brainstorming, systematic-debugging, refresh-knowledge, chat-mode"`
+	// The jsonschema tag is a compile-time string and cannot be derived from
+	// skillBuilders directly. assertGetSkillSchemaInSync (below) compares it
+	// to skillNameSchemaDescription at package init time and panics on drift,
+	// so adding a skill in one place but not the other fails fast in tests.
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, chat-mode, create-plan, create-task, document-task, execute-task, init-project, refresh-knowledge, review-task, run-autonomous, systematic-debugging"`
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project, refresh-knowledge)"`
@@ -1073,6 +1130,33 @@ type getSkillInput struct {
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
+
+// assertGetSkillSchemaInSync enforces that the jsonschema description on
+// getSkillInput.SkillName matches skillNameSchemaDescription (derived from
+// skillBuilders). Because struct tags must be compile-time literals, we
+// cannot directly interpolate the derived list; this guard fires at package
+// init time so any drift is caught immediately by `go test ./internal/mcp/...`.
+func init() {
+	assertGetSkillSchemaInSync()
+}
+
+func assertGetSkillSchemaInSync() {
+	t := reflect.TypeOf(getSkillInput{})
+
+	field, ok := t.FieldByName("SkillName")
+	if !ok {
+		panic("mcp: getSkillInput has no SkillName field")
+	}
+
+	got := field.Tag.Get("jsonschema")
+	if got != skillNameSchemaDescription {
+		panic(fmt.Sprintf(
+			"mcp: getSkillInput.SkillName jsonschema tag drifted from skillBuilders.\n  tag:      %q\n  expected: %q\n  update one to match the other.",
+			got, skillNameSchemaDescription,
+		))
+	}
+}
+
 type getSkillOutput struct {
 	SkillName string `json:"skill_name"`
 	Model     string `json:"model,omitempty"`
@@ -1210,6 +1294,14 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 			"Returns an error if the card is in a terminal state (done/not_planned). " +
 			"Appends an activity log entry and fires an SSE event so the UI updates live.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input promoteToAutonomousInput) (*mcp.CallToolResult, *board.Card, error) {
+		// Defence in depth: the service layer rejects non-human callers, but
+		// gate at the handler boundary too so the rejection style matches the
+		// other human-only tools and the error never depends on project
+		// resolution succeeding first.
+		if err := requireHumanAgent(input.AgentID, "promote_to_autonomous"); err != nil {
+			return nil, nil, err
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -1334,8 +1426,8 @@ func registerRefreshKnowledgeBase(server *mcp.Server, svc *service.CardService) 
 		Name:        "refresh_knowledge_base",
 		Description: "Human-only. Returns a build plan describing which KB docs will be rebuilt, with cost estimates and human_edited flags. Does not run sub-agents — the refresh skill spawns those and calls commit_knowledge_docs.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in refreshKnowledgeBaseInput) (*mcp.CallToolResult, refreshKnowledgeBaseOutput, error) {
-		if !board.IsHumanAgentID(in.AgentID) {
-			return nil, refreshKnowledgeBaseOutput{}, fmt.Errorf("refresh_knowledge_base is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
+		if err := requireHumanAgent(in.AgentID, "refresh_knowledge_base"); err != nil {
+			return nil, refreshKnowledgeBaseOutput{}, err
 		}
 
 		plan, err := svc.BuildRefreshPlan(ctx, in.Project, in.Repo)
@@ -1364,8 +1456,8 @@ func registerCommitKnowledgeDocs(server *mcp.Server, svc *service.CardService) {
 		Name:        "commit_knowledge_docs",
 		Description: "Human-only. Writes refresh-produced KB docs atomically and commits them with a single message. Clears human_edited flag on each written doc.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commitKnowledgeDocsInput) (*mcp.CallToolResult, commitKnowledgeDocsOutput, error) {
-		if !board.IsHumanAgentID(in.AgentID) {
-			return nil, commitKnowledgeDocsOutput{}, fmt.Errorf("commit_knowledge_docs is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
+		if err := requireHumanAgent(in.AgentID, "commit_knowledge_docs"); err != nil {
+			return nil, commitKnowledgeDocsOutput{}, err
 		}
 
 		res, err := svc.WriteKnowledgeDocs(ctx, service.WriteKnowledgeDocsInput{
@@ -1405,8 +1497,8 @@ func registerUpdateRefreshProgress(server *mcp.Server, svc *service.CardService)
 			"running inside the runner container. Returns tracked=false when no in-flight " +
 			"job matches (project, repo) — local-mode skill calls are no-ops.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in updateRefreshProgressInput) (*mcp.CallToolResult, updateRefreshProgressOutput, error) {
-		if !board.IsHumanAgentID(in.AgentID) {
-			return nil, updateRefreshProgressOutput{}, fmt.Errorf("update_refresh_progress is human-only (agent_id must start with 'human:' and have a non-empty suffix)")
+		if err := requireHumanAgent(in.AgentID, "update_refresh_progress"); err != nil {
+			return nil, updateRefreshProgressOutput{}, err
 		}
 
 		reg := svc.RefreshRegistry()

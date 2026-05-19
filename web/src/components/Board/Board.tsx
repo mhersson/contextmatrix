@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -42,15 +42,24 @@ const TYPE_RANK: Record<string, number> = {
   subtask: 3,
 };
 
-function compareTodoCards(a: Card, b: Card): number {
+// Precomputed numeric timestamps keyed by card id, reused by sort comparators.
+// Building this once per filteredCards avoids O(N log N) Date constructions
+// inside the comparator functions.
+type CardTimestamps = { created: number; updated: number };
+
+function compareTodoCardsWithTs(
+  a: Card,
+  b: Card,
+  ts: Map<string, CardTimestamps>,
+): number {
   const pa = PRIORITY_RANK[a.priority] ?? 999;
   const pb = PRIORITY_RANK[b.priority] ?? 999;
   if (pa !== pb) return pa - pb;
   const ta = TYPE_RANK[a.type] ?? 999;
   const tb = TYPE_RANK[b.type] ?? 999;
   if (ta !== tb) return ta - tb;
-  const ca = new Date(a.created).getTime();
-  const cb = new Date(b.created).getTime();
+  const ca = ts.get(a.id)?.created ?? 0;
+  const cb = ts.get(b.id)?.created ?? 0;
   return ca - cb;
 }
 
@@ -137,7 +146,12 @@ export function Board({
   const sensors = useSensors(touchDevice ? touchSensor : pointerSensor, keyboardSensor);
 
   const hasFilter = Object.values(filter).some(Boolean);
-  const searchTerm = searchQuery.trim().toLowerCase();
+  // Defer the search query so per-keystroke typing is never blocked by the
+  // cardsByState sort below. The deferred value lags the real query by at most
+  // one frame; React commits the fast path (typing) first, then re-renders with
+  // the deferred value (filtering + sorting) in the background.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchTerm = deferredSearchQuery.trim().toLowerCase();
   const hasSearch = searchTerm.length > 0;
 
   const filteredCards = useMemo(() => {
@@ -164,6 +178,15 @@ export function Board({
   }, [cards, filter, hasFilter, hasSearch, searchTerm]);
 
   const cardsByState = useMemo(() => {
+    // Build timestamp map once so comparators don't parse dates per comparison.
+    const ts = new Map<string, CardTimestamps>();
+    for (const card of filteredCards) {
+      ts.set(card.id, {
+        created: new Date(card.created).getTime(),
+        updated: new Date(card.updated).getTime(),
+      });
+    }
+
     const grouped: Record<string, Card[]> = {};
     for (const state of config.states) {
       grouped[state] = [];
@@ -175,15 +198,23 @@ export function Board({
     }
     for (const state of config.states) {
       if (state === 'todo') {
-        grouped[state].sort(compareTodoCards);
+        grouped[state].sort((a, b) => compareTodoCardsWithTs(a, b, ts));
       } else {
         grouped[state].sort(
-          (a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime()
+          (a, b) => (ts.get(b.id)?.updated ?? 0) - (ts.get(a.id)?.updated ?? 0),
         );
       }
     }
     return grouped;
   }, [filteredCards, config.states]);
+
+  // Keep a ref to the latest filter/search booleans so the shortcut handler
+  // never needs to be recreated. The ref is read inside the stable wrapper, so
+  // the keydown listener is added exactly once and removed only on unmount.
+  const escapeStateRef = useRef({ hasFilter, hasSearch });
+  useEffect(() => {
+    escapeStateRef.current = { hasFilter, hasSearch };
+  }, [hasFilter, hasSearch]);
 
   useKeyboardShortcuts(
     useMemo(
@@ -191,13 +222,13 @@ export function Board({
         {
           key: 'Escape',
           handler: () => {
-            if (hasFilter) setFilter({});
-            if (hasSearch) setSearchQuery('');
+            if (escapeStateRef.current.hasFilter) setFilter({});
+            if (escapeStateRef.current.hasSearch) setSearchQuery('');
           },
         },
       ],
-      [hasFilter, hasSearch]
-    )
+      [],
+    ),
   );
 
   function handleDragStart(event: DragStartEvent) {

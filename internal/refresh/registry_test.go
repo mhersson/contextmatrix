@@ -53,6 +53,43 @@ func TestRegistry_Acquire_DifferentReposIndependent(t *testing.T) {
 	assert.NoError(t, err, "different (p, repo) pairs must not collide")
 }
 
+func TestRegistry_Acquire_ProjectSlashInNameDoesNotCollide(t *testing.T) {
+	// Regression: the old string-key "p1/r" and "p" + "/" + "1/r" would
+	// produce the same string. The struct key must not collide.
+	r := NewRegistry()
+	_, err := r.Acquire("p1", "r", "human:a")
+	require.NoError(t, err)
+	_, err = r.Acquire("p", "1/r", "human:b")
+	require.NoError(t, err, "project='p1',repo='r' and project='p',repo='1/r' must be distinct keys")
+
+	snap1 := r.Snapshot("p1")
+	assert.Len(t, snap1, 1)
+
+	snap2 := r.Snapshot("p")
+	assert.Len(t, snap2, 1)
+}
+
+func TestRegistry_Acquire_FullRegistryReturnsErrRegistryFull(t *testing.T) {
+	r := NewRegistryWithClock(clock.Real())
+
+	// Fill to max with distinct project keys.
+	for i := range maxRegistrySize {
+		project := "p"
+		repo := "r" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+
+		_, err := r.Acquire(project, repo, "human:a")
+		if err != nil {
+			require.ErrorIs(t, err, ErrRegistryFull, "unexpected error at index %d: %v", i, err)
+
+			return // hit the cap — test passes
+		}
+	}
+
+	// If we got here without hitting the cap, one more Acquire must fail.
+	_, err := r.Acquire("p", "overflow", "human:a")
+	assert.ErrorIs(t, err, ErrRegistryFull)
+}
+
 func TestRegistry_MarkRunning(t *testing.T) {
 	r := NewRegistry()
 	_, err := r.Acquire("p", "r", "human:a")
@@ -61,7 +98,7 @@ func TestRegistry_MarkRunning(t *testing.T) {
 	require.NoError(t, r.MarkRunning("p", "r", 4))
 
 	r.mu.Lock()
-	job := *r.jobs["p/r"]
+	job := *r.jobs[projectRepoKey{"p", "r"}]
 	r.mu.Unlock()
 
 	assert.Equal(t, StateRunning, job.State)
@@ -78,7 +115,7 @@ func TestRegistry_UpdateProgress_TrackedJob(t *testing.T) {
 	assert.True(t, tracked)
 
 	r.mu.Lock()
-	job := *r.jobs["p/r"]
+	job := *r.jobs[projectRepoKey{"p", "r"}]
 	r.mu.Unlock()
 
 	assert.Equal(t, 2, job.DocsDone)
@@ -97,7 +134,7 @@ func TestRegistry_UpdateProgress_TerminalJobReturnsTrackedFalse(t *testing.T) {
 	_, _ = r.Acquire("p", "r", "human:a")
 	_ = r.MarkRunning("p", "r", 4)
 	r.mu.Lock()
-	r.jobs["p/r"].State = StateSucceeded
+	r.jobs[projectRepoKey{"p", "r"}].State = StateSucceeded
 	r.mu.Unlock()
 
 	tracked, err := r.UpdateProgress("p", "r", 4, 5, "x.md")
@@ -113,17 +150,19 @@ func TestRegistry_MarkCommitted(t *testing.T) {
 	require.NoError(t, r.MarkCommitted("p", "r", "abc1234"))
 
 	r.mu.Lock()
-	job := *r.jobs["p/r"]
+	job := *r.jobs[projectRepoKey{"p", "r"}]
 	r.mu.Unlock()
 
 	assert.True(t, job.Committed)
 	assert.Equal(t, "abc1234", job.CommitSHA)
 }
 
-func TestRegistry_MarkCommitted_NoSuchJobIsNoOp(t *testing.T) {
+func TestRegistry_MarkCommitted_NoSuchJobReturnsErrJobNotFound(t *testing.T) {
 	r := NewRegistry()
-	require.NoError(t, r.MarkCommitted("p", "r", "abc"),
-		"side-effect on a missing job is not an error (local-mode commit case)")
+	err := r.MarkCommitted("p", "r", "abc")
+	assert.ErrorIs(t, err, ErrJobNotFound,
+		"MarkCommitted on a missing job must return ErrJobNotFound; "+
+			"local-mode callers swallow it with errors.Is")
 }
 
 func TestRegistry_MarkTerminal_Succeeded(t *testing.T) {
@@ -234,7 +273,7 @@ func TestRegistry_PromoteStale_FlipsRunningToFailed(t *testing.T) {
 
 	clk.Advance(31 * time.Minute) // > 30 min staleness threshold
 
-	count := r.PromoteStale(30*time.Minute, "no progress callback")
+	count := r.PromoteStale(30*time.Minute, 10*time.Minute, "no progress callback")
 	assert.Equal(t, 1, count)
 
 	snap := r.Snapshot("p")
@@ -251,23 +290,49 @@ func TestRegistry_PromoteStale_LeavesFreshRunning(t *testing.T) {
 
 	clk.Advance(5 * time.Minute) // < threshold
 
-	count := r.PromoteStale(30*time.Minute, "x")
+	count := r.PromoteStale(30*time.Minute, 10*time.Minute, "x")
 	assert.Equal(t, 0, count)
 
 	snap := r.Snapshot("p")
 	assert.Equal(t, StateRunning, snap["r"].State)
 }
 
-func TestRegistry_PromoteStale_LeavesPlanningAlone(t *testing.T) {
+func TestRegistry_PromoteStale_FreshPlanningNotPromoted(t *testing.T) {
+	// A Planning job that is younger than planningMaxAge must not be promoted.
 	clk := clock.Fake(time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
 	r := NewRegistryWithClock(clk)
 
 	_, _ = r.Acquire("p", "r", "human:a") // stays in Planning
 
-	clk.Advance(60 * time.Minute)
+	clk.Advance(5 * time.Minute) // < planningMaxAge of 10 min
 
-	count := r.PromoteStale(30*time.Minute, "x")
-	assert.Equal(t, 0, count, "Planning is short-lived; only Running can stale")
+	count := r.PromoteStale(30*time.Minute, 10*time.Minute, "x")
+	assert.Equal(t, 0, count, "fresh Planning jobs must not be promoted")
+
+	snap := r.Snapshot("p")
+	assert.Equal(t, StatePlanning, snap["r"].State)
+}
+
+func TestRegistry_PromoteStale_StalePlanningPromoted(t *testing.T) {
+	// A Planning job that is older than planningMaxAge must be promoted to
+	// Failed so the (project, repo) lock is released.
+	clk := clock.Fake(time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
+	r := NewRegistryWithClock(clk)
+
+	_, _ = r.Acquire("p", "r", "human:a") // stays in Planning
+
+	clk.Advance(11 * time.Minute) // > planningMaxAge of 10 min
+
+	count := r.PromoteStale(30*time.Minute, 10*time.Minute, "x")
+	assert.Equal(t, 1, count, "stale Planning job must be promoted to Failed")
+
+	snap := r.Snapshot("p")
+	assert.Equal(t, StateFailed, snap["r"].State)
+	assert.NotNil(t, snap["r"].FinishedAt)
+
+	// After promotion the lock is released — a new Acquire must succeed.
+	_, err := r.Acquire("p", "r", "human:b")
+	assert.NoError(t, err, "promoted Planning job must release the lock for re-acquire")
 }
 
 func TestRegistry_UpdateProgress_OverridesDocsTotalWhenSmaller(t *testing.T) {

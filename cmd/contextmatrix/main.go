@@ -73,7 +73,15 @@ func main() {
 	flag.Parse()
 
 	if *configPath == "" {
-		configPath = new(config.FindConfigPath())
+		found := config.FindConfigPath()
+		if found == "" {
+			slog.New(slog.NewTextHandler(os.Stdout, nil)).Error(
+				"no config file found; use -config to specify a path",
+			)
+			os.Exit(1)
+		}
+
+		configPath = &found
 	}
 
 	cfg, err := config.Load(*configPath)

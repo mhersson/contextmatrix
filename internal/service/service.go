@@ -16,7 +16,8 @@
 //   - service_transitions.go — Parent auto-transitions + state-change side
 //     effects shared between the card write path and TransitionTo.
 //   - service_validation.go  — Dependency/reference validators.
-//   - service_git.go         — commitCardChange / flushDeferredCommit / cardPath.
+//   - service_git.go         — enqueueCardCommit / awaitCommit /
+//     flushDeferredCommit / cardPath.
 package service
 
 import (

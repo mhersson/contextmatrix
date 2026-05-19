@@ -70,7 +70,8 @@ func (s *Store) Close() error { return s.db.Close() }
 // the SELECT statement projects them. Kept as a single source of truth so
 // new fields don't drift between GetSession, ListSessions, and scanSession.
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
-    container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active`
+    container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
+    rehydration_started_at`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -137,6 +138,12 @@ func (s *Store) ListSessions(ctx context.Context, f chat.SessionFilter) ([]chat.
 		args = append(args, f.LastActiveBefore.Unix())
 	}
 
+	if !f.RehydrationStartedBefore.IsZero() {
+		q += " AND rehydration_started_at IS NOT NULL AND rehydration_started_at < ?"
+
+		args = append(args, f.RehydrationStartedBefore.Unix())
+	}
+
 	q += " ORDER BY last_active DESC"
 
 	if f.Limit > 0 {
@@ -166,18 +173,56 @@ func (s *Store) ListSessions(ctx context.Context, f chat.SessionFilter) ([]chat.
 	return out, rows.Err()
 }
 
+// CountSessionsByStatus returns the number of sessions whose status is one of
+// the supplied values. A single SELECT COUNT(*) query avoids fetching full rows
+// just to call len() on the result — used by openCold to enforce MaxConcurrent.
+func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	if len(statuses) == 0 {
+		return 0, nil
+	}
+
+	args := make([]any, len(statuses))
+	for i, st := range statuses {
+		args[i] = string(st)
+	}
+
+	placeholders := "?"
+	for range statuses[1:] {
+		placeholders += ",?"
+	}
+
+	var n int
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_sessions WHERE status IN (`+placeholders+`)`,
+		args...,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("chat: count sessions by status: %w", err)
+	}
+
+	return n, nil
+}
+
 func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
 	if err != nil {
 		return fmt.Errorf("chat: marshal workspace: %w", err)
 	}
 
+	var startedAt any // nil → SQL NULL
+
+	if sess.RehydrationStartedAt != nil {
+		startedAt = sess.RehydrationStartedAt.Unix()
+	}
+
 	res, err := s.db.ExecContext(ctx, `UPDATE chat_sessions SET
-        title=?, project=?, status=?, last_active=?, container_id=?, workspace=?, model=?
+        title=?, project=?, status=?, last_active=?, container_id=?, workspace=?, model=?,
+        rehydration_started_at=?
         WHERE id=?`,
 		sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.LastActive.Unix(), nullIf(sess.ContainerID), string(workspaceJSON),
-		sess.Model, sess.ID)
+		sess.Model, startedAt, sess.ID)
 	if err != nil {
 		return fmt.Errorf("chat: update session: %w", err)
 	}
@@ -191,19 +236,45 @@ func (s *Store) UpdateSession(ctx context.Context, sess chat.Session) error {
 }
 
 // SetRehydrationActive flips the rehydration_active flag on a session row.
-// Targeted update avoids scribbling the entire session, which the consumer
-// path would otherwise have to do via UpdateSession.
-func (s *Store) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
+// When active is true, rehydration_started_at is set to startedAt (caller
+// supplies the clock-sourced time); when false, it is set to NULL. Targeted
+// update avoids scribbling the entire session, which the consumer path would
+// otherwise have to do via UpdateSession.
+func (s *Store) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
 	flag := 0
+
+	var startedAtVal any // nil → SQL NULL
+
 	if active {
 		flag = 1
+		startedAtVal = startedAt.Unix()
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE chat_sessions SET rehydration_active = ? WHERE id = ?`,
-		flag, sessionID)
+		`UPDATE chat_sessions SET rehydration_active = ?, rehydration_started_at = ? WHERE id = ?`,
+		flag, startedAtVal, sessionID)
 	if err != nil {
 		return fmt.Errorf("chat: set rehydration_active: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return chat.ErrSessionNotFound
+	}
+
+	return nil
+}
+
+// UpdateSessionTitle writes only the title column. Used by the auto-title
+// path in chat.Manager.AppendMessage so a concurrent OpenSession/MarkActive
+// between the title-read and the title-write cannot have its
+// ContainerID/Status/Workspace overwritten by a stale snapshot.
+func (s *Store) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_sessions SET title = ? WHERE id = ?`,
+		title, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: update session title: %w", err)
 	}
 
 	n, _ := res.RowsAffected()
@@ -256,21 +327,6 @@ func (s *Store) AppendMessage(ctx context.Context, m chat.Message) (int64, error
 	}
 
 	return m.Seq, nil
-}
-
-// MarkAllMessagesRehydrationPhase flips rehydration_phase = 1 on every row
-// for sessionID still at 0. Returns RowsAffected.
-func (s *Store) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE chat_messages SET rehydration_phase = 1 WHERE session_id = ? AND rehydration_phase = 0`,
-		sessionID)
-	if err != nil {
-		return 0, fmt.Errorf("chat: mark all rehydration_phase: %w", err)
-	}
-
-	n, _ := res.RowsAffected()
-
-	return n, nil
 }
 
 func (s *Store) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
@@ -436,12 +492,14 @@ func scanSession(sc scanner) (chat.Session, error) {
 		contextTokens               int64
 		contextTokensUpdatedAt      sql.NullInt64
 		rehydrationActive           int
+		rehydrationStartedAt        sql.NullInt64
 	)
 
 	if err := sc.Scan(
 		&s.ID, &s.Title, &project, &status, &createdAt, &lastActive, &s.CreatedBy,
 		&containerID, &workspaceJSON,
 		&model, &contextTokens, &contextTokensUpdatedAt, &rehydrationActive,
+		&rehydrationStartedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -463,6 +521,11 @@ func scanSession(sc scanner) (chat.Session, error) {
 	}
 
 	s.RehydrationActive = rehydrationActive != 0
+
+	if rehydrationStartedAt.Valid {
+		t := time.Unix(rehydrationStartedAt.Int64, 0).UTC()
+		s.RehydrationStartedAt = &t
+	}
 
 	if workspaceJSON.Valid && workspaceJSON.String != "" && workspaceJSON.String != "null" {
 		if err := json.Unmarshal([]byte(workspaceJSON.String), &s.Workspace); err != nil {

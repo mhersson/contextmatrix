@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -209,9 +211,18 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		return fmt.Errorf("get current branch: %w", err)
 	}
 
+	// Obtain auth credentials once and reuse for all network operations.
+	// A nil-provider error means SSH mode — proceed without injecting env
+	// (the SSH agent handles auth). Any other error (e.g. token-mint failure)
+	// is logged as a warning so the root cause is visible; the subsequent
+	// network call will then fail with the real permission error.
+	authEnv, authErr := s.git.AuthEnv(ctx)
+	if authErr != nil {
+		slog.Warn("git sync: could not obtain auth env", "error", authErr)
+	}
+
 	// Fetch from origin.
-	authEnvFetch, _ := s.git.AuthEnv(ctx)
-	if _, err := runGit(ctx, s.repoPath, authEnvFetch, "fetch", "origin"); err != nil {
+	if _, err := runGit(ctx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
 
@@ -243,12 +254,14 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	// Rebase local commits on top of remote. --autostash stashes any
 	// uncommitted changes before the rebase and restores them after, so a
 	// dirty worktree does not block the sync.
-	authEnv, _ := s.git.AuthEnv(ctx)
 	if _, err := runGit(ctx, s.repoPath, authEnv, "rebase", "--autostash", remote); err != nil {
 		// Rebase conflict — abort and report.
 		slog.Error("git sync: rebase conflict, aborting", "error", err)
 
-		_, _ = runGit(ctx, s.repoPath, nil, "rebase", "--abort")
+		if abortErr := runGitAbort(ctx, s.repoPath); abortErr != nil {
+			slog.Error("git sync: rebase --abort failed", "error", abortErr)
+		}
+
 		conflictErr := fmt.Errorf("rebase conflict: %w", err)
 		s.setError(conflictErr)
 
@@ -285,6 +298,10 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	return nil
 }
 
+// reNonFastForward matches non-fast-forward rejection messages from GitHub,
+// GitLab, Gitea, and other common git hosting services.
+var reNonFastForward = regexp.MustCompile(`(?i)(non-fast-forward|fetch first|cannot fast-forward|rejected.*non-fast|updates were rejected)`)
+
 // pushWithRetry attempts to push. On non-fast-forward failure, it performs a
 // pull-rebase then retries once. Never force-pushes.
 //
@@ -302,14 +319,24 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return nil
 	}
 
-	// Check if the error is a non-fast-forward rejection.
-	errStr := err.Error()
-	if !strings.Contains(errStr, "non-fast-forward") && !strings.Contains(errStr, "fetch first") {
+	// Check if the error is a non-fast-forward rejection. Use a broad regex so
+	// Gitea / GitLab variants are also caught.
+	if !reNonFastForward.MatchString(err.Error()) {
 		slog.Error("git sync: push failed", "error", err)
 		s.setError(err)
 		s.publishError("push", err)
 
 		return fmt.Errorf("push: %w", err)
+	}
+
+	// Add ±25% jitter to the retry delay so concurrent CM instances do not
+	// hammer the remote in lock-step.
+	jitter := time.Duration(float64(500*time.Millisecond) * (0.75 + 0.5*rand.Float64())) //nolint:gosec // non-security jitter
+
+	select {
+	case <-time.After(jitter):
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	// pullRebase acquires writeMu itself — must NOT be called under writeMu.
@@ -432,7 +459,20 @@ func (s *Syncer) setError(err error) {
 	defer s.mu.Unlock()
 
 	s.lastSyncTime = time.Now()
-	s.lastSyncError = err.Error()
+
+	if msg := err.Error(); msg != "" {
+		s.lastSyncError = msg
+	} else {
+		s.lastSyncError = "unknown error"
+	}
+}
+
+// runGitAbort runs "git rebase --abort" and returns any error.
+// A separate function keeps the call site clean and makes logging uniform.
+func runGitAbort(ctx context.Context, repoPath string) error {
+	_, err := runGit(ctx, repoPath, nil, "rebase", "--abort")
+
+	return err
 }
 
 // publishError emits a sync.error event.

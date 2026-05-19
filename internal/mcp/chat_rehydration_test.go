@@ -26,7 +26,7 @@ type chatTestDeps struct {
 // setRehydrationActive flips the rehydration flag directly via the store,
 // bypassing the manager's in-memory cache to simulate a just-opened session.
 func (d *chatTestDeps) setRehydrationActive(ctx context.Context, sessionID string, active bool) error {
-	return d.store.SetRehydrationActive(ctx, sessionID, active)
+	return d.store.SetRehydrationActive(ctx, sessionID, active, time.Now().UTC())
 }
 
 // newTestChatManager creates a chat.Manager backed by a real SQLite store and
@@ -146,4 +146,44 @@ func TestChatRehydrationCompleteTool_CrossSessionRejected(t *testing.T) {
 	// B's rehydration_active must still be true.
 	got, _ := mgr.GetSession(ctx, b.ID)
 	require.True(t, got.RehydrationActive)
+}
+
+func TestChatRehydrationCompleteTool_SummaryTooLarge(t *testing.T) {
+	t.Parallel()
+	mgr, deps := newTestChatManager(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
+	require.NoError(t, err)
+	require.NoError(t, deps.setRehydrationActive(ctx, sess.ID, true))
+
+	oversize := strings.Repeat("x", maxSummaryBytes+1)
+	tool := buildChatRehydrationCompleteTool(mgr)
+	_, _, err = tool(ctx, nil, chatRehydrationCompleteInput{
+		SessionID: sess.ID,
+		Summary:   oversize,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds")
+}
+
+func TestSanitizeLogField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"normal", "normal"},
+		{"with\nnewline", "withnewline"},
+		{"ansi\x1b[31mred\x1b[0m", "ansi[31mred[0m"},
+		{"tabs\there", "tabshere"},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			require.Equal(t, tc.want, sanitizeLogField(tc.in))
+		})
+	}
 }

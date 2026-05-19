@@ -505,6 +505,135 @@ func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 	assert.Equal(t, numGoroutines, count, "expected %d commits in git log, got %d", numGoroutines, count)
 }
 
+// TestCommitQueue_EnqueueCloseRace stresses the snapshot/close handshake
+// between concurrent Enqueue and Close calls. The subtle invariant the
+// implementation must uphold is:
+//
+//  1. No "send on closed channel" panic when an Enqueue races with Close.
+//  2. Every Enqueue receives exactly one outcome on its Done channel —
+//     either a successful commit (worker drained the job before exit),
+//     ErrQueueClosed (queue rejected the job before send), or a context
+//     error if applicable. No "lost" jobs (Done never signalled).
+//
+// Implementation strategy:
+//   - Spawn many enqueuers behind a barrier so they all release together.
+//   - Trip Close from a separate goroutine, also gated on the barrier,
+//     while enqueues are mid-flight.
+//   - Recover from any panic in the test goroutine; assert recover() == nil.
+//   - After Close returns, drain every Done channel; assert no channel is
+//     left dangling (the test will hang via the surrounding test timeout
+//     if a Done is never signalled, but we also enforce a per-channel
+//     timeout for fast failure).
+func TestCommitQueue_EnqueueCloseRace(t *testing.T) {
+	// Run multiple iterations so the scheduler has many chances to expose
+	// a race. Each iteration uses a fresh queue.
+	const iterations = 25
+
+	for iter := range iterations {
+		t.Run(fmt.Sprintf("iter-%02d", iter), func(t *testing.T) {
+			f := &fakeCommitter{delay: 0}
+			q := NewCommitQueueWithCommitter(f, 8)
+
+			const enqueuers = 50
+
+			// Barrier: every enqueuer goroutine + the closer goroutine
+			// blocks on this until the test releases them simultaneously.
+			barrier := make(chan struct{})
+
+			var (
+				wg         sync.WaitGroup
+				dones      = make([]<-chan error, enqueuers)
+				panics     atomic.Int32
+				panicMsgs  sync.Map // index -> panic value
+				doneSlotMu sync.Mutex
+			)
+
+			for i := range enqueuers {
+				wg.Add(1)
+
+				go func(idx int) {
+					defer wg.Done()
+
+					defer func() {
+						if r := recover(); r != nil {
+							panics.Add(1)
+							panicMsgs.Store(idx, r)
+						}
+					}()
+
+					<-barrier
+
+					ch := q.Enqueue(CommitJob{
+						Project: fmt.Sprintf("proj-%d", idx%4),
+						Kind:    CommitKindFile,
+						Path:    fmt.Sprintf("p-%d.md", idx),
+						Message: fmt.Sprintf("msg-%d", idx),
+					})
+
+					doneSlotMu.Lock()
+					dones[idx] = ch
+					doneSlotMu.Unlock()
+				}(i)
+			}
+
+			// Closer goroutine: trip Close as soon as the barrier releases.
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+
+				defer func() {
+					if r := recover(); r != nil {
+						panics.Add(1)
+						panicMsgs.Store(-1, r)
+					}
+				}()
+
+				<-barrier
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				_ = q.Close(ctx)
+			}()
+
+			// Release everyone at once.
+			close(barrier)
+
+			wg.Wait()
+
+			// No panics should have escaped: send-on-closed-channel is the
+			// classic regression here.
+			if got := panics.Load(); got != 0 {
+				panicMsgs.Range(func(key, value any) bool {
+					t.Logf("panic in goroutine %v: %v", key, value)
+
+					return true
+				})
+				t.Fatalf("expected zero panics, got %d", got)
+			}
+
+			// Every Enqueue must yield exactly one outcome. Use a generous
+			// per-channel timeout so a stuck Done fails fast (and visibly)
+			// rather than hanging the entire test.
+			for i, d := range dones {
+				require.NotNil(t, d, "enqueuer %d never wrote to dones slot", i)
+
+				select {
+				case err := <-d:
+					// Either nil (commit ran) or ErrQueueClosed (queue
+					// rejected before send). Both are valid outcomes.
+					if err != nil && !errors.Is(err, ErrQueueClosed) && !errors.Is(err, context.Canceled) {
+						t.Errorf("enqueuer %d: unexpected error %v", i, err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatalf("enqueuer %d: Done channel never signalled — job lost", i)
+				}
+			}
+		})
+	}
+}
+
 // TestCommitQueue_ShutdownCompletesPendingJob covers the shutdown path where
 // a job is already enqueued when Close is called; the job must still run to
 // completion before Close returns.

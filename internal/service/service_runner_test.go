@@ -75,11 +75,12 @@ func TestRecordSkillEngaged_DedupsAcrossPathAandPathB(t *testing.T) {
 
 	// Simulate Path A: agent calls AddLogEntry with action="skill_engaged",
 	// message="engaged go-development", no Skill field set.
-	require.NoError(t, svc.AddLogEntry(context.Background(), testProjectName, card.ID, board.ActivityEntry{
+	_, err = svc.AddLogEntry(context.Background(), testProjectName, card.ID, board.ActivityEntry{
 		Agent:   "claude-test",
 		Action:  "skill_engaged",
 		Message: "engaged go-development",
-	}))
+	})
+	require.NoError(t, err)
 
 	// Path B: runner callback hits RecordSkillEngaged with structured Skill field.
 	require.NoError(t, svc.RecordSkillEngaged(context.Background(), testProjectName, card.ID, "go-development"))

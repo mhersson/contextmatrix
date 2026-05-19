@@ -245,24 +245,14 @@ func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge tim
 // isCardNotFound classifies a CardLookup error as a positive "this card does
 // not exist" signal (which should trigger a kill) vs an arbitrary store
 // failure (which should not). A real missing card must return
-// storage.ErrCardNotFound (service.GetCard returns the store's error
-// unwrapped); test fakes that construct an ad-hoc errors.New("not found")
-// hit the string-match path.
+// storage.ErrCardNotFound; wrapped forms (fmt.Errorf("...: %w", err)) are
+// also matched by errors.Is.
 //
 // Kept conservative: if a new error shape appears, we default to "not a
 // not-found" so we never kill a container because a backing store was
 // briefly unreachable.
 func isCardNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if errors.Is(err, storage.ErrCardNotFound) {
-		return true
-	}
-
-	// Plain errors.New("not found") shape used by test fakes.
-	return err.Error() == "not found"
+	return errors.Is(err, storage.ErrCardNotFound)
 }
 
 // truncate shortens a Docker container ID for log lines without losing enough

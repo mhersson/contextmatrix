@@ -105,6 +105,18 @@ var migrations = []migration{
 				`ALTER TABLE chat_messages ADD COLUMN kind TEXT NOT NULL DEFAULT ''`)
 		},
 	},
+	{
+		version: 5,
+		up: func(ctx context.Context, db *sql.DB) error {
+			// rehydration_started_at records when SetRehydrationActive(true)
+			// ran. NULL when rehydration_active = 0. The reaper filters on
+			// this column instead of last_active so an actively-typing user
+			// whose agent crashed mid-rehydration cannot keep the stale-phase
+			// sweep from firing.
+			return addColumnIfMissing(ctx, db, "chat_sessions", "rehydration_started_at",
+				`ALTER TABLE chat_sessions ADD COLUMN rehydration_started_at INTEGER`)
+		},
+	},
 }
 
 // addColumnIfMissing applies an ALTER TABLE ADD COLUMN statement only if the

@@ -890,14 +890,14 @@ func TestFindConfigPath_FallbackToCwd(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "nonexistent"))
 
 	got := FindConfigPath()
-	assert.Equal(t, "config.yaml", got)
+	assert.Empty(t, got, "FindConfigPath must return empty string when no config file is found")
 }
 
 func TestFindConfigPath_XDGSetButNoFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "empty-xdg"))
 
 	got := FindConfigPath()
-	assert.Equal(t, "config.yaml", got)
+	assert.Empty(t, got, "FindConfigPath must return empty string when XDG dir has no config file")
 }
 
 func TestLoad_WorkflowSkillsDirDerivedFromConfigDir(t *testing.T) {
@@ -2211,7 +2211,7 @@ func TestLoadConfig_ChatDefaults(t *testing.T) {
 	cfg, err := Load(cfgPath)
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL, "default idle TTL should be 1h")
-	assert.Equal(t, 8, cfg.Chat.MaxConcurrent, "default max concurrent should be 8 (multi-pane headroom)")
+	assert.Equal(t, 0, cfg.Chat.MaxConcurrent, "unset max_concurrent should be 0 (unlimited)")
 	assert.NotEmpty(t, cfg.Chat.DBPath, "default db path should be derived")
 }
 
@@ -2263,8 +2263,9 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	// Should retain the default value since the env override was invalid.
-	assert.Equal(t, 8, cfg.Chat.MaxConcurrent)
+	// YAML did not set max_concurrent → field is zero (unlimited); the invalid
+	// env override is ignored, so the zero value is preserved.
+	assert.Equal(t, 0, cfg.Chat.MaxConcurrent)
 }
 
 func TestLoadConfig_ChatYAML(t *testing.T) {

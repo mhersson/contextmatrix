@@ -2,13 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // defaultRunnerKeepaliveInterval is the keepalive period for runner SSE streams.
@@ -32,7 +35,34 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	}
 
 	cardID := r.URL.Query().Get("card_id")
-	project := r.URL.Query().Get("project")
+	project := strings.TrimSpace(r.URL.Query().Get("project"))
+
+	// Validate project. Empty project is rejected — without this, the
+	// project-scoped path would lazy-create an upstream-pump goroutine and a
+	// persistent SSE HTTP connection keyed by an empty string. For non-empty
+	// values, verify the project exists so a typo/garbage name can't spin up
+	// permanent resources for a bogus project. The svc-nil guard preserves
+	// existing tests that instantiate runnerHandlers without a CardService.
+	if project == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project query parameter is required", "")
+
+		return
+	}
+
+	if h.svc != nil {
+		if _, err := h.svc.GetProject(r.Context(), project); err != nil {
+			if errors.Is(err, storage.ErrProjectNotFound) {
+				writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
+
+				return
+			}
+
+			ctxlog.Logger(r.Context()).Error("runner SSE: failed to load project", "project", project, "error", err)
+			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
+
+			return
+		}
+	}
 
 	metrics.SSEActiveConnections.Inc()
 	defer metrics.SSEActiveConnections.Dec()

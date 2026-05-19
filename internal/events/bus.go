@@ -3,7 +3,6 @@
 package events
 
 import (
-	"log/slog"
 	"sync"
 	"time"
 
@@ -100,8 +99,9 @@ func (b *Bus) Subscribe() (ch <-chan Event, unsubscribe func()) {
 }
 
 // Publish sends an event to all subscribers. This method never blocks;
-// if a subscriber's buffer is full, the event is dropped for that subscriber
-// and a warning is logged.
+// if a subscriber's buffer is full, the event is dropped for that subscriber.
+// Drops are counted via the EventBusDropped metric; no per-drop log is emitted
+// to avoid serialising against concurrent subscribe/unsubscribe under the lock.
 func (b *Bus) Publish(event Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -113,11 +113,6 @@ func (b *Bus) Publish(event Event) {
 		default:
 			// Buffer full, drop event for this subscriber
 			metrics.EventBusDropped.Inc()
-			slog.Warn("event dropped for slow subscriber",
-				"event_type", event.Type,
-				"project", event.Project,
-				"card_id", event.CardID,
-			)
 		}
 	}
 }

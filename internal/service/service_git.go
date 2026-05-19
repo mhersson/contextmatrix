@@ -39,55 +39,6 @@ func commitMessage(agentID, cardID, action string) string {
 	return fmt.Sprintf("[contextmatrix] %s: %s", cardID, action)
 }
 
-// commitCardChange either commits a card file immediately or records it for a
-// deferred commit, depending on the gitDeferredCommit setting.
-// Caller must hold writeMu.
-//
-// This is the legacy synchronous path retained for callers that do not
-// participate in the async-commit flow. When a commit queue is configured,
-// prefer enqueueCardCommit so writeMu can be released before the commit
-// actually runs.
-func (s *CardService) commitCardChange(ctx context.Context, project, cardID, agentID, action string) error {
-	if !s.gitAutoCommit {
-		return nil
-	}
-
-	path := s.cardPath(project, cardID)
-	if s.gitDeferredCommit {
-		// Accumulate path for later flush; skip the git commit for now.
-		s.deferredPaths[cardID] = append(s.deferredPaths[cardID], path)
-
-		return nil
-	}
-
-	msg := commitMessage(agentID, cardID, action)
-
-	if s.commitQueue != nil {
-		done := s.commitQueue.Enqueue(gitops.CommitJob{
-			Project: project,
-			Kind:    gitops.CommitKindFile,
-			Path:    path,
-			Message: msg,
-			Ctx:     ctx,
-		})
-		if err := <-done; err != nil {
-			return err
-		}
-
-		s.notifyCommit()
-
-		return nil
-	}
-
-	if err := s.git.CommitFile(ctx, path, msg); err != nil {
-		return err
-	}
-
-	s.notifyCommit()
-
-	return nil
-}
-
 // enqueueCardCommit enqueues a card-change commit without waiting for it to
 // complete, returning a channel that yields the commit result plus a bool
 // telling the caller whether notifyCommit should fire on success (true only

@@ -191,6 +191,28 @@ func TestParseCard_MissingFrontmatter(t *testing.T) {
 	}
 }
 
+func TestParseCard_SizeLimit(t *testing.T) {
+	// Inputs larger than 2 MiB must be rejected before YAML parsing.
+	oversized := make([]byte, maxCardSize+1)
+	for i := range oversized {
+		oversized[i] = 'x'
+	}
+
+	_, err := ParseCard(oversized)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrMalformedFrontmatter)
+}
+
+func TestParseCard_DashesInBody(t *testing.T) {
+	// "---" inside the body must not be treated as a second closing delimiter.
+	input := "---\nid: TEST-001\ntitle: Test\nproject: p\ntype: task\nstate: todo\npriority: medium\ncreated: 2026-03-30T10:00:00Z\nupdated: 2026-03-30T10:00:00Z\n---\n## Body\n\n---\n\nMore text.\n"
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.Contains(t, card.Body, "---")
+	assert.Contains(t, card.Body, "More text.")
+}
+
 func TestParseCard_MalformedYAML(t *testing.T) {
 	input := `---
 id: TEST-001

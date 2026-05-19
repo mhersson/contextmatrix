@@ -29,6 +29,7 @@ func TestJanitor_PromotesStaleAfterScanInterval(t *testing.T) {
 		StartJanitor(ctx, r, clk, JanitorConfig{
 			ScanInterval:    60 * time.Second,
 			StaleThreshold:  30 * time.Minute,
+			PlanningMaxAge:  2 * time.Minute,
 			KeepWindow:      5 * time.Minute,
 			StaleErrMessage: "no progress callback for 30 min",
 		}, logger)
@@ -39,6 +40,44 @@ func TestJanitor_PromotesStaleAfterScanInterval(t *testing.T) {
 	// Then advance past staleness threshold and the scan interval.
 	assert.Eventually(t, func() bool {
 		clk.Advance(31 * time.Minute)
+		clk.Advance(60 * time.Second)
+
+		snap := r.Snapshot("p")
+		j, ok := snap["r"]
+
+		return ok && j.State == StateFailed
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cancel()
+	<-done
+}
+
+func TestJanitor_PromotesStalePlanningAfterPlanningMaxAge(t *testing.T) {
+	clk := clock.Fake(time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC))
+	r := NewRegistryWithClock(clk)
+
+	_, _ = r.Acquire("p", "r", "human:a") // stays in Planning
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	done := make(chan struct{})
+
+	go func() {
+		StartJanitor(ctx, r, clk, JanitorConfig{
+			ScanInterval:   60 * time.Second,
+			StaleThreshold: 30 * time.Minute,
+			PlanningMaxAge: 5 * time.Minute,
+			KeepWindow:     5 * time.Minute,
+		}, logger)
+		close(done)
+	}()
+
+	// Advance past planningMaxAge + scan interval so the janitor fires and
+	// catches the stuck Planning job.
+	assert.Eventually(t, func() bool {
+		clk.Advance(6 * time.Minute)
 		clk.Advance(60 * time.Second)
 
 		snap := r.Snapshot("p")

@@ -19,9 +19,10 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) error
 
 	// SetRehydrationActive flips the rehydration_active flag on a session
-	// row without rewriting the rest of the columns. Returns
-	// ErrSessionNotFound if no row matches.
-	SetRehydrationActive(ctx context.Context, sessionID string, active bool) error
+	// row without rewriting the rest of the columns. When active is true,
+	// rehydration_started_at is set to startedAt; when false it is cleared
+	// to NULL. Returns ErrSessionNotFound if no row matches.
+	SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error
 
 	// UpdateContextTokens stamps the context-window usage from the most
 	// recent Claude turn onto the session row. updatedAt is the runner-side
@@ -29,15 +30,15 @@ type Store interface {
 	// matches.
 	UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error
 
+	// UpdateSessionTitle writes only the title column without touching the
+	// rest of the session row. Used by the AppendMessage auto-title path so
+	// a concurrent OpenSession/MarkActive between the title-read and the
+	// title-write cannot have its ContainerID/Status/Workspace overwritten
+	// by a stale snapshot. Returns ErrSessionNotFound if no row matches.
+	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
+
 	AppendMessage(ctx context.Context, m Message) (int64, error)
 	ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error)
-
-	// MarkAllMessagesRehydrationPhase flips rehydration_phase = 1 on every
-	// row for sessionID that is still at 0. Used by Manager.ClearContext to
-	// exclude pre-clear messages from future rehydration payloads without
-	// deleting them from the transcript. Returns the number of rows
-	// updated (zero is not an error: clearing an empty session is valid).
-	MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error)
 
 	// ClearTranscriptAtomic marks all prior messages as rehydration_phase=1
 	// and inserts the divider message in a single database transaction. If
@@ -56,6 +57,11 @@ type Store interface {
 	// without scanning the full transcript.
 	MaxSeq(ctx context.Context, sessionID string) (int64, error)
 
+	// CountSessionsByStatus returns the number of sessions whose status is
+	// one of the supplied values. Used by openCold to enforce MaxConcurrent
+	// without fetching full rows just for len().
+	CountSessionsByStatus(ctx context.Context, statuses ...Status) (int, error)
+
 	Close() error
 }
 
@@ -69,9 +75,13 @@ type SessionFilter struct {
 	// to find sessions whose rehydration phase needs forcing off.
 	RehydrationActive *bool
 	// LastActiveBefore, when non-zero, restricts results to rows where
-	// last_active is strictly older than this time. Used by the reaper
-	// alongside RehydrationActive to find stale phases.
+	// last_active is strictly older than this time.
 	LastActiveBefore time.Time
+	// RehydrationStartedBefore, when non-zero, restricts results to rows
+	// where rehydration_started_at is strictly older than this time. Used by
+	// the reaper instead of LastActiveBefore to detect stale rehydration
+	// phases without being fooled by user typing that keeps LastActive fresh.
+	RehydrationStartedBefore time.Time
 	// Limit, when > 0, caps the number of rows returned (ORDER BY
 	// last_active DESC). Zero means no limit.
 	Limit int

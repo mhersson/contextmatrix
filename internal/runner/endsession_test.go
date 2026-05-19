@@ -15,6 +15,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 type fakeCardGetter struct {
@@ -28,7 +29,7 @@ func (f *fakeCardGetter) GetCard(_ context.Context, project, id string) (*board.
 
 	c, ok := f.cards[project+"/"+id]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, storage.ErrCardNotFound
 	}
 	// return a copy so the subscriber's read is isolated
 	cp := *c

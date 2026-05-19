@@ -9,9 +9,26 @@ export interface UseCollapsedCardsResult {
   expandMany: (cardIds: string[]) => void;
 }
 
+// Safari Private Browsing, quota exhaustion, and disabled storage all throw
+// on localStorage access. Wrap both so a throw does not crash the component.
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore — caller already has the in-memory state
+  }
+}
+
 function loadFromStorage(project: string): Set<string> {
   try {
-    const stored = localStorage.getItem(`${STORAGE_KEY}-${project}`);
+    const stored = safeGet(`${STORAGE_KEY}-${project}`);
     if (stored) return new Set(JSON.parse(stored));
   } catch { /* ignore */ }
   return new Set();
@@ -52,7 +69,7 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
       } else {
         next.add(cardId);
       }
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
+      safeSet(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
       return { project: prev.project, collapsed: next };
     });
   }, [project]);
@@ -63,7 +80,7 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
       for (const id of cardIds) {
         next.add(id);
       }
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
+      safeSet(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
       return { project: prev.project, collapsed: next };
     });
   }, [project]);
@@ -74,7 +91,7 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
       for (const id of cardIds) {
         next.delete(id);
       }
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
+      safeSet(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
       return { project: prev.project, collapsed: next };
     });
   }, [project]);

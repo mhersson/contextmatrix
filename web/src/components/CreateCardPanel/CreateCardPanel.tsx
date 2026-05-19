@@ -13,6 +13,54 @@ import { HeaderCaret, headerTitleStyle } from '../../lib/header-tokens';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { ParentSearch } from './ParentSearch';
 
+// Shared inline styles for the select element inside a chip-pill picker.
+const chipSelectStyle: React.CSSProperties = {
+  color: 'inherit',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '11px',
+  letterSpacing: '0.02em',
+  paddingRight: '14px',
+  marginRight: '-12px',
+};
+
+// Thin wrapper that renders a select inside a chip-pill div with the caret.
+function ChipPicker({
+  id,
+  value,
+  options,
+  tint,
+  ariaLabel,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  options: string[];
+  tint: string;
+  ariaLabel: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div
+      className="chip-pill"
+      style={{ ...chipTint(tint), padding: '3px 4px 3px 8px', gap: '2px' }}
+    >
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-transparent border-none outline-none appearance-none"
+        style={{ ...chipSelectStyle, color: tint }}
+        aria-label={ariaLabel}
+      >
+        {options.map((o) => (
+          <option key={o} value={o} className="bg-[var(--bg2)] text-[var(--fg)]">{o}</option>
+        ))}
+      </select>
+      <span className="pointer-events-none">{HeaderCaret}</span>
+    </div>
+  );
+}
+
 interface CreateCardPanelProps {
   config: ProjectConfig;
   cards: Card[];
@@ -296,60 +344,26 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
                   <span className="text-[10px] opacity-70 ml-1">(set by parent)</span>
                 </span>
               ) : (
-                <div
-                  className="chip-pill"
-                  style={{ ...chipTint(typeTint), padding: '3px 4px 3px 8px', gap: '2px' }}
-                >
-                  <select
-                    id={typeId}
-                    value={type}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className="bg-transparent border-none outline-none appearance-none"
-                    style={{
-                      color: typeTint,
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '11px',
-                      letterSpacing: '0.02em',
-                      paddingRight: '14px',
-                      marginRight: '-12px',
-                    }}
-                    aria-label="Type"
-                  >
-                    {config.types.filter((t) => t !== 'subtask').map((t) => (
-                      <option key={t} value={t} className="bg-[var(--bg2)] text-[var(--fg)]">{t}</option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none">{HeaderCaret}</span>
-                </div>
+                <ChipPicker
+                  id={typeId}
+                  value={type}
+                  options={config.types.filter((t) => t !== 'subtask')}
+                  tint={typeTint}
+                  ariaLabel="Type"
+                  onChange={handleTypeChange}
+                />
               )}
 
               {/* Priority picker chip */}
               <label htmlFor={priorityId} className="sr-only">Priority</label>
-              <div
-                className="chip-pill"
-                style={{ ...chipTint(priorityTint), padding: '3px 4px 3px 8px', gap: '2px' }}
-              >
-                <select
-                  id={priorityId}
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="bg-transparent border-none outline-none appearance-none"
-                  style={{
-                    color: priorityTint,
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '11px',
-                    letterSpacing: '0.02em',
-                    paddingRight: '14px',
-                    marginRight: '-12px',
-                  }}
-                  aria-label="Priority"
-                >
-                  {config.priorities.map((p) => (
-                    <option key={p} value={p} className="bg-[var(--bg2)] text-[var(--fg)]">{p}</option>
-                  ))}
-                </select>
-                <span className="pointer-events-none">{HeaderCaret}</span>
-              </div>
+              <ChipPicker
+                id={priorityId}
+                value={priority}
+                options={config.priorities}
+                tint={priorityTint}
+                ariaLabel="Priority"
+                onChange={setPriority}
+              />
 
               {projectName && (
                 <span className="font-mono text-[11px] text-[var(--grey0)]">{projectName}</span>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -12,10 +13,20 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
+// maxGlobalSSESubscribers caps the number of concurrent SSE subscribers on the
+// global /api/events stream. Mirrors the per-session cap enforced in the chat
+// hub (see internal/chat/sse.go) so a leaky browser or an abusive client cannot
+// exhaust goroutines and event-bus channel slots. Configurable later if needed.
+const maxGlobalSSESubscribers = 128
+
 // eventHandlers handles SSE streaming endpoints.
 type eventHandlers struct {
 	bus               *events.Bus
 	keepaliveInterval time.Duration
+
+	// subscribers counts concurrent /api/events connections. Bounded by
+	// maxGlobalSSESubscribers; connections at the cap are rejected with 429.
+	subscribers atomic.Int32
 
 	// onSubscribed, if non-nil, is invoked exactly once per stream immediately
 	// after the event-bus subscription is registered. Intended purely for
@@ -43,6 +54,25 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	// Enforce the global subscriber cap before any header writes so a 429 JSON
+	// error response can still be emitted. Reserve a slot via atomic CAS so a
+	// burst of simultaneous connects cannot collectively exceed the cap.
+	for {
+		current := h.subscribers.Load()
+		if current >= maxGlobalSSESubscribers {
+			writeError(w, http.StatusTooManyRequests, ErrCodeTooManySubscribers,
+				"too many SSE subscribers", "")
+
+			return
+		}
+
+		if h.subscribers.CompareAndSwap(current, current+1) {
+			break
+		}
+	}
+
+	defer h.subscribers.Add(-1)
 
 	// Disable write deadline for this connection. The server's WriteTimeout is an
 	// absolute deadline from when request headers are read — it is not reset by

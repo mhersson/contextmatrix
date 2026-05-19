@@ -82,6 +82,24 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     };
   }, [project]);
 
+  /**
+   * Serialise a `Record<string, string[]>` with sorted keys so that the
+   * comparison is deterministic regardless of insertion order. Without
+   * sorting, `removeItem` rebuilds the map from `Object.keys(...)` which
+   * may reorder keys and produce a false-positive dirty signal.
+   */
+  const serializeTransitions = useCallback(
+    (t: Record<string, string[]>): string =>
+      JSON.stringify(
+        Object.fromEntries(
+          Object.keys(t)
+            .sort()
+            .map((k) => [k, [...t[k]].sort()]),
+        ),
+      ),
+    [],
+  );
+
   const isDirty = useMemo(() => {
     if (!config) return false;
     const configDefaultSkills = config.default_skills ?? null;
@@ -90,11 +108,11 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       JSON.stringify(states) !== JSON.stringify(config.states) ||
       JSON.stringify(types) !== JSON.stringify(config.types) ||
       JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
-      JSON.stringify(transitions) !== JSON.stringify(config.transitions) ||
+      serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
       ghToString(github) !== ghToString(config.github) ||
       JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills)
     );
-  }, [config, repo, states, types, priorities, transitions, github, defaultSkills]);
+  }, [config, repo, states, types, priorities, transitions, github, defaultSkills, serializeTransitions]);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;

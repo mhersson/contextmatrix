@@ -187,7 +187,7 @@ func TestAddLogEntry_RollbackOnCommitFailure(t *testing.T) {
 	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
 	svc.SetCommitQueue(failQueue)
 
-	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 		Agent:   "human:alice",
 		Action:  "commented",
 		Message: "this should not stick",

@@ -70,6 +70,10 @@ func (r *IdleReaper) sweepWarmIdle(ctx context.Context) {
 // phase has been open longer than the configured timeout. Safety net for
 // agents that crashed or otherwise never reached chat_rehydration_complete
 // and where the operator hasn't yet typed.
+//
+// The filter uses RehydrationStartedBefore (not LastActiveBefore) so an
+// actively-typing user whose agent crashed mid-rehydration does not keep
+// LastActive fresh and evade the sweep.
 func (r *IdleReaper) sweepStaleRehydration(ctx context.Context) {
 	if r.mgr.rehydrationTimeout <= 0 {
 		return
@@ -78,8 +82,8 @@ func (r *IdleReaper) sweepStaleRehydration(ctx context.Context) {
 	active := true
 
 	sessions, err := r.mgr.store.ListSessions(ctx, SessionFilter{
-		RehydrationActive: &active,
-		LastActiveBefore:  r.mgr.clk.Now().Add(-r.mgr.rehydrationTimeout),
+		RehydrationActive:        &active,
+		RehydrationStartedBefore: r.mgr.clk.Now().Add(-r.mgr.rehydrationTimeout),
 	})
 	if err != nil {
 		r.mgr.logger.Warn("chat: reaper rehydration list failed", "error", err)

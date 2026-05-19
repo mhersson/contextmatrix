@@ -36,20 +36,26 @@ export function MetadataRelated({
   useEffect(() => {
     const ids = [...(card.subtasks ?? []), ...(card.depends_on ?? [])];
     if (ids.length === 0) return;
-    let cancelled = false;
+    const controller = new AbortController();
+    const { signal } = controller;
     const out: Record<string, RelatedCard> = {};
     Promise.allSettled(ids.map(async (id) => {
       try {
-        const c = await api.getCard(card.project, id);
+        const c = await api.getCard(card.project, id, signal);
         out[id] = { state: c.state, title: c.title };
-      } catch {
+      } catch (err) {
+        // Ignore abort errors — cleanup fired before the request completed.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         out[id] = { state: 'unknown', title: id };
       }
     })).then(() => {
-      if (!cancelled) setRelated(out);
+      if (!signal.aborted) setRelated(out);
     });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- see subtaskIds/dependsIds above
+    return () => { controller.abort(); };
+    // subtaskIds / dependsIds are value-stable joined strings derived from
+    // card.subtasks / card.depends_on; listing the arrays directly would
+    // re-fire the effect on every SSE-driven card identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtaskIds, dependsIds, card.project]);
 
   const subtasks = card.subtasks ?? [];

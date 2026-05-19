@@ -77,8 +77,18 @@ var (
 	ErrMalformedFrontmatter = errors.New("malformed YAML frontmatter")
 )
 
-// frontmatterDelimiter is the YAML frontmatter boundary marker.
+// maxCardSize is the upper bound for card file input to prevent alias-bomb
+// expansion and runaway allocations during YAML parsing (2 MiB).
+const maxCardSize = 2 * 1024 * 1024
+
+// frontmatterDelimiter is the YAML frontmatter boundary marker used for
+// the opening delimiter (must appear at the very start of the file).
 var frontmatterDelimiter = []byte("---")
+
+// frontmatterClose is the closing delimiter that must be preceded by a
+// newline so that literal "---" inside quoted YAML values or the body does
+// not split the document unexpectedly.
+var frontmatterClose = []byte("\n---")
 
 // ParseCard parses a card file containing YAML frontmatter and markdown body.
 // The file format is:
@@ -88,24 +98,30 @@ var frontmatterDelimiter = []byte("---")
 //	---
 //	markdown body
 func ParseCard(data []byte) (*Card, error) {
+	// Reject inputs that exceed the size limit before any allocation.
+	if len(data) > maxCardSize {
+		return nil, fmt.Errorf("%w: file exceeds maximum size of %d bytes", ErrMalformedFrontmatter, maxCardSize)
+	}
+
 	// Normalize line endings: convert \r\n to \n
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 
-	// Split on --- delimiter
-	// Expected: ["", "yaml content", "body content"]
-	parts := bytes.SplitN(data, frontmatterDelimiter, 3)
-
-	if len(parts) < 3 {
+	// The file must start with "---\n" (the opening delimiter).
+	if !bytes.HasPrefix(data, append(frontmatterDelimiter, '\n')) {
 		return nil, ErrMissingFrontmatter
 	}
 
-	// First part should be empty or whitespace (before opening ---)
-	if len(bytes.TrimSpace(parts[0])) > 0 {
+	// Skip past the opening "---\n".
+	rest := data[4:]
+
+	// Find the closing "\n---" delimiter so that "---" embedded inside
+	// quoted YAML values or the body section does not split the document.
+	closeIdx := bytes.Index(rest, frontmatterClose)
+	if closeIdx < 0 {
 		return nil, ErrMissingFrontmatter
 	}
 
-	// Second part is YAML frontmatter
-	yamlContent := bytes.TrimSpace(parts[1])
+	yamlContent := bytes.TrimSpace(rest[:closeIdx])
 	if len(yamlContent) == 0 {
 		return nil, ErrMissingFrontmatter
 	}
@@ -115,8 +131,9 @@ func ParseCard(data []byte) (*Card, error) {
 		return nil, fmt.Errorf("%w: %v", ErrMalformedFrontmatter, err)
 	}
 
-	// Third part is markdown body (strip leading newline from after ---)
-	body := parts[2]
+	// Everything after "\n---" is the body; consume the delimiter itself
+	// plus any single trailing newline that follows it.
+	body := rest[closeIdx+len(frontmatterClose):]
 	if len(body) > 0 && body[0] == '\n' {
 		body = body[1:]
 	}

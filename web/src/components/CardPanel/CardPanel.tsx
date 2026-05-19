@@ -74,12 +74,14 @@ export function CardPanel(props: CardPanelProps) {
   // not collapse the rail mid-session. The edit buffer is refreshed whenever
   // the card object reference changes so unedited fields reflect server-side
   // updates. When HITL flips on for the same card, jump to the chat tab and
-  // expand the rail. When HITL flips off, the chat tab persists in the
-  // registry (the transcript stays visible after the session ends), so the
-  // active tab is left alone — the user can keep reading the conversation.
-  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning });
+  // expand the rail. When HITL flips off, the tab switch is debounced: only
+  // after two consecutive sync events both observing isHITLRunning=false does
+  // the switch fire. This absorbs a single transient SSE glitch. The counter
+  // (hitlOffCount) lives in the sync state object (not a useRef) to satisfy
+  // the react-hooks/refs lint rule (no reads/writes of refs during render).
+  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
   if (sync.cardId !== card.id) {
-    setSync({ cardId: card.id, card, isHITLRunning });
+    setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
     setEditedCard(card);
     setRailExpanded(isHITLRunning);
     setForcedFeatureBranch(false);
@@ -88,10 +90,18 @@ export function CardPanel(props: CardPanelProps) {
   } else if (sync.card !== card || sync.isHITLRunning !== isHITLRunning) {
     const hitlFlippedOn = sync.isHITLRunning !== isHITLRunning && isHITLRunning;
     if (sync.card !== card) setEditedCard(card);
-    setSync({ cardId: card.id, card, isHITLRunning });
     if (hitlFlippedOn) {
+      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
       setActiveTab('chat');
       setRailExpanded(true);
+    } else {
+      // HITL flipped off or stayed off. Increment the debounce counter;
+      // switch the tab only when the counter reaches 2.
+      const nextCount = !isHITLRunning && !sync.isHITLRunning ? sync.hitlOffCount + 1 : 0;
+      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: nextCount });
+      if (nextCount >= 2) {
+        setActiveTab(defaultTab);
+      }
     }
   }
 
@@ -184,10 +194,16 @@ export function CardPanel(props: CardPanelProps) {
       try {
         await onSave(buildCardPatch(next, card));
       } catch {
+        // Revert only the two fields we optimistically forced to `true`. Use
+        // a functional update and check that `curr` still holds the optimistic
+        // values before reverting — a concurrent user toggle between the
+        // optimistic set and the catch would otherwise be silently overwritten.
+        // Trade-off: if the user toggled feature_branch=false mid-save, we
+        // leave their intent intact; they may need to retry Run explicitly.
         setEditedCard((curr) => ({
           ...curr,
-          feature_branch: wasFeatureBranch,
-          create_pr: wasCreatePR,
+          feature_branch: curr.feature_branch === true ? wasFeatureBranch : curr.feature_branch,
+          create_pr: curr.create_pr === true ? wasCreatePR : curr.create_pr,
         }));
         setForcedFeatureBranch(false);
         setForcedCreatePR(false);
@@ -346,7 +362,12 @@ export function CardPanel(props: CardPanelProps) {
           }
           tabs={tabs}
           activeTab={effectiveTab}
-          onTabChange={(tab) => setActiveTab(tab)}
+          onTabChange={(tab) => {
+            setActiveTab(tab);
+            // Reset the HITL-off debounce counter on any user-initiated tab
+            // change so a subsequent HITL-off flip starts a fresh count.
+            setSync((prev) => ({ ...prev, hitlOffCount: 0 }));
+          }}
           railExpanded={railExpanded}
           onToggleRail={() => setRailExpanded((v) => !v)}
         />

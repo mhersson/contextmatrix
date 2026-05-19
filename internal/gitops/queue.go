@@ -354,11 +354,23 @@ func (q *CommitQueue) processJob(job CommitJob) {
 	// Depth drops when the job is taken off the channel.
 	metrics.CommitQueueDepth.Dec()
 
+	// Snapshot onAfter under the lock to avoid a data race with SetOnCommit.
+	// The hook is called after the commit result is sent, outside the lock.
+	q.mu.Lock()
+	onAfter := q.onAfter
+	q.mu.Unlock()
+
 	// If the queue is paused (e.g. rebase in progress), wait until it
 	// resumes before executing.
 	q.waitUnpaused(job.Ctx)
 
 	if err := job.Ctx.Err(); err != nil {
+		// Distinguish cancellations from commit failures: the commit
+		// never ran, so this is not a commit error. Operators alerting
+		// on CommitErrorsTotal would get spurious pages from shutdown
+		// drains otherwise.
+		metrics.CommitCancellationsTotal.Inc()
+
 		job.Done <- err
 
 		close(job.Done)
@@ -374,8 +386,8 @@ func (q *CommitQueue) processJob(job CommitJob) {
 
 	close(job.Done)
 
-	if err == nil && q.onAfter != nil {
-		q.onAfter()
+	if err == nil && onAfter != nil {
+		onAfter()
 	}
 }
 
@@ -408,10 +420,26 @@ func (q *CommitQueue) execute(job CommitJob) error {
 
 	if job.ReloadAfter {
 		if rerr := q.mgr.ReloadRepo(job.Ctx); rerr != nil {
-			// Non-fatal: log and continue. Callers previously treated
-			// this as a warning too.
-			slog.Warn("commit queue: reload repo after commit",
-				"project", job.Project, "error", rerr)
+			// If the caller's context cancelled mid-flight (shutdown,
+			// caller hang-up), the commit itself succeeded and HEAD is
+			// already on disk — only the in-memory go-git state is
+			// stale. Retry the reload with a fresh background context
+			// so the next read sees the new HEAD; otherwise the next
+			// shell-git pull/push would observe the same stale state.
+			if errors.Is(rerr, context.Canceled) || errors.Is(rerr, context.DeadlineExceeded) {
+				slog.Warn("commit queue: reload after commit ctx cancelled, retrying with background ctx",
+					"project", job.Project, "error", rerr)
+
+				if rerr2 := q.mgr.ReloadRepo(context.Background()); rerr2 != nil {
+					slog.Warn("commit queue: reload after commit failed on retry",
+						"project", job.Project, "error", rerr2)
+				}
+			} else {
+				// Non-fatal: log and continue. Callers previously treated
+				// this as a warning too.
+				slog.Warn("commit queue: reload repo after commit",
+					"project", job.Project, "error", rerr)
+			}
 		}
 	}
 

@@ -682,7 +682,7 @@ func TestRepos_YAMLRoundTrip(t *testing.T) {
 			"stalled":     {"todo"},
 			"not_planned": {"todo"},
 		},
-		Repos: []Repo{{Name: "core", URL: "git@github.com:o/core.git", Primary: true}},
+		Repos: []Repo{{Name: "core", URL: "https://github.com/o/core.git", Primary: true}},
 	}
 	dir := t.TempDir()
 	require.NoError(t, SaveProjectConfig(dir, cfg))
@@ -705,6 +705,8 @@ func TestDeriveRepoName(t *testing.T) {
 		{name: "bare name", url: "myrepo", want: "myrepo"},
 		{name: "empty", url: "", want: ""},
 		{name: "leading whitespace", url: "  git@github.com:o/r.git  ", want: "r"},
+		{name: "whitespace only", url: "   ", want: ""},
+		{name: "scheme only https", url: "https://", want: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -713,11 +715,39 @@ func TestDeriveRepoName(t *testing.T) {
 	}
 }
 
+func TestValidateProjectConfig_RejectsNonHTTPSRepoURL(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name:        "p",
+		Prefix:      "P",
+		States:      []string{"todo", "done", "stalled", "not_planned"},
+		Transitions: map[string][]string{"todo": {"done"}, "done": {}, "stalled": {"todo"}, "not_planned": {"todo"}},
+		NextID:      1,
+		Repos:       []Repo{{Name: "core", URL: "git@github.com:o/core.git", Primary: true}},
+	}
+	err := validateProjectConfig(cfg)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidProjectConfig)
+	assert.Contains(t, err.Error(), "https://")
+}
+
+func TestValidateProjectConfig_AcceptsHTTPSRepoURL(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name:        "p",
+		Prefix:      "P",
+		States:      []string{"todo", "done", "stalled", "not_planned"},
+		Transitions: map[string][]string{"todo": {"done"}, "done": {}, "stalled": {"todo"}, "not_planned": {"todo"}},
+		NextID:      1,
+		Repos:       []Repo{{Name: "core", URL: "https://github.com/o/core.git", Primary: true}},
+	}
+	err := validateProjectConfig(cfg)
+	require.NoError(t, err)
+}
+
 func TestValidateProjectConfig_RejectsMultiplePrimaryRepos(t *testing.T) {
 	cfg := validProjectConfig()
 	cfg.Repos = []Repo{
-		{Name: "a", URL: "git@github.com:o/a.git", Primary: true},
-		{Name: "b", URL: "git@github.com:o/b.git", Primary: true},
+		{Name: "a", URL: "https://github.com/o/a.git", Primary: true},
+		{Name: "b", URL: "https://github.com/o/b.git", Primary: true},
 	}
 
 	err := SaveProjectConfig(t.TempDir(), cfg)
@@ -727,8 +757,8 @@ func TestValidateProjectConfig_RejectsMultiplePrimaryRepos(t *testing.T) {
 func TestValidateProjectConfig_AcceptsZeroPrimary_AutoPromotesFirst(t *testing.T) {
 	cfg := validProjectConfig()
 	cfg.Repos = []Repo{
-		{Name: "a", URL: "git@github.com:o/a.git"},
-		{Name: "b", URL: "git@github.com:o/b.git"},
+		{Name: "a", URL: "https://github.com/o/a.git"},
+		{Name: "b", URL: "https://github.com/o/b.git"},
 	}
 
 	err := SaveProjectConfig(t.TempDir(), cfg)
@@ -755,7 +785,7 @@ func TestEffectiveRepos_DerivesNameFromURLWhenEmpty(t *testing.T) {
 func TestValidateProjectConfig_AcceptsExactlyOnePrimary(t *testing.T) {
 	cfg := validProjectConfig()
 	cfg.Repos = []Repo{
-		{Name: "a", URL: "git@github.com:o/a.git", Primary: true},
+		{Name: "a", URL: "https://github.com/o/a.git", Primary: true},
 	}
 
 	err := SaveProjectConfig(t.TempDir(), cfg)

@@ -1,7 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { LogEntry } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
+import { safeUrlTransform } from '../../utils/safeUrlTransform';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -73,12 +74,16 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
     textareaRef.current?.focus();
   }, [focusKey, readOnlyMessage, sendDisabled]);
 
-  const filteredLogs = logs.filter((e) => {
-    if (e.type === 'text') return showText;
-    if (e.type === 'tool_call') return showToolCalls;
-    if (e.type === 'thinking') return showThinking;
-    return true;
-  });
+  const filteredLogs = useMemo(
+    () =>
+      logs.filter((e) => {
+        if (e.type === 'text') return showText;
+        if (e.type === 'tool_call') return showToolCalls;
+        if (e.type === 'thinking') return showThinking;
+        return true;
+      }),
+    [logs, showText, showToolCalls, showThinking],
+  );
 
   const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;
@@ -151,7 +156,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         {filteredLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.ts}-${idx}`} entry={entry} />)
+          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.seq ?? entry.ts}-${idx}`} entry={entry} />)
         )}
       </div>
 
@@ -173,7 +178,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
               className="bf-input"
               placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => { setMessage(e.target.value); if (error) setError(null); }}
               onKeyDown={handleKeyDown}
               maxLength={MAX_MESSAGE_LENGTH}
               disabled={sending || sendDisabled}
@@ -289,7 +294,7 @@ function ChatMarkdown({ source }: { source: string }) {
   return (
     <div className="bf-chat-markdown">
       <Suspense fallback={<div className="whitespace-pre-wrap break-words text-sm">{source}</div>}>
-        <MarkdownPreview source={source} skipHtml />
+        <MarkdownPreview source={source} skipHtml urlTransform={safeUrlTransform} />
       </Suspense>
     </div>
   );

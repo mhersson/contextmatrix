@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,6 +47,11 @@ type runnerHandlers struct {
 	keepaliveInterval time.Duration       // zero → use default (30s)
 	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
 
+	// replayCache guards the runner-callback authentication path against
+	// replayed HMAC signatures. Populated at construction time; non-nil
+	// whenever a runner API key is configured.
+	replayCache *runner.SignatureCache
+
 	// healthCache memoises /runner/health responses so concurrent browser tabs
 	// don't each fire a fresh probe at the runner — and so a runner outage
 	// doesn't cause every refresh to block for the full per-request timeout.
@@ -79,6 +85,30 @@ const runnerHealthCacheTTL = 2 * time.Second
 // calls. Tighter than the runner client's default 10s so a hung runner
 // doesn't pin every browser tab for that long.
 const runnerHealthProbeTimeout = 3 * time.Second
+
+// enableFeatureBranchAndPR is a workflow invariant: every "Run now" trigger
+// and every promote-to-autonomous flow gets feature_branch=true + create_pr=true.
+// Returns the refreshed card on success.
+//
+// Skip condition matches the original inline blocks: feature_branch=true is
+// treated as the existing "branch+PR pipeline already configured" signal, so
+// CreatePR is intentionally left untouched in that case. Existing tests rely
+// on this behaviour (HITL "Run now" on a card with feature_branch=true must
+// not implicitly flip create_pr).
+func (h *runnerHandlers) enableFeatureBranchAndPR(ctx context.Context, project, id string, card *board.Card) (*board.Card, error) {
+	if card.FeatureBranch {
+		return card, nil
+	}
+
+	fbTrue := true
+
+	prTrue := true
+
+	return h.svc.PatchCard(ctx, project, id, service.PatchCardInput{
+		FeatureBranch: &fbTrue,
+		CreatePR:      &prTrue,
+	})
+}
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
 func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
@@ -141,18 +171,14 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-enable feature_branch and create_pr for all "Run now" triggers —
 	// both autonomous and HITL (interactive) runs get a feature branch and PR.
-	if !card.FeatureBranch {
-		fb := true
+	// The patched card is intentionally discarded here: UpdateRunnerStatus
+	// a few lines below refreshes `card` from disk, so any flags set above
+	// are observable on the returned card. Keep this in mind when adding
+	// fields whose stale value would matter before that refresh.
+	if _, patchErr := h.enableFeatureBranchAndPR(r.Context(), project, id, card); patchErr != nil {
+		handleServiceError(w, r, patchErr)
 
-		pr := true
-		if _, patchErr := h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
-			FeatureBranch: &fb,
-			CreatePR:      &pr,
-		}); patchErr != nil {
-			handleServiceError(w, r, patchErr)
-
-			return
-		}
+		return
 	}
 
 	// Get project config to retrieve repo URL and runner image.
@@ -342,19 +368,11 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		ctxlog.Logger(r.Context()).Debug("promote short-circuit: card already autonomous, skipping runner webhook",
 			"card_id", id, "project", project)
 
-		fbTrue := true
+		card, err = h.enableFeatureBranchAndPR(r.Context(), project, id, card)
+		if err != nil {
+			handleServiceError(w, r, err)
 
-		prTrue := true
-		if !card.FeatureBranch || !card.CreatePR {
-			card, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
-				FeatureBranch: &fbTrue,
-				CreatePR:      &prTrue,
-			})
-			if err != nil {
-				handleServiceError(w, r, err)
-
-				return
-			}
+			return
 		}
 
 		writeJSON(w, http.StatusAccepted, card)
@@ -369,6 +387,12 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		agentID = "human:api"
 	}
 
+	// Capture the pre-promote feature-branch state so the rollback path below
+	// only reverts fields this handler actually changed. If FeatureBranch was
+	// already true on entry, enableFeatureBranchAndPR is a no-op and the
+	// revert must leave it alone (or it would clobber pre-existing config).
+	hadFeatureBranch := card.FeatureBranch
+
 	// Flip the autonomous flag (idempotent; errors on terminal state).
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
 	if err != nil {
@@ -378,19 +402,11 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also ensure feature_branch and create_pr are enabled for autonomous runs.
-	fbTrue := true
+	updatedCard, err = h.enableFeatureBranchAndPR(r.Context(), project, id, updatedCard)
+	if err != nil {
+		handleServiceError(w, r, err)
 
-	prTrue := true
-	if !updatedCard.FeatureBranch || !updatedCard.CreatePR {
-		updatedCard, err = h.svc.PatchCard(r.Context(), project, id, service.PatchCardInput{
-			FeatureBranch: &fbTrue,
-			CreatePR:      &prTrue,
-		})
-		if err != nil {
-			handleServiceError(w, r, err)
-
-			return
-		}
+		return
 	}
 
 	// Send promote webhook to runner.
@@ -399,12 +415,65 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		Project: project,
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner promote webhook failed", "card_id", id, "project", project, "error", err)
+
+		// Revert the autonomous/feature_branch/create_pr changes so the card's
+		// declared mode matches the agent's actual mode inside the container.
+		// Without this rollback, the card is marked autonomous but the agent
+		// is still in HITL mode, which produces a silent contract violation
+		// (the runner's /promote handler fail-closes when it can't deliver the
+		// canned stdin message, leaving the agent unaware of the promotion).
+		//
+		// Detached context: callers that timed out / disconnected must not
+		// strand the rollback — mirror the runCard revert pattern.
+		h.revertPromote(r.Context(), project, id, agentID, hadFeatureBranch)
+
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable, "failed to promote runner task", "")
 
 		return
 	}
 
 	writeJSON(w, http.StatusAccepted, updatedCard)
+}
+
+// revertPromote rolls back the field changes promoteCard made when the runner
+// /promote webhook subsequently fails. Mirrors the runCard revert pattern: a
+// detached context (context.WithoutCancel) is used so a caller disconnect
+// cannot strand the rollback mid-flight. Failure to revert is logged but does
+// not change the response to the original caller, who already got 502.
+func (h *runnerHandlers) revertPromote(ctx context.Context, project, id, agentID string, hadFeatureBranch bool) {
+	revertCtx := context.WithoutCancel(ctx)
+	logger := ctxlog.Logger(ctx)
+
+	falseVal := false
+
+	patch := service.PatchCardInput{
+		Autonomous: &falseVal,
+	}
+
+	// Only revert feature_branch/create_pr if this handler set them; pre-existing
+	// values must not be clobbered.
+	if !hadFeatureBranch {
+		patch.FeatureBranch = &falseVal
+		patch.CreatePR = &falseVal
+	}
+
+	if _, err := h.svc.PatchCard(revertCtx, project, id, patch); err != nil {
+		logger.Error("failed to revert autonomous flag after promote webhook failure",
+			"card_id", id, "project", project, "error", err)
+
+		return
+	}
+
+	// Record an explicit activity-log entry so operators reconciling a
+	// half-promoted card can see the cause without having to grep server logs.
+	if _, err := h.svc.AddLogEntry(revertCtx, project, id, board.ActivityEntry{
+		Agent:   agentID,
+		Action:  "promote-webhook-failed",
+		Message: "Reverted autonomous mode: runner /promote webhook failed",
+	}); err != nil {
+		logger.Error("failed to record promote-webhook-failed activity entry",
+			"card_id", id, "project", project, "error", err)
+	}
 }
 
 // stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".
@@ -459,8 +528,15 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 }
 
 // stopAllResponse is the response for the stop-all endpoint.
+//
+// FailedToUpdate is a parallel list of card IDs for which the runner kill
+// webhook succeeded but the subsequent CM-side UpdateRunnerStatus call
+// failed. The runner has stopped the container, but CM's view of the card
+// has drifted from reality — callers should treat these as "manual
+// reconciliation required". Empty when all updates succeeded.
 type stopAllResponse struct {
-	AffectedCards []string `json:"affected_cards"`
+	AffectedCards  []string `json:"affected_cards"`
+	FailedToUpdate []string `json:"failed_to_update,omitempty"`
 }
 
 // stopAll handles POST /api/projects/{project}/stop-all — "Stop All".
@@ -497,13 +573,19 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	affected := []string{}
+	failed := []string{}
 
 	for _, card := range cards {
 		if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
 			_, err := h.svc.UpdateRunnerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 			if err != nil {
+				// Runner already received the kill webhook above; only CM's view of this
+				// card failed to update. Surface the drift in the response so the caller
+				// can reconcile rather than silently dropping it from affected_cards.
 				ctxlog.Logger(r.Context()).Error("failed to update runner status during stop-all",
 					"card_id", card.ID, "project", project, "error", err)
+
+				failed = append(failed, card.ID)
 
 				continue
 			}
@@ -512,7 +594,13 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, stopAllResponse{AffectedCards: affected})
+	// 207 Multi-Status when both partial-success and failures exist; 200 otherwise.
+	status := http.StatusOK
+	if len(failed) > 0 && len(affected) > 0 {
+		status = http.StatusMultiStatus
+	}
+
+	writeJSON(w, status, stopAllResponse{AffectedCards: affected, FailedToUpdate: failed})
 }
 
 // runnerStatusRequest is the JSON body for runner status callbacks.
@@ -525,45 +613,8 @@ type runnerStatusRequest struct {
 
 // runnerStatusUpdate handles POST /api/runner/status — runner callback.
 func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Request) {
-	// Always require HMAC authentication on this endpoint.
-	if h.runnerCfg.APIKey == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
-
-		return
-	}
-
-	sigHeader := r.Header.Get("X-Signature-256")
-	if sigHeader == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
-
-		return
-	}
-
-	tsHeader := r.Header.Get("X-Webhook-Timestamp")
-	if tsHeader == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
-
-		return
-	}
-
-	if !strings.HasPrefix(sigHeader, "sha256=") {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
-
-		return
-	}
-
-	sig := strings.TrimPrefix(sigHeader, "sha256=")
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "failed to read request body", "")
-
-		return
-	}
-
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
-
+	body, ok := h.authenticateRunnerPost(w, r)
+	if !ok {
 		return
 	}
 
@@ -610,39 +661,8 @@ type knowledgeStatusRequest struct {
 //   - runner-reported "succeeded" + !committed → StateFailed("commit not observed")
 //   - any other state → StateFailed
 func (h *runnerHandlers) runnerKnowledgeStatus(w http.ResponseWriter, r *http.Request) {
-	if h.runnerCfg.APIKey == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
-
-		return
-	}
-
-	sigHeader := r.Header.Get("X-Signature-256")
-	tsHeader := r.Header.Get("X-Webhook-Timestamp")
-
-	if sigHeader == "" || tsHeader == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing signature headers", "")
-
-		return
-	}
-
-	if !strings.HasPrefix(sigHeader, "sha256=") {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header", "")
-
-		return
-	}
-
-	sig := strings.TrimPrefix(sigHeader, "sha256=")
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "failed to read request body", "")
-
-		return
-	}
-
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
-
+	body, ok := h.authenticateRunnerPost(w, r)
+	if !ok {
 		return
 	}
 
@@ -661,34 +681,24 @@ func (h *runnerHandlers) runnerKnowledgeStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	snap := h.refreshRegistry.Snapshot(req.Project)
+	// FinalizeRunner reads Committed and writes State under a single mutex
+	// acquisition, so a concurrent commit_knowledge_docs MarkCommitted cannot
+	// slip in between the read and the write and be lost.
+	_, err := h.refreshRegistry.FinalizeRunner(req.Project, req.Repo, req.State, req.Error)
 
-	job, ok := snap[req.Repo]
-	if !ok {
+	switch {
+	case errors.Is(err, refresh.ErrJobNotFound):
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": false})
 
 		return
-	}
-
-	terminalState := refresh.StateFailed
-	terminalErr := req.Error
-
-	switch req.State {
-	case "succeeded":
-		if job.Committed {
-			terminalState = refresh.StateSucceeded
-			terminalErr = ""
-		} else if terminalErr == "" {
-			terminalErr = "commit not observed"
-		}
-	default:
-		if terminalErr == "" {
-			terminalErr = "runner reported state " + req.State
-		}
-	}
-
-	if err := h.refreshRegistry.MarkTerminal(req.Project, req.Repo, terminalState, terminalErr); err != nil {
-		ctxlog.Logger(r.Context()).Error("MarkTerminal failed",
+	case errors.Is(err, refresh.ErrAlreadyTerminal):
+		// A previous callback (or PromoteStale) already finalised this job.
+		// Log+ignore: the first terminal outcome wins so retries cannot flip
+		// StateSucceeded → StateFailed (or vice versa).
+		ctxlog.Logger(r.Context()).Info("knowledge-status callback for already-terminal job; ignoring",
+			"project", req.Project, "repo", req.Repo, "reported_state", req.State)
+	case err != nil:
+		ctxlog.Logger(r.Context()).Error("FinalizeRunner failed",
 			"project", req.Project, "repo", req.Repo, "error", err)
 	}
 
@@ -730,39 +740,55 @@ func (h *runnerHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, cardAutonomousResponse{Autonomous: card.Autonomous})
 }
 
-// authenticateRunnerGet verifies an HMAC-SHA256 signature over
-// `timestamp + "." + ""` (empty body) on a runner-originated GET. Returns
-// true on success; on failure it writes the 403 response and returns false.
-func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
+// extractRunnerSignature performs the shared header validation for runner
+// HMAC authentication. It checks that an API key is configured and that the
+// X-Signature-256 / X-Webhook-Timestamp headers are present and well-formed,
+// returning the trimmed signature hex and timestamp on success. On failure
+// it writes the 403 response and returns ok=false.
+//
+// Body reading and the actual HMAC verification are left to the caller so
+// GET (no body) and POST (body in the signed payload) handlers can share
+// this prefix without duplicating the differing tails.
+func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.Request) (sig, ts string, ok bool) {
 	if h.runnerCfg.APIKey == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
 
-		return false
+		return "", "", false
 	}
 
 	sigHeader := r.Header.Get("X-Signature-256")
 	if sigHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
 
-		return false
+		return "", "", false
 	}
 
 	tsHeader := r.Header.Get("X-Webhook-Timestamp")
 	if tsHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
 
-		return false
+		return "", "", false
 	}
 
 	if !strings.HasPrefix(sigHeader, "sha256=") {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
 
+		return "", "", false
+	}
+
+	return strings.TrimPrefix(sigHeader, "sha256="), tsHeader, true
+}
+
+// authenticateRunnerGet verifies an HMAC-SHA256 signature over
+// `timestamp + "." + ""` (empty body) on a runner-originated GET. Returns
+// true on success; on failure it writes the 403 response and returns false.
+func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
+	sig, tsHeader, ok := h.extractRunnerSignature(w, r)
+	if !ok {
 		return false
 	}
 
-	sig := strings.TrimPrefix(sigHeader, "sha256=")
-
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, runner.DefaultMaxClockSkew) {
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, runner.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
@@ -813,33 +839,10 @@ func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http
 // signature over method+path+body. Returns (body, true) on success; on
 // failure it writes the 403/400 response and returns (nil, false).
 func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
-	if h.runnerCfg.APIKey == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
-
+	sig, tsHeader, ok := h.extractRunnerSignature(w, r)
+	if !ok {
 		return nil, false
 	}
-
-	sigHeader := r.Header.Get("X-Signature-256")
-	if sigHeader == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
-
-		return nil, false
-	}
-
-	tsHeader := r.Header.Get("X-Webhook-Timestamp")
-	if tsHeader == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
-
-		return nil, false
-	}
-
-	if !strings.HasPrefix(sigHeader, "sha256=") {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "malformed X-Signature-256 header: missing sha256= prefix", "")
-
-		return nil, false
-	}
-
-	sig := strings.TrimPrefix(sigHeader, "sha256=")
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
 	if err != nil {
@@ -848,7 +851,7 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew) {
+	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return nil, false

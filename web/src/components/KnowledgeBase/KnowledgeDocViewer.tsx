@@ -5,6 +5,7 @@ import type { KnowledgeDocResponse, KnowledgeRepoSummary } from '../../types';
 import { KnowledgeDocEditor } from './KnowledgeDocEditor';
 import { MobileDocTrigger } from './MobileDocTrigger';
 import { formatRelativeTime } from '../CardPanel/utils';
+import { safeUrlTransform } from '../../utils/safeUrlTransform';
 
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
@@ -229,7 +230,7 @@ export function KnowledgeDocViewer({
       <div className="flex-1 overflow-auto">
         <article className="px-8 pt-7 pb-4" data-color-mode={theme}>
           <Suspense fallback={null}>
-            <MarkdownPreview source={response.content} skipHtml className="bf-markdown" />
+            <MarkdownPreview source={response.content} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
           </Suspense>
         </article>
       </div>

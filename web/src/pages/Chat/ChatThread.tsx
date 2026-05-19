@@ -85,17 +85,29 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
   // `session.status` stays at whatever GetChat returned on mount — so e.g.
   // clicking "Reopen" from the pane header would flip the backend to
   // active but the compose box would keep showing "Waiting for runner…".
+  //
+  // Debounced at 75ms: useChatSessions already coalesces up to 4 pane
+  // notifications into one sidebar refetch (100ms window), but each pane's
+  // own listener here was also firing immediately. The debounce cuts fan-out
+  // from 4 redundant getChat calls down to 1 per burst across all panes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let alive = true;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
-      api.getChat(sessionID)
-        .then((s) => { if (alive) setSession(s); })
-        .catch(() => { /* transient — next event will retry */ });
+      if (debounceTimer !== null) return;
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        if (!alive) return;
+        api.getChat(sessionID)
+          .then((s) => { if (alive) setSession(s); })
+          .catch(() => { /* transient — next event will retry */ });
+      }, 75);
     };
     window.addEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
     return () => {
       alive = false;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
       window.removeEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
     };
   }, [sessionID]);
@@ -117,13 +129,22 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
   // (cold → active after Reopen, active → ending after End, etc). Backend
   // doesn't broadcast status updates over SSE, so each ChatThread is the
   // first to learn — propagate via the existing notify event.
+  //
+  // Sentinel: undefined means "not yet seen". The first time merged resolves
+  // we record the status silently (no notification) — this avoids a
+  // spurious refetch on every ChatThread mount.
   const lastNotifiedStatusRef = useRef<ChatSession['status'] | undefined>(undefined);
   useEffect(() => {
     const status = merged?.status;
-    if (status && status !== lastNotifiedStatusRef.current) {
+    if (status === undefined) return;
+    if (lastNotifiedStatusRef.current === undefined) {
+      // First observation: seed the ref so subsequent real changes fire.
       lastNotifiedStatusRef.current = status;
-      notifyChatSessionsChanged();
+      return;
     }
+    if (status === lastNotifiedStatusRef.current) return;
+    lastNotifiedStatusRef.current = status;
+    notifyChatSessionsChanged();
   }, [merged?.status]);
 
   // Publish live model + context_tokens into the module-level store so the
