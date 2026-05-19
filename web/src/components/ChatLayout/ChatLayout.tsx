@@ -1,4 +1,4 @@
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { Slot, PaneSlots, PaneSizes, AvailableChat } from './types';
 import { SLOTS } from './types';
 import { ChatPane } from './ChatPane';
@@ -73,51 +73,53 @@ export function ChatLayout(props: Props) {
 
   return (
     <div className="chat-layout">
-      <PanelGroup
-        direction="horizontal"
-        onLayout={(s) => onResize('col', s)}
-        autoSaveId={undefined}
-      >
-        <Panel defaultSize={sizes.col} minSize={20} order={0}>
+      <Group orientation="horizontal">
+        <Panel
+          defaultSize={sizes.col}
+          minSize={20}
+          onResize={(size) => onResize('col', [size.asPercentage])}
+        >
           {leftHasSplit ? (
-            <PanelGroup
-              direction="vertical"
-              onLayout={(s) => onResize('leftRow', s)}
-            >
-              <Panel defaultSize={sizes.leftRow} minSize={20} order={0}>
+            <Group orientation="vertical">
+              <Panel
+                defaultSize={sizes.leftRow}
+                minSize={20}
+                onResize={(size) => onResize('leftRow', [size.asPercentage])}
+              >
                 {renderPaneFor('TL', { props, occupied, isMobile: false })}
               </Panel>
-              <PanelResizeHandle className="chat-pane-handle chat-pane-handle--row" />
-              <Panel defaultSize={100 - sizes.leftRow} minSize={20} order={1}>
+              <Separator className="chat-pane-handle chat-pane-handle--row" />
+              <Panel defaultSize={100 - sizes.leftRow} minSize={20}>
                 {renderPaneFor('BL', { props, occupied, isMobile: false })}
               </Panel>
-            </PanelGroup>
+            </Group>
           ) : (
             renderPaneFor('TL', { props, occupied, isMobile: false })
           )}
         </Panel>
 
-        <PanelResizeHandle className="chat-pane-handle chat-pane-handle--col" />
+        <Separator className="chat-pane-handle chat-pane-handle--col" />
 
-        <Panel defaultSize={100 - sizes.col} minSize={20} order={1}>
+        <Panel defaultSize={100 - sizes.col} minSize={20}>
           {rightHasSplit ? (
-            <PanelGroup
-              direction="vertical"
-              onLayout={(s) => onResize('rightRow', s)}
-            >
-              <Panel defaultSize={sizes.rightRow} minSize={20} order={0}>
+            <Group orientation="vertical">
+              <Panel
+                defaultSize={sizes.rightRow}
+                minSize={20}
+                onResize={(size) => onResize('rightRow', [size.asPercentage])}
+              >
                 {renderPaneFor('TR', { props, occupied, isMobile: false })}
               </Panel>
-              <PanelResizeHandle className="chat-pane-handle chat-pane-handle--row" />
-              <Panel defaultSize={100 - sizes.rightRow} minSize={20} order={1}>
+              <Separator className="chat-pane-handle chat-pane-handle--row" />
+              <Panel defaultSize={100 - sizes.rightRow} minSize={20}>
                 {renderPaneFor('BR', { props, occupied, isMobile: false })}
               </Panel>
-            </PanelGroup>
+            </Group>
           ) : (
             renderPaneFor('TR', { props, occupied, isMobile: false })
           )}
         </Panel>
-      </PanelGroup>
+      </Group>
     </div>
   );
 
