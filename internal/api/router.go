@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/refresh"
@@ -68,6 +70,20 @@ const (
 	ErrCodeCardNotVetted        = "CARD_NOT_VETTED"
 	ErrCodeReviewAttemptsCapped = "REVIEW_ATTEMPTS_CAPPED"
 	ErrCodeContentTooLarge      = "CONTENT_TOO_LARGE"
+
+	// Image upload + retrieval. Status mapping:
+	//   IMAGE_NOT_FOUND        → 404 (unknown id or malformed id segment)
+	//   IMAGE_UNSUPPORTED      → 415 (format not in png/jpeg/gif/webp)
+	//   IMAGE_ANIMATED         → 415 (multi-frame GIF)
+	//   IMAGE_MISSING_FILE     → 400 (multipart form missing `file` field)
+	//   IMAGE_INVALID_PAYLOAD  → 400 (malformed multipart body or read failure)
+	// Oversize uploads share the global CONTENT_TOO_LARGE (413) so clients
+	// can disambiguate by status, not by code, on size-related rejections.
+	ErrCodeImageNotFound       = "IMAGE_NOT_FOUND"
+	ErrCodeImageUnsupported    = "IMAGE_UNSUPPORTED"
+	ErrCodeImageAnimated       = "IMAGE_ANIMATED"
+	ErrCodeImageMissingFile    = "IMAGE_MISSING_FILE"
+	ErrCodeImageInvalidPayload = "IMAGE_INVALID_PAYLOAD"
 )
 
 // APIError is the standard error response format.
@@ -100,6 +116,11 @@ type RouterConfig struct {
 	ChatManager         *chat.Manager       // optional; enables /api/chats routes
 	ChatHub             *chat.SSEHub        // optional; required when ChatManager is set
 	ChatConfig          *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
+	// ImageStore is required in production — main.go always opens a
+	// SQLite-backed store and wires it in unconditionally. Tests that do
+	// not exercise /api/images may omit it; the routes are then unregistered
+	// and the body-limit envelope still treats /api/images as a 404.
+	ImageStore images.Store
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -240,6 +261,35 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	}
 
+	// bodyLimitOverrides maps a registered mux pattern (e.g.
+	// "POST /api/images") to a per-route body cap. Populated by
+	// registerWithBodyLimit so the pattern, handler, and limit are written
+	// together in one place — there is no second literal to keep in sync.
+	//
+	// Invariant: overrides only RAISE the cap above maxRequestBodySize. The
+	// short-circuit in bodyLimitN (skipping the mux.Handler walk when
+	// ContentLength fits the global cap) relies on this — a smaller override
+	// would be silently ignored for declared-length requests. Enforced at
+	// registration so a too-small override panics at server startup, before
+	// any traffic arrives, with a message pointing at the dependent code.
+	bodyLimitOverrides := map[string]int64{}
+	registerWithBodyLimit := func(pattern string, limit int64, handler http.Handler) {
+		validateOverrideLimit(pattern, limit)
+		mux.Handle(pattern, handler)
+		bodyLimitOverrides[pattern] = limit
+	}
+
+	// Image upload + retrieval. ImageStore is required in production (see
+	// RouterConfig.ImageStore); the nil branch keeps tests that don't need
+	// image routes from having to wire a SQLite store. The upload route is
+	// registered via registerWithBodyLimit so the larger envelope cap and
+	// the route literal travel together.
+	if cfg.ImageStore != nil {
+		ih := newImageHandlers(cfg.ImageStore)
+		registerWithBodyLimit("POST /api/images", imageUploadEnvelopeBytes, http.HandlerFunc(ih.upload))
+		mux.HandleFunc("GET /api/images/{id}", ih.get)
+	}
+
 	// MCP server routes — registered on the inner mux so they share the
 	// same middleware chain as every other route (recovery, requestID,
 	// observe, bodyLimit, ...).
@@ -248,6 +298,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.Handle("GET /mcp", cfg.MCPHandler)
 		mux.Handle("DELETE /mcp", cfg.MCPHandler)
 	}
+
+	// bodyLimit is built per-router so the override lookup walks this mux's
+	// registered patterns via mux.Handler(r) — that lets templated routes opt
+	// in to per-route caps in the future without changing the middleware.
+	bodyLimit := bodyLimitN(maxRequestBodySize, mux, bodyLimitOverrides)
 
 	// Apply middleware chain. First entry is outermost:
 	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> csrfGuard -> mux
@@ -472,32 +527,67 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// validateOverrideLimit panics if a per-route body-limit override is not
+// strictly greater than maxRequestBodySize. The short-circuit in bodyLimitN
+// skips the override lookup whenever ContentLength fits the global cap, so a
+// smaller override would be silently ignored for declared-length requests.
+// Fails closed at server startup, before any traffic arrives.
+func validateOverrideLimit(pattern string, limit int64) {
+	if limit <= maxRequestBodySize {
+		panic(fmt.Sprintf(
+			"bodyLimitOverrides[%q] = %d must be greater than global cap %d "+
+				"(short-circuit in bodyLimitN assumes overrides only raise the cap)",
+			pattern, limit, maxRequestBodySize,
+		))
+	}
+}
+
 // bodyLimitN returns a middleware that caps request body size to maxBytes.
 // Requests whose Content-Length exceeds the limit are rejected immediately with 413.
 // For streaming requests without Content-Length, http.MaxBytesReader enforces the
 // limit when the body is read; bodyLimitN wraps the ResponseWriter to intercept the
 // first write after a body-too-large error and ensure a 413 status is sent.
-func bodyLimitN(maxBytes int64) func(http.Handler) http.Handler {
+//
+// overrides maps a registered mux pattern (e.g. "POST /api/images") to a
+// per-route cap. The pattern is recovered from mux.Handler(r), which returns
+// the pattern that would dispatch the request — so templated routes opt in
+// by registering with the same pattern they use on the mux. Requests that do
+// not match any registered pattern fall through to maxBytes.
+func bodyLimitN(maxBytes int64, mux *http.ServeMux, overrides map[string]int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			limit := maxBytes
+
+			// Skip the O(n_routes) mux.Handler(r) pattern walk when no
+			// override could possibly raise the cap: either there are no
+			// overrides at all, or the request advertises a Content-Length
+			// that already fits in the global cap (overrides only raise
+			// it). Streaming requests (ContentLength < 0) must still walk
+			// the mux so a route override can apply via MaxBytesReader.
+			needOverrideLookup := len(overrides) > 0 && (r.ContentLength < 0 || r.ContentLength > maxBytes)
+			if mux != nil && needOverrideLookup {
+				if _, pattern := mux.Handler(r); pattern != "" {
+					if override, ok := overrides[pattern]; ok {
+						limit = override
+					}
+				}
+			}
+
 			// Reject immediately when Content-Length is declared and over limit.
-			if r.ContentLength > maxBytes {
+			if r.ContentLength > limit {
 				writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge, "request body too large", "")
 
 				return
 			}
 
 			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+				r.Body = http.MaxBytesReader(w, r.Body, limit)
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
 }
-
-// bodyLimit caps request body size to prevent OOM from large payloads.
-var bodyLimit = bodyLimitN(maxRequestBodySize)
 
 // responseWriter wraps http.ResponseWriter to capture status code.
 type responseWriter struct {

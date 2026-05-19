@@ -462,6 +462,42 @@ class APIClient {
       `/chats/${encodeURIComponent(id)}/messages?${qs.toString()}`,
     );
   }
+
+  // Images — POST /api/images with multipart/form-data. The request() helper
+  // hard-codes Content-Type: application/json, so this method talks to fetch
+  // directly and threads the same X-Agent-ID / X-Requested-With headers used
+  // by mutation endpoints. `signal` lets callers (e.g. useImageUpload) cancel
+  // an in-flight upload when the editor unmounts.
+  async uploadImage(file: File, signal?: AbortSignal): Promise<{ id: string; url: string }> {
+    const headers: Record<string, string> = {
+      'X-Requested-With': 'contextmatrix',
+    };
+    if (this.agentId) {
+      headers['X-Agent-ID'] = this.agentId;
+    }
+
+    const body = new FormData();
+    body.append('file', file);
+
+    const response = await fetch(`${BASE_URL}/images`, {
+      method: 'POST',
+      headers,
+      body,
+      signal,
+    });
+
+    if (!response.ok) {
+      let err: APIError;
+      try {
+        err = await response.json();
+      } catch {
+        err = { error: response.statusText, code: 'UNKNOWN_ERROR' };
+      }
+      throw err;
+    }
+
+    return response.json();
+  }
 }
 
 export const api = new APIClient();

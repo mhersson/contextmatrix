@@ -16,14 +16,24 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
+// ServerConfig collects the dependencies for NewServer. ChatManager and
+// ImageStore are optional and default to nil; when nil, the chat- and image-
+// specific tool surfaces are not registered (or, for image attachments,
+// get_card / get_task_context return text-only results).
+type ServerConfig struct {
+	Service           *service.CardService
+	WorkflowSkillsDir string
+	ChatManager       *chat.Manager
+	ImageStore        images.Store
+}
+
 // NewServer creates a configured MCP server with all tools and prompts registered.
-// chatMgr may be nil when chat is disabled; chat-specific tools register only
-// when it is non-nil.
-func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat.Manager) *mcp.Server {
+func NewServer(cfg ServerConfig) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "contextmatrix",
@@ -32,11 +42,16 @@ func NewServer(svc *service.CardService, workflowSkillsDir string, chatMgr *chat
 		nil,
 	)
 
-	registerTools(server, svc, workflowSkillsDir)
-	registerPrompts(server, svc, workflowSkillsDir)
+	registerTools(registerToolsConfig{
+		Server:            server,
+		Service:           cfg.Service,
+		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
+		ImageStore:        cfg.ImageStore,
+	})
+	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 
-	if chatMgr != nil {
-		registerChatRehydrationComplete(server, chatMgr)
+	if cfg.ChatManager != nil {
+		registerChatRehydrationComplete(server, cfg.ChatManager)
 	}
 
 	return server

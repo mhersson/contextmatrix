@@ -88,6 +88,7 @@ internal/api/                → REST API handlers (stdlib http.ServeMux) + SSE 
 internal/mcp/                → MCP server: tools + prompts
 internal/runner/             → webhook client for contextmatrix-runner
 internal/chat/               → SQLite-backed chat session manager, SSE hub, runner-log bridge
+internal/images/             → content-hashed image blob store (paste/drop screenshots)
 internal/clock/              → injectable clock for service-layer time invariants
 internal/events/             → in-process pub/sub event bus
 internal/github/             → GitHub auth helpers shared across services

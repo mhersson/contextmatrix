@@ -110,7 +110,10 @@ func setupMCP(t *testing.T) *testEnv {
 	))
 
 	// Create MCP server and connect in-memory
-	server := NewServer(svc, workflowSkillsDir, nil)
+	server := NewServer(ServerConfig{
+		Service:           svc,
+		WorkflowSkillsDir: workflowSkillsDir,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
