@@ -143,7 +143,7 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 
 	// Write each doc.
 	humanEdited := in.Source == KnowledgeWriteSourceEdit
-	now := time.Now().UTC()
+	now := s.clk.Now().UTC()
 	written := make([]string, 0, len(in.Docs))
 
 	for name, content := range in.Docs {

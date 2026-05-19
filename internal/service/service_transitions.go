@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -151,7 +150,7 @@ func (s *CardService) transitionParentDirect(
 
 		oldState := parent.State
 		parent.State = state
-		parent.Updated = time.Now()
+		parent.Updated = s.clk.Now()
 
 		// State-change invariants: release claim on not_planned, clear
 		// runner_status on terminal states.

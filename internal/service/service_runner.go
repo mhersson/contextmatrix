@@ -94,13 +94,13 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		Agent:     agentID,
 		Action:    "pushed",
 		Message:   msg,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
@@ -125,7 +125,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		Project:   project,
 		CardID:    id,
 		Agent:     agentID,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 		Data: map[string]any{
 			"action": "pushed",
 			"branch": branch,
@@ -174,7 +174,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 
 	card.ReviewAttempts++
 
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -198,7 +198,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 		Project:   project,
 		CardID:    id,
 		Agent:     agentID,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 		Data: map[string]any{
 			"action":          "review_attempts_incremented",
 			"review_attempts": card.ReviewAttempts,
@@ -267,7 +267,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 
 	prevRunnerStatus := card.RunnerStatus
 	card.RunnerStatus = status
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	// Clear agent claim on terminal runner statuses.
 	if status == "failed" || status == "killed" || status == "completed" {
@@ -282,7 +282,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	if message != "" {
 		card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
 			Agent:     "runner",
-			Timestamp: time.Now(),
+			Timestamp: s.clk.Now(),
 			Action:    "runner_status",
 			Message:   message,
 		})
@@ -356,7 +356,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		Type:      eventType,
 		Project:   project,
 		CardID:    cardID,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 		Data:      map[string]any{"runner_status": status},
 	})
 
@@ -411,7 +411,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
-	now := time.Now()
+	now := s.clk.Now()
 
 	card.Autonomous = true
 	card.Updated = now
@@ -489,7 +489,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	}
 
 	// Dedup: scan recent entries for a same-skill skill_engaged within the window.
-	cutoff := time.Now().Add(-SkillEngagedDedupWindow)
+	cutoff := s.clk.Now().Add(-SkillEngagedDedupWindow)
 
 	for i := len(card.ActivityLog) - 1; i >= 0; i-- {
 		e := card.ActivityLog[i]
@@ -507,7 +507,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 
 	entry := board.ActivityEntry{
 		Agent:     "runner",
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 		Action:    "skill_engaged",
 		Message:   "engaged " + skillName,
 		Skill:     skillName,
@@ -516,7 +516,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	card.ActivityLog = append(card.ActivityLog, entry)
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()

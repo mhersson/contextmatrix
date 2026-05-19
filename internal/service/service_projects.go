@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -142,7 +141,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectCreated,
 		Project:   input.Name,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return cfg, nil
@@ -265,7 +264,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectUpdated,
 		Project:   name,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return cfg, nil
@@ -394,7 +393,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectDeleted,
 		Project:   name,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return nil

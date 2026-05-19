@@ -352,7 +352,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		}
 
 		card.State = state
-		card.Updated = time.Now()
+		card.Updated = s.clk.Now()
 
 		appendStateChangeLog(card, oldState, state, "", card.Updated)
 

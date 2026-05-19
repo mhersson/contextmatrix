@@ -373,7 +373,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	}
 
 	// Build card
-	now := time.Now()
+	now := s.clk.Now()
 	card := &board.Card{
 		ID:                  cardID,
 		Title:               input.Title,
@@ -953,7 +953,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		Type:      events.CardDeleted,
 		Project:   project,
 		CardID:    id,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return nil
@@ -999,14 +999,14 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// Set timestamp if not provided
 	if entry.Timestamp.IsZero() {
-		entry.Timestamp = time.Now()
+		entry.Timestamp = s.clk.Now()
 	}
 
 	// Append entry
 	card.ActivityLog = append(card.ActivityLog, entry)
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
@@ -1162,7 +1162,7 @@ func (s *CardService) applyCardMutation(
 	}
 
 	stateChanged := card.State != oldState
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	// Record the transition so the dashboard sparkline reconstruction has
 	// an authoritative per-card history (the only structured trail of state
