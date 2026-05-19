@@ -21,6 +21,13 @@ const (
 	maxHeight = 768
 )
 
+// maxPixels caps the *decoded* image area before we materialize an RGBA
+// buffer. A highly-compressed PNG (e.g. solid colour) can decode to enormous
+// dimensions and trigger a ~4*W*H byte allocation that OOM-kills the server
+// — the so-called "decompression bomb" pattern. 64 megapixels (≈8000x8000)
+// is well above any legitimate screenshot.
+const maxPixels = 64 << 20
+
 // Process validates, optionally resizes, and re-encodes raw image bytes.
 // Supported input formats: image/png, image/jpeg, image/gif (single-frame),
 // image/webp. The output format follows the input except that single-frame
@@ -52,9 +59,15 @@ type decoder func([]byte) (image.Image, error)
 type encoder func(*bytes.Buffer, image.Image) error
 
 func processStdlib(raw []byte, ct string, dec decoder, enc encoder) ([]byte, string, error) {
-	// Validate that DecodeConfig agrees with the detected type.
-	if _, _, err := image.DecodeConfig(bytes.NewReader(raw)); err != nil {
+	// DecodeConfig reads only the header — verify the format and bound the
+	// pixel area before we let the full decoder allocate a backing buffer.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
 		return nil, "", ErrUnsupportedFormat
+	}
+
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
+		return nil, "", ErrTooLarge
 	}
 
 	img, err := dec(raw)
@@ -73,6 +86,15 @@ func processStdlib(raw []byte, ct string, dec decoder, enc encoder) ([]byte, str
 }
 
 func processGIF(raw []byte) ([]byte, string, error) {
+	cfg, err := gif.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", ErrUnsupportedFormat
+	}
+
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
+		return nil, "", ErrTooLarge
+	}
+
 	g, err := gif.DecodeAll(bytes.NewReader(raw))
 	if err != nil {
 		return nil, "", fmt.Errorf("images: decode gif: %w", err)
@@ -94,6 +116,15 @@ func processGIF(raw []byte) ([]byte, string, error) {
 }
 
 func processWebP(raw []byte) ([]byte, string, error) {
+	cfg, err := webp.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", ErrUnsupportedFormat
+	}
+
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
+		return nil, "", ErrTooLarge
+	}
+
 	img, err := webp.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return nil, "", fmt.Errorf("images: decode webp: %w", err)

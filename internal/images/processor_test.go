@@ -179,6 +179,19 @@ func TestProcess(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
+		{
+			// Decompression-bomb guard: a highly-compressed PNG with declared
+			// dimensions above maxPixels must be rejected before the full
+			// decoder allocates a 4*W*H RGBA backing buffer.
+			name: "pixel-bomb PNG rejected before allocation",
+			input: func(t *testing.T) []byte {
+				// 10000x10000 solid-colour PNG decodes to ~400 MB RGBA but the
+				// encoded form is small. We pass under the 10 MB byte cap so
+				// the only thing that can reject this is the pixel guard.
+				return makePNG(t, 10000, 10000)
+			},
+			wantErr: ErrTooLarge,
+		},
 	}
 
 	for _, tc := range tests {
