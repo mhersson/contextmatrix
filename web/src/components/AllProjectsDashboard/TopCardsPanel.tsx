@@ -10,7 +10,7 @@ interface TopCardsPanelProps {
   projects: ProjectConfig[];
 }
 
-const TOP_N = 5;
+const TOP_N = 8;
 const PROJECT_PARAM = 'project';
 
 export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelProps) {
