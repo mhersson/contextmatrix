@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -107,7 +106,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		}
 	}
 
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
@@ -236,7 +235,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			card.TokenUsage.Model = model
 		}
 
-		card.Updated = time.Now()
+		card.Updated = s.clk.Now()
 
 		if err := s.store.UpdateCard(ctx, project, card); err != nil {
 			return nil, fmt.Errorf("update card %s: %w", card.ID, err)

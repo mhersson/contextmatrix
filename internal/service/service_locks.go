@@ -86,7 +86,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		Project:   project,
 		CardID:    id,
 		Agent:     agentID,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return card, nil
@@ -150,7 +150,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		Project:   project,
 		CardID:    id,
 		Agent:     agentID,
-		Timestamp: time.Now(),
+		Timestamp: s.clk.Now(),
 	})
 
 	return card, nil
@@ -315,7 +315,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	card.State = board.StateStalled
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
-	card.Updated = time.Now()
+	card.Updated = s.clk.Now()
 
 	if previousState != board.StateStalled {
 		appendStateChangeLog(card, previousState, board.StateStalled, "", card.Updated)
