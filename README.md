@@ -47,8 +47,10 @@ own repos, and report progress back through the board.
   trigger a toast notification in the web UI.
 - **Cost tracking** — per-model token usage reporting with USD cost estimates,
   broken down by agent and card on the dashboard.
-- **Customizable workflow** — define your own states, types, priorities, and
-  transition rules per project via `.board.yaml`.
+- **Customizable workflow** — define your own types, priorities, and transition
+  rules per project via `.board.yaml`. Add extra states beyond the built-in six
+  (see "States, Transitions, and Skills" below for the names that are
+  structural and cannot be renamed).
 - **Single binary** — the React frontend is embedded via Go's `embed.FS`. Build
   once, deploy anywhere.
 
@@ -311,41 +313,56 @@ returns only cards eligible for execution.
 
 ## States, Transitions, and Skills
 
-The state machine is fully customizable per project via `.board.yaml`. You can
-define any states, any allowed transitions, and any card types to match your
-team's workflow.
+ContextMatrix ships with **six built-in states**. Their names are part of the
+contract — the server, MCP tools, and built-in workflow skills branch on these
+exact strings, so they cannot be renamed or removed. You can add extra states
+(e.g. `qa`, `design`, `archived`) and you control which transitions are allowed
+between any of them via `.board.yaml`.
 
-However, the built-in skill files installed by `make install-config` /
-`scripts/install.sh` are written against the **default** states and transitions:
+| Built-in state | Role                                                                            |
+| -------------- | ------------------------------------------------------------------------------- |
+| `todo`         | Ready to be claimed. `claim_card` auto-transitions `todo → in_progress`.        |
+| `in_progress`  | Actively being worked. Parent auto-moves to `in_progress` when a child does.    |
+| `blocked`      | Waiting on an external dependency. (Required only by the `execute-task` skill.) |
+| `review`       | Work complete, awaiting review. `complete_task` moves parent cards here.        |
+| `done`         | Accepted and finished. `complete_task` moves subtasks here.                     |
+| `stalled`      | Heartbeat timed out; system-managed. Server auto-injects transitions into it.   |
+| `not_planned`  | Deprioritized; clears agent claim and flushes deferred commits on entry.        |
 
-| Default state | Role                                              |
-| ------------- | ------------------------------------------------- |
-| `todo`        | Ready to be claimed                               |
-| `in_progress` | Actively being worked                             |
-| `blocked`     | Waiting on an external dependency                 |
-| `review`      | Work complete, awaiting review                    |
-| `done`        | Accepted and finished                             |
-| `stalled`     | Heartbeat timed out; claim released automatically |
-| `not_planned` | Deprioritized; excluded from active counts        |
+`stalled` and `not_planned` are enforced by the config validator — projects that
+omit them from `states` or `transitions` are rejected at load time. The other
+four (`todo`, `in_progress`, `review`, `done`) are not validator-checked but
+are hardcoded in `claim_card`, `complete_task`, parent/child orchestration,
+dashboard metrics, and every built-in workflow skill. Renaming them will
+silently break those code paths.
 
-Skill dependencies on specific states:
+### What you can customize
 
-- **`execute-task`** — expects `in_progress`, `blocked`, and `done` states. It
-  transitions the card to `in_progress` on claim and to `done` on completion.
-- **`review-task`** — requires a `review` state to transition into and out of.
-  Without it the skill cannot function.
-- **`create-plan`** and **`document-task`** — rely on `done` as the terminal
-  state.
+- **Add new states** alongside the built-in six (e.g. `qa` between `review` and
+  `done`). Wire them into the `transitions` map.
+- **Restrict transitions** between any states — e.g. forbid `done → todo` to
+  make `done` truly terminal.
+- **Types and priorities** are fully user-defined per project.
 
-If you remove or rename states (e.g. drop `review`), the default skills will
-break. In that case:
+### What you cannot customize
 
-1. Copy the `workflow-skills/` directory to a custom location.
-2. Edit the relevant skill files to match your state names.
-3. Set `workflow_skills_dir` in `config.yaml` to point to your custom directory.
+- The six built-in state names. If you need different vocabulary, you currently
+  have to fork the codebase — there is no alias layer.
+- The semantics attached to those names (auto-transitions on claim/complete,
+  heartbeat → `stalled`, etc.).
 
-The default skills are always refreshed from the repo by `scripts/install.sh`;
-your custom directory is never touched by the install script.
+### If you add or rearrange states
+
+The built-in skills under `workflow-skills/` reference the six names directly.
+If your workflow diverges (e.g. you add a `qa` step the skills should drive
+into), copy the skill files and override them:
+
+1. Copy `workflow-skills/` to a custom location.
+2. Edit the relevant skills.
+3. Set `workflow_skills_dir` in `config.yaml` to point at your copy.
+
+The default skills are refreshed from the repo by `scripts/install.sh`; your
+custom directory is never touched.
 
 ## Autonomous Mode
 

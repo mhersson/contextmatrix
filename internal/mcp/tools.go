@@ -866,7 +866,7 @@ type deleteProjectOutput struct {
 func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_project",
-		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled'. All states must have transition entries.",
+		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled' and 'not_planned' (validator-enforced). The names 'todo', 'in_progress', 'review', and 'done' are also hardcoded into lifecycle behaviour (claim auto-transitions, complete_task, parent/child orchestration, dashboard metrics) — extra states may be added freely but these six built-in names should not be renamed. All states must have transition entries.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createProjectToolInput) (*mcp.CallToolResult, *board.ProjectConfig, error) {
 		cfg, err := svc.CreateProject(ctx, service.CreateProjectInput{
 			Name:        input.Name,
