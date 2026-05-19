@@ -2011,31 +2011,6 @@ input, select, textarea {
   display: inline-block;
 }
 
-.apd-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1.5px solid var(--bg1);
-  background: var(--bg2);
-  color: var(--fg);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-}
-.apd-avatar-more {
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 11px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  letter-spacing: -0.005em;
-}
-
 .apd-dist-row {
   display: flex;
   align-items: center;
