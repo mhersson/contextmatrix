@@ -226,6 +226,24 @@ describe('useChatLayout — close + normalize', () => {
     act(() => { result.current.closePane('TR'); });
     expect(result.current.state.focused).toBe('TL');
   });
+
+  it('closing the only right-column pane redistributes BL → TR so both columns stay populated', () => {
+    // Reproduces the blank-page state where TL+BL filled with TR+BR null
+    // hits ChatLayout's !hasRight return-null branch. The hook must keep
+    // the layout valid by spreading the two surviving panes across both
+    // columns instead of leaving one column empty.
+    const { result } = renderLayout();
+    act(() => { result.current.openInNewPane('A'); }); // TL
+    act(() => { result.current.openInNewPane('B'); }); // TR
+    act(() => { result.current.focus('TL'); });
+    act(() => { result.current.openInNewPane('C'); }); // BL (left-column split)
+    act(() => { result.current.closePane('TR'); });
+    expect(result.current.state.panes.TL?.chatId).toBe('A');
+    expect(result.current.state.panes.TR?.chatId).toBe('C');
+    expect(result.current.state.panes.BL).toBeNull();
+    expect(result.current.state.panes.BR).toBeNull();
+    expect(result.current.state.focused).toBe('TR');
+  });
 });
 
 describe('useChatLayout — persistence', () => {
@@ -258,6 +276,24 @@ describe('useChatLayout — persistence', () => {
     expect(result.current.state.panes.TR?.chatId).toBe('B');
     expect(result.current.state.focused).toBe('TR');
     expect(result.current.state.sizes.col).toBe(30);
+  });
+
+  it('rehydrating from TL+BL with empty right column promotes BL → TR', () => {
+    // Real user state observed in production: layout persisted with
+    // TL+BL filled and TR+BR null, focus on BL. Without normalization
+    // ChatLayout returns null (no right column) and the page is blank.
+    window.localStorage.setItem('chat_layout', JSON.stringify({
+      panes: { TL: { chatId: 'A' }, BL: { chatId: 'B' }, TR: null, BR: null },
+      focused: 'BL',
+      sizes: { col: 33, leftRow: 26, rightRow: 50 },
+      lastFocusedAt: { TL: 1000, BL: 2000 },
+    }));
+    const { result } = renderLayout();
+    expect(result.current.state.panes.TL?.chatId).toBe('A');
+    expect(result.current.state.panes.TR?.chatId).toBe('B');
+    expect(result.current.state.panes.BL).toBeNull();
+    expect(result.current.state.panes.BR).toBeNull();
+    expect(result.current.state.focused).toBe('TR');
   });
 
   it('drops persisted ids not in availableChats during rehydration', () => {

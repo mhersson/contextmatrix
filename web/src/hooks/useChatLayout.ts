@@ -76,6 +76,15 @@ function normalize(s: ChatLayoutState): ChatLayoutState {
     if (panes.BR) { panes.BL = panes.BR; panes.BR = null; remap('BR', 'BL'); }
     if (!panes.TL && panes.BL) { panes.TL = panes.BL; panes.BL = null; remap('BL', 'TL'); }
   }
+  // Right column entirely empty but left has both panes filled: move
+  // BL → TR so both columns stay populated. Mirrors the right→left
+  // consolidation above; without this, ChatLayout falls through its
+  // !hasRight branch and renders nothing.
+  if (panes.TL && panes.BL && !panes.TR && !panes.BR) {
+    panes.TR = panes.BL;
+    panes.BL = null;
+    remap('BL', 'TR');
+  }
   const hasAny = SLOTS.some((slot) => panes[slot]);
   if (!hasAny) focused = null;
   else if (focused == null || !panes[focused]) {
