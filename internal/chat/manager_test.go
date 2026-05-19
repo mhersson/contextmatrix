@@ -2333,6 +2333,31 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }
 
+// clearGatingRunner wraps a stubRunner and blocks the very first
+// SendChatMessage call on a release channel, signalling its arrival on
+// `started`. Used by TestClearContext_ConcurrentCallsSerialised to hold
+// the singleflight slot open long enough for every concurrent caller to
+// arrive at clearGroup.Do — otherwise the in-flight body would finish
+// before the others arrive, the slot would reopen, and each late arrival
+// would execute its own /clear + primer pair, producing multiple
+// dividers and defeating the deduplication invariant under test.
+type clearGatingRunner struct {
+	*stubRunner
+
+	gateOnce sync.Once
+	started  chan struct{}
+	release  chan struct{}
+}
+
+func (r *clearGatingRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+	r.gateOnce.Do(func() {
+		close(r.started)
+		<-r.release
+	})
+
+	return r.stubRunner.SendChatMessage(ctx, sessionID, content, messageID)
+}
+
 // TestClearContext_ConcurrentCallsSerialised verifies that singleflight
 // serialises concurrent ClearContext calls for the same session. Because
 // singleflight.Do deduplicates in-flight calls keyed on sessionID, only
@@ -2343,7 +2368,26 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	t.Parallel()
 
 	primerPath := writeTempPrimer(t, "PRIMER")
-	mgr, runner, store := newManagerWithPrimerPath(t, primerPath)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	base := &stubRunner{}
+	runner := &clearGatingRunner{
+		stubRunner: base,
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:      store,
+		Runner:     runner,
+		Clock:      clock.Real(),
+		IdleTTL:    time.Hour,
+		PrimerPath: primerPath,
+	})
+
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2357,6 +2401,10 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	var startedGate sync.WaitGroup
+
+	startedGate.Add(n)
+
 	errs := make([]error, n)
 
 	for i := range n {
@@ -2365,9 +2413,36 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
+			startedGate.Done()
+
 			errs[idx] = mgr.ClearContext(ctx, sess.ID)
 		}(i)
 	}
+
+	// All n goroutines are now running their function bodies.
+	startedGate.Wait()
+
+	// Wait for the singleflight body to enter the runner (the in-flight
+	// caller is now blocked inside our gate, holding the slot open).
+	select {
+	case <-runner.started:
+	case <-time.After(time.Second):
+		close(runner.release)
+		t.Fatal("first SendChatMessage call did not arrive within 1s")
+	}
+
+	// The other n-1 goroutines were started but may not yet have reached
+	// clearGroup.Do (the path from ClearContext entry to Do is GetSession
+	// plus a status check — a few microseconds). 100ms is overwhelming
+	// for that even on a loaded CI scheduler; without this wait, the
+	// in-flight slot would release before late arrivals queue up and
+	// each would execute its own fn on its own.
+	time.Sleep(100 * time.Millisecond)
+
+	// Release the gate. The in-flight caller completes /clear + primer +
+	// divider, returns, and singleflight wakes the parked callers, who
+	// share the result without re-executing fn.
+	close(runner.release)
 
 	wg.Wait()
 
@@ -2395,9 +2470,9 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	// The /clear + primer pairs that did run must appear consecutively in
 	// sendArgs (no interleaving). With singleflight the only pair is at
 	// indices 0 and 1 (from the single execution).
-	runner.mu.Lock()
-	args := append([]sendArg(nil), runner.sendArgs...)
-	runner.mu.Unlock()
+	base.mu.Lock()
+	args := append([]sendArg(nil), base.sendArgs...)
+	base.mu.Unlock()
 
 	// At least one /clear + primer pair must have executed.
 	require.GreaterOrEqual(t, len(args), 2, "at least one /clear + primer pair must have run")

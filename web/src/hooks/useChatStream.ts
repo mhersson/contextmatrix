@@ -95,7 +95,6 @@ export function useChatStream(sessionID: string): UseChatStream {
     setPrevSessionID(sessionID);
     setConnected(false);
     setSessionUpdate(null);
-    prevStatusRef.current = undefined;
     clear();
   }
 
@@ -103,6 +102,14 @@ export function useChatStream(sessionID: string): UseChatStream {
     if (!sessionID) {
       return;
     }
+
+    // Reset the status tracker for the new session. Done here (not in the
+    // in-render state-marker block above) so the write happens outside
+    // render — the react-hooks/refs lint rule forbids ref writes during
+    // render. The previous effect's cleanup has already closed the old
+    // EventSource by this point, so no handler from the old session can
+    // race the reset.
+    prevStatusRef.current = undefined;
 
     let stopped = false;
     let retry = 1000;
