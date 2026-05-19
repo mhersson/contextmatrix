@@ -303,9 +303,12 @@ SSE `/api/chats/{id}/stream` subscription with a REST bootstrap from
 The hook also listens on the `session_updated` named SSE channel and merges the
 payload into `sessionUpdate: ChatSessionUpdate | null` state. When the incoming
 payload contains a `status` field that differs from the previous value, the hook
-calls `notifyChatSessionsChanged()` to trigger a sidebar refetch — this is how
-lifecycle transitions (`warm-idle → active`, `active → warm-idle`) propagate to
-the sidebar status dot without a full page reload.
+dispatches `notifyChatSessionsChanged()` via `queueMicrotask` (after React commits,
+so StrictMode's setter double-invoke does not double-fire the side-effect) — this is
+how lifecycle transitions (`cold → active`, `warm-idle → active`, `active → warm-idle`)
+propagate to the sidebar status dot without a full page reload. `useChatSessions`
+debounces the resulting `CHAT_SESSIONS_CHANGED_EVENT` with a 100 ms window, coalescing
+fan-out from up to 4 open panes into a single `GET /api/chats` refetch.
 
 `ChatSessionUpdate` (`web/src/types/index.ts`):
 

@@ -238,11 +238,15 @@ and commit completion. The service layer closes that gap on failure:
   `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
   model, and `status` for lifecycle transitions — with no transcript content). The
   `status` field uses a pointer so `omitempty` distinguishes "no lifecycle change"
-  from a deliberate transition (e.g. `warm-idle → active` when a browser subscriber
-  attaches or the user sends a message). The browser's `useChatStream` hook routes
-  `session_updated` events into the header state; when the `status` field changes it
-  also fires `notifyChatSessionsChanged` so the sidebar refetches `/api/chats` and
-  updates the status dot, separate from the message ring buffer.
+  from a deliberate transition. All active-transition entry points emit it: `OpenSession`
+  (cold→active and warm-idle→active), `OnSubscribe` callback (warm-idle→active),
+  `MarkWarmIdle` (active→warm-idle), and `EndSession` (any→cold, always paired with
+  `RehydrationActive: false`). Publishes run in a goroutine so callers don't block on the
+  hub mutex. The browser's `useChatStream` hook routes `session_updated` events into the
+  header state; when the `status` field changes, it dispatches `notifyChatSessionsChanged`
+  via `queueMicrotask` (so StrictMode double-invokes don't double-dispatch) — `useChatSessions`
+  debounces that event with a 100 ms window to coalesce fan-out from multiple open panes into
+  a single `/api/chats` refetch that updates the sidebar status dot.
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
   `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
   calls don't panic.
