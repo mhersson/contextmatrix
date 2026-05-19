@@ -460,6 +460,17 @@ timeout). `not_planned` follows normal transition rules: only states that
 explicitly list `not_planned` in their transitions can reach it (e.g.,
 `todo: [in_progress, not_planned]`).
 
+**State names are part of the contract.** In addition to the validator's
+`stalled` / `not_planned` requirement, the strings `todo`, `in_progress`,
+`review`, and `done` are hardcoded into MCP tools and service-layer behaviour
+(`claim_card` auto-transitions `todo → in_progress`; `complete_task` moves
+subtasks to `done` and parents to `review`; parent auto-transitions key off
+`todo` and `in_progress`; dashboard metrics filter on `done`/`stalled`/
+`not_planned`). The validator does not enforce these four, but renaming them
+will silently break the lifecycle. Add new states freely; do not rename the
+built-in six. See the README's "States, Transitions, and Skills" section for
+the full list and rationale.
+
 ### `default_skills` (optional, `*[]string`)
 
 Project-wide fallback when a card has no `skills` field of its own. Same

@@ -55,12 +55,17 @@ Transitions:
 These are sensible defaults for most projects. The human may want to:
 
 - Change the name or prefix
-- Add or remove states (e.g., add `qa` or remove `blocked`)
+- Add extra states (e.g., add `qa`) or remove the optional `blocked` state
 - Add types (e.g., `chore`, `spike`)
 - Modify transitions (e.g., allow `not_planned` from additional states)
 - Clear the repo URL if they don't want it tracked
 
-The `stalled` and `not_planned` states are mandatory and cannot be removed.
+The names `todo`, `in_progress`, `review`, `done`, `stalled`, and `not_planned`
+are part of the contract — server lifecycle, MCP tools, and built-in workflow
+skills branch on these exact strings. `stalled` and `not_planned` are
+validator-enforced; the other four are not but will silently break workflows if
+renamed. Tell the human they can add states freely but should not rename the
+built-in six. The optional `blocked` state can be removed.
 
 ## Step 4: Create the project
 
