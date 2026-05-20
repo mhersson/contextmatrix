@@ -81,6 +81,9 @@ type DashboardData struct {
 	StateCountsParents           map[string]int `json:"state_counts_parents"`
 	ActiveAgents                 []ActiveAgent  `json:"active_agents"`
 	TotalCostUSD                 float64        `json:"total_cost_usd"`
+	TotalCostUSDLast30d          float64        `json:"total_cost_usd_last_30d"`
+	TotalCostUSDPrior30d         float64        `json:"total_cost_usd_prior_30d"`
+	CostSeries30d                []float64      `json:"cost_series_30d"`
 	CardsCompletedToday          int            `json:"cards_completed_today"`
 	CardsCompletedTodayParents   int            `json:"cards_completed_today_parents"`
 	CardsCompletedLast7d         int            `json:"cards_completed_last_7d"`
@@ -118,12 +121,16 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	completions := bucketCompletions(cards, now, tz)
 	sparkline := bucketSparkline(cards, now, tz)
 	activeAgents := buildAgentList(cards, now)
+	costLast30d, costPrior30d, costSeries30d := bucketCostSeries(cards, now, tz)
 
 	return &DashboardData{
 		StateCounts:                  stateCounts,
 		StateCountsParents:           stateCountsParents,
 		ActiveAgents:                 activeAgents,
 		TotalCostUSD:                 totalCostUSD,
+		TotalCostUSDLast30d:          costLast30d,
+		TotalCostUSDPrior30d:         costPrior30d,
+		CostSeries30d:                costSeries30d,
 		CardsCompletedToday:          completions.today,
 		CardsCompletedTodayParents:   completions.todayParents,
 		CardsCompletedLast7d:         completions.last7d,
@@ -402,6 +409,70 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 	})
 
 	return agentCosts, modelCosts, cardCosts, totalCostUSD
+}
+
+// bucketCostSeries computes cost aggregates over a 30-day sliding window.
+// It returns:
+//   - last30d: sum of EstimatedCostUSD for cards whose Updated is within the
+//     last 30 days (>= dayStarts[0]).
+//   - prior30d: sum for cards whose Updated falls in the prior 30-day window
+//     (dayStarts[0]-30*24h <= Updated < dayStarts[0]).
+//   - series30d: 30-element daily bucket slice (index 0 = oldest day, 29 = today).
+//
+// Cards with nil TokenUsage are skipped entirely. Cards older than 60 days from
+// dayStarts[0] are excluded from all three accumulators.
+func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (last30d, prior30d float64, series30d []float64) {
+	const numDays = 30
+
+	series30d = make([]float64, numDays)
+
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+
+	// dayStarts[i] = todayStart - (29-i)*24h  → index 0 is the oldest bucket.
+	dayStarts := make([]time.Time, numDays)
+	dayEnds := make([]time.Time, numDays)
+
+	for i := range numDays {
+		offset := time.Duration(numDays-1-i) * 24 * time.Hour
+		dayStarts[i] = todayStart.Add(-offset)
+		dayEnds[i] = dayStarts[i].Add(24 * time.Hour)
+	}
+
+	// Window boundaries.
+	windowStart := dayStarts[0]                          // start of the 30-day window
+	priorStart := windowStart.Add(-30 * 24 * time.Hour) // start of the prior 30d window
+
+	for _, card := range cards {
+		if card.TokenUsage == nil {
+			continue
+		}
+
+		updated := card.Updated
+		cost := card.TokenUsage.EstimatedCostUSD
+
+		// Exclude cards older than 60 days (i.e. before priorStart).
+		if updated.Before(priorStart) {
+			continue
+		}
+
+		if !updated.Before(windowStart) {
+			// Within the last 30 days.
+			last30d += cost
+
+			// Find the matching day bucket via linear scan.
+			for i := range numDays {
+				if !updated.Before(dayStarts[i]) && updated.Before(dayEnds[i]) {
+					series30d[i] += cost
+					break
+				}
+			}
+		} else {
+			// Prior 30-day window: priorStart <= updated < windowStart.
+			prior30d += cost
+		}
+	}
+
+	return last30d, prior30d, series30d
 }
 
 // ActivityFeedEntry is one row in the cross-card activity feed. Mirrors a
