@@ -88,12 +88,18 @@ export function distributionSegments(counts: Record<string, number>): Distributi
   return out;
 }
 
+const COST_SERIES_LENGTH = 30;
+
 export function aggregateDashboards(
   summaries: Map<string, DashboardData>,
 ): DashboardData {
   const stateCounts: Record<string, number> = {};
   const stateCountsParents: Record<string, number> = {};
   let totalCost = 0;
+  let costLast30d = 0;
+  let costPrior30d = 0;
+  let hasAnySeries = false;
+  const costSeries30d: number[] = new Array<number>(COST_SERIES_LENGTH).fill(0);
   let completedToday = 0;
   let completedTodayParents = 0;
   let completedLast7d = 0;
@@ -113,6 +119,16 @@ export function aggregateDashboards(
       stateCountsParents[state] = (stateCountsParents[state] ?? 0) + count;
     }
     totalCost += data.total_cost_usd;
+    costLast30d += data.total_cost_usd_last_30d ?? 0;
+    costPrior30d += data.total_cost_usd_prior_30d ?? 0;
+    const series = data.cost_series_30d;
+    if (series) {
+      hasAnySeries = true;
+      for (let i = 0; i < COST_SERIES_LENGTH; i++) {
+        const v = series[i];
+        costSeries30d[i] += Number.isFinite(v) ? v : 0;
+      }
+    }
     completedToday += data.cards_completed_today;
     completedTodayParents += data.cards_completed_today_parents ?? 0;
     completedLast7d += data.cards_completed_last_7d ?? 0;
@@ -150,6 +166,9 @@ export function aggregateDashboards(
     state_counts_parents: stateCountsParents,
     active_agents: allAgents,
     total_cost_usd: totalCost,
+    total_cost_usd_last_30d: costLast30d,
+    total_cost_usd_prior_30d: costPrior30d,
+    cost_series_30d: hasAnySeries ? costSeries30d : undefined,
     cards_completed_today: completedToday,
     cards_completed_today_parents: completedTodayParents,
     cards_completed_last_7d: completedLast7d,

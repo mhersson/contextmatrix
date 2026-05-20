@@ -454,6 +454,166 @@ func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
 	assert.GreaterOrEqual(t, data.MetricSeries.ActiveAgents[lastIdx], 0)
 }
 
+// TestGetDashboard_CostSeries30d_5dAgo verifies a card updated 5 days ago
+// contributes to Last30d and lands at series30d index 24 (29 - 5).
+func TestGetDashboard_CostSeries30d_5dAgo(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	cardID := createCardWithUsage(ctx, t, svc, project, "recent", "claude-sonnet-4-6", 100, 50, 1.50)
+
+	refreshed, err := svc.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+
+	refreshed.Updated = now.Add(-5 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 1.50, data.TotalCostUSDLast30d, 1e-9, "should contribute to last30d")
+	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9, "should not contribute to prior30d")
+	require.Len(t, data.CostSeries30d, 30, "series must be 30 elements")
+	assert.InDelta(t, 1.50, data.CostSeries30d[24], 1e-9, "index 24 = 29-5 days ago")
+	// All other buckets must be zero.
+	for i, v := range data.CostSeries30d {
+		if i != 24 {
+			assert.InDelta(t, 0.0, v, 1e-9, "bucket %d should be zero", i)
+		}
+	}
+}
+
+// TestGetDashboard_CostSeries30d_35dAgo verifies a card updated 35 days ago
+// contributes only to Prior30d.
+func TestGetDashboard_CostSeries30d_35dAgo(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	cardID := createCardWithUsage(ctx, t, svc, project, "prior", "claude-sonnet-4-6", 100, 50, 2.00)
+
+	refreshed, err := svc.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+
+	refreshed.Updated = now.Add(-35 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, data.TotalCostUSDLast30d, 1e-9, "should not be in last30d")
+	assert.InDelta(t, 2.00, data.TotalCostUSDPrior30d, 1e-9, "should be in prior30d")
+	require.Len(t, data.CostSeries30d, 30)
+
+	for i, v := range data.CostSeries30d {
+		assert.InDelta(t, 0.0, v, 1e-9, "series bucket %d should be zero for 35d-old card", i)
+	}
+}
+
+// TestGetDashboard_CostSeries30d_65dAgo verifies a card updated 65 days ago
+// is excluded from all three accumulators.
+func TestGetDashboard_CostSeries30d_65dAgo(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	cardID := createCardWithUsage(ctx, t, svc, project, "old", "claude-sonnet-4-6", 100, 50, 3.00)
+
+	refreshed, err := svc.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+
+	refreshed.Updated = now.Add(-65 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, data.TotalCostUSDLast30d, 1e-9)
+	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9)
+	require.Len(t, data.CostSeries30d, 30)
+
+	for i, v := range data.CostSeries30d {
+		assert.InDelta(t, 0.0, v, 1e-9, "bucket %d should be zero for 65d-old card", i)
+	}
+}
+
+// TestGetDashboard_CostSeries30d_NilTokenUsage verifies cards with nil
+// TokenUsage are entirely ignored.
+func TestGetDashboard_CostSeries30d_NilTokenUsage(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Create a card without usage (nil TokenUsage by default).
+	_, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "no usage card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, data.TotalCostUSDLast30d, 1e-9)
+	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9)
+	require.Len(t, data.CostSeries30d, 30)
+
+	for _, v := range data.CostSeries30d {
+		assert.InDelta(t, 0.0, v, 1e-9)
+	}
+}
+
+// TestGetDashboard_CostSeries30d_SeriesBoundary verifies a card updated
+// exactly at dayStarts[0] (oldest bucket start) lands at series[0].
+func TestGetDashboard_CostSeries30d_SeriesBoundary(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// dayStarts[0] = todayStart - 29*24h
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	dayStart0 := todayStart.Add(-29 * 24 * time.Hour)
+
+	cardID := createCardWithUsage(ctx, t, svc, project, "boundary", "claude-sonnet-4-6", 100, 50, 0.75)
+
+	refreshed, err := svc.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+
+	refreshed.Updated = dayStart0 // exactly at the start of the oldest bucket
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	require.Len(t, data.CostSeries30d, 30)
+	assert.InDelta(t, 0.75, data.CostSeries30d[0], 1e-9, "card at dayStarts[0] must land at index 0")
+	assert.InDelta(t, 0.75, data.TotalCostUSDLast30d, 1e-9, "should be in last30d")
+	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9, "should not be in prior30d")
+}
+
+// TestGetDashboard_CostSeries30d_LengthInvariant verifies the helper always
+// returns a 30-element slice even on an empty board.
+func TestGetDashboard_CostSeries30d_LengthInvariant(t *testing.T) {
+	ctx := context.Background()
+	svc, project, cleanup := setupDashboardServiceAt(t, time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC))
+	t.Cleanup(cleanup)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.Len(t, data.CostSeries30d, 30, "CostSeries30d must always have 30 elements")
+}
+
 func TestExtractStateChanges_Empty(t *testing.T) {
 	card := &board.Card{State: board.StateTodo}
 	changes, baseline := extractStateChanges(card)

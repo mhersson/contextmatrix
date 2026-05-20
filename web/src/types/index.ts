@@ -255,6 +255,9 @@ export interface DashboardData {
   state_counts_parents: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
+  total_cost_usd_last_30d?: number;
+  total_cost_usd_prior_30d?: number;
+  cost_series_30d?: number[];
   cards_completed_today: number;
   cards_completed_today_parents: number;
   cards_completed_last_7d: number;

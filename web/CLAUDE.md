@@ -958,7 +958,20 @@ No `+N sub` figure is shown (All Projects is a glanceable operations view). Each
 of the three tiles carries a `title` tooltip: "Counts delivery units (standalone
 tasks + parents). Subtasks are excluded."
 
-**Total cost** is intentionally NOT filtered — subtask cost is real money spent.
+The **Cost · 30d** tile shows the 30-day-scoped cost from
+`total_cost_usd_last_30d` (not the all-time `total_cost_usd`). It renders:
+- A green/red delta % vs the prior 30-day window (`total_cost_usd_prior_30d`);
+  the delta is hidden when `prior30d == 0`.
+- A 30-sample purple sparkline from `cost_series_30d` (daily buckets, oldest
+  first; each card's cost is attributed to its last-touch day).
+- A tooltip disclosing the last-touch-day attribution bias.
+
+The all-time `total_cost_usd` still flows to the `ProjectsTable` "Cost" column
+for per-project lifetime cost — switching only the headline tile is intentional.
+
+The `Sparkline` helper is shared at
+`web/src/components/Sparkline/Sparkline.tsx` and imported by both
+`MetricsRibbon.tsx` and `KpiRow.tsx`.
 
 ### Board subheader BoardBand (`BoardBand.tsx`)
 

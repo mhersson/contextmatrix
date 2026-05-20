@@ -169,7 +169,9 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
         />
         <div className="apd-section-pad">
           <KpiRow
-            totalCostUsd={aggregated.total_cost_usd}
+            costLast30dUsd={aggregated.total_cost_usd_last_30d ?? 0}
+            costPrior30dUsd={aggregated.total_cost_usd_prior_30d ?? 0}
+            costSeries30d={aggregated.cost_series_30d}
             stateCountsParents={aggregated.state_counts_parents}
             doneTodayParents={aggregated.cards_completed_today_parents}
           />
