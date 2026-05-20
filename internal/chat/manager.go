@@ -1646,22 +1646,34 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 // ends the phase as a belt-and-suspenders safety net for agents that
 // forget to call chat_rehydration_complete. The flag is flipped BEFORE
 // AppendMessage so the user's message itself is persisted as non-phase.
+// ensureRunningForSend promotes a cold or warm-idle session to running so a
+// user message can be dispatched. Cold sessions are opened via OpenSession;
+// warm-idle sessions are flipped to active via MarkActive. Active sessions
+// are a no-op. Returns nil when the session is ready to receive messages.
+func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error {
+	switch sess.Status {
+	case StatusCold:
+		if _, err := m.OpenSession(ctx, sess.ID); err != nil {
+			return err
+		}
+	case StatusWarmIdle:
+		if err := m.MarkActive(ctx, sess.ID); err != nil {
+			m.logger.Warn("chat: SendUserMessage: promote warm-idle to active failed",
+				"session_id", sess.ID, "error", err)
+		}
+	}
+
+	return nil
+}
+
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}
 
-	switch sess.Status {
-	case StatusCold:
-		if _, err := m.OpenSession(ctx, sessionID); err != nil {
-			return "", err
-		}
-	case StatusWarmIdle:
-		if err := m.MarkActive(ctx, sessionID); err != nil {
-			m.logger.Warn("chat: SendUserMessage: promote warm-idle to active failed",
-				"session_id", sessionID, "error", err)
-		}
+	if err := m.ensureRunningForSend(ctx, sess); err != nil {
+		return "", err
 	}
 
 	if m.isRehydrationActive(ctx, sessionID) {
