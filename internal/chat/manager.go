@@ -1041,43 +1041,12 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		m.openLimitMu.Unlock()
 	}
 
-	var repoURL string
-	if sess.Project != "" && m.resolveRepoURL != nil {
-		repoURL, err = m.resolveRepoURL(ctx, sess.Project)
-		if err != nil {
-			return Session{}, fmt.Errorf("chat: resolve repo for %q: %w", sess.Project, err)
-		}
+	opts, err := m.coldPrep(ctx, sess)
+	if err != nil {
+		return Session{}, err
 	}
 
-	// Build the rehydration payload from the persisted transcript.
-	// Errors here are non-fatal — fall back to "no resume" so we
-	// never block the user from opening the chat.
-	resume := m.buildResume(ctx, sess.ID)
-
-	// Read the chat-mode primer on every cold open. Operators who edit
-	// workflow-skills/chat-mode.md get hot-reload for free on the next
-	// new container.
-	primer := m.loadPrimer()
-
-	model := sess.Model
-	if model == "" {
-		model = m.defaultModel
-	}
-
-	m.logger.Info("chat: opening cold session",
-		"session_id", sess.ID, "project", sess.Project, "repo_url", repoURL,
-		"model", model, "has_resume", resume != nil,
-		"resume_turn_count", resumeTurnCount(resume),
-		"has_primer", primer != "")
-
-	containerID, err := m.runner.StartChat(ctx, StartChatOpts{
-		SessionID: sess.ID,
-		Project:   sess.Project,
-		RepoURL:   repoURL,
-		Model:     model,
-		Resume:    resume,
-		Primer:    primer,
-	})
+	containerID, err := m.runner.StartChat(ctx, opts)
 	if err != nil {
 		return Session{}, fmt.Errorf("chat: start container: %w", err)
 	}
@@ -1098,10 +1067,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		if fresh.Status != StatusCold {
 			// Status drifted while StartChat was in flight. Roll back.
-			if rbErr := m.runner.EndChat(context.Background(), sess.ID); rbErr != nil {
-				m.logger.Warn("chat: openCold: rollback EndChat after drift",
-					"session_id", sess.ID, "container_id", containerID, "error", rbErr)
-			}
+			m.rollbackContainer(ctx, "status drift during StartChat", sess.ID, containerID, nil)
 
 			persistErr = fmt.Errorf("chat: openCold: session status changed during StartChat (now %q)", fresh.Status)
 
@@ -1110,7 +1076,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		fresh.Status = StatusActive
 		fresh.ContainerID = containerID
-		fresh.Model = model
+		fresh.Model = opts.Model
 		fresh.LastActive = m.clk.Now().UTC().Truncate(time.Second)
 
 		if fresh.Project != "" && !slices.Contains(fresh.Workspace, fresh.Project) {
@@ -1119,10 +1085,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		if err := m.store.UpdateSession(ctx, fresh); err != nil {
 			// Roll back the container start so we don't leak.
-			if rbErr := m.runner.EndChat(context.Background(), sess.ID); rbErr != nil {
-				m.logger.Warn("chat: rollback EndChat failed after persist failure",
-					"session_id", sess.ID, "container_id", containerID, "error", rbErr)
-			}
+			m.rollbackContainer(ctx, "persist active failure", sess.ID, containerID, err)
 
 			return fmt.Errorf("chat: persist active: %w", err)
 		}
@@ -1138,7 +1101,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		return Session{}, persistErr
 	}
 
-	if resume != nil {
+	if opts.Resume != nil {
 		// Pre-arm the in-memory cache so concurrent log writes during
 		// the persist window stamp rehydration_phase=TRUE even before
 		// the DB write completes.
@@ -1163,10 +1126,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 			delete(m.rehydrationActive, sess.ID)
 			m.mu.Unlock()
 
-			if rbErr := m.runner.EndChat(context.Background(), sess.ID); rbErr != nil {
-				m.logger.Warn("chat: OpenSession: rollback EndChat failed after rehydration persist failure",
-					"session_id", sess.ID, "error", rbErr)
-			}
+			m.rollbackContainer(ctx, "rehydration persist failure", sess.ID, containerID, err)
 
 			// Rollback persist uses a fresh background context so a cancelled
 			// caller ctx (e.g. the HTTP request that initiated OpenSession
@@ -1205,6 +1165,65 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	m.publishSessionUpdate(sess.ID, SessionUpdate{Status: &s})
 
 	return sess, nil
+}
+
+// coldPrep gathers the inputs needed by runner.StartChat for a cold open.
+// Returns the options struct and an error if any preparatory step failed.
+func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
+	var repoURL string
+
+	if sess.Project != "" && m.resolveRepoURL != nil {
+		var err error
+
+		repoURL, err = m.resolveRepoURL(ctx, sess.Project)
+		if err != nil {
+			return StartChatOpts{}, fmt.Errorf("chat: resolve repo for %q: %w", sess.Project, err)
+		}
+	}
+
+	// Build the rehydration payload from the persisted transcript.
+	// Errors here are non-fatal — fall back to "no resume" so we
+	// never block the user from opening the chat.
+	resume := m.buildResume(ctx, sess.ID)
+
+	// Read the chat-mode primer on every cold open. Operators who edit
+	// workflow-skills/chat-mode.md get hot-reload for free on the next
+	// new container.
+	primer := m.loadPrimer()
+
+	model := sess.Model
+	if model == "" {
+		model = m.defaultModel
+	}
+
+	m.logger.Info("chat: opening cold session",
+		"session_id", sess.ID, "project", sess.Project, "repo_url", repoURL,
+		"model", model, "has_resume", resume != nil,
+		"resume_turn_count", resumeTurnCount(resume),
+		"has_primer", primer != "")
+
+	return StartChatOpts{
+		SessionID: sess.ID,
+		Project:   sess.Project,
+		RepoURL:   repoURL,
+		Model:     model,
+		Resume:    resume,
+		Primer:    primer,
+	}, nil
+}
+
+// rollbackContainer ends the runner container started during a cold open and
+// logs the rollback reason. Should be called when openCold fails after the
+// container has been provisioned.
+func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, containerID string, opErr error) {
+	if rbErr := m.runner.EndChat(context.Background(), sessID); rbErr != nil {
+		m.logger.Warn("chat: rollback EndChat failed",
+			"reason", reason,
+			"session_id", sessID,
+			"container_id", containerID,
+			"op_error", opErr,
+			"error", rbErr)
+	}
 }
 
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
