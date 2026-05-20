@@ -8,6 +8,9 @@ function summary(overrides: Partial<DashboardData> = {}): DashboardData {
     state_counts_parents: {},
     active_agents: [],
     total_cost_usd: 0,
+    total_cost_usd_last_30d: 0,
+    total_cost_usd_prior_30d: 0,
+    cost_series_30d: Array(30).fill(0),
     cards_completed_today: 0,
     cards_completed_today_parents: 0,
     cards_completed_last_7d: 0,
@@ -201,5 +204,57 @@ describe('aggregateDashboards parent-only fields', () => {
     expect(result.cards_completed_today_parents).toBe(0);
     expect(result.cards_completed_last_7d_parents).toBe(0);
     expect(result.cards_completed_prior_7d_parents).toBe(0);
+  });
+});
+
+describe('aggregateDashboards 30-day cost fields', () => {
+  it('sums total_cost_usd_last_30d and total_cost_usd_prior_30d across projects', () => {
+    const a = summary({ total_cost_usd_last_30d: 1.5, total_cost_usd_prior_30d: 0.8 });
+    const b = summary({ total_cost_usd_last_30d: 2.0, total_cost_usd_prior_30d: 1.2 });
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    expect(result.total_cost_usd_last_30d).toBeCloseTo(3.5, 9);
+    expect(result.total_cost_usd_prior_30d).toBeCloseTo(2.0, 9);
+  });
+
+  it('sums cost_series_30d element-wise across projects', () => {
+    const seriesA = Array.from({ length: 30 }, (_, i) => i * 0.1);
+    const seriesB = Array.from({ length: 30 }, (_, i) => i * 0.2);
+    const a = summary({ cost_series_30d: seriesA });
+    const b = summary({ cost_series_30d: seriesB });
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    expect(result.cost_series_30d).toHaveLength(30);
+    for (let i = 0; i < 30; i++) {
+      expect(result.cost_series_30d![i]).toBeCloseTo(seriesA[i] + seriesB[i], 9);
+    }
+  });
+
+  it('falls back to 0 / zero-array when fields are missing from one project', () => {
+    const withData = summary({ total_cost_usd_last_30d: 5.0, total_cost_usd_prior_30d: 3.0 });
+    // Simulate an older server response that omits the new fields entirely.
+    const withoutData = summary();
+    delete (withoutData as Partial<DashboardData>).total_cost_usd_last_30d;
+    delete (withoutData as Partial<DashboardData>).total_cost_usd_prior_30d;
+    delete (withoutData as Partial<DashboardData>).cost_series_30d;
+
+    const result = aggregateDashboards(new Map([['a', withData], ['b', withoutData]]));
+
+    expect(result.total_cost_usd_last_30d).toBeCloseTo(5.0, 9);
+    expect(result.total_cost_usd_prior_30d).toBeCloseTo(3.0, 9);
+    expect(result.cost_series_30d).toHaveLength(30);
+    // No NaN values in the output series.
+    for (const v of result.cost_series_30d!) {
+      expect(Number.isNaN(v)).toBe(false);
+    }
+  });
+
+  it('produces a length-30 cost_series_30d for empty input', () => {
+    const result = aggregateDashboards(new Map());
+    expect(result.cost_series_30d).toHaveLength(30);
+    expect(result.total_cost_usd_last_30d).toBe(0);
+    expect(result.total_cost_usd_prior_30d).toBe(0);
   });
 });

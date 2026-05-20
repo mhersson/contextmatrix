@@ -1,7 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { Sparkline } from '../Sparkline/Sparkline';
 
 interface KpiRowProps {
-  totalCostUsd: number;
+  costLast30dUsd: number;
+  costPrior30dUsd: number;
+  costSeries30d: number[];
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
 }
@@ -13,6 +16,8 @@ interface KpiTileProps {
   source: string;
   accent: 'blue' | 'yellow' | 'green' | 'purple';
   tooltip?: string;
+  delta?: { pct: number; up: boolean };
+  sparkline?: { values: number[]; color: string };
 }
 
 const ACCENT_TO_VAR: Record<KpiTileProps['accent'], string> = {
@@ -22,7 +27,7 @@ const ACCENT_TO_VAR: Record<KpiTileProps['accent'], string> = {
   purple: 'var(--purple)',
 };
 
-function KpiTile({ label, badge, value, source, accent, tooltip }: KpiTileProps) {
+function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparkline }: KpiTileProps) {
   const numStyle: CSSProperties = {
     fontFamily: 'var(--font-sans)',
     fontWeight: 500,
@@ -69,7 +74,16 @@ function KpiTile({ label, badge, value, source, accent, tooltip }: KpiTileProps)
           {badge}
         </span>
       </div>
-      <div style={numStyle}>{value}</div>
+      <div style={numStyle}>
+        {value}
+        {delta !== undefined && (
+          <span
+            className={`metric-tile__delta ${delta.up ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}
+          >
+            {delta.up ? '+' : ''}{delta.pct}%
+          </span>
+        )}
+      </div>
       <div
         style={{
           marginTop: 8,
@@ -81,6 +95,9 @@ function KpiTile({ label, badge, value, source, accent, tooltip }: KpiTileProps)
       >
         {source}
       </div>
+      {sparkline && sparkline.values.length >= 2 && (
+        <Sparkline values={sparkline.values} color={sparkline.color} />
+      )}
     </div>
   );
 }
@@ -98,9 +115,18 @@ function CostValue({ amount }: { amount: number }) {
 
 const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
 
-export function KpiRow({ totalCostUsd, stateCountsParents, doneTodayParents }: KpiRowProps) {
+const COST_TOOLTIP =
+  'Sum of estimated cost on cards updated in the last 30 days. Each card’s full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day.';
+
+export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCountsParents, doneTodayParents }: KpiRowProps) {
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
+
+  const hasDelta = costPrior30dUsd > 0;
+  const deltaPct = hasDelta
+    ? Math.round(((costLast30dUsd - costPrior30dUsd) / costPrior30dUsd) * 100)
+    : 0;
+  const deltaUp = hasDelta && costLast30dUsd >= costPrior30dUsd;
 
   return (
     <div
@@ -132,11 +158,14 @@ export function KpiRow({ totalCostUsd, stateCountsParents, doneTodayParents }: K
         tooltip={DELIVERY_UNIT_TOOLTIP}
       />
       <KpiTile
-        label="Total cost"
+        label="Cost · 30d"
         badge="USD"
-        value={<CostValue amount={totalCostUsd} />}
-        source="sum(agent_costs.estimated_cost_usd)"
+        value={<CostValue amount={costLast30dUsd} />}
+        source="sum(card.cost where updated >= now-30d)"
         accent="purple"
+        tooltip={COST_TOOLTIP}
+        delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
+        sparkline={{ values: costSeries30d, color: 'var(--purple)' }}
       />
     </div>
   );
