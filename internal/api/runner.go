@@ -100,13 +100,9 @@ func (h *runnerHandlers) enableFeatureBranchAndPR(ctx context.Context, project, 
 		return card, nil
 	}
 
-	fbTrue := true
-
-	prTrue := true
-
 	return h.svc.PatchCard(ctx, project, id, service.PatchCardInput{
-		FeatureBranch: &fbTrue,
-		CreatePR:      &prTrue,
+		FeatureBranch: new(true),
+		CreatePR:      new(true),
 	})
 }
 
