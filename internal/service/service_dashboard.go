@@ -101,27 +101,130 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	now := s.clk.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	tz := now.Location()
+
+	// State counts: too trivial to extract — just two lines per card.
+	stateCounts := make(map[string]int)
+	stateCountsParents := make(map[string]int)
+
+	for _, card := range cards {
+		stateCounts[card.State]++
+		if card.Parent == "" {
+			stateCountsParents[card.State]++
+		}
+	}
+
+	agentCosts, modelCosts, cardCosts, totalCostUSD := aggregateCostsByAgentModel(cards)
+	completions := bucketCompletions(cards, now, tz)
+	sparkline := bucketSparkline(cards, now, tz)
+	activeAgents := buildAgentList(cards, now)
+
+	return &DashboardData{
+		StateCounts:                  stateCounts,
+		StateCountsParents:           stateCountsParents,
+		ActiveAgents:                 activeAgents,
+		TotalCostUSD:                 totalCostUSD,
+		CardsCompletedToday:          completions.today,
+		CardsCompletedTodayParents:   completions.todayParents,
+		CardsCompletedLast7d:         completions.last7d,
+		CardsCompletedLast7dParents:  completions.last7dParents,
+		CardsCompletedPrior7d:        completions.prior7d,
+		CardsCompletedPrior7dParents: completions.prior7dParents,
+		MetricSeries:                 sparkline,
+		AgentCosts:                   agentCosts,
+		ModelCosts:                   modelCosts,
+		CardCosts:                    cardCosts,
+	}, nil
+}
+
+// completionCounts holds the rolling-window completion counters returned by
+// bucketCompletions.
+type completionCounts struct {
+	today          int
+	todayParents   int
+	last7d         int
+	last7dParents  int
+	prior7d        int
+	prior7dParents int
+}
+
+// buildAgentList returns the slice of ActiveAgent entries for cards that
+// currently have an assigned agent in a non-terminal state.
+func buildAgentList(cards []*board.Card, now time.Time) []ActiveAgent {
+	_ = now // reserved for future relative-since calculations
+	out := make([]ActiveAgent, 0)
+
+	for _, card := range cards {
+		if card.AssignedAgent == "" {
+			continue
+		}
+
+		if card.State == board.StateDone || card.State == board.StateStalled || card.State == board.StateNotPlanned {
+			continue
+		}
+
+		aa := ActiveAgent{
+			AgentID:   card.AssignedAgent,
+			CardID:    card.ID,
+			CardTitle: card.Title,
+			Since:     card.Updated,
+		}
+		if card.LastHeartbeat != nil {
+			aa.LastHeartbeat = *card.LastHeartbeat
+			aa.Since = *card.LastHeartbeat
+		}
+
+		out = append(out, aa)
+	}
+
+	return out
+}
+
+// bucketCompletions counts done-cards falling into today / last-7d / prior-7d
+// windows, splitting parent-only cards into the *Parents variants.
+func bucketCompletions(cards []*board.Card, now time.Time, tz *time.Location) completionCounts {
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
 	last7dStart := now.Add(-7 * 24 * time.Hour)
 	prior7dStart := now.Add(-14 * 24 * time.Hour)
 
-	data := &DashboardData{
-		StateCounts:        make(map[string]int),
-		StateCountsParents: make(map[string]int),
-		ActiveAgents:       make([]ActiveAgent, 0),
-		AgentCosts:         make([]AgentCost, 0),
-		ModelCosts:         make([]ModelCost, 0),
-		CardCosts:          make([]CardCost, 0),
-		MetricSeries: MetricSeries{
-			ActiveAgents:    make([]int, MetricSeriesDays),
-			InFlight:        make([]int, MetricSeriesDays),
-			Stalled:         make([]int, MetricSeriesDays),
-			Shipped:         make([]int, MetricSeriesDays),
-			InFlightParents: make([]int, MetricSeriesDays),
-			StalledParents:  make([]int, MetricSeriesDays),
-			ShippedParents:  make([]int, MetricSeriesDays),
-		},
+	var counts completionCounts
+
+	for _, card := range cards {
+		if card.State != board.StateDone {
+			continue
+		}
+
+		isParent := card.Parent == ""
+
+		if !card.Updated.Before(todayStart) {
+			counts.today++
+			if isParent {
+				counts.todayParents++
+			}
+		}
+
+		if !card.Updated.Before(last7dStart) {
+			counts.last7d++
+			if isParent {
+				counts.last7dParents++
+			}
+		} else if !card.Updated.Before(prior7dStart) {
+			counts.prior7d++
+			if isParent {
+				counts.prior7dParents++
+			}
+		}
 	}
+
+	return counts
+}
+
+// bucketSparkline builds the 8-sample MetricSeries for the dashboard ribbon.
+// Shipped is bucketed by Updated (accurate for done cards). InFlight, Stalled,
+// and ActiveAgents are reconstructed by replaying each card's state_changed
+// activity-log entries.
+func bucketSparkline(cards []*board.Card, now time.Time, tz *time.Location) MetricSeries {
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
 
 	// Day boundaries for the sparkline window. dayEnds[i] is the end-of-day
 	// instant for sample i; i=0 is 7 days ago, i=MetricSeriesDays-1 is today.
@@ -135,61 +238,29 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		dayEnds[i] = dayStarts[i].Add(24 * time.Hour)
 	}
 
-	agentCostMap := make(map[string]*AgentCost)
-	modelCostMap := make(map[string]*ModelCost)
+	ms := MetricSeries{
+		ActiveAgents:    make([]int, MetricSeriesDays),
+		InFlight:        make([]int, MetricSeriesDays),
+		Stalled:         make([]int, MetricSeriesDays),
+		Shipped:         make([]int, MetricSeriesDays),
+		InFlightParents: make([]int, MetricSeriesDays),
+		StalledParents:  make([]int, MetricSeriesDays),
+		ShippedParents:  make([]int, MetricSeriesDays),
+	}
 
 	for _, card := range cards {
-		data.StateCounts[card.State]++
-		if card.Parent == "" {
-			data.StateCountsParents[card.State]++
-		}
+		isParent := card.Parent == ""
 
-		// Active agents: cards with an assigned agent not in terminal states.
-		if card.AssignedAgent != "" && card.State != board.StateDone && card.State != board.StateStalled && card.State != board.StateNotPlanned {
-			aa := ActiveAgent{
-				AgentID:   card.AssignedAgent,
-				CardID:    card.ID,
-				CardTitle: card.Title,
-				Since:     card.Updated,
-			}
-			if card.LastHeartbeat != nil {
-				aa.LastHeartbeat = *card.LastHeartbeat
-				aa.Since = *card.LastHeartbeat
-			}
-
-			data.ActiveAgents = append(data.ActiveAgents, aa)
-		}
-
-		// Cards completed today and in rolling 7d windows.
+		// Shipped sparkline: bucket each done card by the day it
+		// transitioned to done (approximated by Updated). Accurate
+		// because the Updated stamp on a done card is the moment
+		// it landed in done.
 		if card.State == board.StateDone {
-			if !card.Updated.Before(todayStart) {
-				data.CardsCompletedToday++
-				if card.Parent == "" {
-					data.CardsCompletedTodayParents++
-				}
-			}
-
-			if !card.Updated.Before(last7dStart) {
-				data.CardsCompletedLast7d++
-				if card.Parent == "" {
-					data.CardsCompletedLast7dParents++
-				}
-			} else if !card.Updated.Before(prior7dStart) {
-				data.CardsCompletedPrior7d++
-				if card.Parent == "" {
-					data.CardsCompletedPrior7dParents++
-				}
-			}
-
-			// Shipped sparkline: bucket each done card by the day it
-			// transitioned to done (approximated by Updated). Accurate
-			// because the Updated stamp on a done card is the moment
-			// it landed in done.
 			for i := range MetricSeriesDays {
 				if !card.Updated.Before(dayStarts[i]) && card.Updated.Before(dayEnds[i]) {
-					data.MetricSeries.Shipped[i]++
-					if card.Parent == "" {
-						data.MetricSeries.ShippedParents[i]++
+					ms.Shipped[i]++
+					if isParent {
+						ms.ShippedParents[i]++
 					}
 
 					break
@@ -212,110 +283,125 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 
 			switch state {
 			case board.StateInProgress, board.StateReview:
-				data.MetricSeries.InFlight[i]++
-				if card.Parent == "" {
-					data.MetricSeries.InFlightParents[i]++
+				ms.InFlight[i]++
+				if isParent {
+					ms.InFlightParents[i]++
 				}
 
 				if card.AssignedAgent != "" {
-					data.MetricSeries.ActiveAgents[i]++
+					ms.ActiveAgents[i]++
 				}
 			case board.StateStalled:
-				data.MetricSeries.Stalled[i]++
-				if card.Parent == "" {
-					data.MetricSeries.StalledParents[i]++
+				ms.Stalled[i]++
+				if isParent {
+					ms.StalledParents[i]++
 				}
 			}
 		}
-
-		// Cost aggregation.
-		if card.TokenUsage != nil {
-			data.TotalCostUSD += card.TokenUsage.EstimatedCostUSD
-
-			data.CardCosts = append(data.CardCosts, CardCost{
-				CardID:           card.ID,
-				CardTitle:        card.Title,
-				AssignedAgent:    card.AssignedAgent,
-				PromptTokens:     card.TokenUsage.PromptTokens,
-				CompletionTokens: card.TokenUsage.CompletionTokens,
-				EstimatedCostUSD: card.TokenUsage.EstimatedCostUSD,
-			})
-
-			agent := card.AssignedAgent
-			if agent == "" {
-				agent = "unassigned"
-			}
-
-			ac, ok := agentCostMap[agent]
-			if !ok {
-				ac = &AgentCost{AgentID: agent}
-				agentCostMap[agent] = ac
-			}
-
-			ac.PromptTokens += card.TokenUsage.PromptTokens
-			ac.CompletionTokens += card.TokenUsage.CompletionTokens
-			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
-			ac.CardCount++
-
-			model := card.TokenUsage.Model
-			if model == "" {
-				model = "unknown"
-			}
-
-			// Skip cards with no measurable usage. Zero-token, zero-cost
-			// entries (e.g. cards that recorded a TokenUsage struct but
-			// never accumulated anything) would otherwise inflate the
-			// "unknown" bucket's card_count without contributing real
-			// cost. The agent bucket above keeps them because agent
-			// attribution is meaningful even at zero, but the model
-			// rollup is purely a cost view.
-			if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
-				continue
-			}
-
-			mc, ok := modelCostMap[model]
-			if !ok {
-				mc = &ModelCost{Model: model}
-				modelCostMap[model] = mc
-			}
-
-			mc.PromptTokens += card.TokenUsage.PromptTokens
-			mc.CompletionTokens += card.TokenUsage.CompletionTokens
-			mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
-			mc.CardCount++
-		}
 	}
 
+	return ms
+}
+
+// aggregateCostsByAgentModel rolls up token usage and estimated cost per agent
+// and per model. Returns sorted slices (cost desc, name asc on ties) ready for
+// the wire, the per-card cost list, and the grand total.
+//
+// Map iteration is randomized, so the sort is a determinism guarantee at the
+// API boundary — the frontend re-sorts for display.
+func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
+	agentCostMap := make(map[string]*AgentCost)
+	modelCostMap := make(map[string]*ModelCost)
+	cardCosts = make([]CardCost, 0)
+
+	for _, card := range cards {
+		if card.TokenUsage == nil {
+			continue
+		}
+
+		totalCostUSD += card.TokenUsage.EstimatedCostUSD
+
+		cardCosts = append(cardCosts, CardCost{
+			CardID:           card.ID,
+			CardTitle:        card.Title,
+			AssignedAgent:    card.AssignedAgent,
+			PromptTokens:     card.TokenUsage.PromptTokens,
+			CompletionTokens: card.TokenUsage.CompletionTokens,
+			EstimatedCostUSD: card.TokenUsage.EstimatedCostUSD,
+		})
+
+		agent := card.AssignedAgent
+		if agent == "" {
+			agent = "unassigned"
+		}
+
+		ac, ok := agentCostMap[agent]
+		if !ok {
+			ac = &AgentCost{AgentID: agent}
+			agentCostMap[agent] = ac
+		}
+
+		ac.PromptTokens += card.TokenUsage.PromptTokens
+		ac.CompletionTokens += card.TokenUsage.CompletionTokens
+		ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+		ac.CardCount++
+
+		// Skip cards with no measurable usage. Zero-token, zero-cost
+		// entries (e.g. cards that recorded a TokenUsage struct but
+		// never accumulated anything) would otherwise inflate the
+		// "unknown" bucket's card_count without contributing real
+		// cost. The agent bucket above keeps them because agent
+		// attribution is meaningful even at zero, but the model
+		// rollup is purely a cost view.
+		if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
+			continue
+		}
+
+		model := card.TokenUsage.Model
+		if model == "" {
+			model = "unknown"
+		}
+
+		mc, ok := modelCostMap[model]
+		if !ok {
+			mc = &ModelCost{Model: model}
+			modelCostMap[model] = mc
+		}
+
+		mc.PromptTokens += card.TokenUsage.PromptTokens
+		mc.CompletionTokens += card.TokenUsage.CompletionTokens
+		mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+		mc.CardCount++
+	}
+
+	agentCosts = make([]AgentCost, 0, len(agentCostMap))
 	for _, ac := range agentCostMap {
-		data.AgentCosts = append(data.AgentCosts, *ac)
+		agentCosts = append(agentCosts, *ac)
 	}
 
+	modelCosts = make([]ModelCost, 0, len(modelCostMap))
 	for _, mc := range modelCostMap {
-		data.ModelCosts = append(data.ModelCosts, *mc)
+		modelCosts = append(modelCosts, *mc)
 	}
 
-	// Stable wire ordering: cost desc, identifier asc on ties. Map
-	// iteration is randomized, so without this the API response — and
-	// any snapshot test built on it — would differ run-to-run. The
-	// frontend re-sorts for display; this is purely a determinism
-	// guarantee at the API boundary.
-	sort.Slice(data.AgentCosts, func(i, j int) bool {
-		if data.AgentCosts[i].EstimatedCostUSD != data.AgentCosts[j].EstimatedCostUSD {
-			return data.AgentCosts[i].EstimatedCostUSD > data.AgentCosts[j].EstimatedCostUSD
+	// Stable wire ordering: cost desc, identifier asc on ties.
+	sort.Slice(agentCosts, func(i, j int) bool {
+		if agentCosts[i].EstimatedCostUSD != agentCosts[j].EstimatedCostUSD {
+			return agentCosts[i].EstimatedCostUSD > agentCosts[j].EstimatedCostUSD
 		}
 
-		return data.AgentCosts[i].AgentID < data.AgentCosts[j].AgentID
+		return agentCosts[i].AgentID < agentCosts[j].AgentID
 	})
 
-	sort.Slice(data.ModelCosts, func(i, j int) bool {
-		if data.ModelCosts[i].EstimatedCostUSD != data.ModelCosts[j].EstimatedCostUSD {
-			return data.ModelCosts[i].EstimatedCostUSD > data.ModelCosts[j].EstimatedCostUSD
+	sort.Slice(modelCosts, func(i, j int) bool {
+		if modelCosts[i].EstimatedCostUSD != modelCosts[j].EstimatedCostUSD {
+			return modelCosts[i].EstimatedCostUSD > modelCosts[j].EstimatedCostUSD
 		}
 
-		return data.ModelCosts[i].Model < data.ModelCosts[j].Model
+		return modelCosts[i].Model < modelCosts[j].Model
 	})
 
-	return data, nil
+	return agentCosts, modelCosts, cardCosts, totalCostUSD
 }
 
 // ActivityFeedEntry is one row in the cross-card activity feed. Mirrors a

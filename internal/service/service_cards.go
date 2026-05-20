@@ -337,15 +337,14 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 }
 
 // CreateCard creates a new card in the project.
-// Flow: generate ID → validate → store → git commit → publish event.
+// Flow: allocate ID → build card → dedup guard → store+commit → publish event.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	// Lock to ensure atomic ID generation
+	// Lock to ensure atomic ID generation.
 	s.mu.Lock()
 
-	// Load project config
 	cfg, err := s.getConfigLocked(ctx, project)
 	if err != nil {
 		s.mu.Unlock()
@@ -353,10 +352,8 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
-	// Generate card ID (increments NextID)
 	cardID := board.GenerateCardID(cfg)
 
-	// Persist updated NextID
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
 		s.mu.Unlock()
 
@@ -365,6 +362,55 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 
 	s.mu.Unlock()
 
+	card, err := s.buildNewCardFromInput(ctx, project, cardID, cfg, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, deduped, dedupErr := s.applyDedupGuard(ctx, project, input); dedupErr != nil {
+		return nil, dedupErr
+	} else if deduped {
+		return existing, nil
+	}
+
+	committed, err := s.commitNewCardWithNextID(ctx, project, card)
+	if err != nil {
+		return nil, errors.Join(append([]error{err}, s.rollbackCreate(ctx, project, card, cfg)...)...)
+	}
+
+	// Publish event — include source metadata so SSE listeners can
+	// display contextual notifications (e.g. "New issue from GitHub").
+	var eventData map[string]any
+	if input.Source != nil {
+		eventData = map[string]any{
+			"source_system": input.Source.System,
+			"title":         input.Title,
+		}
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardCreated,
+		Project:   project,
+		CardID:    committed.ID,
+		Timestamp: committed.Created,
+		Data:      eventData,
+	})
+
+	s.enrichDependenciesMet(ctx, committed)
+
+	return committed, nil
+}
+
+// buildNewCardFromInput assembles a *board.Card from the caller's input and the
+// already-allocated cardID/cfg. It normalises field values, enforces type and
+// vetting invariants, validates all field constraints, and inherits skills from
+// the parent subtask when the caller did not supply any.
+func (s *CardService) buildNewCardFromInput(
+	ctx context.Context,
+	project, cardID string,
+	cfg *board.ProjectConfig,
+	input CreateCardInput,
+) (*board.Card, error) {
 	// Cards with a parent are always subtasks regardless of what the caller passes.
 	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
 
@@ -377,7 +423,6 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	// persisted card all see the same canonical form.
 	dependsOn := normalizeIDs(input.DependsOn)
 
-	// Build card
 	now := s.clk.Now()
 	card := &board.Card{
 		ID:                  cardID,
@@ -408,17 +453,14 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		card.BranchName = generateBranchName(card.ID, card.Title)
 	}
 
-	// Validate field length limits.
 	if err := validateFieldLimits(card.Title, card.Body, card.Labels); err != nil {
 		return nil, err
 	}
 
-	// Validate skill names.
 	if err := validateSkillNames(card.Skills); err != nil {
 		return nil, err
 	}
 
-	// Validate card fields
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
 	}
@@ -452,50 +494,65 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		}
 	}
 
-	// Dedup guard: if this is a subtask, check for an existing subtask with the
-	// same title (case-insensitive, trimmed) that is not in a terminal state.
-	// writeMu is held so there is no TOCTOU race.
-	if parentID != "" {
-		existing, listErr := s.store.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
-		if listErr != nil {
-			return nil, fmt.Errorf("list subtasks for dedup check: %w", listErr)
-		}
+	return card, nil
+}
 
-		titleNorm := strings.ToLower(strings.TrimSpace(input.Title))
-		for _, sub := range existing {
-			if strings.ToLower(strings.TrimSpace(sub.Title)) == titleNorm &&
-				sub.State != board.StateDone && sub.State != board.StateNotPlanned {
-				ctxlog.Logger(ctx).Info("duplicate subtask detected, returning existing card",
-					"existing_id", sub.ID,
-					"parent_id", parentID,
-					"title", sub.Title,
-					"state", sub.State,
-				)
-				s.enrichDependenciesMet(ctx, sub)
+// applyDedupGuard checks whether a non-terminal subtask with the same title
+// (case-insensitive, trimmed) already exists under the same parent. writeMu
+// must be held by the caller to eliminate any TOCTOU race. Returns the
+// existing card and true when a duplicate is found; returns nil, false, nil
+// when the call should proceed to creation.
+func (s *CardService) applyDedupGuard(
+	ctx context.Context,
+	project string,
+	input CreateCardInput,
+) (*board.Card, bool, error) {
+	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
+	if parentID == "" {
+		return nil, false, nil
+	}
 
-				return sub, nil
-			}
+	existing, listErr := s.store.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
+	if listErr != nil {
+		return nil, false, fmt.Errorf("list subtasks for dedup check: %w", listErr)
+	}
+
+	titleNorm := strings.ToLower(strings.TrimSpace(input.Title))
+
+	for _, sub := range existing {
+		if strings.ToLower(strings.TrimSpace(sub.Title)) == titleNorm &&
+			sub.State != board.StateDone && sub.State != board.StateNotPlanned {
+			ctxlog.Logger(ctx).Info("duplicate subtask detected, returning existing card",
+				"existing_id", sub.ID,
+				"parent_id", parentID,
+				"title", sub.Title,
+				"state", sub.State,
+			)
+			s.enrichDependenciesMet(ctx, sub)
+
+			return sub, true, nil
 		}
 	}
 
-	// Persist card
+	return nil, false, nil
+}
+
+// commitNewCardWithNextID persists the card to the store and commits both the
+// card file and the updated .board.yaml (NextID increment) to git. Card
+// creation always commits immediately — even when gitDeferredCommit is true —
+// because a new card is a discrete, durable event that must survive a git pull
+// on another machine. The commit is routed through the queue when configured,
+// but awaited under writeMu (held by CreateCard) so a failed commit can be
+// rolled back before the next writer observes transient NextID state.
+func (s *CardService) commitNewCardWithNextID(ctx context.Context, project string, card *board.Card) (*board.Card, error) {
 	if err := s.store.CreateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("create card: %w", err)
 	}
 
-	// Card creation always commits immediately — even when gitDeferredCommit is
-	// true — because a new card is a discrete, durable event. Both the card file
-	// and .board.yaml (next_id increment) must be persisted together so the card
-	// survives a git pull on another machine.
-	//
-	// The commit is routed through the queue (when configured) but awaited
-	// under writeMu because a failed commit triggers rollback of the store
-	// state; releasing the mutex before the await would let another writer
-	// observe transient NextID state.
 	if s.gitAutoCommit {
-		cardPath := s.cardPath(project, cardID)
+		cardPath := s.cardPath(project, card.ID)
 		configPath := filepath.Join(project, ".board.yaml")
-		msg := commitMessage("", cardID, "created")
+		msg := commitMessage("", card.ID, "created")
 
 		var gitErr error
 
@@ -512,49 +569,38 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		}
 
 		if gitErr != nil {
-			// Rollback: remove the orphaned card file and restore NextID so
-			// the sequence has no gap on the next creation attempt.
-			var rollbackErrs []error
-
-			if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
-				ctxlog.Logger(ctx).Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
-				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback delete card: %w", delErr))
-			}
-
-			cfg.NextID--
-			if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
-				ctxlog.Logger(ctx).Error("failed to rollback NextID after git error",
-					"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
-				rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback save project: %w", saveErr))
-			}
-
-			return nil, errors.Join(append([]error{fmt.Errorf("git commit: %w", gitErr)}, rollbackErrs...)...)
+			return nil, fmt.Errorf("git commit: %w", gitErr)
 		}
 
 		s.notifyCommit()
 	}
 
-	// Publish event — include source metadata so SSE listeners can
-	// display contextual notifications (e.g. "New issue from GitHub").
-	var eventData map[string]any
-	if input.Source != nil {
-		eventData = map[string]any{
-			"source_system": input.Source.System,
-			"title":         input.Title,
-		}
+	return card, nil
+}
+
+// rollbackCreate removes an orphaned card file and restores NextID after a
+// git commit failure, mirroring the snapshot/restore discipline of
+// applyCardMutation. Any rollback errors are returned so the caller can join
+// them with the primary git error — this surfaces partial-rollback scenarios
+// (e.g. orphaned card on disk) to the caller rather than silently discarding
+// them.
+func (s *CardService) rollbackCreate(ctx context.Context, project string, card *board.Card, cfg *board.ProjectConfig) []error {
+	var errs []error
+
+	if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
+		ctxlog.Logger(ctx).Error("failed to rollback card after git error", "card_id", card.ID, "error", delErr)
+		errs = append(errs, fmt.Errorf("rollback delete card: %w", delErr))
 	}
 
-	s.bus.Publish(events.Event{
-		Type:      events.CardCreated,
-		Project:   project,
-		CardID:    cardID,
-		Timestamp: now,
-		Data:      eventData,
-	})
+	cfg.NextID--
 
-	s.enrichDependenciesMet(ctx, card)
+	if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
+		ctxlog.Logger(ctx).Error("failed to rollback NextID after git error",
+			"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
+		errs = append(errs, fmt.Errorf("rollback save project: %w", saveErr))
+	}
 
-	return card, nil
+	return errs
 }
 
 // UpdateCard performs a full update of a card's mutable fields.
@@ -1198,33 +1244,74 @@ func (s *CardService) applyCardMutation(
 	// the invariants.
 	enforceTerminalStateInvariants(card, stateChanged)
 
-	if err := s.validator.ValidateCard(cfg, card); err != nil {
+	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()
 
-		return nil, fmt.Errorf("validate card: %w", err)
+		return nil, err
 	}
 
-	if !opts.skipValidators {
-		if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
-			s.writeMu.Unlock()
+	card, err = s.commitAndRollbackOrReturn(ctx, project, id, card, snapshot, opts, stateChanged)
+	if err != nil {
+		return nil, err
+	}
 
-			return nil, err
-		}
+	s.publishStateOrUpdate(project, id, card, opts.commitAgentID, oldState, stateChanged)
 
-		if len(card.DependsOn) > 0 {
-			if cycleID := s.detectDependencyCycle(ctx, project, id, card.DependsOn); cycleID != "" {
-				s.writeMu.Unlock()
+	s.enrichDependenciesMet(ctx, card)
 
-				return nil, fmt.Errorf("validate card: %w", &board.ValidationError{
-					Err:     board.ErrDependenciesNotMet,
-					Field:   "depends_on",
-					Value:   cycleID,
-					Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", id, cycleID),
-				})
-			}
+	return card, nil
+}
+
+// runValidatorsAndDeps runs ValidateCard and, when skipValidators is false,
+// also validates cross-card references and checks for dependency cycles.
+// writeMu must be held by the caller; on error the caller is responsible for
+// releasing writeMu before returning.
+func (s *CardService) runValidatorsAndDeps(
+	ctx context.Context,
+	project, id string,
+	card *board.Card,
+	cfg *board.ProjectConfig,
+	skipValidators bool,
+) error {
+	if err := s.validator.ValidateCard(cfg, card); err != nil {
+		return fmt.Errorf("validate card: %w", err)
+	}
+
+	if skipValidators {
+		return nil
+	}
+
+	if err := s.validateCardReferences(ctx, project, card.Parent, card.DependsOn); err != nil {
+		return err
+	}
+
+	if len(card.DependsOn) > 0 {
+		if cycleID := s.detectDependencyCycle(ctx, project, id, card.DependsOn); cycleID != "" {
+			return fmt.Errorf("validate card: %w", &board.ValidationError{
+				Err:     board.ErrDependenciesNotMet,
+				Field:   "depends_on",
+				Value:   cycleID,
+				Message: fmt.Sprintf("circular dependency detected: %s and %s depend on each other", id, cycleID),
+			})
 		}
 	}
 
+	return nil
+}
+
+// commitAndRollbackOrReturn persists the card, enqueues/awaits the git commit,
+// runs post-commit state-change side effects and parent auto-transitions under
+// writeMu, then releases writeMu before awaiting the commit. On commit failure
+// it rolls back cache + disk to the snapshot. writeMu must be held by the
+// caller on entry; this function always releases it before returning.
+func (s *CardService) commitAndRollbackOrReturn(
+	ctx context.Context,
+	project, id string,
+	card *board.Card,
+	snapshot *board.Card,
+	opts mutationOpts,
+	stateChanged bool,
+) (*board.Card, error) {
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -1298,6 +1385,19 @@ func (s *CardService) applyCardMutation(
 		return nil, rollbackErr
 	}
 
+	return card, nil
+}
+
+// publishStateOrUpdate emits a CardStateChanged or CardUpdated event depending
+// on whether the card's state changed. The acting agent is normalised to
+// "system" when empty so SSE consumers that filter by agent always see a
+// non-empty Agent field.
+func (s *CardService) publishStateOrUpdate(
+	project, id string,
+	card *board.Card,
+	agentID, oldState string,
+	stateChanged bool,
+) {
 	eventType := events.CardUpdated
 	if stateChanged {
 		eventType = events.CardStateChanged
@@ -1308,7 +1408,7 @@ func (s *CardService) applyCardMutation(
 	// without needing to refetch the card. Empty agent (UpdateCard without
 	// an X-Agent-ID) normalises to "system" — matches the convention
 	// appendStateChangeLog uses when writing the activity-log entry.
-	eventAgent := opts.commitAgentID
+	eventAgent := agentID
 	if eventAgent == "" {
 		eventAgent = "system"
 	}
@@ -1324,10 +1424,6 @@ func (s *CardService) applyCardMutation(
 			"new_state": card.State,
 		},
 	})
-
-	s.enrichDependenciesMet(ctx, card)
-
-	return card, nil
 }
 
 // normalizeIDs uppercases all card IDs in a slice.
