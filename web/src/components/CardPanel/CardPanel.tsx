@@ -4,7 +4,9 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelBody, type RailTabKey } from './CardPanelBody';
 import { CardPanelLeft } from './CardPanelLeft';
 import { buildCardPanelTabs } from './buildCardPanelTabs';
-import { buildCardPatch, isCardDirty, isRunnerAttached, primaryAction } from './utils';
+import { isRunnerAttached, primaryAction } from './utils';
+import { useCardEdits } from './useCardEdits';
+import { useRailSync } from './useRailSync';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
@@ -52,9 +54,21 @@ export function CardPanel(props: CardPanelProps) {
     onSubtaskClick, currentAgentId, onRunCard, onStopCard } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
-  const [editedCard, setEditedCard] = useState(card);
-  const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const {
+    editedCard,
+    setEditedCard,
+    isDirty,
+    isSaving,
+    forcedFeatureBranch,
+    forcedCreatePR,
+    clearForcedFeatureBranch,
+    clearForcedCreatePR,
+    handleSave,
+    handleRun,
+    handleTransitionPrimary,
+  } = useCardEdits(card, onSave, onRunCard);
 
   useFocusTrap(panelRef, true);
 
@@ -62,63 +76,17 @@ export function CardPanel(props: CardPanelProps) {
   const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
   const defaultTab: RailTabKey = isHITLRunning ? 'chat' : isMobile ? 'card' : 'automation';
 
-  const [railExpanded, setRailExpanded] = useState(isHITLRunning);
-  const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
-  const [forcedFeatureBranch, setForcedFeatureBranch] = useState(false);
-  const [forcedCreatePR, setForcedCreatePR] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
-  // Sync derived state with prop changes. Reset the rail/tab/badges only on
-  // card identity change (user selected a different card) — SSE-driven
-  // refreshes of the same card (state transitions, log additions, etc.) must
-  // not collapse the rail mid-session. The edit buffer is refreshed whenever
-  // the card object reference changes so unedited fields reflect server-side
-  // updates. When HITL flips on for the same card, jump to the chat tab and
-  // expand the rail. When HITL flips off, the tab switch is debounced: only
-  // after two consecutive sync events both observing isHITLRunning=false does
-  // the switch fire. This absorbs a single transient SSE glitch. The counter
-  // (hitlOffCount) lives in the sync state object (not a useRef) to satisfy
-  // the react-hooks/refs lint rule (no reads/writes of refs during render).
-  const [sync, setSync] = useState({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
-  if (sync.cardId !== card.id) {
-    setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
-    setEditedCard(card);
-    setRailExpanded(isHITLRunning);
-    setForcedFeatureBranch(false);
-    setForcedCreatePR(false);
-    setActiveTab(defaultTab);
-  } else if (sync.card !== card || sync.isHITLRunning !== isHITLRunning) {
-    const hitlFlippedOn = sync.isHITLRunning !== isHITLRunning && isHITLRunning;
-    if (sync.card !== card) setEditedCard(card);
-    if (hitlFlippedOn) {
-      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
-      setActiveTab('chat');
-      setRailExpanded(true);
-    } else {
-      // HITL flipped off or stayed off. Increment the debounce counter;
-      // switch the tab only when the counter reaches 2.
-      const nextCount = !isHITLRunning && !sync.isHITLRunning ? sync.hitlOffCount + 1 : 0;
-      setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: nextCount });
-      if (nextCount >= 2) {
-        setActiveTab(defaultTab);
-      }
-    }
-  }
+  const { railExpanded, setRailExpanded, activeTab, onTabChange } = useRailSync(
+    card,
+    isHITLRunning,
+    defaultTab,
+    setEditedCard,
+  );
 
   const { branches, loading: branchesLoading, error: branchesError } =
     useBranches(card.project, !!config.remote_execution?.enabled);
-
-  const isDirty = isCardDirty(editedCard, card);
-
-  const handleSave = useCallback(async () => {
-    if (!isDirty || isSaving) return;
-    setIsSaving(true);
-    try {
-      await onSave(buildCardPatch(editedCard, card));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [isDirty, isSaving, editedCard, card, onSave]);
 
   const handleClaim = useCallback(async () => {
     await onClaim(currentAgentId);
@@ -165,81 +133,6 @@ export function CardPanel(props: CardPanelProps) {
     card.state === 'blocked' && card.depends_on && card.depends_on.length > 0
       ? card.depends_on[0]
       : null;
-
-  /**
-   * Run handler shared by the header Run button and any wrappers.
-   * Server force-enables feature_branch and create_pr on every run. We mirror
-   * that client-side so the saved state matches, and capture the pre-force
-   * values so the UI can badge the forced flags exactly once.
-   *
-   * On save failure: revert only the two fields we optimistically mutated
-   * (feature_branch, create_pr) via a functional update — leaves any
-   * concurrent user edits (title, labels, etc.) intact. The toast is fired
-   * by useCardActions; we swallow here to avoid an unhandled rejection.
-   */
-  const handleRun = useCallback(async () => {
-    const wasFeatureBranch = editedCard.feature_branch ?? false;
-    const wasCreatePR = editedCard.create_pr ?? false;
-    setForcedFeatureBranch(!wasFeatureBranch);
-    setForcedCreatePR(!wasCreatePR);
-    const next: Card = {
-      ...editedCard,
-      feature_branch: true,
-      create_pr: true,
-    };
-    setEditedCard(next);
-    const nextIsDirty = isCardDirty(next, card);
-    if (nextIsDirty) {
-      setIsSaving(true);
-      try {
-        await onSave(buildCardPatch(next, card));
-      } catch {
-        // Revert only the two fields we optimistically forced to `true`. Use
-        // a functional update and check that `curr` still holds the optimistic
-        // values before reverting — a concurrent user toggle between the
-        // optimistic set and the catch would otherwise be silently overwritten.
-        // Trade-off: if the user toggled feature_branch=false mid-save, we
-        // leave their intent intact; they may need to retry Run explicitly.
-        setEditedCard((curr) => ({
-          ...curr,
-          feature_branch: curr.feature_branch === true ? wasFeatureBranch : curr.feature_branch,
-          create_pr: curr.create_pr === true ? wasCreatePR : curr.create_pr,
-        }));
-        setForcedFeatureBranch(false);
-        setForcedCreatePR(false);
-        return;
-      } finally {
-        setIsSaving(false);
-      }
-    }
-    try {
-      await onRunCard(!(next.autonomous ?? false));
-    } catch {
-      // Save succeeded but the runner webhook failed. The feature_branch /
-      // create_pr values on the server are now real, so don't revert those;
-      // clear the "forced on run" badges since they only make sense next
-      // to a live runner claim.
-      setForcedFeatureBranch(false);
-      setForcedCreatePR(false);
-    }
-  }, [editedCard, card, onSave, onRunCard]);
-
-  const handleTransitionPrimary = useCallback(async (targetState: string) => {
-    const prevState = editedCard.state;
-    const next: Card = { ...editedCard, state: targetState };
-    setEditedCard(next);
-    if (isCardDirty(next, card) && !isSaving) {
-      setIsSaving(true);
-      try {
-        await onSave(buildCardPatch(next, card));
-      } catch {
-        // Revert the optimistic state change; keep any other concurrent edits.
-        setEditedCard((curr) => ({ ...curr, state: prevState }));
-      } finally {
-        setIsSaving(false);
-      }
-    }
-  }, [editedCard, card, onSave, isSaving]);
 
   const handlePrimary = useCallback(() => {
     if (!primary) return;
@@ -300,8 +193,8 @@ export function CardPanel(props: CardPanelProps) {
     excludeStateFromPicker,
     forcedFeatureBranch,
     forcedCreatePR,
-    clearForcedFeatureBranch: () => setForcedFeatureBranch(false),
-    clearForcedCreatePR: () => setForcedCreatePR(false),
+    clearForcedFeatureBranch,
+    clearForcedCreatePR,
   });
 
   // If the active tab disappears (e.g. HITL ended, chat tab removed), fall
@@ -362,12 +255,7 @@ export function CardPanel(props: CardPanelProps) {
           }
           tabs={tabs}
           activeTab={effectiveTab}
-          onTabChange={(tab) => {
-            setActiveTab(tab);
-            // Reset the HITL-off debounce counter on any user-initiated tab
-            // change so a subsequent HITL-off flip starts a fresh count.
-            setSync((prev) => ({ ...prev, hitlOffCount: 0 }));
-          }}
+          onTabChange={onTabChange}
           railExpanded={railExpanded}
           onToggleRail={() => setRailExpanded((v) => !v)}
         />

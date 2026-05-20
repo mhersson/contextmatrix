@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useTimeoutRef } from '../../hooks/useTimeoutRef';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
@@ -8,6 +9,9 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useProjects } from '../../hooks/useProjects';
 import { useToast } from '../../hooks/useToast';
 import { useRunnerLogs } from '../../hooks/useRunnerLogs';
+import { useRunnerHealth } from '../../hooks/useRunnerHealth';
+import { useDashboardPolling } from '../../hooks/useDashboardPolling';
+import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
@@ -17,9 +21,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
 import { RunnerConsole } from '../RunnerConsole';
 import { api, isAPIError } from '../../api/client';
-import type { BoardEvent, Card, CreateCardInput, DashboardData } from '../../types';
-import type { ActivityEntry } from '../Board/NowRail';
-import { useSSEBus } from '../../hooks/useSSEBus';
+import type { BoardEvent, Card, CreateCardInput } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
 
 // Lazy-load secondary routes — only downloaded when the user navigates to them.
@@ -51,25 +53,18 @@ export function ProjectShell() {
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
-  const flashTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const flashTimer = useTimeoutRef();
   const mainRef = useRef<HTMLDivElement>(null);
   const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
     containerRef: mainRef,
     enabled: consoleOpen,
   });
 
-  useEffect(() => {
-    return () => clearTimeout(flashTimerRef.current);
-  }, []);
-
   const { syncStatus, triggerSync, handleSyncEvent } = useSync();
 
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [liveActivity, setLiveActivity] = useState<ActivityEntry[]>([]);
-  const [backfillLoaded, setBackfillLoaded] = useState(false);
-  const [runnerMaxAgents, setRunnerMaxAgents] = useState<number | undefined>(undefined);
-  const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
-  const bus = useSSEBus();
+  const dashboard = useDashboardPolling(project, REFRESH_INTERVAL);
+  const activity = useActivityFeed(project);
+  const { maxAgents: runnerMaxAgents, runningContainers } = useRunnerHealth(REFRESH_INTERVAL);
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
@@ -80,147 +75,7 @@ export function ProjectShell() {
     setPrevProject(project);
     setSelectedCard(null);
     setCreatePanelOpen(false);
-    setLiveActivity([]);
-    setBackfillLoaded(false);
   }
-
-  // Poll /api/runner/health every 30 s to keep running_containers and
-  // max_concurrent current. On failure, leave previous values in place so
-  // a transient runner blip doesn't flicker the NowRail capacity meter.
-  // Skip the poll while the tab is hidden (saves background traffic) and
-  // refetch immediately when it becomes visible again. The initial fetch
-  // also defers when the app is opened in a backgrounded tab — values fill
-  // in on first visibility, consistent with the polling gate.
-  // An AbortController guards against a stale-overwrite race: if a slow
-  // fetch is in flight when the tab is re-shown, the new fetch aborts the
-  // old one so a late response can't overwrite fresh values.
-  useEffect(() => {
-    let cancelled = false;
-    let inFlight: AbortController | null = null;
-    const fetchRunnerHealth = () => {
-      if (cancelled) return;
-      if (document.visibilityState !== 'visible') return;
-      if (inFlight) inFlight.abort();
-      const ctrl = new AbortController();
-      inFlight = ctrl;
-      api.getRunnerHealth(ctrl.signal)
-        .then((h) => {
-          if (cancelled || ctrl.signal.aborted) return;
-          setRunnerMaxAgents(h.max_concurrent);
-          setRunningContainers(h.running_containers);
-        })
-        .catch((err) => {
-          if (ctrl.signal.aborted) return;
-          if (err instanceof DOMException && err.name === 'AbortError') return;
-          console.warn('runner health poll failed:', err);
-        });
-    };
-    fetchRunnerHealth();
-    const interval = setInterval(fetchRunnerHealth, REFRESH_INTERVAL);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') fetchRunnerHealth();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      cancelled = true;
-      if (inFlight) inFlight.abort();
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, []);
-
-  // Fetch dashboard data for the board route (board reads active_agents +
-  // cards_completed_today). Polls every REFRESH_INTERVAL.
-  useEffect(() => {
-    if (!project) return;
-    let cancelled = false;
-    const fetchDashboard = () => {
-      api.getDashboard(project).then((data) => {
-        if (!cancelled) setDashboard(data);
-      }).catch(() => {
-        // non-fatal: board renders with empty fallbacks
-      });
-    };
-    fetchDashboard();
-    const interval = setInterval(fetchDashboard, REFRESH_INTERVAL);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [project]);
-
-  // Subscribe to SSE for the NowRail activity feed.
-  // Action vocabulary is normalised to the same set the backfill emits
-  // (the raw activity_log `Action` field — `"claimed"`, `"state_changed"`,
-  // `"released"`) so the dedup-by-id below is symmetric across both channels.
-  // The event id includes the action so the same card_id+timestamp+agent
-  // tuple from two different SSE events doesn't collide.
-  //
-  // `agent` defaults to "system" when missing — matches the activity log
-  // convention used by appendStateChangeLog for stall/parent auto-transitions
-  // and other server-side state changes. Without this, system-driven SSE
-  // events would silently never reach NowRail.
-  useEffect(() => {
-    if (!project) return;
-    const handler = (evt: BoardEvent) => {
-      if (evt.project !== project) return;
-      const action =
-        evt.type === 'card.claimed' ? 'claimed' :
-        evt.type === 'card.state_changed' ? 'state_changed' :
-        evt.type === 'card.released' ? 'released' :
-        null;
-      if (!action) return;
-      const agent = evt.agent || 'system';
-      setLiveActivity((curr) => [
-        { id: `${evt.timestamp}-${evt.card_id}-${agent}-${action}`, agent, action, cardId: evt.card_id, ts: evt.timestamp },
-        ...curr,
-      ].slice(0, 50));
-    };
-    const unsubs = [
-      bus.subscribe('card.claimed', handler),
-      bus.subscribe('card.state_changed', handler),
-      bus.subscribe('card.released', handler),
-    ];
-    return () => { unsubs.forEach((u) => u()); };
-  }, [bus, project]);
-
-  // One-shot historical activity backfill on mount / project change. SSE
-  // handles forward updates; this fills in entries older than the page load.
-  // Backfill ids use the same shape as the SSE branch above so the merge
-  // dedup is symmetric — an event delivered by both channels collapses to
-  // a single entry.
-  useEffect(() => {
-    if (!project) return;
-    let cancelled = false;
-    api.getActivity(project, 50)
-      .then((resp) => {
-        if (cancelled) return;
-        const backfill: ActivityEntry[] = resp.items.map((e) => ({
-          id: `${e.ts}-${e.card_id}-${e.agent}-${e.action}`,
-          agent: e.agent,
-          action: e.action,
-          cardId: e.card_id,
-          ts: e.ts,
-        }));
-        // Merge with any live entries that arrived before backfill resolved,
-        // dedup by id, sort newest-first.
-        setLiveActivity((curr) => {
-          const seen = new Set<string>();
-          const merged = [...curr, ...backfill].filter((e) => {
-            if (seen.has(e.id)) return false;
-            seen.add(e.id);
-            return true;
-          });
-          merged.sort((a, b) => b.ts.localeCompare(a.ts));
-          return merged.slice(0, 50);
-        });
-        setBackfillLoaded(true);
-      })
-      .catch(() => {
-        // Non-fatal: SSE still populates going forward.
-      });
-    return () => { cancelled = true; };
-  }, [project]);
 
   const handleCardCreated = useCallback((event: BoardEvent) => {
     if (event.data?.source_system === 'github') {
@@ -289,7 +144,7 @@ export function ProjectShell() {
         return;
       }
       setFlashCardId(card.id);
-      flashTimerRef.current = setTimeout(() => setFlashCardId(null), 2500);
+      flashTimer.schedule(() => setFlashCardId(null), 2500);
     },
     [handleCreateCard, updateCardLocally, showToast]
   );
@@ -390,8 +245,8 @@ export function ProjectShell() {
                       runningContainers={runningContainers}
                       syncStatus={syncStatus}
                       connected={connected}
-                      activityEntries={liveActivity}
-                      activityBackfillLoaded={backfillLoaded}
+                      activityEntries={activity.entries}
+                      activityBackfillLoaded={activity.backfillLoaded}
                       currentAgent={agentId}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
