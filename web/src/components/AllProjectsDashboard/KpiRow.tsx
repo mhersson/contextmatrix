@@ -136,8 +136,8 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
   const deltaPct = hasDelta
     ? Math.round(((costLast30dUsd - costPrior30dUsd) / costPrior30dUsd) * 100)
     : 0;
-  // The rounded `0%` case is treated as up to avoid red-styling tiny decreases
-  // like $9.99 → $10 (rounds to 0% but is technically negative).
+  // The rounded 0% case is treated as up to avoid red-styling tiny decreases
+  // like $9.99 -> $10 (rounds to 0% but is technically negative).
   const deltaUp = hasDelta && (costLast30dUsd >= costPrior30dUsd || deltaPct === 0);
 
   return (
