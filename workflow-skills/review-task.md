@@ -39,10 +39,25 @@ On success, call `heartbeat(card_id, agent_id)` before Step 3.
 
 ## Step 3: Pass 2 — Three parallel specialists
 
+### Pick the specialist model
+
+Default to `claude-sonnet-4-6`. Upgrade all three specialists to
+`claude-opus-4-7` when total changed lines (insertions + deletions)
+exceed 200.
+
+Run `git diff <base>..HEAD --shortstat`. The output is one line, e.g.
+`4 files changed, 187 insertions(+), 1 deletion(-)`. Sum insertions and
+deletions; compare to 200. Either or both fields may be absent if the
+diff is pure-add or pure-delete — treat missing as zero.
+
+The chosen model applies to all three specialists in this review cycle.
+
+### Spawn
+
 Spawn three `Agent` calls in a **single message**. Each:
 
 - `subagent_type: "general-purpose"`
-- `model: "claude-opus-4-7"`
+- `model: <the model chosen above>`
 
 Do not pre-read files and embed content in the prompts — specialists read what
 they need.
@@ -67,7 +82,7 @@ silently drop the missing specialty's coverage.
   etc.); log each with
   `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
-  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model="claude-opus-4-7", prompt_tokens=..., completion_tokens=...)`.
+  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=...)`.
 - Return the output format below — nothing else.
 
 Specialist hard constraints:

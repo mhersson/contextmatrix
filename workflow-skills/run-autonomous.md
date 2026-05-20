@@ -224,12 +224,34 @@ Based on the card's current state and body content:
 17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`:
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
-      - If **< 5**: Increment `review_attempts` by updating the card.
-        Transition parent back to `in_progress`:
-        `transition_card(card_id='<card_id>', new_state='in_progress')`.
-        Create new "fix" subtasks based on the review findings. Go to Phase 3
-        for the fix subtasks only, then return to Phase 4 (Documentation),
-        then Phase 5 (Review).
+      - If **< 5**:
+        1. Increment `review_attempts` by updating the card.
+        2. Transition parent back to `in_progress`:
+           `transition_card(card_id='<card_id>', new_state='in_progress')`.
+        3. **MUST call `create_card`** to cover every Critical,
+           Important, and Minor finding that requires a code change.
+           Group findings that touch the same file or share a coherent
+           fix into one subtask — three nits in one test file = one
+           subtask, not three. Split only when findings span different
+           files or independent concerns. Parent each subtask to this
+           card; body must include the finding text verbatim and the
+           acceptance criterion ("test X passes", "file Y no longer
+           contains Z", etc.).
+        4. **MUST go to Phase 3** to spawn `execute-task` sub-agents
+           for those fix subtasks via the `Agent` tool. **DO NOT apply
+           the fixes inline yourself**, even when the change is a
+           one-line tweak to a comment or a moved import. Inline
+           iteration on review findings recycles the same context that
+           produced the defect — the next review cycle then finds new
+           variants of the same problem.
+        5. After all fix subtasks reach `done`, return to Phase 4
+           (Documentation), then Phase 5 (Review).
+
+        **Red flag — stop, you're iterating inline.** If you find
+        yourself opening a file mentioned in `REVIEW_FINDINGS` to
+        "address the nit quickly", stop. Create the subtask. Spawn
+        the sub-agent. The protocol is identical whether the fix is
+        ten lines or one.
       - If **>= 5**: **STOP.** Call `report_usage` with your remaining token consumption, then print:
         ```
         AUTONOMOUS_HALTED
