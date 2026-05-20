@@ -9,8 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -92,6 +94,10 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	return mcpAuthMiddleware(wrapped, apiKey)
 }
 
+// chatSessionIDRe is the canonical shape for a chat session ID: 26 upper-case
+// base32 characters (A-Z and 2-7), matching the output of chat.NewID.
+var chatSessionIDRe = regexp.MustCompile(`^[A-Z2-7]{26}$`)
+
 // chatSessionHeaderMiddleware reads the X-CM-Chat-Session header (forwarded by
 // chat-container entrypoints) and stashes the value into the request context
 // via mcpcontext.WithChatSession. Session-scoped MCP tools
@@ -100,12 +106,25 @@ func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 //
 // Empty header (card-mode worker, human curl) leaves the context untouched so
 // existing flows are unaffected.
+//
+// Malformed or oversized values are rejected with 400 so they cannot propagate
+// into context or error strings.
 func chatSessionHeaderMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h := r.Header.Get("X-CM-Chat-Session"); h != "" {
-			r = r.WithContext(mcpcontext.WithChatSession(r.Context(), h))
+		h := r.Header.Get("X-CM-Chat-Session")
+		if h == "" {
+			next.ServeHTTP(w, r)
+
+			return
 		}
 
+		if !chatSessionIDRe.MatchString(h) {
+			http.Error(w, "invalid X-CM-Chat-Session", http.StatusBadRequest)
+
+			return
+		}
+
+		r = r.WithContext(mcpcontext.WithChatSession(r.Context(), h))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -134,10 +153,24 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Cap body reads locally so this middleware is safe even when mounted
+		// without an upstream body-limit middleware. 5 MiB matches the outer
+		// bodyLimit used on the main router.
+		const bodyCapBytes = 5 * 1024 * 1024
+
 		// Read and restore the body so the SDK handler sees the original bytes.
 		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, bodyCapBytes)
+
 			buf, err := io.ReadAll(r.Body)
-			r.Body = io.NopCloser(bytes.NewReader(buf))
+			if err != nil {
+				// On a read error (e.g. MaxBytesReader limit hit, connection
+				// reset) hand the SDK an empty body so it surfaces a clean
+				// "empty body" error rather than a partially-read one.
+				r.Body = http.NoBody
+			} else {
+				r.Body = io.NopCloser(bytes.NewReader(buf))
+			}
 
 			if err == nil {
 				// Minimal shape to extract method and (for tools/call) the tool name.
@@ -175,12 +208,22 @@ const maxLogFieldLen = 64
 
 // truncateLogField clips s to maxLogFieldLen runes. Truncation suffix is added
 // only when truncation actually happened so short values are unchanged.
+// Truncation is done on rune boundaries to avoid splitting multi-byte UTF-8
+// sequences and producing invalid UTF-8 in log output.
 func truncateLogField(s string) string {
-	if len(s) <= maxLogFieldLen {
+	if utf8.RuneCountInString(s) <= maxLogFieldLen {
 		return s
 	}
 
-	return s[:maxLogFieldLen] + "…"
+	// Walk rune boundaries to find the byte offset of the maxLogFieldLen-th rune.
+	bytePos := 0
+
+	for range maxLogFieldLen {
+		_, size := utf8.DecodeRuneInString(s[bytePos:])
+		bytePos += size
+	}
+
+	return s[:bytePos] + "…"
 }
 
 // clearWriteDeadlineForStreaming wraps an http.Handler and disables the write

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,12 +14,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // ErrRateLimited is returned when the GitHub API rate limit is exhausted.
 var ErrRateLimited = errors.New("github: rate limit exceeded")
+
+// ErrPermissionDenied is returned when GitHub responds with 403 for reasons
+// other than rate limiting — revoked PAT, SAML SSO not authorised, missing
+// repo permissions, IP allowlist denial, etc. The syncer must surface these
+// as configuration problems rather than silently retrying on the next cycle
+// the way it does for transient rate-limit responses.
+var ErrPermissionDenied = errors.New("github: permission denied")
 
 const (
 	defaultBaseURL  = "https://api.github.com"
@@ -66,10 +76,19 @@ func NewClientWithBaseURL(provider githubauth.TokenGenerator, baseURL string) *C
 		baseURL = defaultBaseURL
 	}
 
+	transport := &http.Transport{
+		ResponseHeaderTimeout: 10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConnsPerHost:   10,
+	}
+
 	return &Client{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		provider:   provider,
-		baseURL:    baseURL,
+		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: transport,
+		},
+		provider: provider,
+		baseURL:  baseURL,
 	}
 }
 
@@ -99,7 +118,7 @@ func (c *Client) FetchOpenIssues(ctx context.Context, owner, repo string, labelF
 	nextURL := u.String()
 
 	for page := 0; page < maxPages && nextURL != ""; page++ {
-		issues, next, rateLimited, err := c.fetchPage(ctx, nextURL)
+		issues, next, rateLimited, err := doPage[Issue](ctx, c, nextURL)
 		if err != nil {
 			return allIssues, err
 		}
@@ -120,6 +139,12 @@ func (c *Client) FetchOpenIssues(ctx context.Context, owner, repo string, labelF
 		}
 
 		nextURL = next
+	}
+
+	if nextURL != "" {
+		slog.Warn("github: FetchOpenIssues hit maxPages cap; some issues may be missing",
+			"owner", owner, "repo", repo, "maxPages", maxPages)
+		metrics.GitHubPagesTruncatedTotal.WithLabelValues("issues").Inc()
 	}
 
 	return allIssues, nil
@@ -147,12 +172,14 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 	nextURL := u.String()
 
 	for page := 0; page < maxPages && nextURL != ""; page++ {
-		names, next, rateLimited, err := c.fetchBranchPage(ctx, nextURL)
+		items, next, rateLimited, err := doPage[branchItem](ctx, c, nextURL)
 		if err != nil {
 			return allNames, err
 		}
 
-		allNames = append(allNames, names...)
+		for _, b := range items {
+			allNames = append(allNames, b.Name)
+		}
 
 		if rateLimited {
 			// This page was the last one before the rate limit is hit.
@@ -165,75 +192,29 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 		nextURL = next
 	}
 
+	if nextURL != "" {
+		slog.Warn("github: FetchBranches hit maxPages cap; some branches may be missing",
+			"owner", owner, "repo", repo, "maxPages", maxPages)
+		metrics.GitHubPagesTruncatedTotal.WithLabelValues("branches").Inc()
+	}
+
 	slices.Sort(allNames)
 
 	return allNames, nil
 }
 
-// fetchBranchPage fetches a single page of branches. Returns the branch names, the next
-// page URL (empty if none), whether the rate limit is now exhausted, and any error.
-func (c *Client) fetchBranchPage(ctx context.Context, rawURL string) ([]string, string, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, "", false, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "contextmatrix")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	token, _, err := c.provider.GenerateToken(req.Context())
-	if err != nil {
-		return nil, "", false, fmt.Errorf("get github token: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, "", false, fmt.Errorf("http request: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
-		return nil, "", false, ErrRateLimited
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-
-		return nil, "", false, fmt.Errorf("github api: status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var branches []branchItem
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&branches); err != nil {
-		return nil, "", false, fmt.Errorf("decode response: %w", err)
-	}
-
-	names := make([]string, 0, len(branches))
-	for _, b := range branches {
-		names = append(names, b.Name)
-	}
-
-	next := c.parseLinkNext(resp.Header.Get("Link"))
-
-	// Check if rate limit is now exhausted. The current page's data is valid;
-	// remaining=0 means the *next* request would be rate-limited.
-	rateLimited := false
-
-	if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
-		if n, _ := strconv.Atoi(remaining); n == 0 {
-			rateLimited = true
-		}
-	}
-
-	return names, next, rateLimited, nil
+// pageDecoder is an interface satisfied by any type that can be JSON-decoded
+// from a GitHub API list response. The constraint exists only to bound the
+// type parameter; in practice any struct works.
+type pageDecoder interface {
+	Issue | branchItem
 }
 
-// fetchPage fetches a single page of issues. Returns the issues, the next page
-// URL (empty if none), whether the rate limit is now exhausted, and any error.
-func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string, bool, error) {
+// doPage fetches a single paginated GitHub API page and decodes the JSON body
+// into a slice of T. It returns the decoded items, the next-page URL (empty
+// when exhausted), whether the rate limit is now exhausted after this page,
+// and any transport/HTTP/decode error.
+func doPage[T pageDecoder](ctx context.Context, c *Client, rawURL string) ([]T, string, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("create request: %w", err)
@@ -257,18 +238,35 @@ func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string,
 
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+	// 429 is unambiguously rate-limiting. 403 is overloaded — GitHub returns
+	// it for genuine rate-limit responses (primary or secondary) and for many
+	// non-rate-limit failures (revoked PAT, SAML SSO not authorised, missing
+	// repo permissions, IP allowlist denial). The syncer treats ErrRateLimited
+	// as transient, so misclassifying a permission failure as rate-limited
+	// silently abandons every cycle without surfacing the auth problem.
+	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, "", false, ErrRateLimited
+	}
+
+	if resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+		if isRateLimitForbidden(resp.Header, body) {
+			return nil, "", false, ErrRateLimited
+		}
+
+		return nil, "", false, fmt.Errorf("%w: status 403: %s",
+			ErrPermissionDenied, sanitizeBody(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
-		return nil, "", false, fmt.Errorf("github api: status %d: %s", resp.StatusCode, string(body))
+		return nil, "", false, fmt.Errorf("github api: status %d: %s", resp.StatusCode, sanitizeBody(body))
 	}
 
-	var issues []Issue
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&issues); err != nil {
+	var items []T
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&items); err != nil {
 		return nil, "", false, fmt.Errorf("decode response: %w", err)
 	}
 
@@ -279,20 +277,57 @@ func (c *Client) fetchPage(ctx context.Context, rawURL string) ([]Issue, string,
 	rateLimited := false
 
 	if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
-		if n, _ := strconv.Atoi(remaining); n == 0 {
+		if n, err := strconv.Atoi(remaining); err == nil && n <= 0 {
 			rateLimited = true
 		}
 	}
 
-	return issues, next, rateLimited, nil
+	return items, next, rateLimited, nil
+}
+
+// isRateLimitForbidden distinguishes a rate-limit 403 from a permission 403.
+// GitHub uses 403 for both primary rate limits (X-RateLimit-Remaining: 0) and
+// secondary abuse-detection rate limits (the body contains "secondary rate
+// limit"). Everything else — revoked PAT, SAML SSO, missing repo permissions,
+// IP allowlist denial — is treated as a permission error so the syncer
+// surfaces it instead of looping forever.
+func isRateLimitForbidden(header http.Header, body []byte) bool {
+	if remaining := header.Get("X-RateLimit-Remaining"); remaining != "" {
+		if n, err := strconv.Atoi(remaining); err == nil && n <= 0 {
+			return true
+		}
+	}
+
+	// Body inspection is the fallback for secondary rate limits, which do not
+	// always advertise themselves via X-RateLimit-Remaining=0. Match GitHub's
+	// documented strings case-insensitively.
+	lower := strings.ToLower(string(body))
+	if strings.Contains(lower, "secondary rate limit") || strings.Contains(lower, "rate limit") {
+		return true
+	}
+
+	return false
+}
+
+// sanitizeBody strips non-printable runes from remote-controlled error body
+// bytes before they are interpolated into log/error strings.
+func sanitizeBody(b []byte) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) || r == '\n' || r == '\t' {
+			return r
+		}
+
+		return -1
+	}, string(b))
 }
 
 // linkNextRe matches rel="next" in a Link header.
 var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
 // parseLinkNext extracts the "next" URL from a Link header.
-// Returns empty string if absent or if the URL host does not match the host
-// of c.baseURL — preventing SSRF via manipulated Link headers.
+// Returns empty string if absent, if the URL host does not match the host of
+// c.baseURL, or if the URL scheme would downgrade from HTTPS to HTTP —
+// preventing SSRF via manipulated Link headers and token leakage over plain HTTP.
 func (c *Client) parseLinkNext(header string) string {
 	if header == "" {
 		return ""
@@ -303,8 +338,8 @@ func (c *Client) parseLinkNext(header string) string {
 		return ""
 	}
 
-	// Validate that the next URL points to the same host as the configured
-	// base URL to prevent SSRF via manipulated Link headers.
+	// Validate that the next URL points to the same host and scheme as the
+	// configured base URL to prevent SSRF and scheme-downgrade attacks.
 	base, err := url.Parse(c.baseURL)
 	if err != nil {
 		return ""
@@ -312,6 +347,12 @@ func (c *Client) parseLinkNext(header string) string {
 
 	next, err := url.Parse(m[1])
 	if err != nil || next.Host != base.Host {
+		return ""
+	}
+
+	// Disallow scheme downgrade (e.g. https → http), which would send the
+	// bearer token over an unencrypted connection.
+	if next.Scheme != base.Scheme {
 		return ""
 	}
 

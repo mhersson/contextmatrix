@@ -4,12 +4,31 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 )
+
+// maxSummaryBytes is the upper bound on the rehydration summary payload.
+// A 5 MiB summary would persist in SQLite and be dispatched to every
+// connected SSE subscriber; 16 KiB is generous for a one-paragraph anchor.
+const maxSummaryBytes = 16 * 1024
+
+// sanitizeLogField strips non-printable runes (including newlines and ANSI
+// escape sequences) from s so user-controlled values are safe to interpolate
+// into structured log messages.
+func sanitizeLogField(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+
+		return -1
+	}, s)
+}
 
 // chatRehydrationCompleteInput is the agent-facing argument shape.
 type chatRehydrationCompleteInput struct {
@@ -56,12 +75,17 @@ func buildChatRehydrationCompleteTool(mgr *chat.Manager) func(context.Context, *
 			return nil, chatRehydrationCompleteOutput{}, fmt.Errorf("chat_rehydration_complete: summary is required")
 		}
 
+		if len(in.Summary) > maxSummaryBytes {
+			return nil, chatRehydrationCompleteOutput{}, fmt.Errorf("chat_rehydration_complete: summary exceeds %d-byte limit (%d bytes)", maxSummaryBytes, len(in.Summary))
+		}
+
 		// Gate the call to the caller's own session. Chat-container callers
 		// forward CM_CHAT_SESSION via X-CM-Chat-Session; the middleware stashes
 		// it into ctx. Empty caller means the header was absent (card-mode
 		// worker, human curl) so we skip the check.
 		if caller := mcpcontext.ChatSession(ctx); caller != "" && caller != in.SessionID {
-			return nil, chatRehydrationCompleteOutput{}, fmt.Errorf("chat_rehydration_complete: session mismatch: caller=%s session_id=%s", caller, in.SessionID)
+			return nil, chatRehydrationCompleteOutput{}, fmt.Errorf("chat_rehydration_complete: session mismatch: caller=%s session_id=%s",
+				sanitizeLogField(caller), sanitizeLogField(in.SessionID))
 		}
 
 		if err := mgr.CompleteRehydration(ctx, in.SessionID, in.Summary); err != nil {

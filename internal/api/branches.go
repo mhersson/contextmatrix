@@ -43,7 +43,7 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 
 	owner, repo, _, ok := github.ParseGitHubRepo(project.Repo, h.allowedHosts)
 	if !ok {
-		writeError(w, http.StatusNotFound, "NO_GITHUB_REPO",
+		writeError(w, http.StatusNotFound, ErrCodeNoGitHubRepo,
 			"project does not have a GitHub repository URL", "")
 
 		return

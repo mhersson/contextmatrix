@@ -18,6 +18,8 @@ interface FeedEntry {
 }
 
 const MAX_ENTRIES = 20;
+/** Maximum number of keys held in the dedupe FIFO — twice the visible window. */
+const DEDUPE_CAP = MAX_ENTRIES * 2;
 
 const TRACKED: ReadonlySet<BoardEvent['type']> = new Set<BoardEvent['type']>([
   'card.state_changed',
@@ -76,8 +78,9 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
   // 30s ticker forces relative-timestamp re-render without surfacing
   // an unused state variable.
   const [, tick] = useReducer((n: number) => n + 1, 0);
-  // Survives across effect re-subscribes; can't collide with itself.
-  const dedupeRef = useRef<Set<string>>(new Set());
+  // Bounded FIFO dedupe: Map preserves insertion order; we evict the oldest
+  // key when the map reaches DEDUPE_CAP, so memory stays O(MAX_ENTRIES).
+  const dedupeRef = useRef<Map<string, true>>(new Map());
 
   useEffect(() => {
     const id = window.setInterval(() => tick(), 30_000);
@@ -89,7 +92,12 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
       if (!TRACKED.has(event.type)) return;
       const key = dedupeKey(event);
       if (dedupeRef.current.has(key)) return;
-      dedupeRef.current.add(key);
+      // Bounded FIFO: evict the oldest key before adding so the map stays ≤ DEDUPE_CAP.
+      if (dedupeRef.current.size >= DEDUPE_CAP) {
+        const oldest = dedupeRef.current.keys().next().value;
+        if (oldest !== undefined) dedupeRef.current.delete(oldest);
+      }
+      dedupeRef.current.set(key, true);
       setEntries((prev) => {
         const tsMs = Date.parse(event.timestamp);
         const next: FeedEntry = {
@@ -97,16 +105,14 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
           tsMs: Number.isNaN(tsMs) ? 0 : tsMs,
           event,
         };
-        const out = [next, ...prev];
-        // Defensive sort: SSE delivery is in-order but a clock-skew nudge or
-        // server-side reorder should not put older events at the top.
-        out.sort((a, b) => b.tsMs - a.tsMs);
+        // SSE delivery is in-order; defensive insertion-sort for clock-skew
+        // nudges: find the correct position in O(n) rather than sorting O(n log n).
+        let insertAt = 0;
+        while (insertAt < prev.length && prev[insertAt].tsMs >= next.tsMs) {
+          insertAt++;
+        }
+        const out = [...prev.slice(0, insertAt), next, ...prev.slice(insertAt)];
         if (out.length > MAX_ENTRIES) {
-          // Evict the dedupe entries for dropped events so the set can't grow
-          // unbounded over a long session.
-          for (let i = MAX_ENTRIES; i < out.length; i++) {
-            dedupeRef.current.delete(dedupeKey(out[i].event));
-          }
           out.length = MAX_ENTRIES;
         }
         return out;
@@ -226,12 +232,8 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                     <span style={{ color: 'var(--grey1)' }}>{body.prefix}</span>
                   )}
                   <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 11.5,
-                      color: 'var(--grey1)',
-                      marginLeft: 6,
-                    }}
+                    className="apd-meta-line"
+                    style={{ marginLeft: 6 }}
                   >
                     {body.agent}
                   </span>

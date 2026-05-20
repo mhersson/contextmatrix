@@ -21,7 +21,7 @@ func seedKB(t *testing.T, env *testEnv) {
 	cfg, err := env.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, env.store.SaveProject(ctx, cfg))
 
 	_, err = env.svc.WriteKnowledgeDocs(ctx, service.WriteKnowledgeDocsInput{
@@ -134,7 +134,7 @@ func TestRefreshKnowledgeBase_HumanCanCall(t *testing.T) {
 	cfg, err := env.svc.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, env.store.SaveProject(ctx, cfg))
 
 	result := callTool(t, env, "refresh_knowledge_base", map[string]any{
@@ -165,7 +165,7 @@ func TestCommitKnowledgeDocs_HumanWritesAndPersists(t *testing.T) {
 	cfg, err := env.svc.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, env.store.SaveProject(ctx, cfg))
 
 	result := callTool(t, env, "commit_knowledge_docs", map[string]any{
@@ -320,7 +320,7 @@ func TestGetSkill_RefreshKnowledge(t *testing.T) {
 	cfg, err := env.svc.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, env.store.SaveProject(ctx, cfg))
 
 	result := callTool(t, env, "get_skill", map[string]any{

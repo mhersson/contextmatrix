@@ -80,7 +80,7 @@ func TestTriggerSync_Disabled(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, "SYNC_DISABLED", apiErr.Code)
+	assert.Equal(t, ErrCodeSyncDisabled, apiErr.Code)
 }
 
 func TestTriggerSync_Error(t *testing.T) {
@@ -108,7 +108,7 @@ func TestTriggerSync_Error(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, "SYNC_ERROR", apiErr.Code)
+	assert.Equal(t, ErrCodeSyncError, apiErr.Code)
 	assert.Contains(t, apiErr.Details, "rebase conflict")
 }
 

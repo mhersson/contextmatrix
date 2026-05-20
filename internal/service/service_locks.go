@@ -298,6 +298,20 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
+	// Defense-in-depth: never re-stall a card that has already reached a
+	// terminal state. Per the design tension noted in
+	// enforceTerminalStateInvariants, a card may legitimately retain a live
+	// claim through StateDone so the subsequent ReleaseCard call can flush
+	// deferred commits — that done-with-claim window must not be flagged
+	// stalled. StateNotPlanned already clears the claim on transition so
+	// this guard is symmetric and free of behavioural impact for it.
+	// StateStalled itself is included for idempotency.
+	if card.State == board.StateDone || card.State == board.StateNotPlanned || card.State == board.StateStalled {
+		s.writeMu.Unlock()
+
+		return nil
+	}
+
 	// Snapshot for rollback on commit failure. card is a deep copy but we
 	// are about to mutate it in place, so capture the pre-mutation state
 	// by loading a second copy.
@@ -346,22 +360,31 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 
 	commitDone, notify := s.enqueueCardCommit(ctx, sc.Project, card.ID, "", "stalled (heartbeat timeout)")
 
-	// Flush any deferred commits since card is now in a final state. Runs
-	// under writeMu because the flush mutates deferredPaths.
-	flushErr := s.flushDeferredCommit(ctx, card.ID, previousAgent)
-
 	s.writeMu.Unlock()
 
-	if flushErr != nil {
-		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", flushErr)
-	}
-
+	// Await the stall commit FIRST. Flushing the deferred queue before the
+	// stall commit lands would mean a rollback (commit failure) restores the
+	// card snapshot while the deferred-flush commit is already in git —
+	// permanent state divergence. Defer the flush until the stall commit
+	// succeeds; on commit failure, the deferred paths remain queued and will
+	// be picked up by the next mutation/release.
 	if err := s.awaitCommit(commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, sc.Project, snapshot, err)
 		s.writeMu.Unlock()
 
 		return rollbackErr
+	}
+
+	// Stall commit landed — now safe to flush deferred commits. Re-acquire
+	// writeMu because flushDeferredCommit mutates deferredPaths and routes
+	// through the commit queue.
+	s.writeMu.Lock()
+	flushErr := s.flushDeferredCommit(ctx, card.ID, previousAgent)
+	s.writeMu.Unlock()
+
+	if flushErr != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", flushErr)
 	}
 
 	// Publish event

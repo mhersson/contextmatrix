@@ -11,12 +11,14 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1809,7 +1811,8 @@ func TestSlowSubscriberDropCounter_Direct(t *testing.T) {
 	select {
 	case evt := <-ch:
 		assert.Equal(t, EventTypeDropped, evt.Type, "event type should be EventTypeDropped")
-		assert.Nil(t, evt.Payload, "fan-out drop marker must have nil payload")
+		assert.Equal(t, uint64(1), DroppedMarkerCount(evt),
+			"fan-out drop marker must carry encodeDropCount(1) so consumers can sum counts uniformly")
 		assert.Equal(t, uint64(0), evt.Seq, "fan-out drop marker Seq should be 0")
 	default:
 		t.Fatal("expected drop-marker event in subscriber channel")
@@ -1912,8 +1915,11 @@ drainLoop:
 			}
 
 			if evt.Type == EventTypeDropped {
-				// Fan-out drop markers carry nil payload (distinct from buffer-eviction markers).
-				assert.Nil(t, evt.Payload, "fan-out drop marker must have nil payload")
+				// Fan-out drop markers carry encodeDropCount(1) so consumers
+				// see a uniform 8-byte count payload regardless of whether
+				// the marker came from buffer eviction or fan-out backpressure.
+				assert.Equal(t, uint64(1), DroppedMarkerCount(evt),
+					"fan-out drop marker must carry encodeDropCount(1)")
 
 				gotDropMarker = true
 
@@ -2268,4 +2274,79 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 	assert.Contains(t, uri, "/logs", "URI should hit /logs endpoint")
 	assert.Contains(t, uri, "project=harness-project",
 		"URI must carry the project query — that's the bytes the signature binds")
+}
+
+// TestSignSSERequestMatchesRunnerSigner is the dual-signer invariant test
+// referenced from signSSERequest's doc comment. It fingerprints the same
+// (method, uri, empty-body, timestamp) tuple through both the inlined
+// sessionlog signer and the canonical runner.SignRequestHeaders by
+// running both within the same wall-clock second and verifying the
+// resulting signatures are byte-identical when their timestamps agree.
+//
+// Why this test exists: signSSERequest is a private re-implementation of
+// runner.SignRequestHeaders, inlined because importing the runner package
+// from this leaf subpackage would pull in board/storage/events/metrics
+// (see the doc comment on signSSERequest). If either signer drifts from
+// the other — different algorithm, different newline/separator, different
+// timestamp granularity — runner-side HMAC verification will fail at
+// runtime; this test catches that at compile-and-test time instead.
+func TestSignSSERequestMatchesRunnerSigner(t *testing.T) {
+	const apiKey = "shared-secret-for-drift-check"
+
+	cases := []struct {
+		name string
+		uri  string
+	}{
+		{"path only", "/logs"},
+		{"path with project", "/logs?project=alpha"},
+		{"path with encoded project", "/logs?project=alpha%20beta"},
+		{"root", "/"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Both signers stamp with time.Now().Unix(). Retry on the second
+			// boundary so the comparison is byte-identical when both sides
+			// see the same timestamp. A handful of retries covers the worst
+			// case of being unlucky enough to straddle a boundary several
+			// times in a row.
+			var (
+				inlineSig, runnerSig string
+				matched              bool
+			)
+
+			for range 5 {
+				var inlineTS, runnerTS string
+
+				inlineSig, inlineTS = signSSERequest(apiKey, tc.uri)
+				runnerSig, runnerTS = runner.SignRequestHeaders(apiKey, http.MethodGet, tc.uri, nil)
+
+				if inlineTS == runnerTS {
+					matched = true
+
+					break
+				}
+			}
+
+			require.True(t, matched,
+				"signSSERequest and runner.SignRequestHeaders both depend on time.Now().Unix(); "+
+					"after 5 retries they should agree on a timestamp within the same second")
+
+			require.True(t, strings.HasPrefix(inlineSig, "sha256="),
+				"signSSERequest must emit sha256= prefix")
+			require.True(t, strings.HasPrefix(runnerSig, "sha256="),
+				"runner.SignRequestHeaders must emit sha256= prefix")
+
+			// The core invariant: given identical (key, method, uri, ts,
+			// empty body) inputs, both signers must produce byte-identical
+			// signatures. If either side drifts (different newline, missing
+			// dot separator, different algorithm, body-not-empty bug), this
+			// assertion fails.
+			assert.Equal(t, runnerSig, inlineSig,
+				"signSSERequest and runner.SignRequestHeaders have drifted; "+
+					"the inlined copy in manager.go is no longer byte-compatible "+
+					"with internal/runner/hmac.go — runner-side HMAC verification "+
+					"will reject sessionlog's SSE requests in production")
+		})
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -102,28 +103,26 @@ type RefreshKnowledgePayload struct {
 // combined with State="running" is the tracker/Docker divergence signature
 // that the older in-process cleanup paths could not detect.
 type ContainerInfo struct {
-	ContainerID   string
-	ContainerName string
-	CardID        string
-	SessionID     string
-	Project       string
-	State         string
-	StartedAt     time.Time
-	Tracked       bool
+	ContainerID string
+	CardID      string
+	SessionID   string
+	Project     string
+	State       string
+	StartedAt   time.Time
+	Tracked     bool
 }
 
 // containerInfoWire is the on-the-wire shape of a /containers entry. Kept
 // separate from ContainerInfo so the public type carries a parsed time.Time
 // while the HTTP response stays string-valued.
 type containerInfoWire struct {
-	ContainerID   string `json:"container_id"`
-	ContainerName string `json:"container_name,omitempty"`
-	CardID        string `json:"card_id"`
-	SessionID     string `json:"session_id,omitempty"`
-	Project       string `json:"project"`
-	State         string `json:"state"`
-	StartedAt     string `json:"started_at"`
-	Tracked       bool   `json:"tracked"`
+	ContainerID string `json:"container_id"`
+	CardID      string `json:"card_id"`
+	SessionID   string `json:"session_id,omitempty"`
+	Project     string `json:"project"`
+	State       string `json:"state"`
+	StartedAt   string `json:"started_at"`
+	Tracked     bool   `json:"tracked"`
 }
 
 type listContainersResponseWire struct {
@@ -257,14 +256,13 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 		}
 
 		out = append(out, ContainerInfo{
-			ContainerID:   c.ContainerID,
-			ContainerName: c.ContainerName,
-			CardID:        c.CardID,
-			SessionID:     c.SessionID,
-			Project:       c.Project,
-			State:         c.State,
-			StartedAt:     started,
-			Tracked:       c.Tracked,
+			ContainerID: c.ContainerID,
+			CardID:      c.CardID,
+			SessionID:   c.SessionID,
+			Project:     c.Project,
+			State:       c.State,
+			StartedAt:   started,
+			Tracked:     c.Tracked,
 		})
 	}
 
@@ -319,8 +317,18 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		if isClientError(lastErr) {
 			return lastErr
 		}
-		// Exponential backoff scaled from BackoffBase (default: 1s, 2s, 4s).
-		backoff := time.Duration(1<<uint(attempt)) * BackoffBase
+		// Exponential backoff with ±25% jitter to spread concurrent retries.
+		// Cap the shift at 30 to avoid int overflow if maxRetries ever grows
+		// past ~30 (1<<31 overflows int32 on 32-bit; 1<<63 overflows int64).
+		shift := attempt
+		if shift > 30 {
+			shift = 30
+		}
+
+		base := time.Duration(1<<uint(shift)) * BackoffBase
+		// jitter is in [-25%, +25%] of base
+		jitter := time.Duration(rand.Int64N(int64(base)/2) - int64(base)/4) //nolint:gosec // non-security jitter
+		backoff := base + jitter
 		ctxlog.Logger(ctx).Warn("runner webhook transient error, retrying",
 			"url", rawURL,
 			"attempt", attempt+1,

@@ -22,7 +22,7 @@ type syncHandlers struct {
 // triggerSync handles POST /api/sync.
 func (h *syncHandlers) triggerSync(w http.ResponseWriter, r *http.Request) {
 	if h.syncer == nil {
-		writeError(w, http.StatusServiceUnavailable, "SYNC_DISABLED",
+		writeError(w, http.StatusServiceUnavailable, ErrCodeSyncDisabled,
 			"sync is disabled (no remote configured)", "")
 
 		return
@@ -33,7 +33,7 @@ func (h *syncHandlers) triggerSync(w http.ResponseWriter, r *http.Request) {
 		// embed the remote URL and on-disk path. Sanitize before emitting
 		// to the client so auth hints / filesystem layout don't leak.
 		ctxlog.Logger(r.Context()).Error("sync failed", "error", err.Error())
-		writeError(w, http.StatusInternalServerError, "SYNC_ERROR",
+		writeError(w, http.StatusInternalServerError, ErrCodeSyncError,
 			"sync failed", sanitizeErrorDetails(err))
 
 		return

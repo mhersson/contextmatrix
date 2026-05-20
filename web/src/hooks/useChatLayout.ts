@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTimeoutRef } from './useTimeoutRef';
 import type {
   AvailableChat,
   PaneSizes,
@@ -231,11 +232,13 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     });
   }, [availableIds]);
 
-  // Persist (debounced)
+  // Persist (debounced). On cleanup, flush synchronously so the final state
+  // is not lost when the component unmounts within the debounce window.
+  const persistTimer = useTimeoutRef();
   useEffect(() => {
-    const t = setTimeout(() => savePersisted(state), PERSIST_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [state]);
+    persistTimer.schedule(() => savePersisted(state), PERSIST_DEBOUNCE_MS);
+    return () => savePersisted(state);
+  }, [state, persistTimer]);
 
   // Persist focused-pane chat id to last_chat_id. Tab title stays at the
   // index.html default ("ContextMatrix") — match the board view.

@@ -399,13 +399,6 @@ export interface RefreshStatusResponse {
   repos: Record<string, RefreshJobStatus>;
 }
 
-export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
-  queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
-  running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },
-  failed: { bg: 'var(--bg-red)', text: 'var(--red)', label: 'Runner failed' },
-  killed: { bg: 'var(--bg4)', text: 'var(--grey1)', label: 'Runner killed' },
-};
-
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {

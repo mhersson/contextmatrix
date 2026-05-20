@@ -117,8 +117,16 @@ export function useChatStream(sessionID: string): UseChatStream {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let lastSeq = 0;
 
+    const VALID_CHAT_STATUSES = new Set<string>(['cold', 'active', 'warm-idle', 'ending']);
+    function isChatStatus(v: unknown): v is ChatStatus {
+      return typeof v === 'string' && VALID_CHAT_STATUSES.has(v);
+    }
+
     const subscribe = (sinceSeq: number) => {
       if (stopped) return;
+      // Record the seq at the start of this connection window so that
+      // onerror can detect whether real progress was made and reset backoff.
+      const seqAtConnectStart = lastSeq;
       es = new EventSource(`/api/chats/${encodeURIComponent(sessionID)}/stream?since_seq=${sinceSeq}`);
       es.onopen = () => {
         setConnected(true);
@@ -138,7 +146,20 @@ export function useChatStream(sessionID: string): UseChatStream {
       };
       es.addEventListener('session_updated', (ev) => {
         try {
-          const data = JSON.parse((ev as MessageEvent).data) as ChatSessionUpdate;
+          const raw = JSON.parse((ev as MessageEvent).data) as Record<string, unknown>;
+          // Narrow the status field before use — a malformed value from the
+          // server must not pollute React state with an unexpected string.
+          const data: ChatSessionUpdate = {
+            ...(typeof raw.context_tokens === 'number' && { context_tokens: raw.context_tokens }),
+            ...(typeof raw.context_tokens_updated_at === 'string' && {
+              context_tokens_updated_at: raw.context_tokens_updated_at,
+            }),
+            ...(typeof raw.model === 'string' && { model: raw.model }),
+            ...(typeof raw.rehydration_active === 'boolean' && {
+              rehydration_active: raw.rehydration_active,
+            }),
+            ...(isChatStatus(raw.status) && { status: raw.status }),
+          };
           // Compare status once per real event using a ref — avoids the
           // double-dispatch that would occur if the comparison lived inside
           // the setSessionUpdate setter (which StrictMode invokes twice).
@@ -156,6 +177,12 @@ export function useChatStream(sessionID: string): UseChatStream {
         es?.close();
         es = null;
         if (stopped) return;
+        // Reset backoff when real progress was made during this connection
+        // window (i.e. at least one new message arrived). This prevents the
+        // backoff from compounding across transient mid-stream disconnects.
+        if (lastSeq > seqAtConnectStart) {
+          retry = 1000;
+        }
         retryTimer = setTimeout(() => subscribe(lastSeq), retry);
         retry = Math.min(retry * 2, 30000);
       };
@@ -173,6 +200,11 @@ export function useChatStream(sessionID: string): UseChatStream {
       } catch {
         // Bootstrap failed — fall back to SSE-only.
       }
+      // Guard against the effect being torn down while the bootstrap await
+      // was in flight (e.g. React StrictMode double-invoke, or the user
+      // navigated away). Without this check the cleanup's `stopped = true`
+      // would be ignored and a stale EventSource would be opened.
+      if (stopped) return;
       subscribe(lastSeq);
     })();
 

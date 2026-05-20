@@ -96,27 +96,59 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 
 // detectDependencyCycle walks the dependency graph starting from cardID's
 // dependsOn list. Returns the ID that completes a cycle, or "" if none.
+//
+// Uses DFS with an explicit recursion stack so we can distinguish "already
+// visited on a different branch" (safe — diamond graph A→B→D, A→C→D) from
+// "ancestor on the current path" (a true cycle). A BFS that marks-on-pop
+// would flag a re-enqueued node as a cycle even when it was reached via
+// two independent ancestors, producing false positives on diamond graphs.
 func (s *CardService) detectDependencyCycle(ctx context.Context, project, cardID string, dependsOn []string) string {
-	visited := map[string]bool{cardID: true}
-	queue := make([]string, len(dependsOn))
-	copy(queue, dependsOn)
+	// visited tracks every node we have finished exploring. Re-visiting a
+	// finished node is not a cycle — it just means two paths converge.
+	visited := make(map[string]bool)
+	// onStack tracks nodes on the current DFS path. Re-visiting a node on
+	// the stack IS a cycle.
+	onStack := map[string]bool{cardID: true}
 
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
+	var dfs func(id string) string
 
-		if visited[cur] {
-			return cur
+	dfs = func(id string) string {
+		if onStack[id] {
+			return id
 		}
 
-		visited[cur] = true
+		if visited[id] {
+			return ""
+		}
 
-		dep, err := s.store.GetCard(ctx, project, cur)
+		onStack[id] = true
+
+		defer func() {
+			onStack[id] = false
+			visited[id] = true
+		}()
+
+		// cardID itself is not in the store yet on create paths, so callers
+		// pass its dependsOn list explicitly. For every other node, resolve
+		// children from the store.
+		dep, err := s.store.GetCard(ctx, project, id)
 		if err != nil {
-			continue
+			return ""
 		}
 
-		queue = append(queue, dep.DependsOn...)
+		for _, child := range dep.DependsOn {
+			if c := dfs(child); c != "" {
+				return c
+			}
+		}
+
+		return ""
+	}
+
+	for _, child := range dependsOn {
+		if c := dfs(child); c != "" {
+			return c
+		}
 	}
 
 	return ""

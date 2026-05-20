@@ -3,6 +3,11 @@ import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
 
+// Monotonic request counter — mirrors the useProjectSummaries pattern so only
+// the latest fetchData call commits its result to state.  Declared at module
+// scope to avoid needing to thread it through the hook signature.
+let _globalReqId = 0;
+
 interface UseBoardResult {
   config: ProjectConfig | null;
   cards: Card[];
@@ -44,6 +49,11 @@ export function useBoard(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableFilter = useMemo(() => filter, [filterKey]);
 
+  // Per-instance monotonic request id — only the latest fetchData call commits
+  // its results to state. This prevents a slower response from a stale request
+  // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
+  const reqIdRef = useRef(0);
+
   const fetchData = useCallback(async () => {
     if (!project) {
       setConfig(null);
@@ -51,6 +61,11 @@ export function useBoard(
       setLoading(false);
       return;
     }
+
+    // Stamp this request. Also stamp the global counter so concurrent hook
+    // instances (different projects) don't share the same id space.
+    const reqId = ++reqIdRef.current;
+    ++_globalReqId;
 
     setLoading(true);
     setError(null);
@@ -60,12 +75,15 @@ export function useBoard(
         api.getProject(project),
         api.getCards(project, stableFilter),
       ]);
+      // Discard stale results — a newer fetchData call already took over.
+      if (reqId !== reqIdRef.current) return;
       setConfig(projectConfig);
       setCards(projectCards);
     } catch (err) {
+      if (reqId !== reqIdRef.current) return;
       setError(isAPIError(err) ? err.error : 'Failed to load board');
     } finally {
-      setLoading(false);
+      if (reqId === reqIdRef.current) setLoading(false);
     }
   }, [project, stableFilter]);
 
@@ -86,26 +104,16 @@ export function useBoard(
     }
   }
 
+  // Single mount/re-mount effect that delegates entirely to fetchData.
+  // No duplicate inline fetch — avoids the stale-cancel race the old code had.
+  // setState-in-effect is intentional here: this effect's purpose is to trigger
+  // a data refetch when project/filter changes, and fetchData necessarily
+  // manages loading/error state as part of that fetch.
   useEffect(() => {
     if (!project) return;
-    let cancelled = false;
-    Promise.all([
-      api.getProject(project),
-      api.getCards(project, stableFilter),
-    ]).then(([projectConfig, projectCards]) => {
-      if (cancelled) return;
-      setConfig(projectConfig);
-      setCards(projectCards);
-      setLoading(false);
-    }).catch((err) => {
-      if (cancelled) return;
-      setError(isAPIError(err) ? err.error : 'Failed to load board');
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [project, stableFilter]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
+  }, [project, stableFilter, fetchData]);
 
   const onSyncEventRef = useRef(onSyncEvent);
   useEffect(() => {
@@ -138,6 +146,17 @@ export function useBoard(
       }
 
       if (event.project !== project) return;
+
+      // card.deleted must NOT be suppressed by the in-flight guard: a delete
+      // that races with a patchCard must still remove the card from local state
+      // so it does not linger after the server has permanently removed it.
+      if (event.type === 'card.deleted') {
+        setCards((prev) => prev.filter((c) => c.id !== event.card_id));
+        return;
+      }
+
+      // Suppress refresh-style SSE events while a patchCard is in flight to
+      // avoid a stale server snapshot from overwriting an optimistic update.
       if (inFlightRef.current.has(event.card_id)) return;
 
       if (event.type === 'card.created') {
@@ -169,10 +188,6 @@ export function useBoard(
           }).catch((err) => {
             console.error('Failed to refresh card after SSE event:', event.card_id, err);
           });
-          break;
-
-        case 'card.deleted':
-          setCards((prev) => prev.filter((c) => c.id !== event.card_id));
           break;
       }
     },

@@ -187,7 +187,13 @@ func (m *Manager) Start(_ context.Context, cardID, project string) error {
 	m.activeSessions[cardID] = sess
 
 	m.pumpWG.Go(func() {
-		m.runPump(pumpCtx, cardID, project, sess)
+		// Card-scoped pump: lookup key is the cardID, log label is "card_id",
+		// filter is the cardID itself (drop events that belong to other cards).
+		m.runUpstream(pumpCtx, cardID, project, sess, runUpstreamConfig{
+			logKey:       "card_id",
+			logValue:     cardID,
+			filterCardID: cardID,
+		})
 	})
 
 	return nil
@@ -345,6 +351,13 @@ func (m *Manager) Stop(cardID string) {
 	// subscriber list to avoid races.
 	sess.cancel()
 	<-sess.done
+
+	// Between releasing m.mu after delete(m.activeSessions, cardID) above and
+	// re-acquiring it below, Subscribe may have appended new subscribers to
+	// m.pendingSubs[cardID]: Subscribe is non-blocking and, finding no entry in
+	// activeSessions, parks the new subscriber in pendingSubs rather than
+	// attaching it to the session. The drain below handles those late subscribers
+	// by closing them with the same terminal Event before returning.
 
 	// Drain subscribers with a terminal event and close their channels.
 	m.mu.Lock()
@@ -645,7 +658,13 @@ func (m *Manager) StartProject(_ context.Context, project string) error {
 	m.activeSessions[key] = sess
 
 	m.pumpWG.Go(func() {
-		m.runProjectPump(pumpCtx, project, key, sess)
+		// Project-scoped pump: lookup key is "project:<name>", log label is
+		// "project", and no card filter (accept all events for the project).
+		m.runUpstream(pumpCtx, key, project, sess, runUpstreamConfig{
+			logKey:       "project",
+			logValue:     project,
+			filterCardID: "",
+		})
 	})
 
 	return nil
@@ -681,10 +700,27 @@ func (m *Manager) SubscribeProject(project string) (<-chan Event, func()) {
 	return m.Subscribe(projectKey(project))
 }
 
-// runProjectPump is the upstream SSE pump goroutine for a project-scoped
-// session.  It is identical to runPump except it uses readProjectUpstream,
-// which accepts all events for the project rather than filtering by card ID.
-func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess *activeSession) {
+// runUpstreamConfig parameterises the shared upstream pump for card- and
+// project-scoped sessions. logKey/logValue label slog fields; filterCardID
+// is the card-ID filter applied to incoming events ("" = accept all, used
+// by project-scoped pumps).
+type runUpstreamConfig struct {
+	logKey       string
+	logValue     string
+	filterCardID string
+}
+
+// runUpstream is the shared upstream SSE pump goroutine used by both card-
+// scoped (Start) and project-scoped (StartProject) sessions. It connects to
+// the runner via readUpstreamStream, and on read error retries with
+// exponential backoff up to maxUpstreamRetries before marking the session
+// permanently failed and closing it.
+//
+// key is the lookup key used in m.activeSessions / m.pendingSubs / m.sessions
+// / m.failedSessions: the cardID for card-scoped sessions, or
+// projectKey(project) for project-scoped sessions. project is the project
+// name used to build the upstream URL.
+func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *activeSession, cfg runUpstreamConfig) {
 	defer close(sess.done)
 
 	attempt := 0
@@ -694,8 +730,9 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 			return
 		}
 
-		delivered, err := m.readProjectUpstream(ctx, project, key, sess)
+		delivered, err := m.readUpstreamStream(ctx, key, project, sess, cfg)
 		if ctx.Err() != nil {
+			// Cancelled externally (Stop/Close called) — clean exit without retrying.
 			return
 		}
 
@@ -705,8 +742,8 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 
 		attempt++
 		if attempt >= maxUpstreamRetries {
-			ctxlog.Logger(ctx).Error("sessionlog: project upstream permanently failed, closing session",
-				"project", project,
+			ctxlog.Logger(ctx).Error("sessionlog: upstream permanently failed, closing session",
+				cfg.logKey, cfg.logValue,
 				"error", err,
 				"attempts", attempt,
 			)
@@ -717,7 +754,7 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 
 			subs := sess.subs
 			sess.subs = nil
-			// Drain any subscribers that raced between Subscribe and StartProject.
+			// Drain any subscribers that raced between Subscribe and Start/StartProject.
 			pendingSubs := m.pendingSubs[key]
 			delete(m.pendingSubs, key)
 			m.failedSessions[key] = struct{}{}
@@ -732,7 +769,9 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 
 			subs = append(subs, pendingSubs...)
 			closeSubscriber(subs, terminal)
-			// Clear the event buffer only; leave failedSessions intact.
+			// Clear the event buffer only; leave failedSessions intact so
+			// that any concurrent or future Subscribe call can take the
+			// fast-path.
 			m.mu.Lock()
 			delete(m.sessions, key)
 			m.mu.Unlock()
@@ -741,8 +780,8 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 		}
 
 		backoff := backoffDuration(attempt)
-		ctxlog.Logger(ctx).Warn("sessionlog: project upstream error, retrying",
-			"project", project,
+		ctxlog.Logger(ctx).Warn("sessionlog: upstream error, retrying",
+			cfg.logKey, cfg.logValue,
 			"error", err,
 			"attempt", attempt,
 			"backoff", backoff,
@@ -756,19 +795,28 @@ func (m *Manager) runProjectPump(ctx context.Context, project, key string, sess 
 	}
 }
 
-// readProjectUpstream connects to the runner /logs endpoint for the given
-// project and reads SSE frames until the connection closes or ctx is
-// cancelled.
+// readUpstreamStream connects to the runner /logs endpoint and reads SSE
+// frames until the connection closes or ctx is cancelled. It is the shared
+// implementation for both card- and project-scoped pumps:
 //
-// Unlike readUpstream (which filters by card ID), this function accepts every
-// event for the project and buffers them under the project key.  This allows
-// SubscribeProject to replay all project events to reconnecting clients.
-// readProjectUpstream returns (delivered, err) where delivered is true if at
-// least one frame was successfully buffered and fanned out during this
-// connection.  Callers use the delivered flag to reset the retry-attempt
-// counter so that transient disconnects after successful frames do not
-// accumulate toward the permanent-failure threshold.
-func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, sess *activeSession) (bool, error) {
+//   - key selects the per-session buffer in m.sessions (the cardID for
+//     card-scoped sessions, projectKey(project) for project-scoped).
+//   - project is appended as a ?project=... query for the upstream URL.
+//   - cfg.filterCardID is non-empty for card-scoped pumps and causes events
+//     belonging to other cards to be dropped before buffering. An empty
+//     filterCardID disables the filter (project-scoped pumps accept every
+//     project event and preserve the originating card_id on each event).
+//   - cfg.logKey / cfg.logValue label slog fields on the slow-subscriber warn.
+//
+// The upstream URL is project-scoped only (no card_id query parameter) to
+// maintain compatibility with current runner versions that stream all
+// project events; per-card sessions filter client-side.
+//
+// Returns (delivered, err) where delivered is true if at least one frame
+// was successfully buffered and fanned out. Callers use this to reset the
+// retry-attempt counter so transient disconnects after successful frames
+// do not accumulate toward the permanent-failure threshold.
+func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, sess *activeSession, cfg runUpstreamConfig) (bool, error) {
 	upstreamURL := m.runnerURL + "/logs"
 	if project != "" {
 		upstreamURL += "?project=" + url.QueryEscape(project)
@@ -823,12 +871,26 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 		if !ok {
 			continue
 		}
-		// Preserve the originating card ID so project-scoped subscribers can
-		// populate the card_id field in SSE frames sent to the browser.
-		evt.CardID = evtCardID
 
-		// Buffer the event under the project key and fan out to all project
-		// subscribers.  No card-ID filter: all project events are accepted.
+		// Card-scoped filter: drop events that belong to other cards. The
+		// runner streams all project events; per-card sessions filter
+		// client-side. Project-scoped pumps pass filterCardID == "" to
+		// disable the filter and accept every event.
+		if cfg.filterCardID != "" {
+			if evtCardID != "" && evtCardID != cfg.filterCardID {
+				continue
+			}
+		} else {
+			// Project-scoped: preserve the originating card ID so subscribers
+			// can populate the card_id field in SSE frames sent to the browser.
+			evt.CardID = evtCardID
+		}
+
+		// Buffer the event and fan out to subscribers under a single lock
+		// so that a concurrent Subscribe cannot observe the event in the
+		// buffer without also seeing it in the pump's fan-out. This prevents
+		// the duplicate-delivery race where an event is captured in the
+		// snapshot AND also staged in sub.pending.
 		m.mu.Lock()
 		m.getOrCreate(key).append(evt)
 
@@ -836,6 +898,8 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 
 		for _, s := range sess.subs {
 			if !s.primed {
+				// Snapshot goroutine has not finished draining yet. Stage the
+				// live event so it arrives after all snapshot events.
 				s.pending = append(s.pending, evt)
 			} else {
 				select {
@@ -855,7 +919,7 @@ func (m *Manager) readProjectUpstream(ctx context.Context, project, key string, 
 
 		if shouldWarn {
 			ctxlog.Logger(ctx).Warn("sessionlog: slow subscriber, event dropped",
-				"project", project,
+				cfg.logKey, cfg.logValue,
 				"dropped_total", m.DroppedEvents(),
 			)
 		}
@@ -922,209 +986,6 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 	}
 }
 
-// runPump is the upstream SSE pump goroutine.  It connects to the runner,
-// reads events, appends them to the buffer, and fans them out to subscribers.
-// On read error it retries with exponential backoff up to maxUpstreamRetries,
-// then marks the session errored and closes.
-func (m *Manager) runPump(ctx context.Context, cardID, project string, sess *activeSession) {
-	defer close(sess.done)
-
-	attempt := 0
-
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-
-		delivered, err := m.readUpstream(ctx, cardID, project, sess)
-		if ctx.Err() != nil {
-			// Cancelled externally (Stop called) — clean exit without retrying.
-			return
-		}
-
-		if delivered {
-			attempt = 0
-		}
-
-		attempt++
-		if attempt >= maxUpstreamRetries {
-			ctxlog.Logger(ctx).Error("sessionlog: upstream permanently failed, closing session",
-				"card_id", cardID,
-				"error", err,
-				"attempts", attempt,
-			)
-			// Remove from active sessions, collect pending subs, and mark as failed.
-			// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
-			m.mu.Lock()
-			delete(m.activeSessions, cardID)
-
-			subs := sess.subs
-			sess.subs = nil
-			// Drain any subscribers that raced between Subscribe and Start.
-			pendingSubs := m.pendingSubs[cardID]
-			delete(m.pendingSubs, cardID)
-			m.failedSessions[cardID] = struct{}{}
-			m.mu.Unlock()
-
-			terminal := Event{
-				Seq:       0,
-				Timestamp: time.Now(),
-				Type:      EventTypeTerminal,
-				Payload:   fmt.Appendf(nil, "upstream error: %v", err),
-			}
-
-			subs = append(subs, pendingSubs...)
-			closeSubscriber(subs, terminal)
-			// Clear the event buffer only; leave failedSessions intact so that
-			// any concurrent or future Subscribe call can take the fast-path.
-			m.mu.Lock()
-			delete(m.sessions, cardID)
-			m.mu.Unlock()
-
-			return
-		}
-
-		backoff := backoffDuration(attempt)
-		ctxlog.Logger(ctx).Warn("sessionlog: upstream error, retrying",
-			"card_id", cardID,
-			"error", err,
-			"attempt", attempt,
-			"backoff", backoff,
-		)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-m.clk.After(backoff):
-		}
-	}
-}
-
-// readUpstream connects to the runner /logs endpoint and reads SSE frames until
-// the connection closes or ctx is cancelled.
-//
-// The upstream URL is project-scoped only (no card_id query parameter) to
-// maintain compatibility with current runner versions that stream all project
-// events.  Events for other cards are filtered out before appending to the
-// per-card buffer.
-//
-// It returns (delivered, err) where delivered is true if at least one frame
-// was successfully buffered and fanned out.  Callers use this to reset the
-// retry-attempt counter so transient disconnects after successful frames do
-// not accumulate toward the permanent-failure threshold.
-func (m *Manager) readUpstream(ctx context.Context, cardID, project string, sess *activeSession) (bool, error) {
-	upstreamURL := m.runnerURL + "/logs"
-	if project != "" {
-		upstreamURL += "?project=" + url.QueryEscape(project)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
-	if err != nil {
-		return false, fmt.Errorf("create request: %w", err)
-	}
-
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
-	req.Header.Set("X-Signature-256", sigHeader)
-	req.Header.Set("X-Webhook-Timestamp", tsHeader)
-
-	resp, err := sseHTTPClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-
-		return false, fmt.Errorf("upstream connect: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1<<20)
-
-	var delivered bool
-
-	for scanner.Scan() {
-		if ctx.Err() != nil {
-			return delivered, ctx.Err()
-		}
-
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-
-		raw := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if raw == "" {
-			continue
-		}
-
-		evt, evtCardID, ok := parseSSEPayload(raw)
-		if !ok {
-			continue
-		}
-
-		// Filter: only buffer and fan-out events that belong to this session's
-		// card.  The runner streams all project events; other cards' events are
-		// silently dropped here.
-		if evtCardID != "" && evtCardID != cardID {
-			continue
-		}
-
-		// Buffer the event and fan out to subscribers under a single lock so
-		// that a concurrent Subscribe cannot observe the event in the buffer
-		// without also seeing it in the pump's fan-out.  This prevents the
-		// duplicate-delivery race where an event is captured in the snapshot
-		// AND also staged in sub.pending.
-		m.mu.Lock()
-		m.getOrCreate(cardID).append(evt)
-
-		shouldWarn := false
-
-		for _, s := range sess.subs {
-			if !s.primed {
-				// Snapshot goroutine has not finished draining yet.  Stage the
-				// live event so it arrives after all snapshot events.
-				s.pending = append(s.pending, evt)
-			} else {
-				select {
-				case s.ch <- evt:
-				default:
-					// Slow subscriber — record drop and notify.
-					if m.notifyDrop(s) {
-						shouldWarn = true
-					}
-				}
-			}
-		}
-		m.mu.Unlock()
-
-		// Mark that at least one frame was successfully delivered.
-		delivered = true
-
-		if shouldWarn {
-			ctxlog.Logger(ctx).Warn("sessionlog: slow subscriber, event dropped",
-				"card_id", cardID,
-				"dropped_total", m.DroppedEvents(),
-			)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		if ctx.Err() != nil {
-			return delivered, ctx.Err()
-		}
-
-		return delivered, fmt.Errorf("scanner: %w", err)
-	}
-
-	return delivered, fmt.Errorf("upstream closed connection")
-}
-
 // sseHTTPClient is a dedicated client for long-lived SSE upstream connections.
 // Timeout 0 prevents the per-request deadline from terminating the stream.
 var sseHTTPClient = &http.Client{Timeout: 0}
@@ -1165,8 +1026,24 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 
 // The signed content is "GET\n<uri>\n<ts>." with an empty body, matching the
 // method/uri-bound pattern used by runner.SignRequestHeaders. uri must be the
-// request-target form (`req.URL.RequestURI()`). Inlined here rather than
-// importing the runner package to avoid an import cycle.
+// request-target form (`req.URL.RequestURI()`).
+//
+// Why this is inlined rather than calling runner.SignRequestHeaders directly:
+// the internal/runner package depends on internal/board, internal/storage,
+// internal/events, and internal/metrics (via reconcile.go, endsession.go,
+// client.go). Importing it from this leaf subpackage would pull every one
+// of those into sessionlog's dependency closure and make sessionlog a
+// transitive dependency target for refactors anywhere in those packages.
+// The signing algorithm is six lines and exercised by TestSignSSERequest*
+// in manager_test.go; the dual-signer invariant test
+// (TestSignSSERequestMatchesRunnerSigner) fingerprints the same input
+// through both signers so drift is caught at compile-and-test time, not
+// in production.
+//
+// If sessionlog ever needs to call several runner helpers, factor the
+// signing code into a leaf subpackage (e.g. internal/runner/hmacsign) so
+// both runner and runner/sessionlog can import it without re-introducing
+// the heavy dependency closure described above.
 func signSSERequest(apiKey, uri string) (sigHeader, tsHeader string) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(apiKey))
@@ -1198,20 +1075,23 @@ func backoffDuration(attempt int) time.Duration {
 //
 // It must be called with m.mu held. It:
 //  1. Increments the Manager-wide droppedEvents counter.
-//  2. Attempts a non-blocking send of a drop-marker event to s.ch.
-//     in-band drop marker from buffer eviction carries an 8-byte count payload;
-//     fan-out drop marker carries nil payload — callers that parse drop counts
-//     must guard len(Payload) >= 8.
-//  3. Uses lastDropWarn with CompareAndSwap to throttle warn signals to at most
-//     1 per second globally across all sessions.
+//  2. Attempts a non-blocking send of a drop-marker event to s.ch. The
+//     marker's payload is encodeDropCount(1) — each fan-out drop signals
+//     exactly one dropped event, mirroring the 8-byte little-endian count
+//     format used by in-band markers from buffer eviction. This keeps
+//     DroppedMarkerCount(e) consistent between the two marker sources, so
+//     consumers can sum counts without special-casing the producer.
+//  3. Uses lastDropWarn with CompareAndSwap to throttle warn signals to at
+//     most 1 per second globally across all sessions.
 func (m *Manager) notifyDrop(s *subscriber) (shouldWarn bool) {
 	m.droppedEvents.Add(1)
 
-	// Non-blocking send of a nil-payload drop marker to the subscriber channel.
+	// Non-blocking send of a drop marker with count=1 to the subscriber channel.
 	select {
-	case s.ch <- Event{Type: EventTypeDropped, Seq: 0, Timestamp: time.Now()}:
+	case s.ch <- Event{Type: EventTypeDropped, Seq: 0, Timestamp: time.Now(), Payload: encodeDropCount(1)}:
 	default:
-		// Channel still full — silently discard the marker itself.
+		// Channel still full — silently discard the marker itself. The
+		// Manager-wide droppedEvents counter still records the drop.
 	}
 
 	// Throttle: emit at most one warn per second globally.

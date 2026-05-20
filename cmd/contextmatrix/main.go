@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -26,20 +25,17 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/chat"
-	chatsqlite "github.com/mhersson/contextmatrix/internal/chat/sqlite"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
-	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
@@ -73,7 +69,15 @@ func main() {
 	flag.Parse()
 
 	if *configPath == "" {
-		configPath = new(config.FindConfigPath())
+		found := config.FindConfigPath()
+		if found == "" {
+			slog.New(slog.NewTextHandler(os.Stdout, nil)).Error(
+				"no config file found; use -config to specify a path",
+			)
+			os.Exit(1)
+		}
+
+		configPath = &found
 	}
 
 	cfg, err := config.Load(*configPath)
@@ -241,30 +245,7 @@ func main() {
 	go refresh.StartJanitor(ctx, refreshRegistry, clock.Real(), refresh.JanitorConfig{}, slog.Default().With("component", "refresh-janitor"))
 
 	// Initialize git sync
-	var syncer *gitsync.Syncer
-
-	if git.HasRemote() {
-		pullInterval, _ := cfg.PullIntervalDuration()
-
-		syncer = gitsync.NewSyncer(git, store, svc, bus, cfg.Boards.Dir,
-			cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval)
-		if syncer != nil {
-			if err := syncer.PullOnStartup(ctx); err != nil {
-				slog.Warn("initial pull failed", "error", err)
-			}
-
-			if cfg.Boards.GitAutoPush {
-				svc.SetOnCommit(syncer.NotifyCommit)
-			}
-
-			syncer.Start(ctx)
-			slog.Info("git sync initialized",
-				"auto_pull", cfg.Boards.GitAutoPull,
-				"auto_push", cfg.Boards.GitAutoPush,
-				"pull_interval", pullInterval,
-			)
-		}
-	}
+	syncer := wireGitSync(ctx, cfg, git, store, svc, bus)
 
 	// Start GitHub issue syncer if configured
 	var ghSyncer *ghimport.Syncer
@@ -275,16 +256,6 @@ func main() {
 		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
 		ghSyncer.Start(ctx)
 		slog.Info("github issue sync enabled", "interval", syncInterval)
-	}
-
-	// Create runner client if enabled
-	var runnerClient *runner.Client
-	if cfg.Runner.Enabled {
-		runnerClient = runner.NewClient(cfg.Runner.URL, cfg.Runner.APIKey)
-		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
-
-		runner.StartEndSessionSubscriber(ctx, bus, svc, runnerClient, slog.Default())
-		slog.Info("end-session subscriber started")
 	}
 
 	// Images: SQLite blob store for paste/drop screenshot uploads.
@@ -299,175 +270,21 @@ func main() {
 	slog.Info("image store opened", "path", cfg.Images.DBPath)
 
 	// Chat: SQLite store + manager + SSE hub + idle reaper + warm-idle grace timer.
-	chatStore, err := chatsqlite.Open(cfg.Chat.DBPath)
+	chatMgr, chatHub, chatCleanup, err := wireChat(ctx, cfg, svc)
 	if err != nil {
-		slog.Error("failed to open chat store", "path", cfg.Chat.DBPath, "error", err)
 		cancel()
 		os.Exit(1) //nolint:gocritic // cancel called explicitly above
 	}
-	defer chatStore.Close()
+	defer chatCleanup()
 
-	slog.Info("chat store opened", "path", cfg.Chat.DBPath)
+	// Wire runner subsystems: client, end-session subscriber, reconcile sweep,
+	// and session-log manager. chatMgr is passed for the reconcile sweep adapter
+	// (must be called after wireChat so chatMgr is available).
+	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus, chatMgr)
+	defer runnerCleanup()
 
-	var chatRunner chat.RunnerClient
-	if cfg.Runner.Enabled {
-		chatRunner = chat.NewRunnerClient(chat.RunnerClientConfig{
-			BaseURL:   cfg.Runner.URL,
-			HMACKey:   cfg.Runner.APIKey,
-			MCPAPIKey: cfg.MCPAPIKey,
-		})
-	} else {
-		// Nil runner causes nil-pointer panics at call sites. Use a no-op stub
-		// that returns an error on every operation — chat features require runner.
-		chatRunner = chatRunnerDisabled{}
-	}
-
-	chatHub := chat.NewSSEHub(128)
-
-	primerPath := ""
-	if cfg.WorkflowSkillsDir != "" {
-		primerPath = filepath.Join(cfg.WorkflowSkillsDir, "chat-mode.md")
-	}
-
-	chatMgr := chat.NewManager(chat.Config{
-		Store:              chatStore,
-		Runner:             chatRunner,
-		Clock:              clock.Real(),
-		IdleTTL:            cfg.Chat.IdleTTL,
-		MaxConcurrent:      cfg.Chat.MaxConcurrent,
-		Hub:                chatHub,
-		ResumeBudgetTokens: cfg.Chat.ResumeBudgetTokens,
-		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
-		DefaultModel:       cfg.Chat.DefaultModel,
-		PrimerPath:         primerPath,
-		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
-			p, err := svc.GetProject(rctx, project)
-			if err != nil {
-				return "", err
-			}
-
-			if p.Repo != "" {
-				return p.Repo, nil
-			}
-
-			repos := p.EffectiveRepos()
-			if len(repos) > 0 {
-				return repos[0].URL, nil
-			}
-
-			return "", nil
-		},
-	})
-	go chat.NewIdleReaper(chatMgr, time.Minute).Run(ctx)
-
-	// 30s grace timer: last subscriber drop → flip session to warm-idle.
-	// A new subscriber within 30s cancels the flip.
-	var graceTimers sync.Map // sessionID → *time.Timer
-
-	chatHub.OnLastUnsubscribe = func(sessionID string) {
-		if existing, ok := graceTimers.LoadAndDelete(sessionID); ok {
-			existing.(*time.Timer).Stop()
-		}
-
-		timer := time.AfterFunc(30*time.Second, func() {
-			// If the entry is still in the map it means no new subscriber
-			// arrived during the grace window — proceed with warm-idle.
-			if _, loaded := graceTimers.LoadAndDelete(sessionID); !loaded {
-				return
-			}
-
-			if err := chatMgr.MarkWarmIdle(ctx, sessionID); err != nil {
-				slog.Warn("chat: warm-idle transition failed", "session_id", sessionID, "error", err)
-			}
-		})
-		graceTimers.Store(sessionID, timer)
-	}
-	chatHub.OnSubscribe = func(sessionID string) {
-		if t, ok := graceTimers.LoadAndDelete(sessionID); ok {
-			t.(*time.Timer).Stop()
-		}
-		// A browser subscriber is a strong "I want this chat" signal.
-		// Reattach the runner-log consumer if one isn't already bridging
-		// /logs for this session — covers the case where CM restarted
-		// while runner containers stayed alive, stranding their consumer
-		// goroutines. No-op on cold/ending sessions. The returned Session
-		// tells us the current status so we can skip a redundant GetSession
-		// inside MarkActive when the session is already active.
-		sess, err := chatMgr.Reattach(ctx, sessionID)
-		if err != nil {
-			slog.Warn("chat: reattach on subscribe failed",
-				"session_id", sessionID, "error", err)
-		}
-		// Promote warm-idle back to active so the sidebar dot turns green.
-		// Only needed when the session is warm-idle; skip when already active
-		// to avoid a redundant GetSession round-trip inside MarkActive.
-		// Best-effort: failure must never break the SSE handshake.
-		if err == nil && sess.Status == chat.StatusWarmIdle {
-			if err := chatMgr.MarkActive(ctx, sessionID); err != nil {
-				slog.Warn("chat: mark-active on subscribe failed",
-					"session_id", sessionID, "error", err)
-			}
-		}
-	}
-
-	slog.Info("chat manager initialized", "idle_ttl", cfg.Chat.IdleTTL, "max_concurrent", cfg.Chat.MaxConcurrent)
-
-	// Resume runner-log consumers for sessions that survived a CM restart.
-	// Without this, active/warm-idle sessions stay marked alive in the DB
-	// while their consumer goroutines are gone (in-memory state lost), so
-	// the UI can't see runner output even though the container is still
-	// up. Reattach is idempotent and tolerant of dead containers — the
-	// consumer exits on first /logs error and the reconcile sweep below
-	// will flip orphaned sessions to cold.
-	go func() {
-		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		for _, status := range []chat.Status{chat.StatusActive, chat.StatusWarmIdle} {
-			sessions, err := chatMgr.ListSessions(rctx, chat.SessionFilter{Status: status})
-			if err != nil {
-				slog.Warn("chat: startup reattach list failed",
-					"status", status, "error", err)
-
-				continue
-			}
-
-			for _, s := range sessions {
-				if _, err := chatMgr.Reattach(rctx, s.ID); err != nil {
-					slog.Warn("chat: startup reattach failed",
-						"session_id", s.ID, "error", err)
-				}
-			}
-		}
-	}()
-
-	// Card + chat reconcile sweep: a single ticker fetches /containers once
-	// per tick and feeds both reconcilers. Two separate tickers used to
-	// produce identically-signed HMAC GETs back to back; the runner's
-	// replay cache rejected the second as a duplicate. The chat reconciler
-	// flips active/warm-idle sessions whose runner container has
-	// disappeared (claude crash, runner restart, OOM, manual docker kill)
-	// to cold so the UI can reopen.
-	if cfg.Runner.Enabled {
-		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
-		runner.StartReconciliationSweep(ctx, svc, chatReconcilerAdapter{mgr: chatMgr}, runnerClient, reconcileInterval, slog.Default())
-
-		if reconcileInterval > 0 {
-			slog.Info("runner reconciliation sweep started", "interval", reconcileInterval)
-		}
-	}
-
-	// Create session log manager and start its idle sweeper.
-	// The manager is always constructed so the card-scoped SSE path is available
-	// even when the runner is disabled (Subscribe returns empty snapshots).
-	sessionMgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(cfg.Runner.URL, cfg.Runner.APIKey),
-		sessionlog.WithMaxSessions(64),
-		sessionlog.WithSessionTTL(2*time.Hour),
-	)
-	sessionMgr.StartSweeper(ctx)
-	svc.SetSessionManager(sessionMgr)
-	slog.Info("session log manager initialized")
+	runnerClient := runnerSys.Client
+	sessionMgr := runnerSys.SessionLog
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
@@ -593,117 +410,23 @@ func main() {
 
 	slog.Info("shutdown: initiated")
 
-	shutdownStart := time.Now()
-
 	// 5s is enough for in-flight REST requests to complete. Long-lived SSE
 	// connections are already terminated by httpCancel() before Shutdown is
 	// called.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	// Phase 1: stop accepting new HTTP connections and drain in-flight
-	// requests. Cancel httpCtx first so SSE handlers see r.Context().Done()
-	// and exit immediately instead of blocking until the shutdown timeout.
-	slog.Info("shutdown: phase=http_drain")
-	httpCancel()
-
-	var (
-		wg              sync.WaitGroup
-		mainShutdownErr error
-	)
-
-	if adminServer != nil {
-		wg.Go(func() {
-			if err := adminServer.Shutdown(shutdownCtx); err != nil {
-				slog.Error("admin server shutdown error", "error", err)
-			}
-		})
-	}
-
-	wg.Go(func() {
-		mainShutdownErr = server.Shutdown(shutdownCtx)
-	})
-
-	wg.Wait()
-
-	// Phase 2: drain active runner SSE sessions. HTTP is no longer accepting
-	// new connections, so closing these pumps is safe — every subscriber
-	// receives a terminal SSE event instead of a mid-stream EOF.
-	slog.Info("shutdown: phase=sessionlog_close")
-
-	if err := sessionMgr.Close(shutdownCtx); err != nil {
-		slog.Error("session manager shutdown error", "error", err)
-	}
-
-	if chatMgr != nil {
-		chatCloseCtx, chatCloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := chatMgr.Close(chatCloseCtx); err != nil {
-			slog.Warn("chat manager close failed", "error", err)
-		}
-
-		chatCloseCancel()
-	}
-
-	// Phase 3: signal the rest of the app (timeout checker, syncers'
-	// periodic loops, runner subscribers) to wind down.
-	slog.Info("shutdown: phase=ctx_cancel")
-	cancel()
-
-	// Phase 4: drain the commit queue so any writes that landed on the
-	// worker channel — but whose go-git commit had not yet started when
-	// ctx was cancelled — still make it to disk before we exit. Running
-	// this before the syncers' Wait ensures the on-disk commits exist to
-	// be pushed by a final push iteration.
-	slog.Info("shutdown: phase=commit_queue_close")
-
-	if err := commitQueue.Close(shutdownCtx); err != nil {
-		slog.Error("commit queue shutdown error", "error", err)
-	}
-
-	// Phase 5: let the git syncers finish any late commit/push triggered by
-	// requests that were in flight when HTTP drain began. Running this after
-	// HTTP drain (not before) ensures those late mutations still get pushed
-	// to the remote before we exit.
-	//
-	// Each syncer.Wait() is bounded by a per-phase deadline so a wedged
-	// subprocess (e.g. a git push that ignores the cancelled ctx) cannot hang
-	// shutdown past systemd's TimeoutStopSec. The root ctx.cancel() above is
-	// still the primary signal; this wait-timeout is the safety net.
-	slog.Info("shutdown: phase=syncers_drain")
-
-	const phase5Timeout = 10 * time.Second
-
-	phase5Ctx, phase5Cancel := context.WithTimeout(context.Background(), phase5Timeout)
-	defer phase5Cancel()
-
-	if syncer != nil {
-		if err := waitSyncer(phase5Ctx, syncer.Wait); err != nil {
-			slog.Error("shutdown: gitsync syncer drain exceeded budget",
-				"phase", "syncers_drain",
-				"timeout", phase5Timeout,
-				"error", err,
-			)
-		}
-	}
-
-	if ghSyncer != nil {
-		if err := waitSyncer(phase5Ctx, ghSyncer.Wait); err != nil {
-			slog.Error("shutdown: github syncer drain exceeded budget",
-				"phase", "syncers_drain",
-				"timeout", phase5Timeout,
-				"error", err,
-			)
-		}
-	}
-
-	// gitops.Manager has no Close method today; if it grows one, call it
-	// here after the syncers have finished pushing.
-
-	duration := time.Since(shutdownStart)
-	slog.Info("shutdown: complete", "duration", duration)
-
-	if mainShutdownErr != nil {
-		slog.Error("server shutdown error", "error", mainShutdownErr)
+	if err := runShutdownSequence(shutdownCtx, shutdownComponents{
+		HTTPServer:  server,
+		AdminServer: adminServer,
+		SessionLog:  sessionMgr,
+		CommitQueue: commitQueue,
+		Syncer:      syncer,
+		GHSyncer:    ghSyncer,
+		HTTPCancel:  httpCancel,
+		AppCancel:   cancel,
+	}); err != nil {
+		slog.Error("server shutdown error", "error", err)
 		os.Exit(1)
 	}
 }

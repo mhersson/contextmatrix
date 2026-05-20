@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { ProjectConfig } from '../../types';
 import { useMemo } from 'react';
 import {
@@ -45,9 +45,14 @@ function DistributionBar({
 }
 
 export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
+  const navigate = useNavigate();
   const rows = useMemo(() => {
     const out = projects.map((p) => projectRow(p, summaries.get(p.name)));
-    out.sort((a, b) => a.config.name.localeCompare(b.config.name));
+    out.sort((a, b) =>
+      (a.config.display_name ?? a.config.name).localeCompare(
+        b.config.display_name ?? b.config.name,
+      ),
+    );
     return out;
   }, [projects, summaries]);
 
@@ -111,11 +116,17 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                 const display = row.config.display_name ?? name;
                 const repo = row.config.repo ?? '';
                 return (
-                  <tr key={name} className="apd-project-row">
+                  <tr
+                    key={name}
+                    className="apd-project-row"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/projects/${name}`)}
+                  >
                     <td>
                       <Link
                         to={`/projects/${name}`}
                         className="apd-project-link"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span

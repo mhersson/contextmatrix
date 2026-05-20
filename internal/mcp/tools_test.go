@@ -257,7 +257,7 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 		})
 		// The SDK may surface the error as a protocol-level error or as an IsError result.
 		if err != nil {
-			assert.Contains(t, err.Error(), "promote requires human agent")
+			assert.Contains(t, err.Error(), "promote_to_autonomous is human-only")
 
 			return
 		}
@@ -265,7 +265,7 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 		require.True(t, result.IsError, "non-human agent must produce an error result")
 		textContent, ok := result.Content[0].(*mcp.TextContent)
 		require.True(t, ok, "expected TextContent in error result")
-		assert.Contains(t, textContent.Text, "promote requires human agent")
+		assert.Contains(t, textContent.Text, "promote_to_autonomous is human-only")
 	})
 
 	t.Run("empty agent_id is rejected", func(t *testing.T) {
@@ -282,7 +282,7 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 			},
 		})
 		if err != nil {
-			assert.Contains(t, err.Error(), "promote requires human agent")
+			assert.Contains(t, err.Error(), "promote_to_autonomous is human-only")
 
 			return
 		}
@@ -290,7 +290,7 @@ func TestPromoteToAutonomous_HumanOnly(t *testing.T) {
 		require.True(t, result.IsError, "empty agent_id must produce an error result")
 		textContent, ok := result.Content[0].(*mcp.TextContent)
 		require.True(t, ok, "expected TextContent in error result")
-		assert.Contains(t, textContent.Text, "promote requires human agent")
+		assert.Contains(t, textContent.Text, "promote_to_autonomous is human-only")
 	})
 
 	t.Run("human:alice succeeds on non-terminal card", func(t *testing.T) {

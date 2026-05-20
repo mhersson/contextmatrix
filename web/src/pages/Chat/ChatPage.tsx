@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NewChatDialog } from './NewChatDialog';
 import { ChatThread } from './ChatThread';
 import { MobileChatHeader } from './MobileChatHeader';
-import { ChatLayout, ChatLayoutProvider, type AvailableChat, type Slot } from '../../components/ChatLayout';
+import { ChatLayout, type AvailableChat, type Slot } from '../../components/ChatLayout';
 import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from '../../hooks/useChatLayout';
 import { useChatSessions, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -23,6 +23,8 @@ interface EvictToast {
 interface ClearErrorToast {
   chatId: string;
   code: string;
+  /** Human-readable verb shown in the toast, e.g. "clear context", "end session", "reopen". */
+  action?: string;
 }
 
 export function ChatPage() {
@@ -81,8 +83,8 @@ export function ChatPage() {
   const layout = useChatLayout({ availableChats, onLRUEvict });
 
   // Sidebar fires custom drag events with the chat id so the pane drop
-  // overlay can show the chat name. We use events rather than a shared
-  // context because ChatSection lives outside ChatLayoutProvider's subtree.
+  // overlay can show the chat name. We use window events because ChatSection
+  // lives outside the layout subtree.
   useEffect(() => {
     const onStart = (e: Event) => {
       const detail = (e as CustomEvent<{ chatId?: string }>).detail;
@@ -160,7 +162,10 @@ export function ChatPage() {
     try {
       await api.endChat(chatId);
     } catch (e) {
-      console.warn('endChat failed', isAPIError(e) ? e.error : e);
+      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
+      setClearErrorToast({ chatId, code, action: 'end session' });
+      clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
     }
@@ -170,7 +175,10 @@ export function ChatPage() {
     try {
       await api.openChat(chatId);
     } catch (e) {
-      console.warn('openChat failed', isAPIError(e) ? e.error : e);
+      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
+      setClearErrorToast({ chatId, code, action: 'reopen' });
+      clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
     }
@@ -210,7 +218,10 @@ export function ChatPage() {
       layout.closePane(slot);
       try { window.localStorage.removeItem('last_chat_id'); } catch { /* ignore */ }
     } catch (e) {
-      console.warn('deleteChat failed', isAPIError(e) ? e.error : e);
+      const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
+      if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
+      setClearErrorToast({ chatId, code, action: 'delete chat' });
+      clearErrorTimerRef.current = setTimeout(() => setClearErrorToast(null), 6000);
     } finally {
       notifyChatSessionsChanged();
       setPendingDelete(null);
@@ -229,7 +240,7 @@ export function ChatPage() {
   );
 
   return (
-    <ChatLayoutProvider value={layout}>
+    <>
       <div className="flex flex-col h-full">
         {isMobile && (
           <MobileChatHeader
@@ -286,7 +297,7 @@ export function ChatPage() {
       {clearErrorToast && (
         <div className="chat-evict-toast" role="alert" aria-live="assertive">
           <span className="chat-evict-toast-text">
-            Couldn&apos;t clear context for <strong>{clearErrorToast.chatId}</strong>: {clearErrorToast.code}.
+            Couldn&apos;t {clearErrorToast.action ?? 'clear context'} for <strong>{clearErrorToast.chatId}</strong>: {clearErrorToast.code}.
           </span>
           <button
             type="button"
@@ -315,6 +326,6 @@ export function ChatPage() {
         onConfirm={() => void confirmDelete()}
         onCancel={cancelDelete}
       />
-    </ChatLayoutProvider>
+    </>
   );
 }

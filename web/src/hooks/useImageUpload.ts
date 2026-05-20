@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 
+// Client-side guards that mirror the server's validation so users get
+// immediate feedback instead of a round-trip rejection.
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MiB — matches server MaxUploadBytes
+const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+// Maximum number of uploads that may be in flight simultaneously.
+const MAX_CONCURRENT = 3;
+
 /**
  * Encapsulates the paste / drop / file-select image upload flow used by the
  * card-panel editor. Returns the state surface (uploading + error) and the
@@ -55,11 +62,28 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
   // upload button when one finishes while others are still in flight.
   const [inflight, setInflight] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Mutable ref so the concurrency check inside uploadAndInsert (an async
+  // function) always sees the current in-flight count without capturing a
+  // stale closure value from useState.
+  const inflightRef = useRef(0);
 
   const uploadAndInsert = useCallback(
     async (file: File) => {
       const controller = abortRef.current;
       if (!controller) return; // unmounted between handler entry and call
+      if (!ALLOWED_TYPES.has(file.type)) {
+        setUploadError(`Unsupported image type "${file.type}". Allowed: PNG, JPEG, WebP, GIF.`);
+        return;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError(`"${file.name}" exceeds the 10 MiB limit (${(file.size / 1024 / 1024).toFixed(1)} MiB).`);
+        return;
+      }
+      if (inflightRef.current >= MAX_CONCURRENT) {
+        setUploadError(`Too many simultaneous uploads — please wait for the current uploads to finish.`);
+        return;
+      }
+      inflightRef.current += 1;
       setInflight((n) => n + 1);
       try {
         const result = await api.uploadImage(file, controller.signal);
@@ -83,6 +107,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
         setUploadError(message);
       } finally {
         if (!controller.signal.aborted) {
+          inflightRef.current -= 1;
           setInflight((n) => n - 1);
         }
       }
@@ -96,9 +121,13 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const items = e.clipboardData?.items;
       if (!items) return;
+      // Collect all image files first so we can call preventDefault
+      // unconditionally when at least one image is present, suppressing the
+      // entire paste (including any alt-text the browser would otherwise
+      // insert alongside the image).
       const files: File[] = [];
       for (const item of Array.from(items)) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
+        if (item.kind === 'file' && ALLOWED_TYPES.has(item.type)) {
           const f = item.getAsFile();
           if (f) files.push(f);
         }
@@ -122,7 +151,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => ALLOWED_TYPES.has(f.type));
       if (files.length === 0) return;
       e.preventDefault();
       for (const f of files) {
@@ -134,7 +163,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith('image/'));
+      const files = Array.from(e.target.files ?? []).filter((f) => ALLOWED_TYPES.has(f.type));
       // Reset the input value unconditionally so re-selecting the same file
       // re-fires onChange. Without this the second pick is a no-op.
       e.target.value = '';

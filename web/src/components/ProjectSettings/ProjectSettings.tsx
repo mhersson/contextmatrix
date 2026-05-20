@@ -2,6 +2,11 @@ import { useState, useCallback, useMemo, useEffect, useId } from 'react';
 import { api, isAPIError } from '../../api/client';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
+import { GitHubImportSection } from './GitHubImportSection';
+import { RepoListSection } from './RepoListSection';
+import { StateTransitionEditor } from './StateTransitionEditor';
+import { RemoteExecutionSection } from './RemoteExecutionSection';
+import type { RemoteExecutionConfig } from './RemoteExecutionSection';
 
 interface ProjectSettingsProps {
   project: string;
@@ -11,9 +16,14 @@ interface ProjectSettingsProps {
 }
 
 const emptyGitHub: GitHubImportConfig = { import_issues: false };
+const emptyRemoteExecution: RemoteExecutionConfig = {};
 
 function ghToString(gh: GitHubImportConfig | undefined): string {
   return JSON.stringify(gh ?? emptyGitHub);
+}
+
+function reToString(re: RemoteExecutionConfig | undefined): string {
+  return JSON.stringify(re ?? emptyRemoteExecution);
 }
 
 export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: ProjectSettingsProps) {
@@ -32,6 +42,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [newType, setNewType] = useState('');
   const [newPriority, setNewPriority] = useState('');
   const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
+  const [remoteExecution, setRemoteExecution] = useState<RemoteExecutionConfig>(emptyRemoteExecution);
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -68,6 +79,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setPriorities(cfg.priorities);
         setTransitions(normalizedTransitions);
         setGitHub(cfg.github ?? emptyGitHub);
+        setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
         setDefaultSkills(cfg.default_skills ?? null);
         setCardCount(count);
         setLoading(false);
@@ -82,6 +94,24 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     };
   }, [project]);
 
+  /**
+   * Serialise a `Record<string, string[]>` with sorted keys so that the
+   * comparison is deterministic regardless of insertion order. Without
+   * sorting, `removeItem` rebuilds the map from `Object.keys(...)` which
+   * may reorder keys and produce a false-positive dirty signal.
+   */
+  const serializeTransitions = useCallback(
+    (t: Record<string, string[]>): string =>
+      JSON.stringify(
+        Object.fromEntries(
+          Object.keys(t)
+            .sort()
+            .map((k) => [k, [...t[k]].sort()]),
+        ),
+      ),
+    [],
+  );
+
   const isDirty = useMemo(() => {
     if (!config) return false;
     const configDefaultSkills = config.default_skills ?? null;
@@ -90,11 +120,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       JSON.stringify(states) !== JSON.stringify(config.states) ||
       JSON.stringify(types) !== JSON.stringify(config.types) ||
       JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
-      JSON.stringify(transitions) !== JSON.stringify(config.transitions) ||
+      serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
       ghToString(github) !== ghToString(config.github) ||
+      reToString(remoteExecution) !== reToString(config.remote_execution) ||
       JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills)
     );
-  }, [config, repo, states, types, priorities, transitions, github, defaultSkills]);
+  }, [config, repo, states, types, priorities, transitions, github, remoteExecution, defaultSkills, serializeTransitions]);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -138,34 +169,17 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     }
   }, [isDeleting, project, onDeleted, showToast]);
 
-  const addItem = (list: string[], setter: (v: string[]) => void, value: string, clear: (v: string) => void) => {
-    const trimmed = value.trim();
-    if (trimmed && !list.includes(trimmed)) {
-      setter([...list, trimmed]);
-      clear('');
-    }
-  };
-
-  const removeItem = (list: string[], setter: (v: string[]) => void, value: string) => {
-    setter(list.filter(v => v !== value));
-    // Also clean transitions when removing a state
-    if (list === states) {
-      const newTransitions = { ...transitions };
-      delete newTransitions[value];
-      for (const key of Object.keys(newTransitions)) {
-        newTransitions[key] = newTransitions[key].filter(s => s !== value);
+  const removeState = useCallback((value: string) => {
+    setStates(prev => prev.filter(v => v !== value));
+    setTransitions(prev => {
+      const next = { ...prev };
+      delete next[value];
+      for (const key of Object.keys(next)) {
+        next[key] = next[key].filter(s => s !== value);
       }
-      setTransitions(newTransitions);
-    }
-  };
-
-  const toggleTransition = (from: string, to: string) => {
-    const current = transitions[from] || [];
-    const newTargets = current.includes(to)
-      ? current.filter(s => s !== to)
-      : [...current, to];
-    setTransitions({ ...transitions, [from]: newTargets });
-  };
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -247,76 +261,62 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         />
       </div>
 
-      {/* States */}
-      <ListEditor
-        label="States"
-        items={states}
-        newValue={newState}
-        setNewValue={setNewState}
-        onAdd={() => {
+      {/* States / Types / Priorities */}
+      <RepoListSection
+        states={states}
+        newState={newState}
+        setNewState={setNewState}
+        onAddState={() => {
           const trimmed = newState.trim();
           if (trimmed && !states.includes(trimmed)) {
-            setStates([...states, trimmed]);
-            setTransitions(prev => trimmed in prev ? prev : { ...prev, [trimmed]: [] });
+            setStates(prev => [...prev, trimmed]);
+            setTransitions(prev => (trimmed in prev ? prev : { ...prev, [trimmed]: [] }));
             setNewState('');
           }
         }}
-        onRemove={(v) => removeItem(states, setStates, v)}
-        protectedItems={['stalled', 'not_planned']}
+        onRemoveState={removeState}
+        types={types}
+        newType={newType}
+        setNewType={setNewType}
+        onAddType={() => {
+          const trimmed = newType.trim();
+          if (trimmed && !types.includes(trimmed)) {
+            setTypes(prev => [...prev, trimmed]);
+            setNewType('');
+          }
+        }}
+        onRemoveType={(v) => setTypes(prev => prev.filter(x => x !== v))}
+        priorities={priorities}
+        newPriority={newPriority}
+        setNewPriority={setNewPriority}
+        onAddPriority={() => {
+          const trimmed = newPriority.trim();
+          if (trimmed && !priorities.includes(trimmed)) {
+            setPriorities(prev => [...prev, trimmed]);
+            setNewPriority('');
+          }
+        }}
+        onRemovePriority={(v) => setPriorities(prev => prev.filter(x => x !== v))}
         inputStyle={inputStyle}
       />
 
-      {/* Types */}
-      <ListEditor
-        label="Types"
-        items={types}
-        newValue={newType}
-        setNewValue={setNewType}
-        onAdd={() => addItem(types, setTypes, newType, setNewType)}
-        onRemove={(v) => removeItem(types, setTypes, v)}
+      {/* State transition matrix */}
+      <StateTransitionEditor
+        states={states}
+        transitions={transitions}
+        onChange={setTransitions}
         inputStyle={inputStyle}
       />
-
-      {/* Priorities */}
-      <ListEditor
-        label="Priorities"
-        items={priorities}
-        newValue={newPriority}
-        setNewValue={setNewPriority}
-        onAdd={() => addItem(priorities, setPriorities, newPriority, setNewPriority)}
-        onRemove={(v) => removeItem(priorities, setPriorities, v)}
-        inputStyle={inputStyle}
-      />
-
-      {/* Transitions */}
-      <div>
-        <div className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>Transitions</div>
-        <div className="space-y-2">
-          {states.map((from) => (
-            <div key={from} className="p-3 rounded" style={{ backgroundColor: 'var(--bg1)' }}>
-              <div className="text-xs font-medium mb-1.5" style={{ color: 'var(--fg)' }}>{from}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {states.filter(s => s !== from).map((to) => (
-                  <button
-                    key={to}
-                    onClick={() => toggleTransition(from, to)}
-                    className="px-2 py-0.5 rounded text-xs transition-colors"
-                    style={{
-                      backgroundColor: (transitions[from] || []).includes(to) ? 'var(--bg-green)' : 'var(--bg2)',
-                      color: (transitions[from] || []).includes(to) ? 'var(--green)' : 'var(--grey1)',
-                    }}
-                  >
-                    {to}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* Default task skills */}
       <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
+
+      {/* Remote Execution */}
+      <RemoteExecutionSection
+        value={remoteExecution}
+        onChange={setRemoteExecution}
+        inputStyle={inputStyle}
+      />
 
       {/* GitHub Issue Import */}
       <GitHubImportSection
@@ -370,179 +370,3 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   );
 }
 
-interface GitHubImportSectionProps {
-  github: GitHubImportConfig;
-  onChange: (gh: GitHubImportConfig) => void;
-  types: string[];
-  priorities: string[];
-  inputStyle: React.CSSProperties;
-}
-
-function GitHubImportSection({ github, onChange, types, priorities, inputStyle }: GitHubImportSectionProps) {
-  const update = (patch: Partial<GitHubImportConfig>) => onChange({ ...github, ...patch });
-  const labelsStr = github.labels?.join(', ') ?? '';
-  const ownerId = useId();
-  const repoId = useId();
-  const cardTypeId = useId();
-  const defaultPriorityId = useId();
-  const ghLabelsId = useId();
-  const headingId = useId();
-
-  return (
-    <div>
-      <div id={headingId} className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>GitHub Issue Import</div>
-      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }} aria-labelledby={headingId}>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={github.import_issues}
-            onChange={(e) => update({ import_issues: e.target.checked })}
-            className="accent-[var(--green)]"
-          />
-          <span className="text-sm" style={{ color: 'var(--fg)' }}>Import open issues from GitHub</span>
-        </label>
-        {github.import_issues && (
-          <div className="space-y-3 pt-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor={ownerId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Owner</label>
-                <input
-                  id={ownerId}
-                  type="text"
-                  value={github.owner ?? ''}
-                  onChange={(e) => update({ owner: e.target.value || undefined })}
-                  placeholder="auto-detected from repo URL"
-                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repo</label>
-                <input
-                  id={repoId}
-                  type="text"
-                  value={github.repo ?? ''}
-                  onChange={(e) => update({ repo: e.target.value || undefined })}
-                  placeholder="auto-detected from repo URL"
-                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor={cardTypeId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Card type</label>
-                <select
-                  id={cardTypeId}
-                  value={github.card_type ?? ''}
-                  onChange={(e) => update({ card_type: e.target.value || undefined })}
-                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-                  style={inputStyle}
-                >
-                  <option value="">task (default)</option>
-                  {types.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor={defaultPriorityId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Default priority</label>
-                <select
-                  id={defaultPriorityId}
-                  value={github.default_priority ?? ''}
-                  onChange={(e) => update({ default_priority: e.target.value || undefined })}
-                  className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-                  style={inputStyle}
-                >
-                  <option value="">medium (default)</option>
-                  {priorities.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label htmlFor={ghLabelsId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Filter by GitHub labels</label>
-              <input
-                id={ghLabelsId}
-                type="text"
-                value={labelsStr}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  update({ labels: val ? val.split(',').map(l => l.trim()).filter(Boolean) : undefined });
-                }}
-                placeholder="comma-separated, e.g. bug, help wanted (empty = all)"
-                className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-                style={inputStyle}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface ListEditorProps {
-  label: string;
-  items: string[];
-  newValue: string;
-  setNewValue: (v: string) => void;
-  onAdd: () => void;
-  onRemove: (v: string) => void;
-  protectedItems?: string[];
-  inputStyle: React.CSSProperties;
-}
-
-function ListEditor({ label, items, newValue, setNewValue, onAdd, onRemove, protectedItems, inputStyle }: ListEditorProps) {
-  const inputId = useId();
-  return (
-    <div>
-      <label htmlFor={inputId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>{label}</label>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {items.map((item) => (
-          <span
-            key={item}
-            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded"
-            style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
-          >
-            {item}
-            {!(protectedItems || []).includes(item) && (
-              <button
-                onClick={() => onRemove(item)}
-                className="hover:text-[var(--red)] transition-colors"
-                style={{ color: 'var(--grey1)' }}
-                aria-label={`Remove ${item}`}
-              >
-                &times;
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <input
-          id={inputId}
-          type="text"
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') onAdd(); }}
-          placeholder={`Add ${label.toLowerCase().slice(0, -1)}...`}
-          className="flex-1 px-3 py-1.5 rounded text-xs border focus:outline-none"
-          style={inputStyle}
-        />
-        <button
-          onClick={onAdd}
-          disabled={!newValue.trim()}
-          className="px-2 py-1.5 rounded text-xs transition-colors"
-          style={{
-            backgroundColor: newValue.trim() ? 'var(--bg3)' : 'var(--bg2)',
-            color: newValue.trim() ? 'var(--fg)' : 'var(--grey1)',
-          }}
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}

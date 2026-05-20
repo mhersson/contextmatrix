@@ -193,7 +193,7 @@ func TestReadKnowledgeBase_DefaultsToPrimaryRepo(t *testing.T) {
 	cfg, err := svc.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
 	_, err = svc.WriteKnowledgeDocs(ctx, WriteKnowledgeDocsInput{
@@ -264,7 +264,7 @@ func TestBuildRefreshPlan_NewProjectAllMissing(t *testing.T) {
 	cfg, err := svc.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
 	plan, err := svc.BuildRefreshPlan(ctx, "test-project", "")
@@ -287,7 +287,7 @@ func TestBuildRefreshPlan_FlagsHumanEdited(t *testing.T) {
 	cfg, err := svc.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
 	_, err = svc.WriteKnowledgeDocs(ctx, WriteKnowledgeDocsInput{
@@ -325,8 +325,8 @@ func TestBuildRefreshPlan_RepoFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg.Repos = []board.Repo{
-		{Name: "core", URL: "git@github.com:o/c.git", Primary: true},
-		{Name: "runner", URL: "git@github.com:o/r.git"},
+		{Name: "core", URL: "https://github.com/o/c", Primary: true},
+		{Name: "runner", URL: "https://github.com/o/r"},
 	}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
@@ -348,8 +348,8 @@ func TestBuildRefreshPlan_DefaultsToPrimaryForMultiRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg.Repos = []board.Repo{
-		{Name: "core", URL: "git@github.com:o/c.git", Primary: true},
-		{Name: "runner", URL: "git@github.com:o/r.git"},
+		{Name: "core", URL: "https://github.com/o/c", Primary: true},
+		{Name: "runner", URL: "https://github.com/o/r"},
 	}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
@@ -370,7 +370,7 @@ func TestBuildRefreshPlan_UnknownRepo(t *testing.T) {
 	cfg, err := svc.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
 	_, err = svc.BuildRefreshPlan(ctx, "test-project", "doesnotexist")
@@ -664,7 +664,7 @@ func TestBuildRefreshPlan_ReasonsOnlyMissingOrScheduled(t *testing.T) {
 	cfg, err := svc.store.GetProject(ctx, "test-project")
 	require.NoError(t, err)
 
-	cfg.Repos = []board.Repo{{Name: "core", URL: "git@github.com:o/c.git", Primary: true}}
+	cfg.Repos = []board.Repo{{Name: "core", URL: "https://github.com/o/c", Primary: true}}
 	require.NoError(t, svc.store.SaveProject(ctx, cfg))
 
 	// Plan with no prior writes — all docs should be "missing".

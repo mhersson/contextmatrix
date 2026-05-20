@@ -77,6 +77,29 @@ func TestResolveOwnerRepo(t *testing.T) {
 			wantOwner:    "url-org",
 			wantRepo:     "url-repo",
 		},
+		{
+			name: "explicit config with allowed repo URL",
+			cfg: &board.ProjectConfig{
+				Repo: "https://github.com/actual-org/actual-repo.git",
+				GitHub: &board.GitHubImportConfig{
+					ImportIssues: true, Owner: "explicit-org", Repo: "explicit-repo",
+				},
+			},
+			allowedHosts: defaultHosts,
+			wantOwner:    "explicit-org",
+			wantRepo:     "explicit-repo",
+		},
+		{
+			name: "explicit config rejected when repo URL is non-allowed host",
+			cfg: &board.ProjectConfig{
+				Repo: "https://gitlab.com/other-org/other-repo.git",
+				GitHub: &board.GitHubImportConfig{
+					ImportIssues: true, Owner: "explicit-org", Repo: "explicit-repo",
+				},
+			},
+			allowedHosts: defaultHosts,
+			// Explicit override must be rejected; repo URL is on a non-allowed host.
+		},
 	}
 
 	for _, tt := range tests {

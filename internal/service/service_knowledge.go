@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -121,19 +122,10 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 		repoMeta.URL = repoURL
 	}
 
-	// Snapshot current on-disk state before any writes so we can roll back
-	// on commit failure. priorBytes[name]==nil means the doc did not exist.
-	priorBytes := make(map[string][]byte, len(in.Docs))
-	for name := range in.Docs {
-		b, readErr := s.store.ReadKnowledgeDoc(ctx, in.Project, in.Repo, name)
-		switch {
-		case readErr == nil:
-			priorBytes[name] = b
-		case errors.Is(readErr, storage.ErrKnowledgeDocNotFound):
-			priorBytes[name] = nil
-		default:
-			return nil, fmt.Errorf("snapshot prior doc %q: %w", name, readErr)
-		}
+	// Step 1: snapshot current on-disk state before any writes.
+	snapshots, err := s.snapshotPriorDocs(ctx, in)
+	if err != nil {
+		return nil, err
 	}
 
 	// priorMetaRepo is a deep copy: struct fields are copied by value, but the
@@ -141,13 +133,19 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	priorMetaRepo := repoMeta
 	priorMetaRepo.Docs = maps.Clone(repoMeta.Docs)
 
-	// Write each doc.
+	// Step 2: write each doc, rolling back on mid-loop failure.
 	humanEdited := in.Source == KnowledgeWriteSourceEdit
 	now := s.clk.Now().UTC()
 	written := make([]string, 0, len(in.Docs))
 
 	for name, content := range in.Docs {
 		if err := s.store.WriteKnowledgeDoc(ctx, in.Project, in.Repo, name, []byte(content)); err != nil {
+			// A previous iteration may already have landed; roll those back
+			// before returning so caller sees the disk as it was on entry.
+			if restoreErr := s.restorePriorDocs(ctx, in, subsetSnapshot(snapshots, written)); restoreErr != nil {
+				slog.Error("knowledge mid-loop rollback failed", "err", restoreErr)
+			}
+
 			return nil, err
 		}
 
@@ -168,10 +166,16 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 	meta.Repos[in.Repo] = repoMeta
 
 	if err := s.store.WriteKnowledgeMeta(ctx, in.Project, meta); err != nil {
+		// Docs were written successfully but meta write failed; restore docs
+		// to their pre-call bytes so disk is not left half-updated.
+		if restoreErr := s.restorePriorDocs(ctx, in, subsetSnapshot(snapshots, written)); restoreErr != nil {
+			slog.Error("knowledge meta-write rollback failed", "err", restoreErr)
+		}
+
 		return nil, err
 	}
 
-	// Build commit paths and message.
+	// Step 3: build commit paths and message, then commit (restoring on failure).
 	sort.Strings(written)
 
 	paths := make([]string, 0, len(written)+1)
@@ -190,20 +194,101 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 		msg = fmt.Sprintf("docs(knowledge): edit %s/%s %s", in.Project, in.Repo, strings.Join(written, ", "))
 	}
 
+	if err := s.commitKnowledgeWrites(ctx, in, paths, msg, snapshots, meta, priorMetaRepo); err != nil {
+		return nil, err
+	}
+
+	// Step 4: notify and update registry.
+	s.notifyCommit()
+
+	// Notify the in-flight refresh registry on successful Refresh writes.
+	// Edit-source writes never touch the registry. Missing-job is a no-op
+	// (local-mode case where no UI-side acquire happened). Pass empty
+	// commit_sha — the boards-repo SHA is not currently surfaced by
+	// knowledgeCommitFn; runner-side callback reports its own commit_sha to the UI.
+	if in.Source == KnowledgeWriteSourceRefresh && s.refreshRegistry != nil {
+		if err := s.refreshRegistry.MarkCommitted(in.Project, in.Repo, ""); err != nil {
+			// ErrJobNotFound is the expected local-mode case: the caller
+			// wrote docs without first acquiring a registry job (no runner
+			// side-channel). Swallow it. Any other error is unexpected —
+			// log but do not fail the write; the docs already landed.
+			if !errors.Is(err, refresh.ErrJobNotFound) {
+				slog.Warn("registry.MarkCommitted failed",
+					"project", in.Project, "repo", in.Repo, "error", err)
+			}
+		}
+	}
+
+	return &WriteKnowledgeDocsResult{FilesWritten: written}, nil
+}
+
+// snapshotPriorDocs reads the current on-disk content of each doc named in
+// in.Docs. A nil entry means the doc did not exist before this call.
+func (s *CardService) snapshotPriorDocs(ctx context.Context, in WriteKnowledgeDocsInput) (map[string][]byte, error) {
+	snapshots := make(map[string][]byte, len(in.Docs))
+
+	for name := range in.Docs {
+		b, readErr := s.store.ReadKnowledgeDoc(ctx, in.Project, in.Repo, name)
+		switch {
+		case readErr == nil:
+			snapshots[name] = b
+		case errors.Is(readErr, storage.ErrKnowledgeDocNotFound):
+			snapshots[name] = nil
+		default:
+			return nil, fmt.Errorf("snapshot prior doc %q: %w", name, readErr)
+		}
+	}
+
+	return snapshots, nil
+}
+
+// restorePriorDocs writes back the snapshot bytes for each doc in snapshots.
+// A nil entry means the doc did not exist before the call and should be deleted.
+// Errors are logged but all docs are attempted; the first error is returned.
+func (s *CardService) restorePriorDocs(ctx context.Context, in WriteKnowledgeDocsInput, snapshots map[string][]byte) error {
+	var firstErr error
+
+	for name, prior := range snapshots {
+		if prior == nil {
+			if delErr := s.store.DeleteKnowledgeDoc(ctx, in.Project, in.Repo, name); delErr != nil {
+				slog.Error("knowledge rollback: delete failed", "doc", name, "err", delErr)
+
+				if firstErr == nil {
+					firstErr = delErr
+				}
+			}
+
+			continue
+		}
+
+		if writeErr := s.store.WriteKnowledgeDoc(ctx, in.Project, in.Repo, name, prior); writeErr != nil {
+			slog.Error("knowledge rollback: overwrite failed", "doc", name, "err", writeErr)
+
+			if firstErr == nil {
+				firstErr = writeErr
+			}
+		}
+	}
+
+	return firstErr
+}
+
+// commitKnowledgeWrites invokes knowledgeCommitFn for the given paths and
+// message. On commit failure it restores all doc snapshots and the prior meta,
+// then returns a wrapped error. On success it is a no-op beyond the commit.
+func (s *CardService) commitKnowledgeWrites(
+	ctx context.Context,
+	in WriteKnowledgeDocsInput,
+	paths []string,
+	msg string,
+	snapshots map[string][]byte,
+	meta *board.KnowledgeMeta,
+	priorMetaRepo board.KnowledgeRepoMeta,
+) error {
 	if err := s.knowledgeCommitFn(ctx, paths, msg); err != nil {
 		// Restore disk state to what it was before this call.
-		for name, b := range priorBytes {
-			if b == nil {
-				if delErr := s.store.DeleteKnowledgeDoc(ctx, in.Project, in.Repo, name); delErr != nil {
-					slog.Error("knowledge rollback: delete failed", "doc", name, "err", delErr)
-				}
-
-				continue
-			}
-
-			if writeErr := s.store.WriteKnowledgeDoc(ctx, in.Project, in.Repo, name, b); writeErr != nil {
-				slog.Error("knowledge rollback: overwrite failed", "doc", name, "err", writeErr)
-			}
+		if restoreErr := s.restorePriorDocs(ctx, in, snapshots); restoreErr != nil {
+			slog.Error("knowledge commit rollback: doc restore failed", "err", restoreErr)
 		}
 
 		meta.Repos[in.Repo] = priorMetaRepo
@@ -211,28 +296,23 @@ func (s *CardService) WriteKnowledgeDocs(ctx context.Context, in WriteKnowledgeD
 			slog.Error("knowledge rollback: meta write failed", "err", writeErr)
 		}
 
-		return nil, fmt.Errorf("commit knowledge docs: %w", err)
+		return fmt.Errorf("commit knowledge docs: %w", err)
 	}
 
-	s.notifyCommit()
+	return nil
+}
 
-	// Notify the in-flight refresh registry on successful Refresh writes.
-	// Edit-source writes never touch the registry. Missing-job is a no-op
-	// (local-mode case where no UI-side acquire happened). Pass empty
-	// commit_sha — the boards-repo SHA is not currently surfaced by
-	// knowledgeCommitFn; runner-side callback (Task 13) reports its own
-	// commit_sha to the UI.
-	if in.Source == KnowledgeWriteSourceRefresh && s.refreshRegistry != nil {
-		if err := s.refreshRegistry.MarkCommitted(in.Project, in.Repo, ""); err != nil {
-			// Defensive: MarkCommitted is documented to no-op on missing
-			// jobs, so an error here is a bug. Log but do not fail the
-			// write — the docs already landed.
-			slog.Warn("registry.MarkCommitted failed",
-				"project", in.Project, "repo", in.Repo, "error", err)
-		}
+// subsetSnapshot returns a new map containing only the entries from snapshots
+// whose keys appear in names. Used to restrict a rollback to the docs that
+// were actually written before a mid-loop failure.
+func subsetSnapshot(snapshots map[string][]byte, names []string) map[string][]byte {
+	out := make(map[string][]byte, len(names))
+
+	for _, name := range names {
+		out[name] = snapshots[name]
 	}
 
-	return &WriteKnowledgeDocsResult{FilesWritten: written}, nil
+	return out
 }
 
 // KnowledgeBaseRead is returned by ReadKnowledgeBase.

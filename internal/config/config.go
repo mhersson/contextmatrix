@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -145,7 +146,7 @@ type ChatConfig struct {
 	IdleTTL time.Duration `yaml:"idle_ttl"`
 
 	// MaxConcurrent caps the number of simultaneously-running chat
-	// containers. Default: 5.
+	// containers. 0 means unlimited. Leave unset to use the default (8).
 	MaxConcurrent int `yaml:"max_concurrent"`
 
 	// DefaultModel is the Claude model ID used when a chat is created
@@ -443,7 +444,11 @@ func (c *Config) Validate() error {
 // Search order:
 //  1. $XDG_CONFIG_HOME/contextmatrix/config.yaml (if XDG_CONFIG_HOME is set)
 //  2. ~/.config/contextmatrix/config.yaml (XDG default)
-//  3. config.yaml (relative to cwd — legacy fallback)
+//
+// Returns an empty string when no config file is found in any standard
+// location. Callers should treat an empty return as "no config found" and
+// either exit with a clear error or require the operator to supply -config
+// explicitly.
 func FindConfigPath() string {
 	var candidates []string
 
@@ -455,15 +460,16 @@ func FindConfigPath() string {
 		}
 	}
 
-	candidates = append(candidates, "config.yaml")
-
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}
 	}
 
-	return candidates[len(candidates)-1]
+	slog.Warn("no config file found in standard XDG locations; use -config to specify a path",
+		"searched", candidates)
+
+	return ""
 }
 
 // Load reads configuration from the given YAML file and applies environment overrides.
@@ -491,7 +497,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -572,10 +581,6 @@ func applyChatDefaults(cfg *Config) {
 		cfg.Chat.IdleTTL = time.Hour
 	}
 
-	if cfg.Chat.MaxConcurrent == 0 {
-		cfg.Chat.MaxConcurrent = 8
-	}
-
 	if cfg.Chat.DBPath == "" {
 		cfg.Chat.DBPath = defaultSQLiteDBPath("chats.db")
 	}
@@ -601,6 +606,25 @@ func applyChatDefaults(cfg *Config) {
 	}
 }
 
+// parseBoolEnv parses a boolean environment variable. It uses strconv.ParseBool
+// so it accepts "1", "t", "T", "TRUE", "true", "True", "0", "f", "F", "FALSE",
+// "false", "False". On parse error it logs a warning and returns current.
+func parseBoolEnv(name string, current bool) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return current
+	}
+
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		slog.Warn("ignoring invalid bool env var", "name", name, "value", v, "error", err)
+
+		return current
+	}
+
+	return b
+}
+
 // applyEnvOverrides applies environment variable overrides to the config.
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CONTEXTMATRIX_PORT"); v != "" {
@@ -615,29 +639,16 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Boards.Dir = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT"); v != "" {
-		cfg.Boards.GitAutoCommit = v == "true" || v == "1"
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH"); v != "" {
-		cfg.Boards.GitAutoPush = v == "true" || v == "1"
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL"); v != "" {
-		cfg.Boards.GitAutoPull = v == "true" || v == "1"
-	}
+	cfg.Boards.GitAutoCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT", cfg.Boards.GitAutoCommit)
+	cfg.Boards.GitAutoPush = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH", cfg.Boards.GitAutoPush)
+	cfg.Boards.GitAutoPull = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL", cfg.Boards.GitAutoPull)
 
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL"); v != "" {
 		cfg.Boards.GitPullInterval = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT"); v != "" {
-		cfg.Boards.GitDeferredCommit = v == "true" || v == "1"
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY"); v != "" {
-		cfg.Boards.GitCloneOnEmpty = v == "true" || v == "1"
-	}
+	cfg.Boards.GitDeferredCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT", cfg.Boards.GitDeferredCommit)
+	cfg.Boards.GitCloneOnEmpty = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", cfg.Boards.GitCloneOnEmpty)
 
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
 		cfg.Boards.GitRemoteURL = v
@@ -691,9 +702,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.TaskSkills.GitRemoteURL = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY"); v != "" {
-		cfg.TaskSkills.GitCloneOnEmpty = v == "true" || v == "1"
-	}
+	cfg.TaskSkills.GitCloneOnEmpty = parseBoolEnv("CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY", cfg.TaskSkills.GitCloneOnEmpty)
 
 	if v := os.Getenv("CONTEXTMATRIX_THEME"); v != "" {
 		cfg.Theme = v
@@ -703,9 +712,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.MCPAPIKey = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ENABLED"); v != "" {
-		cfg.Runner.Enabled = v == "true" || v == "1"
-	}
+	cfg.Runner.Enabled = parseBoolEnv("CONTEXTMATRIX_RUNNER_ENABLED", cfg.Runner.Enabled)
 
 	if v := os.Getenv("CONTEXTMATRIX_RUNNER_URL"); v != "" {
 		cfg.Runner.URL = v
@@ -735,9 +742,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.GitHub.APIBaseURL = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED"); v != "" {
-		cfg.GitHub.IssueImporting.Enabled = v == "true" || v == "1"
-	}
+	cfg.GitHub.IssueImporting.Enabled = parseBoolEnv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED", cfg.GitHub.IssueImporting.Enabled)
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v

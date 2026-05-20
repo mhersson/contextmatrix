@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -291,12 +292,80 @@ type skillArgs struct {
 	Repo        string
 }
 
-// validSkillNames lists all recognized skill names.
-var validSkillNames = []string{
-	"create-task", "create-plan", "execute-task",
-	"review-task", "document-task", "init-project",
-	"run-autonomous", "brainstorming", "systematic-debugging",
-	"refresh-knowledge", "chat-mode",
+// skillBuilder builds a skill's raw content (without the workflow preamble).
+// If skipPreamble is true, buildSkillContent never prepends workflowPreamble
+// regardless of the caller's includePreamble flag — used for skills (like
+// chat-mode) that are not part of the card lifecycle.
+type skillBuilder struct {
+	build        func(ctx context.Context, svc *service.CardService, workflowSkillsDir string, args skillArgs) (string, error)
+	skipPreamble bool
+}
+
+// skillBuilders is the single source of truth for which skill names this
+// server recognises. It feeds (a) the buildSkillContent dispatch, (b) the
+// validSkillNames slice used by error messages, and (c) the get_skill tool's
+// schema description. Adding a skill here is the only registration needed
+// for those three to stay in lockstep.
+var skillBuilders = map[string]skillBuilder{
+	"create-task": {build: func(_ context.Context, _ *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCreateTask(dir, args.Description)
+	}},
+	"create-plan": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCardSkill(ctx, svc, dir, "create-plan.md", args.CardID, false)
+	}},
+	"execute-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCardSkill(ctx, svc, dir, "execute-task.md", args.CardID, true)
+	}},
+	"review-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildSubtaskSkill(ctx, svc, dir, "review-task.md", args.CardID)
+	}},
+	"document-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildSubtaskSkill(ctx, svc, dir, "document-task.md", args.CardID)
+	}},
+	"init-project": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildInitProject(ctx, svc, dir, args.Name)
+	}},
+	"run-autonomous": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildRunAutonomous(ctx, svc, dir, args.CardID)
+	}},
+	"brainstorming": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCardSkill(ctx, svc, dir, "brainstorming.md", args.CardID, false)
+	}},
+	"systematic-debugging": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCardSkill(ctx, svc, dir, "systematic-debugging.md", args.CardID, false)
+	}},
+	"refresh-knowledge": {build: func(_ context.Context, _ *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildRefreshKnowledge(dir, args.Project, args.Repo)
+	}},
+	// chat-mode is content shipped to a free-form chat agent's stdin, not a
+	// card-lifecycle skill — workflowPreamble must NOT be prepended.
+	"chat-mode": {
+		build: func(_ context.Context, _ *service.CardService, dir string, _ skillArgs) (string, error) {
+			return readSkillFile(dir, "chat-mode.md")
+		},
+		skipPreamble: true,
+	},
+}
+
+// validSkillNames is the sorted list of recognised skill names, derived from
+// skillBuilders so adding a builder is the only change needed for error
+// messages and tool schema descriptions to stay in sync.
+var validSkillNames = sortedSkillNames()
+
+// skillNameSchemaDescription is the jsonschema description used by the
+// get_skill tool's skill_name field. Derived from skillBuilders so the
+// schema, the dispatch, and the error-message list stay in lockstep.
+var skillNameSchemaDescription = "required,skill name: " + strings.Join(validSkillNames, ", ")
+
+func sortedSkillNames() []string {
+	names := make([]string, 0, len(skillBuilders))
+	for name := range skillBuilders {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	return names
 }
 
 // buildSkillContent reads the skill file and assembles the full prompt text
@@ -306,56 +375,18 @@ var validSkillNames = []string{
 // avoid re-injecting it into agents that already have it (e.g. orchestrators
 // calling get_skill multiple times during an autonomous run).
 func buildSkillContent(ctx context.Context, svc *service.CardService, workflowSkillsDir, skillName string, args skillArgs, includePreamble bool) (skillResult, error) {
-	var (
-		content string
-		err     error
-	)
-
-	switch skillName {
-	case "create-task":
-		content, err = buildCreateTask(workflowSkillsDir, args.Description)
-	case "create-plan":
-		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "create-plan.md", args.CardID, false)
-	case "execute-task":
-		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "execute-task.md", args.CardID, true)
-	case "review-task":
-		content, err = buildSubtaskSkill(ctx, svc, workflowSkillsDir, "review-task.md", args.CardID)
-	case "document-task":
-		content, err = buildSubtaskSkill(ctx, svc, workflowSkillsDir, "document-task.md", args.CardID)
-	case "init-project":
-		content, err = buildInitProject(ctx, svc, workflowSkillsDir, args.Name)
-	case "run-autonomous":
-		content, err = buildRunAutonomous(ctx, svc, workflowSkillsDir, args.CardID)
-	case "brainstorming":
-		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "brainstorming.md", args.CardID, false)
-	case "systematic-debugging":
-		content, err = buildCardSkill(ctx, svc, workflowSkillsDir, "systematic-debugging.md", args.CardID, false)
-	case "refresh-knowledge":
-		content, err = buildRefreshKnowledge(workflowSkillsDir, args.Project, args.Repo)
-	case "chat-mode":
-		// chat-mode is content shipped to a free-form chat agent's stdin,
-		// not a card-lifecycle skill. It takes no card context and must
-		// not be prefixed with workflowPreamble — short-circuit here so
-		// includePreamble has no effect for this skill.
-		content, err = readSkillFile(workflowSkillsDir, "chat-mode.md")
-		if err != nil {
-			return skillResult{}, err
-		}
-
-		return skillResult{
-			Content: content,
-			Model:   parseSkillModel(content),
-		}, nil
-	default:
+	builder, ok := skillBuilders[skillName]
+	if !ok {
 		return skillResult{}, fmt.Errorf("unknown skill %q; valid skills: %v", skillName, validSkillNames)
 	}
 
+	content, err := builder.build(ctx, svc, workflowSkillsDir, args)
 	if err != nil {
 		return skillResult{}, err
 	}
 
 	prefix := ""
-	if includePreamble {
+	if includePreamble && !builder.skipPreamble {
 		prefix = workflowPreamble
 	}
 
@@ -573,7 +604,14 @@ func readSkillFile(workflowSkillsDir, filename string) (string, error) {
 	return string(data), nil
 }
 
-// findCard searches for a card by ID across all projects.
+// findCard searches for a card by ID across all projects. Returns the first
+// match, or a clear "not found in any project" error if no project has it.
+//
+// Treating every non-nil GetCard error as a miss would mask transient store
+// failures (e.g. a brief SQLite/filesystem hiccup on the correct project) as
+// a missing card and confuse callers — they would chase a phantom "card not
+// found" instead of the real I/O error. Only storage.ErrCardNotFound counts
+// as a miss; any other error returns immediately.
 func findCard(ctx context.Context, svc *service.CardService, cardID string) (*board.Card, string, error) {
 	projects, err := svc.ListProjects(ctx)
 	if err != nil {
@@ -584,6 +622,12 @@ func findCard(ctx context.Context, svc *service.CardService, cardID string) (*bo
 		c, err := svc.GetCard(ctx, p.Name, cardID)
 		if err == nil {
 			return c, p.Name, nil
+		}
+
+		if !errors.Is(err, storage.ErrCardNotFound) {
+			// Real store failure — propagate so the caller sees the actual
+			// cause instead of a misleading "not found in any project".
+			return nil, "", fmt.Errorf("lookup card %s in project %s: %w", cardID, p.Name, err)
 		}
 	}
 

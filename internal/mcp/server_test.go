@@ -436,6 +436,15 @@ func TestAddLog(t *testing.T) {
 
 	createTestCard(t, env, "Log test", "task", "medium")
 
+	// add_log now requires the caller to hold the card claim — the previous
+	// behaviour (anyone can write log entries for any agent_id on an
+	// unclaimed card) was an audit-trail forgery vector.
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-log",
+	})
+
 	result := callTool(t, env, "add_log", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -448,11 +457,87 @@ func TestAddLog(t *testing.T) {
 	var card board.Card
 	unmarshalResult(t, result, &card)
 
-	require.Len(t, card.ActivityLog, 1)
-	assert.Equal(t, "agent-log", card.ActivityLog[0].Agent)
-	assert.Equal(t, "status_update", card.ActivityLog[0].Action)
-	assert.Equal(t, "Started working on the task", card.ActivityLog[0].Message)
-	assert.False(t, card.ActivityLog[0].Timestamp.IsZero())
+	// The log includes the claim_card entry plus the new status_update entry.
+	require.GreaterOrEqual(t, len(card.ActivityLog), 1)
+
+	var statusEntry *board.ActivityEntry
+
+	for i := range card.ActivityLog {
+		if card.ActivityLog[i].Action == "status_update" {
+			statusEntry = &card.ActivityLog[i]
+
+			break
+		}
+	}
+
+	require.NotNil(t, statusEntry, "status_update entry should be present")
+	assert.Equal(t, "agent-log", statusEntry.Agent)
+	assert.Equal(t, "Started working on the task", statusEntry.Message)
+	assert.False(t, statusEntry.Timestamp.IsZero())
+}
+
+func TestAddLog_RejectsUnclaimedCard(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Unclaimed log target", "task", "medium")
+
+	// No claim before add_log — the handler must reject so attacker-supplied
+	// agent_ids cannot land in the activity log.
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "add_log",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"card_id":  "TEST-001",
+			"agent_id": "anybody",
+			"action":   "note",
+			"message":  "should not be accepted",
+		},
+	})
+	if err != nil {
+		// Protocol-level error is also acceptable.
+		assert.Contains(t, err.Error(), "not claimed")
+
+		return
+	}
+
+	require.True(t, result.IsError, "add_log on unclaimed card should error")
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "not claimed")
+}
+
+func TestAddLog_RejectsMismatchedAgent(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Claim mismatch target", "task", "medium")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-owner",
+	})
+
+	// A different agent attempts to write the log — must be rejected.
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "add_log",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"card_id":  "TEST-001",
+			"agent_id": "attacker",
+			"action":   "note",
+			"message":  "impersonation attempt",
+		},
+	})
+	if err != nil {
+		assert.Contains(t, err.Error(), "claimed by")
+
+		return
+	}
+
+	require.True(t, result.IsError, "add_log with mismatched agent should error")
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "claimed by")
 }
 
 func TestCompleteTask_MainTask(t *testing.T) {
@@ -668,6 +753,68 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 
 	// No next_step since siblings are still pending
 	assert.Empty(t, output.NextStep, "should not have next_step when siblings still pending")
+}
+
+func TestCompleteTask_RejectsUnclaimed(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Unclaimed completion target", "task", "medium")
+
+	// complete_task must fail-fast on unclaimed cards. Otherwise any caller
+	// could drive any card to done because AddLogEntry + TransitionTo skip
+	// ownership checks when AssignedAgent is empty.
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "complete_task",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"card_id":  "TEST-001",
+			"agent_id": "anybody",
+			"summary":  "should not be accepted",
+		},
+	})
+	if err != nil {
+		assert.Contains(t, err.Error(), "not claimed")
+
+		return
+	}
+
+	require.True(t, result.IsError, "complete_task on unclaimed card should error")
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "not claimed")
+}
+
+func TestCompleteTask_RejectsMismatchedAgent(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Claim mismatch", "task", "medium")
+
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-owner",
+	})
+
+	// A different agent attempts to complete — must be rejected.
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "complete_task",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"card_id":  "TEST-001",
+			"agent_id": "attacker",
+			"summary":  "impersonation attempt",
+		},
+	})
+	if err != nil {
+		assert.Contains(t, err.Error(), "claimed by")
+
+		return
+	}
+
+	require.True(t, result.IsError, "complete_task with mismatched agent should error")
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "claimed by")
 }
 
 func TestClaimCard_AutoTransition(t *testing.T) {
@@ -1552,6 +1699,14 @@ func TestAddMultipleLogs(t *testing.T) {
 
 	createTestCard(t, env, "Multi-log", "task", "medium")
 
+	// add_log now requires the caller to hold an active claim on the card.
+	claimResult := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-multi",
+	})
+	require.False(t, claimResult.IsError)
+
 	entries := []struct {
 		action  string
 		message string
@@ -1582,11 +1737,13 @@ func TestAddMultipleLogs(t *testing.T) {
 	var card board.Card
 	unmarshalResult(t, getResult, &card)
 
-	require.Len(t, card.ActivityLog, len(entries))
+	// Claim adds one state_changed entry; the rest are our manual log entries.
+	require.Len(t, card.ActivityLog, len(entries)+1)
+	logged := card.ActivityLog[1:]
 
 	for i, e := range entries {
-		assert.Equal(t, e.action, card.ActivityLog[i].Action)
-		assert.Equal(t, e.message, card.ActivityLog[i].Message)
+		assert.Equal(t, e.action, logged[i].Action)
+		assert.Equal(t, e.message, logged[i].Message)
 	}
 }
 
@@ -1634,7 +1791,7 @@ func TestCreateProject_MCP(t *testing.T) {
 	result := callTool(t, env, "create_project", map[string]any{
 		"name":       "new-project",
 		"prefix":     "NEW",
-		"repo":       "git@github.com:org/new-project.git",
+		"repo":       "https://github.com/org/new-project",
 		"states":     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		"types":      []string{"task", "bug"},
 		"priorities": []string{"low", "high"},
@@ -1668,7 +1825,7 @@ func TestUpdateProject_MCP(t *testing.T) {
 
 	result := callTool(t, env, "update_project", map[string]any{
 		"project":    "test-project",
-		"repo":       "git@github.com:org/test.git",
+		"repo":       "https://github.com/org/test",
 		"states":     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		"types":      []string{"task", "bug", "feature"},
 		"priorities": []string{"low", "medium", "high", "critical"},
@@ -1686,7 +1843,7 @@ func TestUpdateProject_MCP(t *testing.T) {
 	var cfg board.ProjectConfig
 	unmarshalResult(t, result, &cfg)
 	assert.Contains(t, cfg.States, "review")
-	assert.Equal(t, "git@github.com:org/test.git", cfg.Repo)
+	assert.Equal(t, "https://github.com/org/test", cfg.Repo)
 }
 
 func TestDeleteProject_MCP(t *testing.T) {

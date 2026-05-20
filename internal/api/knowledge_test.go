@@ -245,7 +245,7 @@ func TestKnowledgeAPI_ListIncludesConfiguredRepos(t *testing.T) {
 	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
-	configureProjectRepo(t, server.URL, "test-project", "git@github.com:o/core.git")
+	configureProjectRepo(t, server.URL, "test-project", "https://github.com/o/core")
 
 	resp, err := http.Get(server.URL + "/api/projects/test-project/knowledge")
 
@@ -275,7 +275,7 @@ func TestKnowledgeAPI_ListMergesBuiltAndConfigured(t *testing.T) {
 	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
-	configureProjectRepo(t, server.URL, "test-project", "git@github.com:o/core.git")
+	configureProjectRepo(t, server.URL, "test-project", "https://github.com/o/core")
 
 	_, err := svc.WriteKnowledgeDocs(context.Background(), service.WriteKnowledgeDocsInput{
 		Project:    "test-project",

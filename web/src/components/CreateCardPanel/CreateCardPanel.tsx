@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
@@ -9,9 +9,12 @@ import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
 import { LabelsSection } from '../CardPanel/CardPanelLabels';
 import { MetadataSkills } from '../CardPanel/metadata/MetadataSkills';
 import { chipTint, typeColors, priorityColors, stateColors } from '../../lib/chip';
-import { HeaderCaret, headerTitleStyle } from '../../lib/header-tokens';
+import { headerTitleStyle } from '../../lib/header-tokens';
+import { BifoldHeader } from '../CardPanel/BifoldHeader';
+import { ChipPicker } from '../CardPanel/ChipPicker';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { ParentSearch } from './ParentSearch';
+import { useCreateCardForm } from './useCreateCardForm';
 
 interface CreateCardPanelProps {
   config: ProjectConfig;
@@ -47,51 +50,16 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const typeId = useId();
   const priorityId = useId();
 
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState(config.types[0] || 'task');
-  const [priority, setPriority] = useState(config.priorities[1] || config.priorities[0] || '');
-  const [labels, setLabels] = useState<string[]>([]);
-  const [parent, setParent] = useState('');
-  const [body, setBody] = useState(() => config.templates?.[config.types[0]] ?? '');
-  const [bodyDirty, setBodyDirty] = useState(false);
-  const [autonomous, setAutonomous] = useState(false);
-  const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
-  const [featureBranch, setFeatureBranch] = useState(true);
-  const [createPR, setCreatePR] = useState(true);
-  const [baseBranch, setBaseBranch] = useState('');
-  // null = inherit project default, [] = mount none, [...] = specific list.
-  const [skills, setSkills] = useState<string[] | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { form, titleInputRef } = useCreateCardForm(config, onCreate);
+
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activeTab, setActiveTab] = useState<RailTabKey>(isMobile ? 'card' : 'automation');
   const [railExpanded, setRailExpanded] = useState(false);
-  const [pendingTemplate, setPendingTemplate] = useState<{ type: string; body: string } | null>(null);
 
   useFocusTrap(panelRef, true);
 
-  // Tracks the type the user had selected before a parent was set, so we
-  // can restore it on clear. Updated by the wrapped `handleSetParent` setter
-  // below — done synchronously alongside the parent change rather than via
-  // an effect, to avoid the cascading-render lint and the corresponding
-  // race where `type` could briefly read 'subtask' before the parent state
-  // change settled.
-  const prevTypeRef = useRef<string>(type);
-
-  // Wrap setParent so the type-lock and parent change happen in one
-  // commit, no effect required.
-  const handleSetParent = useCallback((newParent: string) => {
-    setParent(newParent);
-    if (newParent) {
-      if (type !== 'subtask') prevTypeRef.current = type;
-      setType('subtask');
-    } else {
-      const restored = prevTypeRef.current === 'subtask' ? (config.types[0] ?? 'task') : prevTypeRef.current;
-      setType(restored);
-    }
-  }, [type, config.types]);
-
   const { branches, loading: branchesLoading, error: branchesError } =
-    useBranches(config.name, autonomous && !!config.remote_execution?.enabled);
+    useBranches(config.name, form.autonomous && !!config.remote_execution?.enabled);
 
   // Esc closes the panel.
   useEffect(() => {
@@ -102,89 +70,23 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const handleTypeChange = useCallback((newType: string) => {
-    const template = config.templates?.[newType];
-    if (template) {
-      if (bodyDirty) {
-        setPendingTemplate({ type: newType, body: template });
-      } else {
-        setBody(template);
-      }
-    } else if (!bodyDirty) {
-      setBody('');
-    }
-    setType(newType);
-  }, [config.templates, bodyDirty]);
-
-  const buildInput = useCallback((forRun: boolean): CreateCardInput => ({
-    title: title.trim(),
-    type,
-    priority,
-    labels: labels.length > 0 ? labels : undefined,
-    parent: parent || undefined,
-    body: body || undefined,
-    autonomous: autonomous || undefined,
-    use_opus_orchestrator: useOpusOrchestrator || undefined,
-    // Server force-enables both on Run; mirror that here so the persisted
-    // record matches what the user sees in the form.
-    feature_branch: forRun ? true : featureBranch || undefined,
-    create_pr: forRun ? true : createPR || undefined,
-    base_branch: baseBranch || undefined,
-    // null = inherit project default; only forward an explicit override.
-    skills: skills === null ? undefined : skills,
-  }), [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch, skills]);
-
-  const titleInputRef = useRef<HTMLInputElement>(null);
-
-  const ensureTitle = useCallback((): boolean => {
-    if (title.trim()) return true;
-    titleInputRef.current?.focus();
-    return false;
-  }, [title]);
-
-  const handleJustCreate = useCallback(async () => {
-    if (isSubmitting) return;
-    if (!ensureTitle()) return;
-    setIsSubmitting(true);
-    try {
-      await onCreate(buildInput(false), { run: false });
-    } catch {
-      // Parent shows error toast; keep form open.
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [isSubmitting, ensureTitle, buildInput, onCreate]);
-
-  const handleCreateAndRun = useCallback(async () => {
-    if (isSubmitting) return;
-    if (!ensureTitle()) return;
-    setIsSubmitting(true);
-    try {
-      await onCreate(buildInput(true), { run: true, interactive: !autonomous });
-    } catch {
-      // Parent shows error toast; keep form open.
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [isSubmitting, ensureTitle, buildInput, onCreate, autonomous]);
-
-  const typeTint = typeColors[type] || 'var(--grey1)';
-  const priorityTint = priorityColors[priority] || 'var(--grey1)';
+  const typeTint = typeColors[form.type] || 'var(--grey1)';
+  const priorityTint = priorityColors[form.priority] || 'var(--grey1)';
   const projectName = config.name;
 
   // Left column — labels + description (always editable in create mode).
   const left = (
     <>
       <LabelsSection
-        editedLabels={labels}
+        editedLabels={form.labels}
         disabled={false}
-        onLabelsChange={setLabels}
+        onLabelsChange={form.setLabels}
       />
       <CardPanelEditor
-        body={body}
+        body={form.body}
         editable
         editing
-        onChange={(v) => { setBody(v); setBodyDirty(true); }}
+        onChange={(v) => { form.setBody(v); form.setBodyDirty(true); }}
       />
     </>
   );
@@ -199,19 +101,19 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
         <div className="bf-auto-top" style={{ maxHeight: 'none' }}>
           <AutomationCheckboxes
             mode="create"
-            autonomous={autonomous}
-            useOpusOrchestrator={useOpusOrchestrator}
-            featureBranch={featureBranch}
-            createPR={createPR}
-            onAutonomousChange={setAutonomous}
-            onUseOpusOrchestratorChange={setUseOpusOrchestrator}
+            autonomous={form.autonomous}
+            useOpusOrchestrator={form.useOpusOrchestrator}
+            featureBranch={form.featureBranch}
+            createPR={form.createPR}
+            onAutonomousChange={form.setAutonomous}
+            onUseOpusOrchestratorChange={form.setUseOpusOrchestrator}
             onFeatureBranchChange={(v) => {
-              setFeatureBranch(v);
-              if (!v) setCreatePR(false);
+              form.setFeatureBranch(v);
+              if (!v) form.setCreatePR(false);
             }}
-            onCreatePRChange={setCreatePR}
-            baseBranch={baseBranch}
-            onBaseBranchChange={setBaseBranch}
+            onCreatePRChange={form.setCreatePR}
+            baseBranch={form.baseBranch}
+            onBaseBranchChange={form.setBaseBranch}
             branches={branches}
             branchesLoading={branchesLoading}
             branchesError={branchesError}
@@ -234,16 +136,16 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
 
           <section className="bf-aside-section">
             <h4>Parent (optional)</h4>
-            <ParentSearch parent={parent} setParent={handleSetParent} cards={cards} />
+            <ParentSearch parent={form.parent} setParent={form.handleSetParent} cards={cards} />
             <div className="font-mono mt-2" style={{ color: 'var(--grey1)', fontSize: '11px', lineHeight: 1.45 }}>
               Leave empty for a top-level card. Setting a parent locks the type to <code style={{ color: 'var(--purple)' }}>subtask</code>.
             </div>
           </section>
 
           <MetadataSkills
-            value={skills}
+            value={form.skills}
             config={config}
-            onSkillsChange={setSkills}
+            onSkillsChange={form.setSkills}
           />
 
           <section className="bf-aside-section">
@@ -272,8 +174,8 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
         aria-label="Create card"
       >
         {/* Header */}
-        <div className="flex flex-wrap items-start gap-x-4 gap-y-3 px-5 py-4 border-b border-[var(--bg3)]">
-          <div className="flex-1 min-w-0 flex flex-col gap-2" style={{ flexBasis: '340px' }}>
+        <BifoldHeader
+          chips={
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={onClose}
@@ -290,115 +192,85 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
 
               {/* Type picker chip */}
               <label htmlFor={typeId} className="sr-only">Type</label>
-              {parent ? (
+              {form.parent ? (
                 <span className="chip-pill" style={chipTint('var(--aqua)')}>
                   subtask
                   <span className="text-[10px] opacity-70 ml-1">(set by parent)</span>
                 </span>
               ) : (
-                <div
-                  className="chip-pill"
-                  style={{ ...chipTint(typeTint), padding: '3px 4px 3px 8px', gap: '2px' }}
-                >
-                  <select
-                    id={typeId}
-                    value={type}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className="bg-transparent border-none outline-none appearance-none"
-                    style={{
-                      color: typeTint,
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '11px',
-                      letterSpacing: '0.02em',
-                      paddingRight: '14px',
-                      marginRight: '-12px',
-                    }}
-                    aria-label="Type"
-                  >
-                    {config.types.filter((t) => t !== 'subtask').map((t) => (
-                      <option key={t} value={t} className="bg-[var(--bg2)] text-[var(--fg)]">{t}</option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none">{HeaderCaret}</span>
-                </div>
+                <ChipPicker
+                  id={typeId}
+                  value={form.type}
+                  options={config.types.filter((t) => t !== 'subtask')}
+                  tint={typeTint}
+                  ariaLabel="Type"
+                  onChange={form.handleTypeChange}
+                />
               )}
 
               {/* Priority picker chip */}
               <label htmlFor={priorityId} className="sr-only">Priority</label>
-              <div
-                className="chip-pill"
-                style={{ ...chipTint(priorityTint), padding: '3px 4px 3px 8px', gap: '2px' }}
-              >
-                <select
-                  id={priorityId}
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="bg-transparent border-none outline-none appearance-none"
-                  style={{
-                    color: priorityTint,
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '11px',
-                    letterSpacing: '0.02em',
-                    paddingRight: '14px',
-                    marginRight: '-12px',
-                  }}
-                  aria-label="Priority"
-                >
-                  {config.priorities.map((p) => (
-                    <option key={p} value={p} className="bg-[var(--bg2)] text-[var(--fg)]">{p}</option>
-                  ))}
-                </select>
-                <span className="pointer-events-none">{HeaderCaret}</span>
-              </div>
+              <ChipPicker
+                id={priorityId}
+                value={form.priority}
+                options={config.priorities}
+                tint={priorityTint}
+                ariaLabel="Priority"
+                onChange={form.setPriority}
+              />
 
               {projectName && (
                 <span className="font-mono text-[11px] text-[var(--grey0)]">{projectName}</span>
               )}
             </div>
-
-            <label htmlFor={titleId} className="sr-only">Title</label>
-            <input
-              id={titleId}
-              ref={titleInputRef}
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              autoFocus
-              className="w-full bg-transparent text-[var(--fg)] focus:outline-none focus:bg-[var(--bg2)] rounded px-1 -mx-1 border border-transparent focus:border-[var(--bg3)]"
-              style={headerTitleStyle}
-              placeholder="Card title — one sentence, imperative ideally"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 ml-auto shrink-0 flex-wrap justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleJustCreate()}
-              disabled={isSubmitting}
-              className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs disabled:opacity-50"
-              title={title.trim() ? 'Create without running' : 'Add a title first'}
-            >
-              Just create
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCreateAndRun()}
-              disabled={isSubmitting}
-              className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-colors text-sm font-medium inline-flex items-center gap-2 disabled:opacity-60"
-              title={title.trim() ? 'Create and immediately run' : 'Add a title first'}
-            >
-              <span aria-hidden="true">▶</span>
-              <span>{isSubmitting ? 'Creating…' : `Create & Run ${autonomous ? 'Auto' : 'HITL'}`}</span>
-            </button>
-          </div>
-        </div>
+          }
+          title={
+            <>
+              <label htmlFor={titleId} className="sr-only">Title</label>
+              <input
+                id={titleId}
+                ref={titleInputRef}
+                type="text"
+                value={form.title}
+                onChange={(e) => form.setTitle(e.target.value)}
+                autoFocus
+                className="w-full bg-transparent text-[var(--fg)] focus:outline-none focus:bg-[var(--bg2)] rounded px-1 -mx-1 border border-transparent focus:border-[var(--bg3)]"
+                style={headerTitleStyle}
+                placeholder="Card title — one sentence, imperative ideally"
+              />
+            </>
+          }
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void form.handleJustCreate()}
+                disabled={form.isSubmitting}
+                className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs disabled:opacity-50"
+                title={form.title.trim() ? 'Create without running' : 'Add a title first'}
+              >
+                Just create
+              </button>
+              <button
+                type="button"
+                onClick={() => void form.handleCreateAndRun()}
+                disabled={form.isSubmitting}
+                className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-colors text-sm font-medium inline-flex items-center gap-2 disabled:opacity-60"
+                title={form.title.trim() ? 'Create and immediately run' : 'Add a title first'}
+              >
+                <span aria-hidden="true">▶</span>
+                <span>{form.isSubmitting ? 'Creating…' : `Create & Run ${form.autonomous ? 'Auto' : 'HITL'}`}</span>
+              </button>
+            </>
+          }
+        />
 
         <CardPanelBody
           left={left}
@@ -411,18 +283,18 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
       </div>
 
       <ConfirmModal
-        open={pendingTemplate !== null}
-        title={pendingTemplate ? `Load template for "${pendingTemplate.type}"?` : ''}
+        open={form.pendingTemplate !== null}
+        title={form.pendingTemplate ? `Load template for "${form.pendingTemplate.type}"?` : ''}
         message="This will replace the current body."
         confirmLabel="Load template"
         onConfirm={() => {
-          if (pendingTemplate) {
-            setBody(pendingTemplate.body);
-            setBodyDirty(false);
+          if (form.pendingTemplate) {
+            form.setBody(form.pendingTemplate.body);
+            form.setBodyDirty(false);
           }
-          setPendingTemplate(null);
+          form.setPendingTemplate(null);
         }}
-        onCancel={() => setPendingTemplate(null)}
+        onCancel={() => form.setPendingTemplate(null)}
       />
     </>
   );

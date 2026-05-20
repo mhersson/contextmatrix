@@ -115,7 +115,7 @@ func (h *knowledgeHandlers) putDoc(w http.ResponseWriter, r *http.Request) {
 	// always operated by a human, so we record "human:web" when the caller
 	// hasn't supplied an explicit identity. Refresh writes go through MCP and
 	// have their own service-layer human gate.
-	agentID := r.Header.Get("X-Agent-ID")
+	agentID := extractAgentID(r)
 	if agentID == "" {
 		agentID = "human:web"
 	}

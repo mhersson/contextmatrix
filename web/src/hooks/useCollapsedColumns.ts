@@ -2,9 +2,26 @@ import { useState, useCallback, useMemo } from 'react';
 
 const STORAGE_KEY = 'contextmatrix-collapsed-columns';
 
+// Safari Private Browsing, quota exhaustion, and disabled storage all throw
+// on localStorage access. Wrap both so a throw does not crash the component.
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore — caller already has the in-memory state
+  }
+}
+
 function loadFromStorage(project: string): Set<string> {
   try {
-    const stored = localStorage.getItem(`${STORAGE_KEY}-${project}`);
+    const stored = safeGet(`${STORAGE_KEY}-${project}`);
     if (stored) return new Set(JSON.parse(stored));
   } catch { /* ignore */ }
   return new Set();
@@ -42,7 +59,7 @@ export function useCollapsedColumns(project: string, validStates: string[]): [Se
       } else {
         next.add(colState);
       }
-      localStorage.setItem(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
+      safeSet(`${STORAGE_KEY}-${project}`, JSON.stringify([...next]));
       return { project: prev.project, collapsed: next };
     });
   }, [project]);

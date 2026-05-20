@@ -74,6 +74,13 @@ export function useRunnerLogs({
       eventSourceRef.current.close();
     }
 
+    // Clear the ring buffer before opening the new EventSource so a
+    // fresh server-snapshot replay does not duplicate entries from a
+    // previous open or a previous project/card. Clearing here (inside
+    // the connect callback) guarantees it always runs before the
+    // EventSource is created, regardless of React effect scheduling order.
+    clear();
+
     // Reset per-connection state on a fresh intentional connect.
     lastSeqRef.current = null;
     terminalRef.current = false;
@@ -207,7 +214,7 @@ export function useRunnerLogs({
         connectRef.current();
       }, delay);
     };
-  }, [project, cardId, append]);
+  }, [project, cardId, append, clear]);
 
   // Keep connectRef in sync with connect
   useEffect(() => {
@@ -220,17 +227,6 @@ export function useRunnerLogs({
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
-
-  // Clear the buffer when opening the stream, or when the stream identity
-  // changes, so a fresh server-snapshot replay does not duplicate entries
-  // left over from a previous open or a previous project/card. Declared
-  // before the connect effect so clear() runs before connect() during the
-  // same commit.
-  useEffect(() => {
-    if (enabled) {
-      clear();
-    }
-  }, [project, cardId, enabled, clear]);
 
   useEffect(() => {
     if (enabled) {

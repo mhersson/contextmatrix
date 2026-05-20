@@ -3,6 +3,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
 import { useImageUpload } from '../../hooks/useImageUpload';
+import { safeUrlTransform } from '../../utils/safeUrlTransform';
 
 const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
@@ -181,7 +182,7 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
               </div>
             }
           >
-            <MarkdownPreview source={body} skipHtml className="bf-markdown" />
+            <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
           </Suspense>
         )}
       </div>

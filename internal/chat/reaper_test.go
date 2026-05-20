@@ -96,9 +96,15 @@ func TestIdleReaper_SweepStaleRehydration_FlipsTimeoutSessions(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 
-	// Activate rehydration and push last_active 15 min into the past.
+	// Activate rehydration via the manager (sets rehydration_active=1 and
+	// rehydration_started_at=fakeClock.Now()). Then directly overwrite
+	// rehydration_started_at to 15 min in the past so the sweep fires.
+	// LastActive is left fresh to verify the sweep uses rehydration_started_at,
+	// not last_active.
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess.ID, true))
-	sess.LastActive = fakeClock.Now().Add(-15 * time.Minute)
+
+	startedAt := fakeClock.Now().Add(-15 * time.Minute)
+	sess.RehydrationStartedAt = &startedAt
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
@@ -128,9 +134,14 @@ func TestIdleReaper_SweepStaleRehydration_LeavesRecentAlone(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 
-	// Activate rehydration and push last_active 2 min into the past (within timeout).
+	// Activate rehydration and set rehydration_started_at 2 min in the past
+	// (within the 10-minute timeout). LastActive is set far in the past to
+	// verify the sweep ignores it and uses rehydration_started_at instead.
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess.ID, true))
-	sess.LastActive = fakeClock.Now().Add(-2 * time.Minute)
+
+	startedAt := fakeClock.Now().Add(-2 * time.Minute)
+	sess.LastActive = fakeClock.Now().Add(-1 * time.Hour)
+	sess.RehydrationStartedAt = &startedAt
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
@@ -161,9 +172,12 @@ func TestIdleReaper_SweepStaleRehydration_SkipsIfDisabled(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 
-	// Activate rehydration and push far into the past.
+	// Activate rehydration and push rehydration_started_at far into the past.
+	// The sweep should be a no-op because RehydrationTimeout is 0.
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess.ID, true))
-	sess.LastActive = fakeClock.Now().Add(-1 * time.Hour)
+
+	startedAt := fakeClock.Now().Add(-1 * time.Hour)
+	sess.RehydrationStartedAt = &startedAt
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
@@ -192,22 +206,31 @@ func TestIdleReaper_SweepStaleRehydration_MultipleStale(t *testing.T) {
 	ctx := context.Background()
 
 	// Create three sessions: two stale, one fresh.
+	// For each, SetRehydrationActiveForTest sets rehydration_active=1 and
+	// rehydration_started_at=fakeClock.Now(). Then UpdateSession overwrites
+	// rehydration_started_at so the sweep uses it (not LastActive).
 	sess1, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess1.ID, true))
-	sess1.LastActive = fakeClock.Now().Add(-10 * time.Minute)
+
+	started1 := fakeClock.Now().Add(-10 * time.Minute)
+	sess1.RehydrationStartedAt = &started1
 	require.NoError(t, store.UpdateSession(ctx, sess1))
 
 	sess2, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess2.ID, true))
-	sess2.LastActive = fakeClock.Now().Add(-8 * time.Minute)
+
+	started2 := fakeClock.Now().Add(-8 * time.Minute)
+	sess2.RehydrationStartedAt = &started2
 	require.NoError(t, store.UpdateSession(ctx, sess2))
 
 	sess3, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess3.ID, true))
-	sess3.LastActive = fakeClock.Now().Add(-1 * time.Minute)
+
+	started3 := fakeClock.Now().Add(-1 * time.Minute)
+	sess3.RehydrationStartedAt = &started3
 	require.NoError(t, store.UpdateSession(ctx, sess3))
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)

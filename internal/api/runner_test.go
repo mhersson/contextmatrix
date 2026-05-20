@@ -1701,11 +1701,18 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	assert.True(t, found, "promote activity log entry must be present")
 }
 
-func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
-	// The new design: PromoteToAutonomous sets the flag first (server-authoritative).
-	// If the runner webhook subsequently fails, we return 502 but do NOT revert the
-	// autonomous flag — the flag flip already committed to git and is the source of truth.
-	// The runner-side handlePromote is responsible for failing closed (no stdin write).
+func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
+	// Updated design: when the runner /promote webhook fails after the API has
+	// already flipped autonomous/feature_branch/create_pr, the handler reverts
+	// those changes so the card's declared mode matches the agent's actual mode
+	// inside the container. The runner-side handlePromote already fails closed
+	// (no stdin write) when the webhook fails, leaving the agent in HITL mode;
+	// reverting the card flags avoids a silent contract violation where the
+	// card claims autonomous but the in-container agent never received that.
+	//
+	// The revert is recorded with a "promote-webhook-failed" activity-log entry
+	// so operators reconciling a half-promoted card can see why without
+	// grepping server logs.
 	origBackoff := runner.BackoffBase
 	runner.BackoffBase = time.Millisecond
 
@@ -1751,13 +1758,27 @@ func TestPromoteCard_WebhookFailure_RetainsFlag(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
 
-	// Autonomous flag stays set (server is authoritative; runner webhook failure is a
-	// delivery problem, not a flag problem). The runner-side handlePromote will see
-	// the flag is now set on the card and can retry or the human can re-promote.
+	// Autonomous flag is reverted along with the feature_branch/create_pr
+	// flags this handler enabled. Operators see a "promote-webhook-failed"
+	// activity entry that explains the revert.
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.True(t, updated.Autonomous, "autonomous flag must remain set after webhook failure")
+	assert.False(t, updated.Autonomous, "autonomous flag must be reverted after webhook failure")
+	assert.False(t, updated.FeatureBranch, "feature_branch must be reverted after webhook failure (handler enabled it)")
+	assert.False(t, updated.CreatePR, "create_pr must be reverted after webhook failure (handler enabled it)")
+
+	var foundRevert bool
+
+	for _, entry := range updated.ActivityLog {
+		if entry.Action == "promote-webhook-failed" {
+			foundRevert = true
+
+			break
+		}
+	}
+
+	assert.True(t, foundRevert, "promote-webhook-failed activity entry must be present after revert")
 }
 
 // --- runCard interactive extensions ---

@@ -70,6 +70,13 @@ const (
 	ErrCodeCardNotVetted        = "CARD_NOT_VETTED"
 	ErrCodeReviewAttemptsCapped = "REVIEW_ATTEMPTS_CAPPED"
 	ErrCodeContentTooLarge      = "CONTENT_TOO_LARGE"
+	ErrCodeSyncDisabled         = "SYNC_DISABLED"
+	ErrCodeSyncError            = "SYNC_ERROR"
+	ErrCodeNoGitHubRepo         = "NO_GITHUB_REPO"
+	// ErrCodeTooManySubscribers indicates the global SSE subscriber cap has
+	// been reached; the client should back off and retry later. Mirrors the
+	// per-session ErrCodeTooManyChats used by the chat hub.
+	ErrCodeTooManySubscribers = "TOO_MANY_SUBSCRIBERS"
 
 	// Image upload + retrieval. Status mapping:
 	//   IMAGE_NOT_FOUND        → 404 (unknown id or malformed id segment)
@@ -228,6 +235,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		port:            cfg.Port,
 		sessionManager:  cfg.SessionManager,
 		refreshRegistry: cfg.RefreshRegistry,
+		replayCache:     runner.NewSignatureCache(),
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)

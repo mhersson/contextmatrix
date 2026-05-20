@@ -1,7 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import type { LogEntry } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
+import { safeUrlTransform } from '../../utils/safeUrlTransform';
+import { ChatComposer } from './ChatComposer';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -9,7 +10,6 @@ import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 // data-color-mode.
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
-const MAX_MESSAGE_LENGTH = 8000;
 const NEAR_BOTTOM_THRESHOLD = 50;
 
 export interface ChatPanelProps {
@@ -38,14 +38,9 @@ export interface ChatPanelProps {
 }
 
 export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage, focusKey }: ChatPanelProps) {
-  const [message, setMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
-  const messageId = useId();
   const logContainerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const userScrolledUpRef = useRef(false);
 
   const handleLogScroll = useCallback(() => {
@@ -64,50 +59,16 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
     el.scrollTop = el.scrollHeight;
   }, [logs]);
 
-  // Imperative focus when focusKey changes (multi-pane: pane opened/focused).
-  // Skipped when the textarea is missing (readOnly/cold) so we don't fight
-  // the banner. Also skipped during sending; flushSync at send-end re-focuses.
-  useEffect(() => {
-    if (focusKey === undefined) return;
-    if (readOnlyMessage || sendDisabled) return;
-    textareaRef.current?.focus();
-  }, [focusKey, readOnlyMessage, sendDisabled]);
-
-  const filteredLogs = logs.filter((e) => {
-    if (e.type === 'text') return showText;
-    if (e.type === 'tool_call') return showToolCalls;
-    if (e.type === 'thinking') return showThinking;
-    return true;
-  });
-
-  const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
-  const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (canSend) void handleSend();
-    }
-  };
-
-  const handleSend = async () => {
-    const content = message.trim();
-    if (!content || sending || isOverLimit) return;
-    setSending(true);
-    try {
-      await onSend(content);
-      setMessage('');
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-    } finally {
-      // Browsers drop focus() calls against a disabled input. setSending(false)
-      // only queues the flip — flushSync commits it before the imperative focus
-      // so the user can keep typing without re-clicking the textarea.
-      flushSync(() => setSending(false));
-      textareaRef.current?.focus();
-    }
-  };
+  const filteredLogs = useMemo(
+    () =>
+      logs.filter((e) => {
+        if (e.type === 'text') return showText;
+        if (e.type === 'tool_call') return showToolCalls;
+        if (e.type === 'thinking') return showThinking;
+        return true;
+      }),
+    [logs, showText, showToolCalls, showThinking],
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -151,7 +112,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         {filteredLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.ts}-${idx}`} entry={entry} />)
+          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.seq ?? entry.ts}-${idx}`} entry={entry} />)
         )}
       </div>
 
@@ -164,50 +125,13 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
           {readOnlyMessage}
         </div>
       ) : (
-        <>
-          <div className="bf-tk-compose">
-            <label htmlFor={messageId} className="sr-only">Message</label>
-            <textarea
-              ref={textareaRef}
-              id={messageId}
-              className="bf-input"
-              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              maxLength={MAX_MESSAGE_LENGTH}
-              disabled={sending || sendDisabled}
-              rows={2}
-            />
-            <button
-              type="button"
-              onClick={() => void handleSend()}
-              disabled={!canSend}
-              className="bf-btn-primary"
-            >
-              {sending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
-          <div className="px-[18px] pb-3 flex flex-wrap items-center justify-end gap-2">
-            {message.length > MAX_MESSAGE_LENGTH * 0.9 && (
-              <div
-                className="text-xs font-mono mr-auto"
-                style={{ color: isOverLimit ? 'var(--red)' : 'var(--yellow)' }}
-              >
-                {message.length} / {MAX_MESSAGE_LENGTH}
-              </div>
-            )}
-            {footer}
-            {error && (
-              <div
-                className="text-xs px-2 py-1 rounded font-mono"
-                style={{ background: 'var(--bg-red)', color: 'var(--red)' }}
-              >
-                {error}
-              </div>
-            )}
-          </div>
-        </>
+        <ChatComposer
+          onSend={onSend}
+          sendDisabled={sendDisabled}
+          footer={footer}
+          focusKey={focusKey}
+          isReadOnly={!!readOnlyMessage}
+        />
       )}
     </div>
   );
@@ -289,7 +213,7 @@ function ChatMarkdown({ source }: { source: string }) {
   return (
     <div className="bf-chat-markdown">
       <Suspense fallback={<div className="whitespace-pre-wrap break-words text-sm">{source}</div>}>
-        <MarkdownPreview source={source} skipHtml />
+        <MarkdownPreview source={source} skipHtml urlTransform={safeUrlTransform} />
       </Suspense>
     </div>
   );

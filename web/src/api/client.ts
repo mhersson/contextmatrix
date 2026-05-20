@@ -6,10 +6,8 @@ import type {
   APIError,
   CreateCardInput,
   CreateProjectInput,
-  UpdateCardInput,
   UpdateProjectInput,
   PatchCardInput,
-  CardContext,
   DashboardData,
   SyncStatus,
   StopAllResponse,
@@ -29,12 +27,27 @@ import type {
 
 const BASE_URL = '/api';
 
+// Default timeout for all requests: 30 seconds. Callers may supply their own
+// AbortSignal via options.signal; the two signals are combined with
+// AbortSignal.any so whichever fires first wins.
+//
+// AbortSignal.any is available in all modern browsers (Chrome 116+,
+// Firefox 115+, Safari 17.4+) and Node 20+. AbortSignal.timeout is available
+// from Chrome 103+, Firefox 100+, Safari 16+, Node 17.3+. Both are stable in
+// the target browser matrix for this project.
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 // Wire shape for GET /api/projects/:project/cards. Not exported — callers see
 // the flat Card[] returned by getCards().
 interface CardPage {
   items: Card[];
   next_cursor?: string;
   total?: number;
+}
+
+// Options accepted by request<T> in addition to the standard RequestInit fields.
+interface RequestOptions extends RequestInit {
+  signal?: AbortSignal;
 }
 
 class APIClient {
@@ -50,7 +63,7 @@ class APIClient {
 
   private async request<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestOptions = {}
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -62,9 +75,18 @@ class APIClient {
       (headers as Record<string, string>)['X-Agent-ID'] = this.agentId;
     }
 
+    // Combine caller-supplied signal with a per-request timeout so hung
+    // servers never block indefinitely. AbortSignal.any fires on whichever
+    // signal aborts first.
+    const timeoutSignal = AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
+
     const response = await fetch(`${BASE_URL}${path}`, {
       ...options,
       headers,
+      signal,
     });
 
     if (!response.ok) {
@@ -93,7 +115,7 @@ class APIClient {
   }
 
   async getProject(name: string): Promise<ProjectConfig> {
-    return this.request<ProjectConfig>(`/projects/${name}`);
+    return this.request<ProjectConfig>(`/projects/${encodeURIComponent(name)}`);
   }
 
   async createProject(input: CreateProjectInput): Promise<ProjectConfig> {
@@ -107,14 +129,14 @@ class APIClient {
     name: string,
     input: UpdateProjectInput
   ): Promise<ProjectConfig> {
-    return this.request<ProjectConfig>(`/projects/${name}`, {
+    return this.request<ProjectConfig>(`/projects/${encodeURIComponent(name)}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     });
   }
 
   async deleteProject(name: string): Promise<void> {
-    return this.request<void>(`/projects/${name}`, {
+    return this.request<void>(`/projects/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     });
   }
@@ -139,17 +161,18 @@ class APIClient {
       if (filter.vetted !== undefined) baseParams.set('vetted', String(filter.vetted));
     }
 
+    const MAX_PAGES = 200;
     const all: Card[] = [];
     let cursor: string | null = null;
     // Cap iterations as a sanity bound against a pathological server response
     // (e.g. a cursor that never advances). 200 pages × 500 items = 100k cards.
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < MAX_PAGES; i++) {
       const params = new URLSearchParams(baseParams);
       if (cursor) {
         params.set('cursor', cursor);
       }
       const query = params.toString();
-      const path = `/projects/${project}/cards${query ? `?${query}` : ''}`;
+      const path = `/projects/${encodeURIComponent(project)}/cards${query ? `?${query}` : ''}`;
       const page = await this.request<CardPage>(path);
       all.push(...page.items);
       if (!page.next_cursor) {
@@ -157,27 +180,19 @@ class APIClient {
       }
       cursor = page.next_cursor;
     }
-    return all;
+    // Cursor still set after the loop means the server returned more pages than
+    // the sanity bound allows — surface this as an error rather than silently
+    // returning a truncated result.
+    throw new Error(`getCards: pagination exceeded ${MAX_PAGES} pages; result truncated`);
   }
 
-  async getCard(project: string, id: string): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}`);
+  async getCard(project: string, id: string, signal?: AbortSignal): Promise<Card> {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}`, { signal });
   }
 
   async createCard(project: string, input: CreateCardInput): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards`, {
       method: 'POST',
-      body: JSON.stringify(input),
-    });
-  }
-
-  async updateCard(
-    project: string,
-    id: string,
-    input: UpdateCardInput
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}`, {
-      method: 'PUT',
       body: JSON.stringify(input),
     });
   }
@@ -187,21 +202,21 @@ class APIClient {
     id: string,
     input: PatchCardInput
   ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     });
   }
 
   async deleteCard(project: string, id: string): Promise<void> {
-    return this.request<void>(`/projects/${project}/cards/${id}`, {
+    return this.request<void>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   }
 
   // Agent operations
   async claimCard(project: string, id: string, agentId: string): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/claim`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/claim`, {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
@@ -212,46 +227,18 @@ class APIClient {
     id: string,
     agentId: string
   ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/release`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/release`, {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
-  }
-
-  async heartbeatCard(
-    project: string,
-    id: string,
-    agentId: string
-  ): Promise<void> {
-    return this.request<void>(`/projects/${project}/cards/${id}/heartbeat`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async addLogEntry(
-    project: string,
-    id: string,
-    agentId: string,
-    action: string,
-    message: string
-  ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/log`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, action, message }),
-    });
-  }
-
-  async getCardContext(project: string, id: string): Promise<CardContext> {
-    return this.request<CardContext>(`/projects/${project}/cards/${id}/context`);
   }
 
   async getDashboard(project: string): Promise<DashboardData> {
-    return this.request<DashboardData>(`/projects/${project}/dashboard`);
+    return this.request<DashboardData>(`/projects/${encodeURIComponent(project)}/dashboard`);
   }
 
   async getActivity(project: string, limit = 50): Promise<ActivityFeedResponse> {
-    return this.request<ActivityFeedResponse>(`/projects/${project}/activity?limit=${limit}`);
+    return this.request<ActivityFeedResponse>(`/projects/${encodeURIComponent(project)}/activity?limit=${limit}`);
   }
 
   async getRunnerHealth(signal?: AbortSignal): Promise<RunnerHealth> {
@@ -284,7 +271,7 @@ class APIClient {
     id: string,
     opts?: { interactive?: boolean }
   ): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/run`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/run`, {
       method: 'POST',
       body: opts?.interactive ? JSON.stringify({ interactive: true }) : undefined,
     });
@@ -296,7 +283,7 @@ class APIClient {
     content: string
   ): Promise<{ ok: boolean; message_id: string }> {
     return this.request<{ ok: boolean; message_id: string }>(
-      `/projects/${project}/cards/${id}/message`,
+      `/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/message`,
       {
         method: 'POST',
         body: JSON.stringify({ content }),
@@ -305,26 +292,26 @@ class APIClient {
   }
 
   async promoteCardToAutonomous(project: string, id: string): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/promote`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/promote`, {
       method: 'POST',
     });
   }
 
   async stopCard(project: string, id: string): Promise<Card> {
-    return this.request<Card>(`/projects/${project}/cards/${id}/stop`, {
+    return this.request<Card>(`/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/stop`, {
       method: 'POST',
     });
   }
 
   async stopAllCards(project: string): Promise<StopAllResponse> {
     return this.request<StopAllResponse>(
-      `/projects/${project}/stop-all`,
+      `/projects/${encodeURIComponent(project)}/stop-all`,
       { method: 'POST' }
     );
   }
 
   async fetchBranches(project: string): Promise<string[]> {
-    return this.request<string[]>(`/projects/${project}/branches`);
+    return this.request<string[]>(`/projects/${encodeURIComponent(project)}/branches`);
   }
 
   // Knowledge base
@@ -408,13 +395,6 @@ class APIClient {
 
   async getChat(id: string): Promise<ChatSession> {
     return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`);
-  }
-
-  async patchChat(id: string, body: { title?: string }): Promise<ChatSession> {
-    return this.request<ChatSession>(`/chats/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    });
   }
 
   async deleteChat(id: string): Promise<void> {
@@ -503,7 +483,12 @@ class APIClient {
 export const api = new APIClient();
 
 export function isAPIError(err: unknown): err is { error: string; code?: string; details?: string } {
-  return err != null && typeof err === 'object' && 'error' in err;
+  return (
+    err != null &&
+    typeof err === 'object' &&
+    'error' in err &&
+    typeof (err as Record<string, unknown>).error === 'string'
+  );
 }
 
 export function errorMessage(err: unknown): string {

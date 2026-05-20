@@ -79,6 +79,16 @@ func TestExtractCMImageIDs(t *testing.T) {
 			body: "![](/api/images/aabbccddeeff0011/extra)",
 			want: nil,
 		},
+		{
+			name: "query string suffix accepted and stripped",
+			body: "![shot](/api/images/aabbccddeeff0011?v=1)",
+			want: []string{"aabbccddeeff0011"},
+		},
+		{
+			name: "absolute URL with query string",
+			body: "![](https://cm.example/api/images/0123456789abcdef?t=abc)",
+			want: []string{"0123456789abcdef"},
+		},
 	}
 
 	for _, tc := range tests {

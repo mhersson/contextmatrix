@@ -96,6 +96,16 @@ var (
 		Help: "Commit failures reported by the commit queue worker.",
 	})
 
+	// CommitCancellationsTotal counts commit jobs that did not execute because
+	// the caller's context was cancelled before the worker could start the
+	// commit. Distinct from CommitErrorsTotal: a cancellation is not a commit
+	// failure, but it is observable so dashboards can distinguish "queue
+	// drained on shutdown" from "queue had no traffic".
+	CommitCancellationsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "contextmatrix_commit_cancellations_total",
+		Help: "Commit jobs skipped because the caller's context was cancelled before execution.",
+	})
+
 	// ParentAutoTransitionErrors counts failures during parent auto-transition
 	// commits. Auto-transitions are best-effort fire-and-forget from the child
 	// write path; operators should alert on sustained non-zero values since
@@ -124,6 +134,14 @@ var (
 		Name: "contextmatrix_report_usage_unknown_model_total",
 		Help: "report_usage calls where the model is not in the token_costs map (cost not calculated).",
 	}, []string{"model"})
+
+	// GitHubPagesTruncatedTotal counts FetchOpenIssues / FetchBranches calls
+	// that hit the maxPages safety cap and silently dropped remaining pages.
+	// The resource label is one of {issues, branches}.
+	GitHubPagesTruncatedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_github_pages_truncated_total",
+		Help: "GitHub API paginated fetches that hit the maxPages cap and dropped remaining pages.",
+	}, []string{"resource"})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -144,9 +162,11 @@ func Register(reg prometheus.Registerer) {
 		CommitQueueDepth,
 		CommitDuration,
 		CommitErrorsTotal,
+		CommitCancellationsTotal,
 		ParentAutoTransitionErrors,
 		RollbackFailuresTotal,
 		ReportUsageUnknownModelTotal,
+		GitHubPagesTruncatedTotal,
 	}
 
 	for _, c := range collectors {

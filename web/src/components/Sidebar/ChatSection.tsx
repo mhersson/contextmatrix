@@ -117,20 +117,8 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
                   onDragEnd={() => {
                     window.dispatchEvent(new Event(CHAT_DRAG_END_EVENT));
                   }}
-                  className="block w-full text-left px-3 py-1.5 rounded text-sm flex items-center gap-2"
-                  style={{
-                    backgroundColor: 'transparent',
-                    color: 'var(--grey2)',
-                    cursor: draggable ? 'grab' : 'pointer',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--bg1)';
-                    e.currentTarget.style.color = 'var(--fg)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--grey2)';
-                  }}
+                  className="cm-chat-row block w-full text-left px-3 py-1.5 rounded text-sm flex items-center gap-2"
+                  style={{ cursor: draggable ? 'grab' : 'pointer' }}
                 >
                   <span className="truncate flex-1">{s.title || '(untitled)'}</span>
                   {statusDotColor(s.status) && (

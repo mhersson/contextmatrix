@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { Card, ProjectConfig } from '../../../types';
-import { runnerStatusStyles } from '../../../types';
+import { runnerStatusStyles } from '../../../lib/chip';
 
 interface MetadataStatusProps {
   card: Card;

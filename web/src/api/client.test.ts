@@ -266,8 +266,14 @@ describe('api knowledge base', () => {
     const ac = new AbortController();
     await api.putKnowledgeDoc('p', 'core', 'architecture.md', '# new', { signal: ac.signal });
 
+    // request() combines the caller signal with a timeout signal via
+    // AbortSignal.any, so the signal passed to fetch is a composite —
+    // not the original. Verify it is an AbortSignal and that aborting
+    // the caller's controller also aborts the composite.
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
-    expect(init.signal).toBe(ac.signal);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    ac.abort();
+    expect(init.signal?.aborted).toBe(true);
   });
 
   it('getKnowledgeDoc surfaces 404 as APIError with KNOWLEDGE_DOC_NOT_FOUND code', async () => {

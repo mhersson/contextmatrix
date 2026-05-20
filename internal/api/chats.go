@@ -33,7 +33,7 @@ func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatCfg *config.ChatCo
 // agentIDForChat returns the caller identity, defaulting to "human:web" when
 // the X-Agent-ID header is absent (same fallback pattern used elsewhere in api/).
 func agentIDForChat(r *http.Request) string {
-	id := r.Header.Get("X-Agent-ID")
+	id := extractAgentID(r)
 	if id == "" {
 		return "human:web"
 	}

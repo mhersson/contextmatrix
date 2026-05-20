@@ -86,6 +86,10 @@ const (
 	boardConfigFile   = ".board.yaml"
 	templatesDir      = "templates"
 	templateExtension = ".md"
+
+	// maxConfigFileSize caps .board.yaml and template files before YAML
+	// unmarshal to prevent runaway allocation from corrupt or oversized files.
+	maxConfigFileSize = 1 * 1024 * 1024 // 1 MiB
 )
 
 // LoadProjectConfig reads a project's .board.yaml configuration.
@@ -93,12 +97,21 @@ const (
 func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 	path := filepath.Join(dir, boardConfigFile)
 
-	data, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrProjectNotFound
 		}
 
+		return nil, fmt.Errorf("stat project config: %w", err)
+	}
+
+	if info.Size() > maxConfigFileSize {
+		return nil, fmt.Errorf("project config exceeds size limit (%d bytes): %w", maxConfigFileSize, ErrMalformedProjectConfig)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil, fmt.Errorf("read project config: %w", err)
 	}
 
@@ -193,6 +206,10 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 				return fmt.Errorf("%w: repos[%d]: url required", ErrInvalidProjectConfig, i)
 			}
 
+			if !strings.HasPrefix(r.URL, "https://") {
+				return fmt.Errorf("%w: repos[%d]: url must use https:// scheme (runner is HTTPS-only)", ErrInvalidProjectConfig, i)
+			}
+
 			if r.Primary {
 				primaries++
 			}
@@ -221,6 +238,9 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 // Format: PREFIX-NNN, zero-padded to 3 digits minimum.
 // Examples: ALPHA-001, ALPHA-042, ALPHA-999, ALPHA-1000
 // IMPORTANT: Increments cfg.NextID - caller must save config after calling.
+//
+// Caller MUST hold the project's write lock; this function is not safe for
+// concurrent use.
 func GenerateCardID(cfg *ProjectConfig) string {
 	id := cfg.NextID
 	cfg.NextID++
@@ -268,12 +288,24 @@ func (p *ProjectConfig) EffectiveRepos() []Repo {
 	return []Repo{{Name: deriveRepoName(p.Repo), URL: p.Repo, Primary: true}}
 }
 
+// deriveRepoName extracts a short repository name from a URL.
+// Returns an empty string for blank or scheme-only inputs (e.g. "https://")
+// so callers can detect and handle degenerate cases rather than receiving
+// a nonsensical name.
 func deriveRepoName(url string) string {
 	url = strings.TrimSpace(url)
+	if url == "" {
+		return ""
+	}
 
 	url = strings.TrimRight(url, "/")
 	if idx := strings.LastIndexAny(url, "/:"); idx >= 0 {
 		url = url[idx+1:]
+	}
+
+	// After stripping the separator the remaining segment must be non-empty.
+	if url == "" {
+		return ""
 	}
 
 	name := strings.TrimSuffix(url, ".git")
@@ -313,6 +345,21 @@ func LoadTemplates(dir string) (map[string]string, error) {
 
 		typeName := strings.TrimSuffix(name, templateExtension)
 		filePath := filepath.Join(templatesPath, name)
+
+		info, err := entry.Info()
+		if err != nil {
+			return nil, fmt.Errorf("stat template %s: %w", name, err)
+		}
+
+		if info.Size() > maxConfigFileSize {
+			slog.Warn("template file exceeds size limit, skipping",
+				"file", filePath,
+				"size", info.Size(),
+				"limit", maxConfigFileSize,
+			)
+
+			continue
+		}
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {

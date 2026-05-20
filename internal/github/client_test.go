@@ -115,9 +115,44 @@ func TestFetchOpenIssues_RateLimitedMidPage(t *testing.T) {
 	assert.Equal(t, "Valid issue", result[0].Title)
 }
 
-func TestFetchOpenIssues_403Forbidden(t *testing.T) {
+func TestFetchOpenIssues_403Forbidden_PermissionDenied(t *testing.T) {
+	// 403 without rate-limit signals (no X-RateLimit-Remaining: 0, no
+	// "rate limit" in body) indicates a permission failure such as a
+	// revoked PAT, SAML SSO denial, or missing repo access. It must
+	// surface as ErrPermissionDenied, not ErrRateLimited.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	require.ErrorIs(t, err, ErrPermissionDenied)
+	assert.NotErrorIs(t, err, ErrRateLimited)
+}
+
+func TestFetchOpenIssues_403WithRateLimitRemainingZero(t *testing.T) {
+	// 403 with X-RateLimit-Remaining: 0 is GitHub's primary rate-limit
+	// signal and must classify as ErrRateLimited.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
+	assert.ErrorIs(t, err, ErrRateLimited)
+}
+
+func TestFetchOpenIssues_403SecondaryRateLimit(t *testing.T) {
+	// Secondary rate limits do not always set X-RateLimit-Remaining: 0.
+	// The body match on "secondary rate limit" / "rate limit" is the
+	// documented fallback.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"You have exceeded a secondary rate limit"}`))
 	}))
 	defer srv.Close()
 
@@ -246,8 +281,12 @@ func TestFetchBranches_ServerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "status 500")
 }
 
-func TestFetchBranches_RateLimited(t *testing.T) {
+func TestFetchBranches_403WithRateLimitRemainingZero(t *testing.T) {
+	// 403 with X-RateLimit-Remaining: 0 is GitHub's primary rate-limit
+	// signal. The bare 403 case is covered by
+	// TestFetchBranches_403Forbidden_PermissionDenied below.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
@@ -255,6 +294,19 @@ func TestFetchBranches_RateLimited(t *testing.T) {
 	client := newTestClient(t, srv)
 	_, err := client.FetchBranches(context.Background(), "o", "r")
 	assert.ErrorIs(t, err, ErrRateLimited)
+}
+
+func TestFetchBranches_403Forbidden_PermissionDenied(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.FetchBranches(context.Background(), "o", "r")
+	require.ErrorIs(t, err, ErrPermissionDenied)
+	assert.NotErrorIs(t, err, ErrRateLimited)
 }
 
 func TestFetchBranches_429TooManyRequests(t *testing.T) {
@@ -310,6 +362,11 @@ func TestParseLinkNext(t *testing.T) {
 		{
 			name:   "non-github host rejected",
 			header: `<https://evil.com/steal?token=x>; rel="next"`,
+			want:   "",
+		},
+		{
+			name:   "scheme downgrade rejected",
+			header: `<http://api.github.com/repos/o/r/issues?page=2>; rel="next"`,
 			want:   "",
 		},
 	}

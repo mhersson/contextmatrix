@@ -24,12 +24,12 @@ func (f *failingStore) FailNextSetRehydration() {
 	f.failNextSetRehydration.Store(true)
 }
 
-func (f *failingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
+func (f *failingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
 	if f.failNextSetRehydration.CompareAndSwap(true, false) {
 		return errors.New("injected: SetRehydrationActive failure")
 	}
 
-	return f.Store.SetRehydrationActive(ctx, sessionID, active)
+	return f.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
 }
 
 // Remaining Store methods delegate to the inner store via embedding, so we
@@ -76,8 +76,8 @@ func (f *failingStore) MaxSeq(ctx context.Context, sessionID string) (int64, err
 	return f.Store.MaxSeq(ctx, sessionID)
 }
 
-func (f *failingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	return f.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+func (f *failingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	return f.Store.CountSessionsByStatus(ctx, statuses...)
 }
 
 func (f *failingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
@@ -133,8 +133,8 @@ func (ts *trackingStore) DeleteSession(ctx context.Context, id string) error {
 	return ts.Store.DeleteSession(ctx, id)
 }
 
-func (ts *trackingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
-	return ts.Store.SetRehydrationActive(ctx, sessionID, active)
+func (ts *trackingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
+	return ts.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
 }
 
 func (ts *trackingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
@@ -157,8 +157,8 @@ func (ts *trackingStore) MaxSeq(ctx context.Context, sessionID string) (int64, e
 	return ts.Store.MaxSeq(ctx, sessionID)
 }
 
-func (ts *trackingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	return ts.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+func (ts *trackingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	return ts.Store.CountSessionsByStatus(ctx, statuses...)
 }
 
 func (ts *trackingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
@@ -181,8 +181,8 @@ type yieldingStore struct {
 	rng atomic.Int64
 }
 
-func (y *yieldingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
-	err := y.Store.SetRehydrationActive(ctx, sessionID, active)
+func (y *yieldingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
+	err := y.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
 	// xorshift-style scramble of an atomic counter gives each call a
 	// different sleep duration without pulling in math/rand and without
 	// introducing a shared mutex. Range is [0, ~2ms). Single-millisecond
@@ -248,8 +248,8 @@ func (y *yieldingStore) MaxSeq(ctx context.Context, sessionID string) (int64, er
 	return y.Store.MaxSeq(ctx, sessionID)
 }
 
-func (y *yieldingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	return y.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+func (y *yieldingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	return y.Store.CountSessionsByStatus(ctx, statuses...)
 }
 
 func (y *yieldingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
@@ -298,8 +298,8 @@ func (c *clearAtomicFailingStore) DeleteSession(ctx context.Context, id string) 
 	return c.Store.DeleteSession(ctx, id)
 }
 
-func (c *clearAtomicFailingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
-	return c.Store.SetRehydrationActive(ctx, sessionID, active)
+func (c *clearAtomicFailingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
+	return c.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
 }
 
 func (c *clearAtomicFailingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
@@ -322,8 +322,8 @@ func (c *clearAtomicFailingStore) MaxSeq(ctx context.Context, sessionID string) 
 	return c.Store.MaxSeq(ctx, sessionID)
 }
 
-func (c *clearAtomicFailingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	return c.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+func (c *clearAtomicFailingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	return c.Store.CountSessionsByStatus(ctx, statuses...)
 }
 
 func (c *clearAtomicFailingStore) Close() error { return c.Store.Close() }
@@ -441,8 +441,8 @@ func (g *gatingStore) DeleteSession(ctx context.Context, id string) error {
 	return g.Store.DeleteSession(ctx, id)
 }
 
-func (g *gatingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool) error {
-	return g.Store.SetRehydrationActive(ctx, sessionID, active)
+func (g *gatingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
+	return g.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
 }
 
 func (g *gatingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
@@ -461,8 +461,8 @@ func (g *gatingStore) MaxSeq(ctx context.Context, sessionID string) (int64, erro
 	return g.Store.MaxSeq(ctx, sessionID)
 }
 
-func (g *gatingStore) MarkAllMessagesRehydrationPhase(ctx context.Context, sessionID string) (int64, error) {
-	return g.Store.MarkAllMessagesRehydrationPhase(ctx, sessionID)
+func (g *gatingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
+	return g.Store.CountSessionsByStatus(ctx, statuses...)
 }
 
 func (g *gatingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {

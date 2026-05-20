@@ -59,6 +59,11 @@ type Session struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
 	RehydrationActive      bool      `json:"rehydration_active,omitempty"`
+	// RehydrationStartedAt is set when SetRehydrationActive(true) is called and
+	// cleared (nil) when called with false. The reaper compares this — not
+	// LastActive — against the rehydration timeout so an actively-typing user
+	// whose agent crashed mid-rehydration does not prevent the sweep from firing.
+	RehydrationStartedAt *time.Time `json:"rehydration_started_at,omitempty"`
 }
 
 // Message is a single persisted transcript entry. Kind discriminates

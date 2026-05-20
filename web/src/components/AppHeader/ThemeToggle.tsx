@@ -7,14 +7,7 @@ export function ThemeToggle() {
     <button
       onClick={toggleTheme}
       title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="flex items-center justify-center w-8 h-8 rounded transition-colors"
-      style={{ color: 'var(--grey1)', background: 'transparent' }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg)';
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.color = 'var(--grey1)';
-      }}
+      className="cm-header-icon-btn flex items-center justify-center w-8 h-8 rounded transition-colors"
     >
       {theme === 'dark' ? (
         // Sun icon — shown in dark mode, click to switch to light

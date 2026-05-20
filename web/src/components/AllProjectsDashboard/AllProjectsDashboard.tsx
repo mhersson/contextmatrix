@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { useOncePerKeyToast } from '../../hooks/useOncePerKeyToast';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummaries } from '../../hooks/useProjectSummaries';
 import { useSSEBus } from '../../hooks/useSSEBus';
@@ -36,7 +37,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
 
   // Each failure type toasts at most once per dashboard mount so a recurring
   // 30s refresh of a still-broken backend doesn't carpet-bomb the UI.
-  const toastedRef = useRef({ appConfig: false, sync: false });
+  const showOnce = useOncePerKeyToast((msg) => showToast(msg, 'error'));
   const lastFailedCountRef = useRef(0);
 
   useEffect(() => {
@@ -44,33 +45,25 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
       .getAppConfig()
       .then((cfg) => {
         setAppConfig(cfg);
-        toastedRef.current.appConfig = false;
       })
       .catch((err) => {
         setAppConfig(null);
         console.warn('getAppConfig failed:', err);
-        if (!toastedRef.current.appConfig) {
-          toastedRef.current.appConfig = true;
-          showToast('Could not load app config', 'error');
-        }
+        showOnce('appConfig', 'Could not load app config');
       });
-  }, [showToast]);
+  }, [showOnce]);
 
   const fetchSync = useCallback(() => {
     api
       .getSyncStatus()
       .then((s) => {
         setSyncStatus(s);
-        toastedRef.current.sync = false;
       })
       .catch((err) => {
         console.warn('getSyncStatus failed:', err);
-        if (!toastedRef.current.sync) {
-          toastedRef.current.sync = true;
-          showToast('Sync status unavailable', 'error');
-        }
+        showOnce('sync', 'Sync status unavailable');
       });
-  }, [showToast]);
+  }, [showOnce]);
 
   useEffect(() => {
     fetchSync();

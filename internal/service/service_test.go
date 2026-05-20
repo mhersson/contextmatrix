@@ -495,7 +495,7 @@ func TestAddLogEntry(t *testing.T) {
 		Action:  "status_update",
 		Message: "Started working",
 	}
-	err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
 	require.NoError(t, err)
 
 	// Verify entry was added
@@ -538,7 +538,7 @@ func TestAddLogEntryCapping(t *testing.T) {
 			Action:  "update",
 			Message: "Entry",
 		}
-		err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
+		_, err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
 		require.NoError(t, err)
 	}
 
@@ -2004,14 +2004,14 @@ func TestCreateProject(t *testing.T) {
 	defer unsub()
 
 	input := validCreateProjectInput()
-	input.Repo = "git@github.com:org/my-project.git"
+	input.Repo = "https://github.com/org/my-project"
 
 	cfg, err := svc.CreateProject(ctx, input)
 	require.NoError(t, err)
 	assert.Equal(t, "my-project", cfg.Name)
 	assert.Equal(t, "MYPRJ", cfg.Prefix)
 	assert.Equal(t, 1, cfg.NextID)
-	assert.Equal(t, "git@github.com:org/my-project.git", cfg.Repo)
+	assert.Equal(t, "https://github.com/org/my-project", cfg.Repo)
 
 	// Verify project is retrievable
 	got, err := svc.GetProject(ctx, "my-project")
@@ -2170,7 +2170,7 @@ func TestUpdateProject(t *testing.T) {
 	defer unsub()
 
 	input := UpdateProjectInput{
-		Repo:       "git@github.com:org/test.git",
+		Repo:       "https://github.com/org/test",
 		States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
 		Types:      []string{"task", "bug", "feature", "chore"},
 		Priorities: []string{"low", "medium", "high"},
@@ -2190,7 +2190,7 @@ func TestUpdateProject(t *testing.T) {
 	assert.Equal(t, "TEST", cfg.Prefix) // Immutable
 	assert.Contains(t, cfg.States, "review")
 	assert.Contains(t, cfg.Types, "chore")
-	assert.Equal(t, "git@github.com:org/test.git", cfg.Repo)
+	assert.Equal(t, "https://github.com/org/test", cfg.Repo)
 
 	// Verify event
 	select {
@@ -3258,7 +3258,7 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 	})
 
 	t.Run("AddLogEntry", func(t *testing.T) {
-		err := svc.AddLogEntry(ctx, "test-project", lowercaseID, board.ActivityEntry{
+		_, err := svc.AddLogEntry(ctx, "test-project", lowercaseID, board.ActivityEntry{
 			Agent:     "test-agent",
 			Timestamp: time.Now(),
 			Action:    "test",
@@ -3563,7 +3563,7 @@ func TestCreateCard_CommitsImmediatelyWithDeferredMode(t *testing.T) {
 	assert.Contains(t, msg, card.ID, "immediate creation commit should include the card ID")
 
 	// Subsequent mutation (add log entry) must still defer.
-	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 		Agent:  "test-agent",
 		Action: "tested",
 	})
@@ -4873,7 +4873,7 @@ func TestDeferredCommitFullWorkflowCommitCount(t *testing.T) {
 	assert.Equal(t, countAfterCreate, count, "heartbeat should not produce a commit")
 
 	// --- Add log entry ---
-	err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 		Agent: "agent-1", Action: "progress", Message: "step 1 done",
 	})
 	require.NoError(t, err)
@@ -5714,7 +5714,7 @@ func TestActivityLogCapping_Integration(t *testing.T) {
 
 	// Add 55 log entries with sequential messages.
 	for i := 1; i <= 55; i++ {
-		err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+		_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 			Agent:   "agent-1",
 			Action:  "progress",
 			Message: fmt.Sprintf("Entry %d", i),

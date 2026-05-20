@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -63,9 +65,44 @@ func atomicWriteFile(path string, data []byte) error {
 		return fmt.Errorf("rename temp file: %w", err)
 	}
 
+	// Fsync the parent directory so the new directory entry is durable after
+	// a crash. Some filesystems (e.g. ext4 with data=ordered) guarantee the
+	// file data but not the directory entry without an explicit dir sync.
+	// Errors from Open or Sync are tolerated (non-POSIX or read-only FS) so
+	// as not to break callers that run on platforms where dir fsync is a no-op
+	// or unsupported.
+	if df, derr := os.Open(dir); derr == nil {
+		_ = df.Sync()
+		_ = df.Close()
+	}
+
 	success = true
 
 	return nil
+}
+
+// readFileCapped reads a file up to maxBytes. If the file exceeds that limit an
+// error is returned so the caller can skip it rather than reading the whole
+// file into memory.
+func readFileCapped(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer f.Close()
+
+	// Read one extra byte beyond the cap so we can detect overflow.
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file exceeds size cap of %d bytes", maxBytes)
+	}
+
+	return data, nil
 }
 
 // validatePathComponent rejects path components that could cause directory
@@ -172,6 +209,18 @@ func copyCard(c *board.Card) *board.Card {
 	return &cp
 }
 
+// maxCardFileSize is the upper bound on card files read during index load.
+// Files larger than this are skipped with a warning to prevent a single
+// oversized file (e.g. from a misbehaving git push) from exhausting memory
+// while the store holds s.mu. The service layer caps body at 512 KiB; 2 MiB
+// gives ample headroom for YAML frontmatter plus a generous body.
+const maxCardFileSize = 2 * 1024 * 1024 // 2 MiB
+
+// maxMetaFileSize is the upper bound on .meta.yaml files. These are small
+// YAML indexes; 1 MiB is a generous ceiling that still prevents runaway
+// YAML allocation from a corrupt or oversized file.
+const maxMetaFileSize = 1 * 1024 * 1024 // 1 MiB
+
 // loadIndex scans the boards directory and builds the in-memory cache.
 // Callers must hold s.mu.Lock unless the store is still being constructed.
 func (s *FilesystemStore) loadIndex(ctx context.Context) error {
@@ -218,7 +267,7 @@ func (s *FilesystemStore) loadIndex(ctx context.Context) error {
 
 			filePath := filepath.Join(tasksDir, entry.Name())
 
-			data, err := os.ReadFile(filePath)
+			data, err := readFileCapped(filePath, maxCardFileSize)
 			if err != nil {
 				ctxlog.Logger(ctx).Warn("skipping unreadable card file",
 					"path", filePath,
@@ -689,7 +738,7 @@ func (s *FilesystemStore) ReadKnowledgeMeta(ctx context.Context, project string)
 		return nil, err
 	}
 
-	data, err := os.ReadFile(s.knowledgeMetaPath(project))
+	data, err := readFileCapped(s.knowledgeMetaPath(project), maxMetaFileSize)
 	if errors.Is(err, os.ErrNotExist) {
 		return &board.KnowledgeMeta{SchemaVersion: 1, Repos: map[string]board.KnowledgeRepoMeta{}}, nil
 	}
@@ -750,24 +799,41 @@ func (s *FilesystemStore) ReadKnowledgeDoc(ctx context.Context, project, repo, d
 
 	path := s.knowledgeDocPath(project, repo, doc)
 
-	info, err := os.Lstat(path)
+	// Open with O_NOFOLLOW so the kernel rejects symlinks atomically — no
+	// TOCTOU window between a stat and a subsequent open. If the path does
+	// not exist the open itself fails with ENOENT; if it is a symlink it
+	// fails with ELOOP on Linux (which os.OpenFile surfaces as a *PathError
+	// whose Unwrap is syscall.ELOOP).
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrKnowledgeDocNotFound
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("stat knowledge doc: %w", err)
+		// ELOOP means the kernel refused because the path is (or contains) a
+		// symlink when O_NOFOLLOW is set.
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, ErrKnowledgeDocSymlink
+		}
+
+		return nil, fmt.Errorf("open knowledge doc: %w", err)
 	}
 
-	if info.Mode()&os.ModeSymlink != 0 {
+	defer f.Close()
+
+	// Verify via the open fd that it is a regular file (not a fifo, device,
+	// etc. that slipped past O_NOFOLLOW).
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat knowledge doc fd: %w", err)
+	}
+
+	if fi.Mode()&os.ModeSymlink != 0 {
+		// Should not occur after O_NOFOLLOW, but be defensive.
 		return nil, ErrKnowledgeDocSymlink
 	}
 
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrKnowledgeDocNotFound
-	}
-
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("read knowledge doc: %w", err)
 	}

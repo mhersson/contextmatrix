@@ -47,8 +47,10 @@ var mdImage = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
 // (`https://host/api/images/<hex>`) URLs hosted by this server. The id capture
 // group enforces the canonical ID shape produced by images.Store; the
 // pattern fragment is sourced from the images package so any future change
-// to the ID alphabet/length propagates here automatically.
-var cmImageURL = regexp.MustCompile(`^(?:https?://[^/]+)?/api/images/(` + images.IDPatternFragment + `)$`)
+// to the ID alphabet/length propagates here automatically. An optional query
+// string suffix (`?param=val`) is allowed and ignored — the query is stripped
+// before the ID is looked up.
+var cmImageURL = regexp.MustCompile(`^(?:https?://[^/]+)?/api/images/(` + images.IDPatternFragment + `)(\?[^)]*)?$`)
 
 // extractCMImageIDs returns up to maxAttachedImages unique cm-server image
 // IDs referenced in body, in order of first appearance.
@@ -179,7 +181,7 @@ func attachImagesToResult(ctx context.Context, store images.Store, attach attach
 // byteCap <= 0 falls back to defaultMaxAttachedImageBytes; this is the only
 // place the default is referenced. Tests pass a small cap explicitly.
 func loadImageContent(ctx context.Context, store images.Store, attach attachContext, ids []string, byteCap int) []*mcp.ImageContent {
-	if store == nil || len(ids) == 0 {
+	if len(ids) == 0 {
 		return nil
 	}
 
