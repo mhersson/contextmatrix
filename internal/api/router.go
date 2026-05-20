@@ -70,6 +70,9 @@ const (
 	ErrCodeCardNotVetted        = "CARD_NOT_VETTED"
 	ErrCodeReviewAttemptsCapped = "REVIEW_ATTEMPTS_CAPPED"
 	ErrCodeContentTooLarge      = "CONTENT_TOO_LARGE"
+	ErrCodeSyncDisabled         = "SYNC_DISABLED"
+	ErrCodeSyncError            = "SYNC_ERROR"
+	ErrCodeNoGitHubRepo         = "NO_GITHUB_REPO"
 	// ErrCodeTooManySubscribers indicates the global SSE subscriber cap has
 	// been reached; the client should back off and retry later. Mirrors the
 	// per-session ErrCodeTooManyChats used by the chat hub.

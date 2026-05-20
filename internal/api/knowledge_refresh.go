@@ -45,7 +45,7 @@ func (h *knowledgeRefreshHandlers) trigger(w http.ResponseWriter, r *http.Reques
 	project := r.PathValue("project")
 	repo := r.PathValue("repo")
 
-	agentID := r.Header.Get("X-Agent-ID")
+	agentID := extractAgentID(r)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 			"X-Agent-ID header required for refresh trigger", "")

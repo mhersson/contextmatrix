@@ -94,7 +94,7 @@ func TestListBranches_NoGitHubRepo(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, "NO_GITHUB_REPO", apiErr.Code)
+	assert.Equal(t, ErrCodeNoGitHubRepo, apiErr.Code)
 }
 
 func TestListBranches_NonGitHubRepo(t *testing.T) {
@@ -119,7 +119,7 @@ func TestListBranches_NonGitHubRepo(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, "NO_GITHUB_REPO", apiErr.Code)
+	assert.Equal(t, ErrCodeNoGitHubRepo, apiErr.Code)
 }
 
 func TestListBranches_ProjectNotFound(t *testing.T) {
