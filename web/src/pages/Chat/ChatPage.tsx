@@ -103,7 +103,10 @@ export function ChatPage() {
   // hydrated layout, then bounce back to /chat so refresh doesn't re-fire.
   // In-render marker (CardPanel idiom) — not useEffect — so the redirect
   // is synchronous with the prop change and avoids a double render.
-  const [prevDeepLinkId, setPrevDeepLinkId] = useState<string | undefined>(deepLinkId);
+  // Initialize to undefined (not deepLinkId) so the marker fires on a
+  // fresh mount at /chat/:id — typical on mobile, where a sidebar-drawer
+  // click navigates straight from another route.
+  const [prevDeepLinkId, setPrevDeepLinkId] = useState<string | undefined>(undefined);
   if (deepLinkId && deepLinkId !== prevDeepLinkId) {
     setPrevDeepLinkId(deepLinkId);
     layout.openInNewPane(deepLinkId);
