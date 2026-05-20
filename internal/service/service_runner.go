@@ -279,15 +279,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		card.RunnerStatus = ""
 	}
 
-	if message != "" {
-		card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
-			Agent:     "runner",
-			Timestamp: s.clk.Now(),
-			Action:    "runner_status",
-			Message:   message,
-		})
-		card.ActivityLog = trimActivityLog(card.ActivityLog)
-	}
+	s.appendRunnerStatusMessage(card, message)
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
@@ -320,22 +312,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, rollbackErr
 	}
 
-	// Session lifecycle hooks — only when a manager is wired.
-	if s.sessionManager != nil {
-		switch {
-		case prevRunnerStatus != "running" && status == "running":
-			// Transition INTO running: open the upstream SSE buffer.
-			if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
-				ctxlog.Logger(ctx).Error("sessionlog: Start failed on runner status update",
-					"card_id", cardID, "project", project, "error", startErr)
-			}
-		case status == "failed" || status == "killed" || status == "completed":
-			// Transition to terminal: drain and clear the buffer.
-			// Fire-and-forget in a goroutine so Stop (which waits for the pump
-			// to exit) does not hold the write lock.
-			go s.sessionManager.Stop(cardID)
-		}
-	}
+	s.runSessionManagerLifecycleHooks(ctx, cardID, project, prevRunnerStatus, status)
 
 	var eventType events.EventType
 
@@ -361,6 +338,47 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	})
 
 	return card, nil
+}
+
+// appendRunnerStatusMessage appends an activity-log entry for the new runner
+// status when a non-empty message is provided. Trims the log to the cap after
+// appending. No-ops when message is empty.
+func (s *CardService) appendRunnerStatusMessage(card *board.Card, message string) {
+	if message == "" {
+		return
+	}
+
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     "runner",
+		Timestamp: s.clk.Now(),
+		Action:    "runner_status",
+		Message:   message,
+	})
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
+}
+
+// runSessionManagerLifecycleHooks drives the session-manager Start/Stop
+// transitions that mirror runner-status changes. It is a no-op when no
+// session manager is wired.
+//
+//   - Transition into "running": opens the upstream SSE log buffer.
+//   - Transition to terminal (completed/failed/killed): drains and clears the
+//     buffer in a goroutine so Stop (which waits for the pump to exit) does not
+//     block the caller.
+func (s *CardService) runSessionManagerLifecycleHooks(ctx context.Context, cardID, project, prevStatus, newStatus string) {
+	if s.sessionManager == nil {
+		return
+	}
+
+	switch {
+	case prevStatus != "running" && newStatus == "running":
+		if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
+			ctxlog.Logger(ctx).Error("sessionlog: Start failed on runner status update",
+				"card_id", cardID, "project", project, "error", startErr)
+		}
+	case newStatus == "failed" || newStatus == "killed" || newStatus == "completed":
+		go s.sessionManager.Stop(cardID)
+	}
 }
 
 // PromoteToAutonomous sets the Autonomous flag on a card to true and appends

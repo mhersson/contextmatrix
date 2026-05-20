@@ -288,13 +288,7 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
-	unlocked := false
-
-	defer func() {
-		if !unlocked {
-			s.writeMu.Unlock()
-		}
-	}()
+	defer s.writeMu.Unlock()
 
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
@@ -312,116 +306,124 @@ func (s *CardService) TransitionTo(ctx context.Context, project, cardID, targetS
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
-	validator := s.validator
-
-	path, err := validator.FindShortestPath(cfg, card.State, targetState)
+	path, err := s.validator.FindShortestPath(cfg, card.State, targetState)
 	if err != nil {
 		return nil, fmt.Errorf("find transition path: %w", err)
 	}
 
-	for i, state := range path {
-		// Re-load the card at the start of every iteration after the
-		// first so concurrent writes that landed while writeMu was
-		// released for the previous step's commit await are not silently
-		// clobbered by our stale in-memory copy.
-		if i > 0 {
-			card, err = s.store.GetCard(ctx, project, cardID)
-			if err != nil {
-				return nil, fmt.Errorf("get card: %w", err)
-			}
-		}
-
-		oldState := card.State
-
-		if err := validator.ValidateTransition(cfg, oldState, state); err != nil {
-			return nil, fmt.Errorf("validate transition: %w", err)
-		}
-
-		if state == board.StateInProgress {
-			met, blockers := s.checkDependencies(ctx, project, card.DependsOn)
-			if !met {
-				return nil, dependencyError(state, blockers)
-			}
-		}
-
-		// Snapshot the pre-step card for rollback on commit failure.
-		// Earlier successful steps in the path are left committed (they
-		// have their own git records); only the failing step rolls back.
-		stepSnapshot, err := s.store.GetCard(ctx, project, cardID)
+	for _, state := range path {
+		card, err = s.transitionStep(ctx, project, cardID, state, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("get card snapshot: %w", err)
+			return nil, err
 		}
-
-		card.State = state
-		card.Updated = s.clk.Now()
-
-		appendStateChangeLog(card, oldState, state, "", card.Updated)
-
-		// State-change invariants: release claim on not_planned, clear
-		// runner_status on terminal states. Each step in the path is a state
-		// change, so pass stateChanged=true.
-		enforceTerminalStateInvariants(card, true)
-
-		if err := validator.ValidateCard(cfg, card); err != nil {
-			return nil, fmt.Errorf("validate card: %w", err)
-		}
-
-		if err := s.store.UpdateCard(ctx, project, card); err != nil {
-			return nil, fmt.Errorf("update card: %w", err)
-		}
-
-		// Enqueue under writeMu so the per-project worker preserves order
-		// with any other write that is racing for the same project.
-		commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "", "transitioned to "+state)
-
-		// Flush deferred commits on not_planned/review under writeMu so
-		// the shared deferredPaths map stays serialized; the flush itself
-		// is enqueued through the queue so its execution is ordered after
-		// the main commit by the per-project worker.
-		s.applyStateChangeSideEffects(ctx, card, true)
-
-		// Release writeMu before awaiting so a slow commit does not stall
-		// other writers. Per-project worker ordering still guarantees the
-		// commit lands in enqueue order.
-		s.writeMu.Unlock()
-
-		unlocked = true
-
-		if err := s.awaitCommit(commitDone, notify); err != nil {
-			s.writeMu.Lock()
-			unlocked = false
-			rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
-
-			return nil, rollbackErr
-		}
-
-		// TransitionTo is currently called only by system-driven paths
-		// (stall checker, MCP transition_card without agent context). Tag
-		// the SSE event with "system" so consumers that filter by agent
-		// (e.g. NowRail) don't drop these silently — and the displayed
-		// agent matches the "system" stamp appendStateChangeLog writes
-		// into the activity log.
-		s.bus.Publish(events.Event{
-			Type:      events.CardStateChanged,
-			Project:   project,
-			CardID:    cardID,
-			Agent:     "system",
-			Timestamp: card.Updated,
-			Data: map[string]any{
-				"old_state": oldState,
-				"new_state": state,
-			},
-		})
-
-		// Re-acquire writeMu for the next iteration (or the post-loop
-		// parent auto-transition + dependency enrichment, both of which
-		// need writeMu held).
-		s.writeMu.Lock()
-		unlocked = false
 	}
 
 	s.maybeTransitionParent(ctx, card)
 	s.enrichDependenciesMet(ctx, card)
+
+	return card, nil
+}
+
+// transitionStep performs one lock/release/await cycle in the multi-step
+// transition path. It must be called with writeMu held, and it returns with
+// writeMu held. The card is always reloaded at the start so concurrent writes
+// that landed during a previous step's commit await are not clobbered.
+func (s *CardService) transitionStep(
+	ctx context.Context,
+	project, cardID, state string,
+	cfg *board.ProjectConfig,
+) (*board.Card, error) {
+	// Always reload under writeMu so concurrent writes that landed while
+	// writeMu was released for the previous step's commit await are not
+	// silently clobbered by a stale in-memory copy.
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	oldState := card.State
+
+	if err := s.validator.ValidateTransition(cfg, oldState, state); err != nil {
+		return nil, fmt.Errorf("validate transition: %w", err)
+	}
+
+	if state == board.StateInProgress {
+		met, blockers := s.checkDependencies(ctx, project, card.DependsOn)
+		if !met {
+			return nil, dependencyError(state, blockers)
+		}
+	}
+
+	// Snapshot the pre-step card for rollback on commit failure.
+	// Earlier successful steps in the path are left committed (they
+	// have their own git records); only the failing step rolls back.
+	stepSnapshot, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	card.State = state
+	card.Updated = s.clk.Now()
+
+	appendStateChangeLog(card, oldState, state, "", card.Updated)
+
+	// State-change invariants: release claim on not_planned, clear
+	// runner_status on terminal states. Each step in the path is a state
+	// change, so pass stateChanged=true.
+	enforceTerminalStateInvariants(card, true)
+
+	if err := s.validator.ValidateCard(cfg, card); err != nil {
+		return nil, fmt.Errorf("validate card: %w", err)
+	}
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	// Enqueue under writeMu so the per-project worker preserves order
+	// with any other write that is racing for the same project.
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "", "transitioned to "+state)
+
+	// Flush deferred commits on not_planned/review under writeMu so
+	// the shared deferredPaths map stays serialized; the flush itself
+	// is enqueued through the queue so its execution is ordered after
+	// the main commit by the per-project worker.
+	s.applyStateChangeSideEffects(ctx, card, true)
+
+	// Release writeMu before awaiting so a slow commit does not stall
+	// other writers. Per-project worker ordering still guarantees the
+	// commit lands in enqueue order.
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
+
+		return nil, rollbackErr
+	}
+
+	// TransitionTo is currently called only by system-driven paths
+	// (stall checker, MCP transition_card without agent context). Tag
+	// the SSE event with "system" so consumers that filter by agent
+	// (e.g. NowRail) don't drop these silently — and the displayed
+	// agent matches the "system" stamp appendStateChangeLog writes
+	// into the activity log.
+	s.bus.Publish(events.Event{
+		Type:      events.CardStateChanged,
+		Project:   project,
+		CardID:    cardID,
+		Agent:     "system",
+		Timestamp: card.Updated,
+		Data: map[string]any{
+			"old_state": oldState,
+			"new_state": state,
+		},
+	})
+
+	// Re-acquire writeMu for the next iteration (or the post-loop
+	// parent auto-transition + dependency enrichment, both of which
+	// need writeMu held).
+	s.writeMu.Lock()
 
 	return card, nil
 }
