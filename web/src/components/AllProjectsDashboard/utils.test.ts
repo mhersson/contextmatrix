@@ -233,7 +233,13 @@ describe('aggregateDashboards 30-day cost fields', () => {
   });
 
   it('falls back to 0 / zero-array when fields are missing from one project', () => {
-    const withData = summary({ total_cost_usd_last_30d: 5.0, total_cost_usd_prior_30d: 3.0 });
+    // Seed a non-trivial series on the project that has data.
+    const seededSeries = Array.from({ length: 30 }, (_, i) => (i + 1) * 0.5);
+    const withData = summary({
+      total_cost_usd_last_30d: 5.0,
+      total_cost_usd_prior_30d: 3.0,
+      cost_series_30d: seededSeries,
+    });
     // Simulate an older server response that omits the new fields entirely.
     const withoutData = summary();
     delete (withoutData as Partial<DashboardData>).total_cost_usd_last_30d;
@@ -249,11 +255,13 @@ describe('aggregateDashboards 30-day cost fields', () => {
     for (const v of result.cost_series_30d!) {
       expect(Number.isNaN(v)).toBe(false);
     }
+    // Seeded values from withData flow through element-wise (withoutData has no series).
+    expect(result.cost_series_30d![14]).toBeCloseTo(seededSeries[14], 9);
   });
 
-  it('produces a length-30 cost_series_30d for empty input', () => {
+  it('returns undefined cost_series_30d for empty input (no projects supplied a series)', () => {
     const result = aggregateDashboards(new Map());
-    expect(result.cost_series_30d).toHaveLength(30);
+    expect(result.cost_series_30d).toBeUndefined();
     expect(result.total_cost_usd_last_30d).toBe(0);
     expect(result.total_cost_usd_prior_30d).toBe(0);
   });

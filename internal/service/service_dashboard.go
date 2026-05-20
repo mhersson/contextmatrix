@@ -439,7 +439,10 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 	}
 
 	// Window boundaries.
-	windowStart := dayStarts[0]                          // start of the 30-day window
+	// "Last 30 days" = the 30 daily buckets ending at the next tz midnight
+	// (so the actual window spans 30 * 24h aligned on local midnight, not
+	// strictly now-720h).
+	windowStart := dayStarts[0]                         // start of the 30-day window
 	priorStart := windowStart.Add(-30 * 24 * time.Hour) // start of the prior 30d window
 
 	for _, card := range cards {
@@ -463,6 +466,7 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 			for i := range numDays {
 				if !updated.Before(dayStarts[i]) && updated.Before(dayEnds[i]) {
 					series30d[i] += cost
+
 					break
 				}
 			}

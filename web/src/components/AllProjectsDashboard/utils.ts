@@ -98,7 +98,8 @@ export function aggregateDashboards(
   let totalCost = 0;
   let costLast30d = 0;
   let costPrior30d = 0;
-  const costSeries30d: number[] = Array(COST_SERIES_LENGTH).fill(0);
+  let hasAnySeries = false;
+  const costSeries30d: number[] = new Array<number>(COST_SERIES_LENGTH).fill(0);
   let completedToday = 0;
   let completedTodayParents = 0;
   let completedLast7d = 0;
@@ -122,6 +123,7 @@ export function aggregateDashboards(
     costPrior30d += data.total_cost_usd_prior_30d ?? 0;
     const series = data.cost_series_30d;
     if (series) {
+      hasAnySeries = true;
       for (let i = 0; i < COST_SERIES_LENGTH; i++) {
         costSeries30d[i] += series[i] ?? 0;
       }
@@ -165,7 +167,7 @@ export function aggregateDashboards(
     total_cost_usd: totalCost,
     total_cost_usd_last_30d: costLast30d,
     total_cost_usd_prior_30d: costPrior30d,
-    cost_series_30d: costSeries30d,
+    cost_series_30d: hasAnySeries ? costSeries30d : undefined,
     cards_completed_today: completedToday,
     cards_completed_today_parents: completedTodayParents,
     cards_completed_last_7d: completedLast7d,

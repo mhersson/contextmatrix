@@ -22,7 +22,6 @@ export function SubCount({ n }: { n?: number }) {
   return <span className="metric-tile__sub">+{n} sub</span>;
 }
 
-
 /**
  * Metric tiles surfaced from DashboardData fields. Headlines and sparklines
  * consume parent-only counts so subtasks do not inflate the headline numbers.

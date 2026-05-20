@@ -4,7 +4,7 @@ import { Sparkline } from '../Sparkline/Sparkline';
 interface KpiRowProps {
   costLast30dUsd: number;
   costPrior30dUsd: number;
-  costSeries30d: number[];
+  costSeries30d: number[] | undefined;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
 }
@@ -74,7 +74,14 @@ function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparklin
           {badge}
         </span>
       </div>
-      <div style={numStyle}>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'baseline',
+          gap: 8,
+          ...numStyle,
+        }}
+      >
         {value}
         {delta !== undefined && (
           <span
@@ -95,7 +102,7 @@ function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparklin
       >
         {source}
       </div>
-      {sparkline && sparkline.values.length >= 2 && (
+      {sparkline && (
         <Sparkline values={sparkline.values} color={sparkline.color} />
       )}
     </div>
@@ -122,11 +129,14 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
 
-  const hasDelta = costPrior30dUsd > 0;
+  const hasDelta =
+    Number.isFinite(costLast30dUsd) &&
+    Number.isFinite(costPrior30dUsd) &&
+    costPrior30dUsd > 0;
   const deltaPct = hasDelta
     ? Math.round(((costLast30dUsd - costPrior30dUsd) / costPrior30dUsd) * 100)
     : 0;
-  const deltaUp = hasDelta && costLast30dUsd >= costPrior30dUsd;
+  const deltaUp = hasDelta && (costLast30dUsd >= costPrior30dUsd || deltaPct === 0);
 
   return (
     <div
@@ -165,7 +175,7 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
         accent="purple"
         tooltip={COST_TOOLTIP}
         delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
-        sparkline={{ values: costSeries30d, color: 'var(--purple)' }}
+        sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--purple)' } : undefined}
       />
     </div>
   );
