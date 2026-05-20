@@ -58,6 +58,12 @@ workflow_skills_dir: workflow-skills
 # Env: CONTEXTMATRIX_HEARTBEAT_TIMEOUT
 heartbeat_timeout: "30m"
 
+# How often the lock manager scans for cards whose heartbeat has timed out.
+# Must be positive. The default is fine for production; tests sometimes lower
+# this to drive timeout assertions deterministically. No env-var override.
+# Default: 1m
+stalled_check_interval: "1m"
+
 # Allowed origin for CORS requests. Set to the URL of your web UI in
 # production. In development with Vite the default matches the dev server.
 # Default: http://localhost:5173

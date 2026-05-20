@@ -21,12 +21,17 @@ own repos, and report progress back through the board.
   columns and cards, filter bar, and an Everforest dark/light theme.
 - **Markdown-native cards** — plain files with YAML frontmatter, human-readable
   and diffable. No database required.
+- **Image attachments** — paste from the clipboard or drag-and-drop screenshots
+  straight into a card description. Uploads are resized server-side (max
+  1024×768, 10 MiB), content-hashed for deduplication, and rendered inline.
+  Agents see them automatically: `get_card` and `get_task_context` extract
+  embedded images and attach them as base64 in the MCP response.
 - **Git audit trail** — every card mutation is auto-committed. Optional deferred
   batching groups an agent's entire work session into a single commit.
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 32 MCP tools and 4 slash commands give Claude Code
+- **MCP-first interface** — 33 MCP tools and 4 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
@@ -49,8 +54,8 @@ own repos, and report progress back through the board.
   broken down by agent and card on the dashboard.
 - **Customizable workflow** — define your own types, priorities, and transition
   rules per project via `.board.yaml`. Add extra states beyond the built-in six
-  (see "States, Transitions, and Skills" below for the names that are
-  structural and cannot be renamed).
+  (see "States, Transitions, and Skills" below for the names that are structural
+  and cannot be renamed).
 - **Single binary** — the React frontend is embedded via Go's `embed.FS`. Build
   once, deploy anywhere.
 
@@ -233,6 +238,7 @@ block if `mcp_api_key` is empty.
 | Tool                        | Description                                                             |
 | --------------------------- | ----------------------------------------------------------------------- |
 | `add_log`                   | Append an activity log entry                                            |
+| `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating             |
 | `check_agent_health`        | Check health of subtask agents for a parent card                        |
 | `claim_card`                | Claim exclusive ownership of a card                                     |
 | `commit_knowledge_docs`     | Commit refresh-produced knowledge-base docs atomically (human-only)     |
@@ -331,8 +337,8 @@ between any of them via `.board.yaml`.
 
 `stalled` and `not_planned` are enforced by the config validator — projects that
 omit them from `states` or `transitions` are rejected at load time. The other
-four (`todo`, `in_progress`, `review`, `done`) are not validator-checked but
-are hardcoded in `claim_card`, `complete_task`, parent/child orchestration,
+four (`todo`, `in_progress`, `review`, `done`) are not validator-checked but are
+hardcoded in `claim_card`, `complete_task`, parent/child orchestration,
 dashboard metrics, and every built-in workflow skill. Renaming them will
 silently break those code paths.
 
@@ -733,53 +739,54 @@ format.
 
 ### config.yaml
 
-| Field                                  | Default                              | Description                                                                                                                                                                          |
-| -------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `port`                                 | `8080`                               | HTTP server port                                                                                                                                                                     |
-| `log_format`                           | `"text"`                             | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
-| `log_level`                            | `"info"`                             | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
-| `admin_port`                           | `0`                                  | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
-| `admin_bind_addr`                      | `127.0.0.1`                          | Bind address for the admin server (loopback by default)                                                                                                                              |
-| `theme`                                | `"everforest"`                       | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
-| `heartbeat_timeout`                    | `"30m"`                              | Duration before a claimed card becomes stalled                                                                                                                                       |
-| `stalled_check_interval`               | `"1m"`                               | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
-| `cors_origin`                          | `http://localhost:5173`              | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
-| `workflow_skills_dir`                  | `<config-dir>/workflow-skills`       | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
-| `task_skills.dir`                      | `<config-dir>/task-skills`           | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
-| `task_skills.git_clone_on_empty`       | `false`                              | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
-| `task_skills.git_remote_url`           | `""`                                 | HTTPS URL used for clone-on-empty and for the startup `git pull --ff-only`                                                                                                           |
-| `token_costs`                          | ---                                  | Per-model token cost rates (see example below)                                                                                                                                       |
-| `mcp_api_key`                          | `""`                                 | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
-| `boards.dir`                           | ---                                  | Path to boards git repo (required)                                                                                                                                                   |
-| `boards.git_auto_commit`               | `true`                               | Auto-commit card mutations to git                                                                                                                                                    |
-| `boards.git_deferred_commit`           | `false`                              | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
-| `boards.git_auto_push`                 | `false`                              | Auto-push after each commit                                                                                                                                                          |
-| `boards.git_auto_pull`                 | `false`                              | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
-| `boards.git_pull_interval`             | `"60s"`                              | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
-| `boards.git_remote_url`                | `""`                                 | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
-| `boards.git_clone_on_empty`            | `false`                              | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
-| `runner.enabled`                       | `false`                              | Enable remote execution integration                                                                                                                                                  |
-| `runner.url`                           | `""`                                 | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
-| `runner.api_key`                       | `""`                                 | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
-| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`                  | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
-| `runner.orchestrator_opus_model`       | `claude-opus-4-7`                    | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
-| `runner.reconcile_interval`            | `"60s"`                              | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
-| `chat.db_path`                         | `<XDG_STATE>/contextmatrix/chats.db` | SQLite database for chat sessions and transcripts                                                                                                                                    |
-| `chat.idle_ttl`                        | `"1h"`                               | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
-| `chat.max_concurrent`                  | `8`                                  | Maximum concurrent chat containers                                                                                                                                                   |
-| `chat.default_model`                   | (required)                           | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
-| `chat.resume_budget_tokens`            | `40000`                              | Rough token budget for the rehydration payload sent to the runner on cold-reopen                                                                                                     |
-| `chat.rehydration_timeout`             | `"10m"`                              | Hard cap on the rehydration phase if the agent never calls `chat_rehydration_complete`                                                                                               |
-| `chat.models`                          | (required)                           | Allowlist of selectable models keyed by model ID; each entry has `label` and `max_tokens`                                                                                            |
-| `github.auth_mode`                     | (required)                           | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
-| `github.host`                          | `""`                                 | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
-| `github.api_base_url`                  | `""`                                 | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
-| `github.app.app_id`                    | `0`                                  | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
-| `github.app.installation_id`           | `0`                                  | App installation ID                                                                                                                                                                  |
-| `github.app.private_key_path`          | `""`                                 | Path to PEM private key                                                                                                                                                              |
-| `github.pat.token`                     | `""`                                 | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
-| `github.issue_importing.enabled`       | `false`                              | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
-| `github.issue_importing.sync_interval` | `"5m"`                               | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
+| Field                                  | Default                               | Description                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `port`                                 | `8080`                                | HTTP server port                                                                                                                                                                     |
+| `log_format`                           | `"text"`                              | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
+| `log_level`                            | `"info"`                              | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
+| `admin_port`                           | `0`                                   | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
+| `admin_bind_addr`                      | `127.0.0.1`                           | Bind address for the admin server (loopback by default)                                                                                                                              |
+| `theme`                                | `"everforest"`                        | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
+| `heartbeat_timeout`                    | `"30m"`                               | Duration before a claimed card becomes stalled                                                                                                                                       |
+| `stalled_check_interval`               | `"1m"`                                | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
+| `cors_origin`                          | `http://localhost:5173`               | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
+| `workflow_skills_dir`                  | `<config-dir>/workflow-skills`        | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
+| `task_skills.dir`                      | `<config-dir>/task-skills`            | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
+| `task_skills.git_clone_on_empty`       | `false`                               | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
+| `task_skills.git_remote_url`           | `""`                                  | HTTPS URL used for clone-on-empty and for the startup `git pull --ff-only`                                                                                                           |
+| `token_costs`                          | ---                                   | Per-model token cost rates (see example below)                                                                                                                                       |
+| `mcp_api_key`                          | `""`                                  | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
+| `boards.dir`                           | ---                                   | Path to boards git repo (required)                                                                                                                                                   |
+| `boards.git_auto_commit`               | `true`                                | Auto-commit card mutations to git                                                                                                                                                    |
+| `boards.git_deferred_commit`           | `false`                               | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
+| `boards.git_auto_push`                 | `false`                               | Auto-push after each commit                                                                                                                                                          |
+| `boards.git_auto_pull`                 | `false`                               | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
+| `boards.git_pull_interval`             | `"60s"`                               | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
+| `boards.git_remote_url`                | `""`                                  | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
+| `boards.git_clone_on_empty`            | `false`                               | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
+| `runner.enabled`                       | `false`                               | Enable remote execution integration                                                                                                                                                  |
+| `runner.url`                           | `""`                                  | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
+| `runner.api_key`                       | `""`                                  | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
+| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`                   | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
+| `runner.orchestrator_opus_model`       | `claude-opus-4-7`                     | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
+| `runner.reconcile_interval`            | `"60s"`                               | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
+| `chat.db_path`                         | `<XDG_STATE>/contextmatrix/chats.db`  | SQLite database for chat sessions and transcripts                                                                                                                                    |
+| `chat.idle_ttl`                        | `"1h"`                                | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
+| `chat.max_concurrent`                  | `8`                                   | Maximum concurrent chat containers                                                                                                                                                   |
+| `chat.default_model`                   | (required)                            | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
+| `chat.resume_budget_tokens`            | `40000`                               | Rough token budget for the rehydration payload sent to the runner on cold-reopen                                                                                                     |
+| `chat.rehydration_timeout`             | `"10m"`                               | Hard cap on the rehydration phase if the agent never calls `chat_rehydration_complete`                                                                                               |
+| `chat.models`                          | (required)                            | Allowlist of selectable models keyed by model ID; each entry has `label` and `max_tokens`                                                                                            |
+| `images.db_path`                       | `<XDG_STATE>/contextmatrix/images.db` | SQLite database for paste / drag-drop screenshot uploads (content-hashed, deduplicated)                                                                                              |
+| `github.auth_mode`                     | (required)                            | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
+| `github.host`                          | `""`                                  | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
+| `github.api_base_url`                  | `""`                                  | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
+| `github.app.app_id`                    | `0`                                   | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
+| `github.app.installation_id`           | `0`                                   | App installation ID                                                                                                                                                                  |
+| `github.app.private_key_path`          | `""`                                  | Path to PEM private key                                                                                                                                                              |
+| `github.pat.token`                     | `""`                                  | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
+| `github.issue_importing.enabled`       | `false`                               | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
+| `github.issue_importing.sync_interval` | `"5m"`                                | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
 
 Token cost configuration:
 
@@ -825,6 +832,7 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_CHAT_DB_PATH`
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
+- `CONTEXTMATRIX_IMAGES_DB_PATH`
 - `CONTEXTMATRIX_GITHUB_AUTH_MODE`
 - `CONTEXTMATRIX_GITHUB_HOST`
 - `CONTEXTMATRIX_GITHUB_API_BASE_URL`
