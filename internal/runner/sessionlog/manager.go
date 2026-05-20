@@ -352,6 +352,13 @@ func (m *Manager) Stop(cardID string) {
 	sess.cancel()
 	<-sess.done
 
+	// Between releasing m.mu after delete(m.activeSessions, cardID) above and
+	// re-acquiring it below, Subscribe may have appended new subscribers to
+	// m.pendingSubs[cardID]: Subscribe is non-blocking and, finding no entry in
+	// activeSessions, parks the new subscriber in pendingSubs rather than
+	// attaching it to the session. The drain below handles those late subscribers
+	// by closing them with the same terminal Event before returning.
+
 	// Drain subscribers with a terminal event and close their channels.
 	m.mu.Lock()
 	subs := sess.subs
