@@ -125,7 +125,8 @@ export function aggregateDashboards(
     if (series) {
       hasAnySeries = true;
       for (let i = 0; i < COST_SERIES_LENGTH; i++) {
-        costSeries30d[i] += series[i] ?? 0;
+        const v = series[i];
+        costSeries30d[i] += Number.isFinite(v) ? v : 0;
       }
     }
     completedToday += data.cards_completed_today;

@@ -51,6 +51,15 @@ describe('KpiRow — Cost · 30d tile', () => {
     expect(delta?.classList.contains('metric-tile__delta--up')).toBe(false);
   });
 
+  it('shows +0% styled as up when a tiny decrease rounds to 0% (e.g. $9.99 -> $10)', () => {
+    const { container } = renderKpiRow({ costLast30dUsd: 9.99, costPrior30dUsd: 10 });
+    const delta = container.querySelector('.metric-tile__delta');
+    expect(delta).not.toBeNull();
+    expect(delta?.textContent).toBe('+0%');
+    expect(delta?.classList.contains('metric-tile__delta--up')).toBe(true);
+    expect(delta?.classList.contains('metric-tile__delta--down')).toBe(false);
+  });
+
   it('renders an SVG with class "spark" when costSeries30d has length >= 2', () => {
     const { container } = renderKpiRow({
       costSeries30d: Array.from({ length: 30 }, (_, i) => i * 0.1),

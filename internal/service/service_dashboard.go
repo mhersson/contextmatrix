@@ -466,7 +466,6 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 			for i := range numDays {
 				if !updated.Before(dayStarts[i]) && updated.Before(dayEnds[i]) {
 					series30d[i] += cost
-
 					break
 				}
 			}

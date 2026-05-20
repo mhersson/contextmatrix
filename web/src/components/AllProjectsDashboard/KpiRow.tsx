@@ -42,7 +42,7 @@ function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparklin
     <div
       className="apd-card apd-kpi"
       title={tooltip}
-      aria-label={tooltip}
+      // aria-label intentionally not set: accessible name is composed from descendants
       style={{
         borderColor: 'var(--bg3)',
         backgroundColor: 'var(--bg1)',
@@ -76,10 +76,10 @@ function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparklin
       </div>
       <div
         style={{
+          ...numStyle,
           display: 'inline-flex',
           alignItems: 'baseline',
           gap: 8,
-          ...numStyle,
         }}
       >
         {value}
@@ -136,6 +136,8 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
   const deltaPct = hasDelta
     ? Math.round(((costLast30dUsd - costPrior30dUsd) / costPrior30dUsd) * 100)
     : 0;
+  // The rounded `0%` case is treated as up to avoid red-styling tiny decreases
+  // like $9.99 → $10 (rounds to 0% but is technically negative).
   const deltaUp = hasDelta && (costLast30dUsd >= costPrior30dUsd || deltaPct === 0);
 
   return (
