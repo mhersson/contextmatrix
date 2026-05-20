@@ -94,6 +94,26 @@ func requireHumanAgent(agentID, toolName string) error {
 	return nil
 }
 
+// requireActiveClaim ensures the caller currently owns the card. Returns an
+// error when the card is unclaimed or claimed by a different agent. Mirrors
+// requireHumanAgent for ownership gating.
+func requireActiveClaim(ctx context.Context, svc *service.CardService, project, cardID, agentID, toolName string) error {
+	card, err := svc.GetCard(ctx, project, cardID)
+	if err != nil {
+		return fmt.Errorf("%s: load card %s: %w", toolName, cardID, err)
+	}
+
+	if card.AssignedAgent == "" {
+		return fmt.Errorf("%s: card %s is not claimed; %s requires an active claim (call claim_card first)", toolName, cardID, toolName)
+	}
+
+	if card.AssignedAgent != agentID {
+		return fmt.Errorf("%s: card %s is claimed by %s, not %s", toolName, cardID, card.AssignedAgent, agentID)
+	}
+
+	return nil
+}
+
 // --- Input/Output types ---
 
 type (
@@ -502,17 +522,8 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 		// (audit trail forgery + impersonation surface). Require an active
 		// claim by this caller at the handler boundary so the audit trail
 		// stays trustworthy.
-		preCard, err := svc.GetCard(ctx, project, input.CardID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("add_log: load card %s: %w", input.CardID, err)
-		}
-
-		if preCard.AssignedAgent == "" {
-			return nil, nil, fmt.Errorf("add_log: card %s is not claimed; activity log entries require an active claim (call claim_card first)", input.CardID)
-		}
-
-		if preCard.AssignedAgent != input.AgentID {
-			return nil, nil, fmt.Errorf("add_log: card %s is claimed by %s, not %s", input.CardID, preCard.AssignedAgent, input.AgentID)
+		if err := requireActiveClaim(ctx, svc, project, input.CardID, input.AgentID, "add_log"); err != nil {
+			return nil, nil, err
 		}
 
 		entry := board.ActivityEntry{
@@ -607,17 +618,8 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 		// the claim, so the caller must currently own the card. AddLogEntry +
 		// TransitionTo skip ownership checks when AssignedAgent is empty, which
 		// would let any caller drive an unclaimed card to done. Reject up front.
-		preCard, err := svc.GetCard(ctx, project, input.CardID)
-		if err != nil {
-			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: load card %s: %w", input.CardID, err)
-		}
-
-		if preCard.AssignedAgent == "" {
-			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: card %s is not claimed; complete_task requires an active claim (call claim_card first)", input.CardID)
-		}
-
-		if preCard.AssignedAgent != input.AgentID {
-			return nil, completeTaskOutput{}, fmt.Errorf("complete_task: card %s is claimed by %s, not %s", input.CardID, preCard.AssignedAgent, input.AgentID)
+		if err := requireActiveClaim(ctx, svc, project, input.CardID, input.AgentID, "complete_task"); err != nil {
+			return nil, completeTaskOutput{}, err
 		}
 
 		// Add completion log entry
