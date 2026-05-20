@@ -50,7 +50,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const typeId = useId();
   const priorityId = useId();
 
-  const form = useCreateCardForm(config, onCreate);
+  const { form, titleInputRef } = useCreateCardForm(config, onCreate);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activeTab, setActiveTab] = useState<RailTabKey>(isMobile ? 'card' : 'automation');
@@ -229,7 +229,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
               <label htmlFor={titleId} className="sr-only">Title</label>
               <input
                 id={titleId}
-                ref={form.titleInputRef}
+                ref={titleInputRef}
                 type="text"
                 value={form.title}
                 onChange={(e) => form.setTitle(e.target.value)}

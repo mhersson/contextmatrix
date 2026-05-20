@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 export interface TimeoutRef {
   schedule: (fn: () => void, ms: number) => void;
@@ -25,5 +25,7 @@ export function useTimeoutRef(): TimeoutRef {
 
   useEffect(() => cancel, [cancel]);
 
-  return { schedule, cancel };
+  // Memoised so callers can list the whole TimeoutRef in effect/useCallback
+  // deps without forcing a re-run every render.
+  return useMemo(() => ({ schedule, cancel }), [schedule, cancel]);
 }

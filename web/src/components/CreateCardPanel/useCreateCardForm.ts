@@ -46,16 +46,20 @@ export interface CreateCardForm {
   // (component) should not swallow errors — it shows toast; form stays open.
   handleJustCreate: () => Promise<void>;
   handleCreateAndRun: () => Promise<void>;
+}
 
-  // Ref for the title <input> so that handleJustCreate/handleCreateAndRun
-  // can focus it when the title is empty.
+export interface UseCreateCardForm {
+  form: CreateCardForm;
+  // Ref for the title <input>, returned separately so the `form` object
+  // contains only plain values/setters — keeps the `react-hooks/refs`
+  // lint rule from flagging every `form.X` access on the caller side.
   titleInputRef: React.RefObject<HTMLInputElement | null>;
 }
 
 export function useCreateCardForm(
   config: ProjectConfig,
   onCreate: (input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>,
-): CreateCardForm {
+): UseCreateCardForm {
   const [title, setTitle] = useState('');
   const [type, setType] = useState(config.types[0] || 'task');
   const [priority, setPriority] = useState(config.priorities[1] || config.priorities[0] || '');
@@ -170,37 +174,39 @@ export function useCreateCardForm(
   }, [isSubmitting, ensureTitle, buildInput, onCreate, autonomous]);
 
   return {
-    title,
-    type,
-    priority,
-    labels,
-    parent,
-    body,
-    bodyDirty,
-    autonomous,
-    useOpusOrchestrator,
-    featureBranch,
-    createPR,
-    baseBranch,
-    skills,
-    isSubmitting,
-    pendingTemplate,
-    setTitle,
-    setPriority,
-    setLabels,
-    setAutonomous,
-    setUseOpusOrchestrator,
-    setFeatureBranch,
-    setCreatePR,
-    setBaseBranch,
-    setSkills,
-    setBody,
-    setBodyDirty,
-    setPendingTemplate,
-    handleSetParent,
-    handleTypeChange,
-    handleJustCreate,
-    handleCreateAndRun,
+    form: {
+      title,
+      type,
+      priority,
+      labels,
+      parent,
+      body,
+      bodyDirty,
+      autonomous,
+      useOpusOrchestrator,
+      featureBranch,
+      createPR,
+      baseBranch,
+      skills,
+      isSubmitting,
+      pendingTemplate,
+      setTitle,
+      setPriority,
+      setLabels,
+      setAutonomous,
+      setUseOpusOrchestrator,
+      setFeatureBranch,
+      setCreatePR,
+      setBaseBranch,
+      setSkills,
+      setBody,
+      setBodyDirty,
+      setPendingTemplate,
+      handleSetParent,
+      handleTypeChange,
+      handleJustCreate,
+      handleCreateAndRun,
+    },
     titleInputRef,
   };
 }

@@ -146,7 +146,7 @@ export function ProjectShell() {
       setFlashCardId(card.id);
       flashTimer.schedule(() => setFlashCardId(null), 2500);
     },
-    [handleCreateCard, updateCardLocally, showToast]
+    [handleCreateCard, updateCardLocally, showToast, flashTimer]
   );
 
   const handleSubtaskClick = useCallback(
