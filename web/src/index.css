@@ -1924,6 +1924,11 @@ input, select, textarea {
   background: var(--bg1);
   transition: border-color 200ms ease;
 }
+.apd-meta-line {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--grey1);
+}
 .apd-kpi { transition: border-color 200ms ease; }
 .apd-kpi:hover { border-color: var(--bg4); }
 
@@ -2840,4 +2845,31 @@ input, select, textarea {
   .board-footer__conn-label {
     display: none;
   }
+}
+
+/* AppHeader icon buttons (ThemeToggle, PaletteSelector trigger) */
+.cm-header-icon-btn {
+  color: var(--grey1);
+  background: transparent;
+}
+.cm-header-icon-btn:hover {
+  color: var(--fg);
+}
+
+/* PaletteSelector dropdown menu items */
+.cm-pal-menu-item {
+  background-color: transparent;
+}
+.cm-pal-menu-item:hover {
+  background-color: var(--bg3);
+}
+
+/* Sidebar chat session rows */
+.cm-chat-row {
+  background-color: transparent;
+  color: var(--grey2);
+}
+.cm-chat-row:hover {
+  background-color: var(--bg1);
+  color: var(--fg);
 }

@@ -1,7 +1,6 @@
 import type { Card } from '../../types';
-import { runnerStatusStyles } from '../../types';
 import { gitHubIcon } from '../icons';
-import { chipTint, priorityColors, shortCardId, typeColors } from '../../lib/chip';
+import { chipTint, priorityColors, runnerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
 import { avatarGradient } from '../../utils/colorHash';
 
 export interface CardChipRowProps {

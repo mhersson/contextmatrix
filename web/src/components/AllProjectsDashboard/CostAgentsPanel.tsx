@@ -24,7 +24,7 @@ export function CostAgentsPanel({
   prefixMap,
 }: CostAgentsPanelProps) {
   const [tab, setTab] = useState<Tab>('models');
-  const tabListRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef(new Map<Tab, HTMLButtonElement | null>());
 
   const tabs = useMemo<{ id: Tab; label: string; count: number }[]>(
     () => [
@@ -64,10 +64,7 @@ export function CostAgentsPanel({
       const nextTab = order[nextIdx];
       setTab(nextTab);
       // Move DOM focus to the newly selected tab so screen-reader focus follows.
-      const btn = tabListRef.current?.querySelector<HTMLButtonElement>(
-        `#${TAB_IDS[nextTab].btn}`,
-      );
-      btn?.focus();
+      tabRefs.current.get(nextTab)?.focus();
     },
     [tab, tabs],
   );
@@ -82,7 +79,6 @@ export function CostAgentsPanel({
       }}
     >
       <div
-        ref={tabListRef}
         className="apd-tab-strip"
         role="tablist"
         aria-label="Cost and agents views"
@@ -101,6 +97,9 @@ export function CostAgentsPanel({
               style={{ display: 'inline-flex', alignItems: 'center' }}
             >
               <button
+                ref={(el) => {
+                  tabRefs.current.set(t.id, el);
+                }}
                 id={TAB_IDS[t.id].btn}
                 type="button"
                 role="tab"

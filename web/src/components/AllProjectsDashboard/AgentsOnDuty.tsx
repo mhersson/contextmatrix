@@ -119,11 +119,8 @@ export function AgentsOnDuty({
                     </span>
                   </span>
                   <span
-                    className="block truncate"
+                    className="block truncate apd-meta-line"
                     style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 11.5,
-                      color: 'var(--grey1)',
                       letterSpacing: '-0.01em',
                       marginTop: 2,
                     }}

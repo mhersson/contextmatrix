@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import type { RunnerStatus } from '../types';
 
 /**
  * Shared palette tokens + chip helpers for card type / priority / state
@@ -61,3 +62,10 @@ export function shortCardId(id: string): string {
   const dash = id.lastIndexOf('-');
   return dash >= 0 ? id.slice(dash + 1) : id;
 }
+
+export const runnerStatusStyles: Record<RunnerStatus, { bg: string; text: string; label: string }> = {
+  queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for runner' },
+  running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Running on runner' },
+  failed: { bg: 'var(--bg-red)', text: 'var(--red)', label: 'Runner failed' },
+  killed: { bg: 'var(--bg4)', text: 'var(--grey1)', label: 'Runner killed' },
+};

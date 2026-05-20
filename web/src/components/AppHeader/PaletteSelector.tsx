@@ -49,14 +49,7 @@ export function PaletteSelector() {
         onClick={() => setOpen((prev) => !prev)}
         aria-label="Select color palette"
         title="Select color palette"
-        className="flex items-center justify-center w-8 h-8 rounded transition-colors"
-        style={{ color: 'var(--grey1)', background: 'transparent' }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg)';
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.color = 'var(--grey1)';
-        }}
+        className="cm-header-icon-btn flex items-center justify-center w-8 h-8 rounded transition-colors"
       >
         {/* Palette icon */}
         <svg
@@ -103,17 +96,10 @@ export function PaletteSelector() {
                 type="button"
                 role="menuitem"
                 onClick={() => handleSelect(id)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors"
+                className="cm-pal-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors"
                 style={{
                   color: isActive ? 'var(--fg)' : 'var(--grey1)',
-                  backgroundColor: 'transparent',
                   fontWeight: isActive ? 600 : 400,
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg3)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
                 }}
               >
                 <span

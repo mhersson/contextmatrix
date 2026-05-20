@@ -232,12 +232,8 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                     <span style={{ color: 'var(--grey1)' }}>{body.prefix}</span>
                   )}
                   <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 11.5,
-                      color: 'var(--grey1)',
-                      marginLeft: 6,
-                    }}
+                    className="apd-meta-line"
+                    style={{ marginLeft: 6 }}
                   >
                     {body.agent}
                   </span>
