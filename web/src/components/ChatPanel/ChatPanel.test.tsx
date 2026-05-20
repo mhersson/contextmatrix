@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
+import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
+
+// Local formatter matching the production instance — locale pinned to 'en-GB'
+// so HH:MM output is deterministic regardless of the test runner's locale.
+const hhmmFormatter = new Intl.DateTimeFormat('en-GB', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 // Node 25 provides a built-in localStorage that lacks .clear(). Override it
 // with a real-backing-store mock that supports spy-able methods, matching the
@@ -142,6 +151,146 @@ describe('ChatPanel', () => {
         throw new Error('QuotaExceededError');
       });
       expect(() => fireEvent.click(screen.getByLabelText('Tool calls'))).not.toThrow();
+    });
+  });
+
+  describe('HH:MM timestamps', () => {
+    // Deterministic ISO timestamps used in grouping tests.
+    const TS_14_32_A = '2026-05-20T14:32:00Z'; // 14:32
+    const TS_14_32_B = '2026-05-20T14:32:45Z'; // same minute
+    const TS_14_33   = '2026-05-20T14:33:10Z'; // next minute
+
+    it('user message renders a timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'user', content: 'hello' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      const stamps = container.querySelectorAll('time');
+      expect(stamps).toHaveLength(1);
+      expect(stamps[0].textContent).toMatch(/^\d{2}:\d{2}$/);
+    });
+
+    it('text message renders a timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'text', content: 'reply' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      const stamps = container.querySelectorAll('time');
+      expect(stamps).toHaveLength(1);
+      expect(stamps[0].textContent).toMatch(/^\d{2}:\d{2}$/);
+    });
+
+    it('tool_call entry renders no timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'tool_call', content: 'Read: foo.go' },
+      ];
+      // Tool calls are hidden by default; toggle them on.
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      fireEvent.click(screen.getByLabelText('Tool calls'));
+      expect(container.querySelectorAll('time')).toHaveLength(0);
+    });
+
+    it('thinking entry renders no timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'thinking', content: 'Let me think…' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      fireEvent.click(screen.getByLabelText('Thinking'));
+      expect(container.querySelectorAll('time')).toHaveLength(0);
+    });
+
+    it('malformed ts renders no timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: 'not-a-date', card_id: '', type: 'user', content: 'oops' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      expect(container.querySelectorAll('time')).toHaveLength(0);
+    });
+
+    it('user→user same minute renders only one timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'user', content: 'first' },
+        { ts: TS_14_32_B, card_id: '', type: 'user', content: 'second' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      expect(container.querySelectorAll('time')).toHaveLength(1);
+    });
+
+    it('text→text same minute renders only one timestamp', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'text', content: 'first reply' },
+        { ts: TS_14_32_B, card_id: '', type: 'text', content: 'second reply' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      expect(container.querySelectorAll('time')).toHaveLength(1);
+    });
+
+    it('user→text same minute renders two timestamps (different types)', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'user', content: 'hello' },
+        { ts: TS_14_32_B, card_id: '', type: 'text', content: 'world' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      expect(container.querySelectorAll('time')).toHaveLength(2);
+    });
+
+    it('same type, different minutes renders two timestamps', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'text', content: 'first' },
+        { ts: TS_14_33,   card_id: '', type: 'text', content: 'second' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      expect(container.querySelectorAll('time')).toHaveLength(2);
+    });
+
+    it('intervening tool_call does not reset grouping', () => {
+      // [text@14:32, tool_call@14:32, text@14:32] → only the first text gets a stamp
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'text',      content: 'first text' },
+        { ts: TS_14_32_B, card_id: '', type: 'tool_call', content: 'some tool' },
+        { ts: TS_14_32_B, card_id: '', type: 'text',      content: 'second text' },
+      ];
+      // Enable tool_calls so all three entries render.
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      fireEvent.click(screen.getByLabelText('Tool calls'));
+      // Only one timestamp: above the first text entry.
+      expect(container.querySelectorAll('time')).toHaveLength(1);
+    });
+
+    it('title tooltip on timestamp is present, non-empty, contains HH:MM, and differs from raw ISO ts', () => {
+      const entry: LogEntry[] = [
+        { ts: TS_14_32_A, card_id: '', type: 'user', content: 'hi' },
+      ];
+      const { container } = render(<ChatPanel logs={entry} onSend={() => {}} sendDisabled={false} />);
+      const stamp = container.querySelector('time');
+      expect(stamp).not.toBeNull();
+      const title = stamp!.getAttribute('title') ?? '';
+      // Must be non-empty and differ from the raw ISO string.
+      expect(title.length).toBeGreaterThan(0);
+      expect(title).not.toBe(TS_14_32_A);
+      // Must contain the HH:MM substring from formatHHMM.
+      const hhmm = formatHHMM(TS_14_32_A);
+      expect(hhmm).not.toBeNull();
+      expect(title).toContain(hhmm!);
+      // Verify formatTitle also matches the title.
+      expect(title).toBe(formatTitle(TS_14_32_A));
+    });
+
+    it('formatHHMM returns null for missing ts', () => {
+      expect(formatHHMM('')).toBeNull();
+    });
+
+    it('formatHHMM returns null for non-date string', () => {
+      expect(formatHHMM('not-a-date')).toBeNull();
+    });
+
+    it('formatHHMM returns HH:MM for valid ISO timestamp', () => {
+      const result = formatHHMM(TS_14_32_A);
+      expect(result).not.toBeNull();
+      // The result matches HH:MM pattern.
+      expect(result).toMatch(/^\d{2}:\d{2}$/);
+      // Also verify it matches our local formatter (locale-pinned, TZ-stable).
+      expect(result).toBe(hhmmFormatter.format(new Date(TS_14_32_A)));
     });
   });
 });

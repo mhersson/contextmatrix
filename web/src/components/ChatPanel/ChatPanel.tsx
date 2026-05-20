@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef } from 'r
 import type { LogEntry } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
+import { formatHHMM, formatTitle, TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatComposer } from './ChatComposer';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
@@ -37,6 +38,10 @@ export interface ChatPanelProps {
   focusKey?: string | number;
 }
 
+type Decorated =
+  | { entry: LogEntry; showStamp: false }
+  | { entry: LogEntry; showStamp: true; hhmm: string; title: string };
+
 export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage, focusKey }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -69,6 +74,27 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
       }),
     [logs, showText, showToolCalls, showThinking],
   );
+
+  const decoratedLogs = useMemo<Decorated[]>(() => {
+    const result = new Array<Decorated>(filteredLogs.length);
+    let lastType: LogEntry['type'] | null = null;
+    let lastHHMM: string | null = null;
+    for (let i = 0; i < filteredLogs.length; i++) {
+      const entry = filteredLogs[i];
+      const eligible = entry.type === 'text' || entry.type === 'user';
+      if (!eligible) { result[i] = { entry, showStamp: false }; continue; }
+      const hhmm = formatHHMM(entry.ts);
+      if (hhmm === null) { result[i] = { entry, showStamp: false }; continue; }
+      const showStamp = lastType !== entry.type || lastHHMM !== hhmm;
+      lastType = entry.type;
+      lastHHMM = hhmm;
+      if (!showStamp) { result[i] = { entry, showStamp: false }; continue; }
+      const title = formatTitle(entry.ts);
+      if (title === null) { result[i] = { entry, showStamp: false }; continue; }
+      result[i] = { entry, showStamp: true, hhmm, title };
+    }
+    return result;
+  }, [filteredLogs]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -109,10 +135,16 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         aria-live="polite"
         aria-label="Chat log"
       >
-        {filteredLogs.length === 0 ? (
+        {decoratedLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          filteredLogs.map((entry, idx) => <ChatEntry key={`${entry.seq ?? entry.ts}-${idx}`} entry={entry} />)
+          decoratedLogs.map((d) => (
+            <ChatEntry
+              key={d.entry.seq ?? d.entry.ts}
+              entry={d.entry}
+              stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
+            />
+          ))
         )}
       </div>
 
@@ -137,7 +169,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
   );
 }
 
-function ChatEntry({ entry }: { entry: LogEntry }) {
+function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; title: string } | null }) {
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message
   // style. The match is on kind (not content) so the rendering survives
@@ -165,11 +197,14 @@ function ChatEntry({ entry }: { entry: LogEntry }) {
   if (entry.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div
-          className="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words"
-          style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--fg)' }}
-        >
-          {entry.content}
+        <div className="flex flex-col items-end max-w-[85%]">
+          {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
+          <div
+            className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words"
+            style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--fg)' }}
+          >
+            {entry.content}
+          </div>
         </div>
       </div>
     );
@@ -178,11 +213,14 @@ function ChatEntry({ entry }: { entry: LogEntry }) {
   if (entry.type === 'text') {
     return (
       <div className="flex justify-start">
-        <div
-          className="max-w-[85%] rounded-lg px-3 py-2 text-sm break-words"
-          style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
-        >
-          <ChatMarkdown source={entry.content} />
+        <div className="flex flex-col items-start max-w-[85%]">
+          {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
+          <div
+            className="rounded-lg px-3 py-2 text-sm break-words"
+            style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
+          >
+            <ChatMarkdown source={entry.content} />
+          </div>
         </div>
       </div>
     );

@@ -332,6 +332,16 @@ whenever focus moves; `ChatThread` only writes it in non-embedded (mobile
 single-pane) mode. This preserves backward compat with external readers
 that expect a single "current chat" pointer.
 
+### Timestamps in ChatPanel
+
+`ChatPanel` renders `HH:MM` 24-hour timestamps (in `--grey1`, `text-[10px] font-mono`) above `user` and `text` entries on all chat surfaces (global chat and card-scoped HITL chat).
+
+- `tool_call` / `thinking` / `system` / `stderr` / `gap` entries are excluded — they never show a timestamp.
+- Consecutive entries of the **same type** within the **same minute** collapse to a single stamp above the first entry; the subsequent entries in that run show no stamp.
+- Intervening non-eligible entries (`tool_call`, `thinking`, etc.) do **not** reset the grouping — a `text` entry following a `tool_call` at the same minute is still considered grouped with the `text` entry before the `tool_call`.
+- Timestamps are right-aligned on `user` bubbles (`items-end`) and left-aligned on `text` bubbles (`items-start`), flush above the bubble.
+- The `title` attribute on each stamp holds `new Date(ts).toLocaleString('en-GB')` (locale pinned for test determinism) for a hover tooltip.
+
 ## Multi-pane chat layout
 
 `/chat` renders a tiled layout of up to 4 simultaneously open chats. The
