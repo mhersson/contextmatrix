@@ -606,6 +606,9 @@ Returns dashboard metrics for a project.
     }
   ],
   "total_cost_usd": 0.315,
+  "total_cost_usd_last_30d": 0.284,
+  "total_cost_usd_prior_30d": 0.241,
+  "cost_series_30d": [0.003, 0.012, 0.008, "... (30 daily buckets, oldest first)"],
   "cards_completed_today": 2,
   "cards_completed_last_7d": 9,
   "cards_completed_prior_7d": 6,
@@ -656,6 +659,15 @@ under `"unknown"`. Each card is attributed to its most-recently-used model
 `cards_completed_last_7d` counts cards whose `updated` falls inside the
 trailing 7-day window ending at "now"; `cards_completed_prior_7d` counts the
 preceding 7-day window (used by the UI to render a week-over-week delta).
+
+`total_cost_usd_last_30d` is the sum of `EstimatedCostUSD` for cards whose
+`updated` timestamp falls within the last 30 days. `total_cost_usd_prior_30d`
+covers the preceding 30-day window (days 30–60 ago), used by the UI to render
+a period-over-period delta on the "Cost · 30d" tile. `cost_series_30d` is a
+30-element daily bucket array (oldest first, today last) bucketed by `updated`
+day; each card's cumulative cost is attributed to its last-touch day. All three
+fields may be absent on older servers — treat a missing value as `0`. The
+all-time `total_cost_usd` field is unchanged.
 
 `metric_series` is an 8-sample daily window (oldest first, today last) for
 each tile on the board's metrics ribbon. Each slice always has exactly 8
