@@ -4,6 +4,7 @@ import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { formatHHMM, formatTitle, TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatComposer } from './ChatComposer';
+import { UserQuestionCard } from './UserQuestionCard';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -70,10 +71,14 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         if (e.type === 'text') return showText;
         if (e.type === 'tool_call') return showToolCalls;
         if (e.type === 'thinking') return showThinking;
+        // 'user_question' is always shown — it is the structured prompt the
+        // assistant is waiting on, and hiding it would strand the user.
         return true;
       }),
     [logs, showText, showToolCalls, showThinking],
   );
+
+  const answersDisabled = sendDisabled || !!readOnlyMessage;
 
   const decoratedLogs = useMemo<Decorated[]>(() => {
     const result = new Array<Decorated>(filteredLogs.length);
@@ -143,6 +148,8 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
               key={d.entry.seq ?? d.entry.ts}
               entry={d.entry}
               stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
+              onSend={onSend}
+              answersDisabled={answersDisabled}
             />
           ))
         )}
@@ -169,7 +176,14 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
   );
 }
 
-function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; title: string } | null }) {
+interface ChatEntryProps {
+  entry: LogEntry;
+  stamp: { hhmm: string; title: string } | null;
+  onSend: (content: string) => void | Promise<void>;
+  answersDisabled: boolean;
+}
+
+function ChatEntry({ entry, stamp, onSend, answersDisabled }: ChatEntryProps) {
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message
   // style. The match is on kind (not content) so the rendering survives
@@ -191,6 +205,16 @@ function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; t
         </span>
         <hr className="flex-1 border-t" style={{ borderColor: 'var(--bg3)' }} />
       </div>
+    );
+  }
+
+  if (entry.type === 'user_question') {
+    return (
+      <UserQuestionCard
+        content={entry.content}
+        disabled={answersDisabled}
+        onAnswer={onSend}
+      />
     );
   }
 

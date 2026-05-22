@@ -293,4 +293,124 @@ describe('ChatPanel', () => {
       expect(result).toBe(hhmmFormatter.format(new Date(TS_14_32_A)));
     });
   });
+
+  describe('user_question entries', () => {
+    const singleQ = JSON.stringify({
+      questions: [
+        {
+          question: 'Which library should we use?',
+          header: 'Library',
+          multiSelect: false,
+          options: [
+            { label: 'date-fns', description: 'Functional' },
+            { label: 'luxon', description: 'OO with TZ' },
+          ],
+        },
+      ],
+    });
+
+    const multiQ = JSON.stringify({
+      questions: [
+        {
+          question: 'Pick all that apply',
+          multiSelect: true,
+          options: [{ label: 'a' }, { label: 'b' }, { label: 'c' }],
+        },
+      ],
+    });
+
+    it('renders question and option buttons, always visible (not behind tool-call filter)', () => {
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: singleQ },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByTestId('user-question-card')).toBeInTheDocument();
+      expect(screen.getByText('Which library should we use?')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /date-fns/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /luxon/ })).toBeInTheDocument();
+    });
+
+    it('clicking an option calls onSend with that label', () => {
+      const onSend = vi.fn();
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: singleQ },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={false} />);
+      fireEvent.click(screen.getByRole('button', { name: /date-fns/ }));
+      expect(onSend).toHaveBeenCalledWith('date-fns');
+    });
+
+    it('multi-select renders checkboxes and a Send button that emits joined labels', () => {
+      const onSend = vi.fn();
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: multiQ },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={false} />);
+      const checkboxes = screen.getAllByRole('checkbox');
+      // 3 question checkboxes + 3 filter-bar checkboxes (Text, Tool calls, Thinking).
+      const optionBoxes = checkboxes.filter((cb) =>
+        ['a', 'b', 'c'].includes((cb.parentElement?.textContent ?? '').trim()),
+      );
+      expect(optionBoxes.length).toBe(3);
+      fireEvent.click(optionBoxes[0]);
+      fireEvent.click(optionBoxes[2]);
+      fireEvent.click(screen.getByRole('button', { name: /Send \(2\)/ }));
+      expect(onSend).toHaveBeenCalledWith('a, c');
+    });
+
+    it('disables option buttons when sendDisabled is true', () => {
+      const onSend = vi.fn();
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: singleQ },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={true} />);
+      const btn = screen.getByRole('button', { name: /date-fns/ });
+      expect(btn).toBeDisabled();
+      fireEvent.click(btn);
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it('disables option buttons when readOnlyMessage is set', () => {
+      const onSend = vi.fn();
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: singleQ },
+      ];
+      render(
+        <ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={false} readOnlyMessage="ended" />,
+      );
+      const btn = screen.getByRole('button', { name: /date-fns/ });
+      expect(btn).toBeDisabled();
+    });
+
+    it('renders fallback for malformed JSON payload without crashing', () => {
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: '{not json' },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByTestId('user-question-malformed')).toBeInTheDocument();
+    });
+
+    it('renders fallback for payload with empty questions array', () => {
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: '{"questions":[]}' },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByTestId('user-question-malformed')).toBeInTheDocument();
+    });
+
+    it('renders multiple questions stacked in one card', () => {
+      const payload = JSON.stringify({
+        questions: [
+          { question: 'Q1?', options: [{ label: 'x' }] },
+          { question: 'Q2?', options: [{ label: 'y' }] },
+        ],
+      });
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: payload },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getByText('Q1?')).toBeInTheDocument();
+      expect(screen.getByText('Q2?')).toBeInTheDocument();
+    });
+  });
 });

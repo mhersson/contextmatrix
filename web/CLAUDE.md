@@ -213,9 +213,11 @@ visible:
 | Tool calls | off | `type === 'tool_call'` | `--aqua` |
 | Thinking | off | `type === 'thinking'` | `--grey2` |
 
-Types `user`, `stderr`, `system`, and `gap` are always shown regardless of the
-filter state — they carry user messages and diagnostic information that must
-not be hidden.
+Types `user`, `stderr`, `system`, `gap`, and `user_question` are always shown
+regardless of the filter state — they carry user messages, diagnostic
+information, or structured prompts that the user must see (`user_question`
+is the assistant's `AskUserQuestion` tool call rendered as a clickable card;
+see "AskUserQuestion rendering" below).
 
 Filtering is applied at render time against the full in-memory buffer
 (`cardLogs`). Toggling a filter on retroactively reveals all messages of that
@@ -230,6 +232,33 @@ State lives in the `useChatFilterPrefs` hook
 (`web/src/hooks/useChatFilterPrefs.ts`), which owns the load/save round-trip
 and exposes `{ prefs, setPref }`. `ChatPanel.tsx` consumes the hook; no new
 props or context is involved.
+
+### AskUserQuestion rendering
+
+`LogEntry.type === 'user_question'` carries a JSON payload from the runner's
+logparser representing a Claude Code `AskUserQuestion` tool call. The wire
+shape is `{ questions: [{ question, header?, multiSelect?, options: [{ label,
+description? }] }] }`. `UserQuestionCard`
+(`web/src/components/ChatPanel/UserQuestionCard.tsx`) parses it defensively
+and renders one card per chat entry:
+
+- Single-select questions render each option as a button that immediately
+  calls `onSend(option.label)` when clicked.
+- Multi-select questions render checkboxes plus a "Send (N)" button that
+  emits the selected labels joined by `, `.
+- Malformed JSON, missing `questions` array, or empty `questions` array all
+  render a `--red` fallback line (`data-testid="user-question-malformed"`)
+  rather than crashing.
+- Buttons are disabled when `sendDisabled || readOnlyMessage` (passed
+  through `ChatPanel` as `answersDisabled`), so scrolled-back history is
+  visible but not interactive.
+
+The answer reuses the existing `onSend` channel — `CardChat` routes it via
+`api.sendCardMessage`, and global chat via `useChatStream`'s
+`sendChatMessage` — so the runner sees the user's answer as a normal
+text turn. No structured `tool_result` is sent back to Claude; that is a
+deliberate scope decision (see plan
+`memoized-purring-crane.md`).
 
 ### Rail tabs + default tab on HITL
 

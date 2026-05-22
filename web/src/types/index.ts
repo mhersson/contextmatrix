@@ -321,7 +321,15 @@ export interface StopAllResponse {
 
 export type RunnerStatus = NonNullable<Card['runner_status']>;
 
-export type LogEntryType = 'text' | 'thinking' | 'tool_call' | 'stderr' | 'system' | 'user' | 'gap';
+export type LogEntryType =
+  | 'text'
+  | 'thinking'
+  | 'tool_call'
+  | 'stderr'
+  | 'system'
+  | 'user'
+  | 'gap'
+  | 'user_question';
 
 export interface LogEntry {
   ts: string;
