@@ -1667,10 +1667,12 @@ func TestReportUsageEvent(t *testing.T) {
 	<-ch
 
 	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-		AgentID:          "agent-1",
-		Model:            "test-model",
-		PromptTokens:     500,
-		CompletionTokens: 200,
+		AgentID:             "agent-1",
+		Model:               "test-model",
+		PromptTokens:        500,
+		CompletionTokens:    200,
+		CacheReadTokens:     1500,
+		CacheCreationTokens: 750,
 	})
 	require.NoError(t, err)
 
@@ -1682,6 +1684,8 @@ func TestReportUsageEvent(t *testing.T) {
 		assert.Equal(t, int64(500), event.Data["prompt_tokens"])
 		assert.Equal(t, int64(200), event.Data["completion_tokens"])
 		assert.Equal(t, "test-model", event.Data["model"])
+		assert.Equal(t, int64(1500), event.Data["cache_read_tokens"])
+		assert.Equal(t, int64(750), event.Data["cache_creation_tokens"])
 	case <-time.After(time.Second):
 		t.Fatal("expected CardUsageReported event")
 	}
