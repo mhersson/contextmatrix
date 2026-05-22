@@ -37,9 +37,10 @@ func TestBuild_FiltersByRole(t *testing.T) {
 		"only user/assistant_text/tool_call/tool_result_summary should survive")
 }
 
-func TestBuild_UserQuestionMappedToToolCall(t *testing.T) {
-	// user_question entries are preserved in the resume payload but mapped
-	// to tool_call so the runner's resume-role allowlist accepts them.
+func TestBuild_PreservesUserQuestionRole(t *testing.T) {
+	// user_question entries are preserved in the resume payload with their
+	// native role; the runner's chatResumeRolePattern accepts user_question
+	// directly so no CM-side remap is needed.
 	payload := `{"questions":[{"question":"Which library?","options":[{"label":"a"},{"label":"b"}]}]}`
 	in := []Message{
 		{Seq: 1, Role: RoleUser, Content: "help"},
@@ -50,8 +51,8 @@ func TestBuild_UserQuestionMappedToToolCall(t *testing.T) {
 	got := Build(in, BuildOpts{})
 	require.NotNil(t, got)
 	require.Len(t, got.Turns, 3)
-	assert.Equal(t, RoleToolCall, got.Turns[1].Role,
-		"user_question must be remapped to tool_call so the runner accepts it")
+	assert.Equal(t, RoleUserQuestion, got.Turns[1].Role,
+		"user_question role must pass through unchanged")
 	assert.Equal(t, payload, got.Turns[1].Content,
 		"user_question payload must be preserved verbatim")
 }

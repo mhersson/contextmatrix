@@ -1199,6 +1199,11 @@ func TestManager_BridgesUserQuestionLogEntry(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
+	// Unwind the consumer goroutine on test exit so the streamLogsFn
+	// returns from its ctx.Done() block before the SQLite store closes —
+	// otherwise the goroutine leaks past test return.
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sess.ID) })
+
 	select {
 	case <-delivered:
 	case <-time.After(2 * time.Second):
