@@ -42,7 +42,7 @@ If `Complexity: simple`:
    a `base_branch` field set in its context, use `gh pr create --base <base_branch>`
    to target that branch instead of the default.
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
-8. Call `report_usage` with your token consumption.
+8. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if available).
 9. Transition to `done`: `transition_card(card_id, new_state='done')`.
 10. Release: `release_card(card_id, agent_id)`.
 11. Print `AUTONOMOUS_COMPLETE` structured output and stop.
@@ -140,8 +140,15 @@ Based on the card's current state and body content:
     - Spawn all ready subtasks in **parallel**.
 10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` on the
     parent every 5 minutes. After each `heartbeat`, call `report_usage` with
-    your token consumption since the last report — this is mandatory, not
-    optional.
+    your token consumption since the last report (`prompt_tokens`,
+    `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if
+    available) — this is mandatory, not optional.
+
+    Map stream-json `usage` frame fields to `report_usage` parameters:
+    - `usage.input_tokens` → `prompt_tokens`
+    - `usage.output_tokens` → `completion_tokens`
+    - `usage.cache_read_input_tokens` → `cache_read_tokens`
+    - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
     a. Wait 1 minute between checks.
     b. Call `check_agent_health(parent_id=<card_id>)`.

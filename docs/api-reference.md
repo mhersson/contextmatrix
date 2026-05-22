@@ -417,9 +417,39 @@ is taken from the `X-Agent-ID` header.
 {
   "model": "claude-sonnet-4-6",
   "prompt_tokens": 1234,
-  "completion_tokens": 567
+  "completion_tokens": 567,
+  "cache_read_tokens": 80000,
+  "cache_creation_tokens": 4000
 }
 ```
+
+`cache_read_tokens` and `cache_creation_tokens` are optional `int64` fields
+(default 0). They map directly to the `usage` fields in Claude's stream-json
+responses:
+
+| stream-json `usage` field  | request field           |
+| -------------------------- | ----------------------- |
+| `input_tokens`             | `prompt_tokens`         |
+| `output_tokens`            | `completion_tokens`     |
+| `cache_read_input_tokens`  | `cache_read_tokens`     |
+| `cache_creation_input_tokens` | `cache_creation_tokens` |
+
+Negative values for any token field are rejected with 400 `BAD_REQUEST`. All
+four token counts accumulate on the card across multiple calls.
+
+**Cost formula:**
+
+```
+delta = prompt_tokens        * rate.Prompt
+      + cache_read_tokens    * rate.Prompt * 0.10
+      + cache_creation_tokens * rate.Prompt * 1.25
+      + completion_tokens    * rate.Completion
+```
+
+The `cache_creation_tokens` field collapses both the 5-minute and 1-hour
+cache-write tiers into a single 1.25× multiplier — Claude Code uses the 5-minute
+tier by default, so this covers the common case without requiring callers to
+distinguish tiers.
 
 Returns 200 with the updated card. Cost is calculated automatically from
 `token_costs` in `config.yaml` if the model matches a configured key. If the
@@ -584,10 +614,15 @@ Returns aggregated token usage across all cards in a project.
 {
   "prompt_tokens": 45000,
   "completion_tokens": 12000,
+  "cache_read_tokens": 380000,
+  "cache_creation_tokens": 12000,
   "estimated_cost_usd": 0.315,
   "card_count": 8
 }
 ```
+
+`cache_read_tokens` and `cache_creation_tokens` are zero-valued on projects that
+have no cache activity and are always present in the response (not `omitempty`).
 
 ### GET /api/projects/{project}/dashboard
 

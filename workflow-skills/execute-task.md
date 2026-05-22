@@ -75,6 +75,13 @@ include:
 - `agent_id`: your agent ID
 - `model`: `"claude-sonnet-4-6"`
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption since the last report
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+
+Map stream-json `usage` frame fields to `report_usage` parameters:
+- `usage.input_tokens` → `prompt_tokens`
+- `usage.output_tokens` → `completion_tokens`
+- `usage.cache_read_input_tokens` → `cache_read_tokens`
+- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
 ### Card body structure
 
@@ -141,7 +148,7 @@ When all work is done, committed (if applicable), and verified:
 
 1. Update `## Progress` to mark all steps complete.
 2. Call `update_card` with the final card body.
-3. Call `report_usage` with your final token consumption. Include `model: "claude-sonnet-4-6"`.
+3. Call `report_usage` with your final token consumption. Include `model: "claude-sonnet-4-6"`, `prompt_tokens`, `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if available.
 4. Call `complete_task` with your card ID, agent ID, and a one-line summary.
 
 If `complete_task` **succeeds**, print this exact format:

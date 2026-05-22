@@ -122,12 +122,14 @@ type getReadyTasksOutput struct {
 }
 
 type reportUsageInput struct {
-	Project          string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID           string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID          string `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
-	Model            string `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
-	PromptTokens     int64  `json:"prompt_tokens" jsonschema:"required,number of prompt tokens used"`
-	CompletionTokens int64  `json:"completion_tokens" jsonschema:"required,number of completion tokens used"`
+	Project             string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID              string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID             string `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
+	Model               string `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
+	PromptTokens        int64  `json:"prompt_tokens" jsonschema:"required,number of prompt tokens used"`
+	CompletionTokens    int64  `json:"completion_tokens" jsonschema:"required,number of completion tokens used"`
+	CacheReadTokens     int64  `json:"cache_read_tokens,omitempty" jsonschema:"number of cache-read tokens (billed at 0.10× base input rate)"`
+	CacheCreationTokens int64  `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
 }
 
 type recalculateCostsInput struct {
@@ -509,8 +511,12 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 
 func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "report_usage",
-		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, and recalculates estimated cost based on the model's configured rates. Call this on heartbeat and when completing a task.",
+		Name: "report_usage",
+		Description: "Report token usage for a card. Increments running totals of prompt and completion tokens, " +
+			"and recalculates estimated cost based on the model's configured rates. " +
+			"Accepts optional cache_read_tokens (billed at 0.10× base input rate) and " +
+			"cache_creation_tokens (billed at 1.25× base input rate) for prompt-cache cost accounting. " +
+			"Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *board.Card, error) {
 		// Reject negative token counts at the handler boundary. The service
 		// layer uses += on the running totals, so a negative value would
@@ -520,16 +526,23 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 				input.CardID, input.PromptTokens, input.CompletionTokens)
 		}
 
+		if input.CacheReadTokens < 0 || input.CacheCreationTokens < 0 {
+			return nil, nil, fmt.Errorf("report usage for %s: cache tokens must be non-negative (cache_read_tokens=%d, cache_creation_tokens=%d)",
+				input.CardID, input.CacheReadTokens, input.CacheCreationTokens)
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		card, err := svc.ReportUsage(ctx, project, input.CardID, service.ReportUsageInput{
-			AgentID:          input.AgentID,
-			Model:            input.Model,
-			PromptTokens:     input.PromptTokens,
-			CompletionTokens: input.CompletionTokens,
+			AgentID:             input.AgentID,
+			Model:               input.Model,
+			PromptTokens:        input.PromptTokens,
+			CompletionTokens:    input.CompletionTokens,
+			CacheReadTokens:     input.CacheReadTokens,
+			CacheCreationTokens: input.CacheCreationTokens,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)

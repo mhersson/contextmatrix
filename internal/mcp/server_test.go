@@ -1785,6 +1785,184 @@ func TestReportUsage(t *testing.T) {
 	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
 }
 
+// setupMCPWithCosts creates an MCP test environment with a token-cost map so
+// cost arithmetic can be verified in round-trip tests.
+func setupMCPWithCosts(t *testing.T) *testEnv {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectConfig()))
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", nil)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+
+	tokenCosts := map[string]service.ModelRate{
+		"claude-opus-4-7": {Prompt: 0.000005, Completion: 0.000025},
+	}
+	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
+
+	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
+	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))
+
+	server := NewServer(ServerConfig{
+		Service:           svc,
+		WorkflowSkillsDir: workflowSkillsDir,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	_, err = server.Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = session.Close()
+
+		cancel()
+	})
+
+	return &testEnv{
+		session:           session,
+		svc:               svc,
+		store:             store,
+		boardsDir:         boardsDir,
+		workflowSkillsDir: workflowSkillsDir,
+		cancel:            cancel,
+	}
+}
+
+func TestReportUsageCacheFields(t *testing.T) {
+	// Verify cache-tier fields are accepted, persisted, and priced correctly.
+	// Acceptance example from CTXMAX-568 (claude-opus-4-7):
+	//   input=1000, cache_read=80000, cache_creation=4000, output=2000
+	//   cost = 1000*0.000005 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 2000*0.000025
+	//        = 0.005 + 0.040 + 0.025 + 0.050 = $0.120
+	env := setupMCPWithCosts(t)
+
+	card := createTestCard(t, env, "Cache usage test", "task", "medium")
+
+	// Claim the card so report_usage ownership check passes.
+	claimResult := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  card.ID,
+		"agent_id": "agent-cache",
+	})
+	require.False(t, claimResult.IsError, "claim_card should not error")
+
+	// --- Sub-test 1: cache fields are persisted and cost is correct ---
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":              "test-project",
+		"card_id":              card.ID,
+		"agent_id":             "agent-cache",
+		"model":                "claude-opus-4-7",
+		"prompt_tokens":        int64(1000),
+		"completion_tokens":    int64(2000),
+		"cache_read_tokens":    int64(80000),
+		"cache_creation_tokens": int64(4000),
+	})
+	require.False(t, result.IsError, "report_usage with cache fields should not error")
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(1000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2000), updated.TokenUsage.CompletionTokens)
+	assert.Equal(t, int64(80000), updated.TokenUsage.CacheReadTokens)
+	assert.Equal(t, int64(4000), updated.TokenUsage.CacheCreationTokens)
+
+	// cost = 1000*0.000005 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 2000*0.000025
+	//      = 0.005 + 0.040 + 0.025 + 0.050 = $0.120
+	assert.InDelta(t, 0.120, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+
+	// --- Sub-test 2: second call accumulates cache counters ---
+	result = callTool(t, env, "report_usage", map[string]any{
+		"project":              "test-project",
+		"card_id":              card.ID,
+		"agent_id":             "agent-cache",
+		"model":                "claude-opus-4-7",
+		"prompt_tokens":        int64(500),
+		"completion_tokens":    int64(500),
+		"cache_read_tokens":    int64(10000),
+		"cache_creation_tokens": int64(0),
+	})
+	require.False(t, result.IsError)
+	unmarshalResult(t, result, &updated)
+
+	assert.Equal(t, int64(1500), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
+	assert.Equal(t, int64(90000), updated.TokenUsage.CacheReadTokens)
+	assert.Equal(t, int64(4000), updated.TokenUsage.CacheCreationTokens)
+}
+
+func TestReportUsageCacheFields_BackwardsCompat(t *testing.T) {
+	// Omitting cache fields must produce the same result as before.
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "Backwards compat test", "task", "medium")
+
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-1",
+		"prompt_tokens":     int64(5000),
+		"completion_tokens": int64(1500),
+	})
+	require.False(t, result.IsError)
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+
+	require.NotNil(t, updated.TokenUsage)
+	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(1500), updated.TokenUsage.CompletionTokens)
+	assert.Equal(t, int64(0), updated.TokenUsage.CacheReadTokens)
+	assert.Equal(t, int64(0), updated.TokenUsage.CacheCreationTokens)
+}
+
+func TestReportUsageCacheFields_NegativeRejected(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "Negative cache test", "task", "medium")
+
+	// Negative cache_read_tokens must be rejected.
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-1",
+		"prompt_tokens":     int64(100),
+		"completion_tokens": int64(50),
+		"cache_read_tokens": int64(-1),
+	})
+	require.True(t, result.IsError, "negative cache_read_tokens should be rejected")
+
+	// Negative cache_creation_tokens must be rejected.
+	result = callTool(t, env, "report_usage", map[string]any{
+		"project":              "test-project",
+		"card_id":              card.ID,
+		"agent_id":             "agent-1",
+		"prompt_tokens":        int64(100),
+		"completion_tokens":    int64(50),
+		"cache_creation_tokens": int64(-1),
+	})
+	require.True(t, result.IsError, "negative cache_creation_tokens should be rejected")
+}
+
 func TestCreateProject_MCP(t *testing.T) {
 	env := setupMCP(t)
 

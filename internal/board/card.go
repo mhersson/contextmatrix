@@ -64,10 +64,12 @@ type Source struct {
 
 // TokenUsage tracks cumulative token consumption and estimated cost for a card.
 type TokenUsage struct {
-	Model            string  `yaml:"model,omitempty"    json:"model,omitempty"`
-	PromptTokens     int64   `yaml:"prompt_tokens"      json:"prompt_tokens"`
-	CompletionTokens int64   `yaml:"completion_tokens"  json:"completion_tokens"`
-	EstimatedCostUSD float64 `yaml:"estimated_cost_usd" json:"estimated_cost_usd"`
+	Model               string  `yaml:"model,omitempty"                json:"model,omitempty"`
+	PromptTokens        int64   `yaml:"prompt_tokens"                  json:"prompt_tokens"`
+	CompletionTokens    int64   `yaml:"completion_tokens"              json:"completion_tokens"`
+	CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"    json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+	EstimatedCostUSD    float64 `yaml:"estimated_cost_usd"             json:"estimated_cost_usd"`
 }
 
 var (

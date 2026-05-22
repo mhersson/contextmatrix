@@ -99,11 +99,18 @@ After documentation is written, call `report_usage` followed by
 `release_card(card_id, agent_id)` to release your claim. The main agent handles
 the final state transition.
 
+Map stream-json `usage` frame fields to `report_usage` parameters:
+- `usage.input_tokens` → `prompt_tokens`
+- `usage.output_tokens` → `completion_tokens`
+- `usage.cache_read_input_tokens` → `cache_read_tokens`
+- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
+
 Call `report_usage` with:
 - `card_id`: the parent card ID you are documenting
 - `agent_id`: your agent ID
 - `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
 ## Step 6: Structured output
 
