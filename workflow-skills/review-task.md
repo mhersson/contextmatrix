@@ -9,10 +9,11 @@
 You run the review phase inline. You hold the claim from earlier phases — do not
 release it.
 
-This is a **production-ready gate**. Code passes review only when it is ready
-to ship: spec-complete, tested, and free of Critical, Important, or Minor
-defects. Polish-level Nits do not block. When in doubt, send the work back —
-a revise cycle is cheaper than a regression in main.
+This is a **production-ready gate**. Code passes review only when free of
+Critical and Important defects. Minor findings ship via `approve_with_notes`
+and are tracked as follow-up cards (Step 4). Polish-level Nits do not block.
+When in doubt, send the work back — a revise cycle is cheaper than a
+regression in main.
 
 ## Step 1: Confirm claim and load context
 
@@ -72,10 +73,13 @@ silently drop the missing specialty's coverage.
 - `card_id`, `project`, and **your `agent_id`** (specialists call `report_usage`
   / `add_log` with your id; the server enforces `agent_id == AssignedAgent`).
 - Change-set computation:
-  1. `git diff <base>..HEAD --name-only` (base = card's `base_branch` if set,
-     else `main`).
-  2. `git status --porcelain` for working-tree (`M`, `A`, `??`).
-  3. Union of 1+2 is the review surface. `Read` each file directly. Untracked
+  1. **Determine the diff base.** Read the parent card's activity log. If a
+     prior entry has `action="review_completed"`, parse `head=<sha>` from its
+     `message` and use that SHA as the diff base. Otherwise use the card's
+     `base_branch` if set, else `main`.
+  2. `git diff <base>..HEAD --name-only`.
+  3. `git status --porcelain` for working-tree (`M`, `A`, `??`).
+  4. Union of 2+3 is the review surface. `Read` each file directly. Untracked
      files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
 - Engage relevant skills via the Skill tool (`go-development`, `code-review`,
@@ -177,12 +181,18 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
 - If any specialist returned nothing or malformed output (per Step 3),
   record the missing specialty as a gap under Concerns and force the
   recommendation to `revise` regardless of the other tiers.
-- Decide the recommendation using this strict rule:
-  - **Any Critical, Important, or Minor concern → `revise`.** Specialists
-    flagged real production-blockers; the work must be revised.
-  - **Only Nits, no other tiers → `approve_with_notes`.** Ship as-is, but
-    record the polish items for follow-up.
-  - **No concerns at any tier → `approve`.**
+- Decide the recommendation:
+  - **Any Critical or Important concern → `revise`.**
+  - **Only Minor concerns (no Critical or Important) → `approve_with_notes`.**
+    Spawn follow-up cards (below).
+  - **Only Nits or no concerns → `approve`.**
+- On `approve_with_notes`, for each **Minor** finding call `create_card`:
+  - `project`: this card's project.
+  - `title`: `Follow-up: <one-line finding summary>`.
+  - `body`: the finding's full Where/What/Why/Fix block.
+  - `parent`: the current card's parent (if set).
+  - `type`: same as the current card's parent.
+  Skip Nits.
 
 Cite specific files, subtasks, and decisions. Every concern must be actionable.
 
@@ -242,6 +252,14 @@ REVIEW_FINDINGS
 card_id: <id>
 recommendation: approve | approve_with_notes | revise
 summary: <one-line summary>
+```
+
+Then call:
+
+```
+add_log(card_id=<parent>, agent_id=<your id>,
+        action="review_completed",
+        message="head=<git rev-parse HEAD> recommendation=<approve|approve_with_notes|revise>")
 ```
 
 Do **not** call `release_card`. Do **not** call `transition_card`.

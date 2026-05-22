@@ -214,22 +214,23 @@ Based on the card's current state and body content:
     Maintainability, Security & Performance); synthesizes their reports;
     writes findings to the parent card body; and prints
     `REVIEW_FINDINGS`.
-17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`:
+17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`. The cycle
+    budget is **`MAX_REVISION_PASSES = 2`** (one initial review + one
+    revision; the second review is the final decision).
+
     - **approve** or **approve_with_notes**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
-      - If **< 5**:
+      - If **< 2**:
         1. Increment `review_attempts` by updating the card.
         2. Transition parent back to `in_progress`:
            `transition_card(card_id='<card_id>', new_state='in_progress')`.
-        3. **MUST call `create_card`** to cover every Critical,
-           Important, and Minor finding that requires a code change.
-           Group findings that touch the same file or share a coherent
-           fix into one subtask — three nits in one test file = one
-           subtask, not three. Split only when findings span different
-           files or independent concerns. Parent each subtask to this
-           card; body must include the finding text verbatim and the
-           acceptance criterion ("test X passes", "file Y no longer
-           contains Z", etc.).
+        3. **MUST call `create_card`** to cover every Critical and Important
+           finding that requires a code change. Group findings that touch the
+           same file or share a coherent fix into one subtask. Split only
+           when findings span different files or independent concerns. Parent
+           each subtask to this card; body must include the finding text
+           verbatim and the acceptance criterion ("test X passes", "file Y
+           no longer contains Z", etc.).
         4. **MUST go to Phase 3** to spawn `execute-task` sub-agents
            for those fix subtasks via the `Agent` tool. **DO NOT apply
            the fixes inline yourself**, even when the change is a
@@ -242,16 +243,29 @@ Based on the card's current state and body content:
 
         **Red flag — stop, you're iterating inline.** If you find
         yourself opening a file mentioned in `REVIEW_FINDINGS` to
-        "address the nit quickly", stop. Create the subtask. Spawn
+        "address a finding quickly", stop. Create the subtask. Spawn
         the sub-agent. The protocol is identical whether the fix is
         ten lines or one.
-      - If **>= 5**: **STOP.** Call `report_usage` with your remaining token consumption, then print:
-        ```
-        AUTONOMOUS_HALTED
-        card_id: <card_id>
-        reason: 5 review cycles completed without approval
-        action_required: human review
-        ```
+      - If **>= 2**: **Budget exhausted.** Do not start another revision.
+        1. Parse Critical and Important findings from the card body's
+           `## Review Findings` section.
+        2. For each finding, call `create_card`:
+           - `project`: this card's project.
+           - `title`: `Follow-up: <one-line finding summary>`.
+           - `body`: the finding's full Where/What/Why/Fix block.
+           - `parent`: this card's parent (if set).
+           - `type`: same as this card's parent.
+        3. `add_log(card_id='<card_id>', agent_id=<your_agent_id>,
+           action='review_exhausted', message='<N> follow-ups spawned')`.
+        4. `transition_card(card_id='<card_id>', new_state='stalled')`.
+        5. Call `report_usage` with your remaining token consumption.
+        6. Print:
+           ```
+           AUTONOMOUS_HALTED
+           card_id: <card_id>
+           reason: review cycle budget (2) exhausted; <N> follow-up cards spawned
+           action_required: human review of follow-up cards
+           ```
 
 ## Phase 6: Finalization
 

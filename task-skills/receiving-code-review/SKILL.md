@@ -104,6 +104,41 @@ IF reviewer suggests "implementing properly":
   IF used: implement properly
 ```
 
+## Confidence-Weighted Triage
+
+Before implementing, triage each finding. Record two judgments per finding:
+
+**Confidence (low / medium / high):**
+Can I fix this without introducing a new defect? Have I read enough of the
+surrounding code to apply the same cross-cutting concerns (redaction, schema
+validation, accessibility spec, etc.) that govern the file?
+
+**Decision (fix / defer / reject):**
+- `fix` — Critical and Important findings, regardless of confidence. Low
+  confidence is a signal to read more before fixing, not to defer.
+- `fix` — Minor findings at high confidence.
+- `defer` — Minor findings at low or medium confidence. Spawn a follow-up
+  via `create_card` (sibling of this card's parent) instead of attempting
+  the fix in this card. A speculative fix that introduces a new defect is
+  worse than a tracked follow-up.
+- `reject` — verification shows the finding is wrong. Record reasoning via
+  `add_log` (same pattern as the existing pushback section).
+
+**From-scratch test (for Minor judgments):** if I were writing this code
+from scratch knowing what I know now, would I write it this way?
+- If **no** → `fix`.
+- If **yes** → likely `defer` (style preference) or `reject` (wrong critique).
+
+Write the triage decisions to the card body **before** any code change as
+a `## Revision Plan` section. One bullet per finding:
+
+```
+- <Severity> | <file:line> — <one-line summary> → **<decision>** (<confidence>; <optional note>).
+```
+
+This lets the next review pass — and any human reading the card — see what
+was deliberately deferred and why.
+
 ## Implementation Order
 
 ```
