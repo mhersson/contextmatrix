@@ -4,6 +4,11 @@ export interface ChatLiveData {
   contextTokens?: number;
   contextTokensUpdatedAt?: string;
   model?: string;
+  estimatedCostUsd?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 // Module-level store. Acceptable for a small read-by-PaneHeader / written-by-
@@ -22,7 +27,12 @@ function shallowEqualLive(a: ChatLiveData | undefined, b: ChatLiveData): boolean
   return (
     a.contextTokens === b.contextTokens &&
     a.contextTokensUpdatedAt === b.contextTokensUpdatedAt &&
-    a.model === b.model
+    a.model === b.model &&
+    a.estimatedCostUsd === b.estimatedCostUsd &&
+    a.promptTokens === b.promptTokens &&
+    a.completionTokens === b.completionTokens &&
+    a.cacheReadTokens === b.cacheReadTokens &&
+    a.cacheCreationTokens === b.cacheCreationTokens
   );
 }
 
@@ -40,7 +50,7 @@ export function clearChatLiveData(chatId: string): void {
   notify();
 }
 
-function subscribe(callback: () => void): () => void {
+export function subscribeChatLiveData(callback: () => void): () => void {
   subscribers.add(callback);
   return () => {
     subscribers.delete(callback);
@@ -49,7 +59,7 @@ function subscribe(callback: () => void): () => void {
 
 export function useChatLiveData(chatId: string | null | undefined): ChatLiveData | undefined {
   return useSyncExternalStore(
-    subscribe,
+    subscribeChatLiveData,
     () => (chatId ? store.get(chatId) : undefined),
     () => undefined,
   );

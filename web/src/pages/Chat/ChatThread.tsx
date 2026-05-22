@@ -5,12 +5,9 @@ import { ChatPanel } from '../../components/ChatPanel';
 import { useChatStream } from '../../hooks/useChatStream';
 import { CHAT_SESSIONS_CHANGED_EVENT, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
-import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
-import { ChatHeaderInfo } from './ChatHeaderInfo';
 
 interface ChatThreadProps {
   sessionID: string;
-  onDeleted?: () => void;
   // When true, suppresses the internal header (title/model/status + End/Reopen/
   // Delete buttons) and the delete confirmation modal. Used inside the
   // multi-pane layout where the wrapping pane provides its own header and
@@ -22,13 +19,10 @@ interface ChatThreadProps {
   isFocused?: boolean;
 }
 
-export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused = true }: ChatThreadProps) {
+export function ChatThread({ sessionID, embedded = false, isFocused = true }: ChatThreadProps) {
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [ending, setEnding] = useState(false);
-  const [reopening, setReopening] = useState(false);
-  const { logs, connected, sessionUpdate } = useChatStream(sessionID);
+  const { logs, sessionUpdate } = useChatStream(sessionID);
 
   // Merge live session updates (context_tokens, model, rehydration_active)
   // from the SSE wire on top of the snapshot returned by GET /api/chats/{id}.
@@ -74,9 +68,6 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
     setPrevSessionID(sessionID);
     setSession(null);
     setError(null);
-    setConfirmDelete(false);
-    setEnding(false);
-    setReopening(false);
   }
 
   useEffect(() => {
@@ -128,9 +119,8 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
   }, [sessionID]);
 
   // Remember the active chat so /chat can auto-restore it after a refresh
-  // or a fresh sidebar navigation. Cleared from handleDelete when the user
-  // removes this chat so we don't keep redirecting to a 404. Skipped when
-  // embedded: useChatLayout writes last_chat_id for the focused pane.
+  // or a fresh sidebar navigation. Skipped when embedded: useChatLayout
+  // writes last_chat_id for the focused pane.
   useEffect(() => {
     if (embedded) return;
     try {
@@ -162,16 +152,23 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
     notifyChatSessionsChanged();
   }, [merged?.status]);
 
-  // Publish live model + context_tokens into the module-level store so the
-  // wrapping PaneHeader (a sibling above this component) can show the
-  // context-window % without prop-drilling through ChatLayout. Cleared on
-  // unmount + when sessionID changes so stale data for closed panes is GC'd.
+  // Publish live model + context_tokens + cost fields into the module-level
+  // store so the wrapping PaneHeader (a sibling above this component) can show
+  // the context-window % and running cost without prop-drilling through
+  // ChatLayout. Cleared on unmount + when sessionID changes so stale data for
+  // closed panes is GC'd.
+  // The effect re-runs on every `merged` recompute; the store's `shallowEqualLive` dedups identical writes.
   useEffect(() => {
     if (!merged) return;
     setChatLiveData(sessionID, {
       model: merged.model,
       contextTokens: merged.context_tokens,
       contextTokensUpdatedAt: merged.context_tokens_updated_at,
+      estimatedCostUsd: merged.estimated_cost_usd,
+      promptTokens: merged.prompt_tokens,
+      completionTokens: merged.completion_tokens,
+      cacheReadTokens: merged.cache_read_tokens,
+      cacheCreationTokens: merged.cache_creation_tokens,
     });
   }, [sessionID, merged]);
   useEffect(() => {
@@ -214,49 +211,8 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
     }
   };
 
-  const handleEnd = async () => {
-    setEnding(true);
-    try {
-      const fresh = await api.endChat(sessionID);
-      setSession(fresh);
-    } catch (e) {
-      setError(isAPIError(e) ? e.error : 'Failed to end session');
-    } finally {
-      setEnding(false);
-    }
-  };
-
-  const handleReopen = async () => {
-    setReopening(true);
-    try {
-      const fresh = await api.openChat(sessionID);
-      setSession(fresh);
-    } catch (e) {
-      setError(isAPIError(e) ? e.error : 'Failed to reopen session');
-    } finally {
-      setReopening(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    setConfirmDelete(false);
-    try {
-      await api.deleteChat(sessionID);
-      try {
-        window.localStorage.removeItem('last_chat_id');
-      } catch {
-        // Storage disabled — non-fatal.
-      }
-      notifyChatSessionsChanged();
-      onDeleted?.();
-    } catch (e) {
-      setError(isAPIError(e) ? e.error : 'Failed to delete chat');
-    }
-  };
-
-  const isRunning = view.status === 'active' || view.status === 'warm-idle';
-  const isCold = view.status === 'cold';
   const isEnding = view.status === 'ending';
+  const isCold = view.status === 'cold';
 
   // While the container is being warmed (cold→active transition driven by
   // openChat from NewChatDialog, or the user clicking Reopen), the textarea
@@ -272,77 +228,6 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {!embedded && (
-        <div
-          className="flex items-center gap-3 px-4 py-2 border-b shrink-0"
-          style={{ borderColor: 'var(--bg3)', backgroundColor: 'var(--bg0)' }}
-        >
-          <h2 className="text-base font-medium flex-1 truncate" style={{ color: 'var(--fg)' }}>
-            {view.title || '(untitled)'}
-          </h2>
-          {view.project && (
-            <span
-              className="text-xs px-2 py-0.5 rounded font-mono"
-              style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--aqua)' }}
-            >
-              {view.project}
-            </span>
-          )}
-          <ChatHeaderInfo
-            model={view.model}
-            contextTokens={view.context_tokens}
-            estimatedCostUsd={
-              sessionUpdate?.estimated_cost_usd ?? view.estimated_cost_usd
-            }
-            promptTokens={
-              sessionUpdate?.prompt_tokens ?? view.prompt_tokens
-            }
-            completionTokens={
-              sessionUpdate?.completion_tokens ?? view.completion_tokens
-            }
-            cacheReadTokens={
-              sessionUpdate?.cache_read_tokens ?? view.cache_read_tokens
-            }
-            cacheCreationTokens={
-              sessionUpdate?.cache_creation_tokens ?? view.cache_creation_tokens
-            }
-          />
-          <span className="text-xs" style={{ color: 'var(--grey1)' }}>{view.status}</span>
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            title={connected ? 'Stream connected' : 'Stream disconnected'}
-            aria-label={connected ? 'Stream connected' : 'Stream disconnected'}
-            style={{ backgroundColor: connected ? 'var(--green)' : 'var(--grey1)' }}
-          />
-          {isRunning && (
-            <button
-              onClick={() => void handleEnd()}
-              disabled={ending}
-              className="bf-btn-ghost bf-btn-sm"
-              style={{ color: 'var(--orange)', borderColor: 'color-mix(in oklab, var(--orange) 35%, transparent)' }}
-            >
-              {ending ? 'Ending…' : 'End session'}
-            </button>
-          )}
-          {isCold && (
-            <button
-              onClick={() => void handleReopen()}
-              disabled={reopening}
-              className="bf-btn-ghost bf-btn-sm"
-              style={{ color: 'var(--green)' }}
-            >
-              {reopening ? 'Reopening…' : 'Reopen'}
-            </button>
-          )}
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="bf-btn-ghost bf-btn-sm"
-            style={{ color: 'var(--red)' }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
       {view.rehydration_active && !userHasSent && (
         <div
           className="px-4 py-2 text-xs border-b shrink-0 flex items-center gap-2"
@@ -373,17 +258,6 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
           focusKey={isFocused ? sessionID : undefined}
         />
       </div>
-      {!embedded && (
-        <ConfirmModal
-          open={confirmDelete}
-          title="Delete chat?"
-          message="This removes the session and its transcript permanently."
-          confirmLabel="Delete"
-          variant="danger"
-          onConfirm={() => void handleDelete()}
-          onCancel={() => setConfirmDelete(false)}
-        />
-      )}
     </div>
   );
 }
