@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
-import { contextPct, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
+import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
 import {
   PANE_SOURCE_MIME,
   CHAT_DRAG_START_EVENT,
@@ -223,6 +223,24 @@ function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackM
           title={tooltip}
         >{pct}%</span>
       )}
+      {(() => {
+        const c = live;
+        if (c?.estimatedCostUsd == null || c.estimatedCostUsd <= 0) return null;
+        const costTooltip = formatCostTooltip({
+          promptTokens: c.promptTokens,
+          completionTokens: c.completionTokens,
+          cacheReadTokens: c.cacheReadTokens,
+          cacheCreationTokens: c.cacheCreationTokens,
+        });
+        return (
+          <span
+            className="chat-pane-cost"
+            style={{ color: 'var(--grey1)' }}
+            aria-label={`Estimated cost ${c.estimatedCostUsd.toFixed(2)} dollars`}
+            {...(costTooltip ? { title: costTooltip } : {})}
+          >${c.estimatedCostUsd.toFixed(2)}</span>
+        );
+      })()}
     </>
   );
 }
