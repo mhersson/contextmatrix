@@ -231,8 +231,8 @@ type to `subtask` for any card created with a `parent` field.
 Map stream-json `usage` frame fields to `report_usage` parameters:
 - `usage.input_tokens` → `prompt_tokens`
 - `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_tokens` → `cache_read_tokens`
-- `usage.cache_creation_tokens` → `cache_creation_tokens`
+- `usage.cache_read_input_tokens` → `cache_read_tokens`
+- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
 Call `report_usage` with:
 

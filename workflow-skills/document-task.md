@@ -102,8 +102,8 @@ the final state transition.
 Map stream-json `usage` frame fields to `report_usage` parameters:
 - `usage.input_tokens` → `prompt_tokens`
 - `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_tokens` → `cache_read_tokens`
-- `usage.cache_creation_tokens` → `cache_creation_tokens`
+- `usage.cache_read_input_tokens` → `cache_read_tokens`
+- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
 Call `report_usage` with:
 - `card_id`: the parent card ID you are documenting
