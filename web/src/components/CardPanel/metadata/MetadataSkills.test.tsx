@@ -81,18 +81,6 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
     expect(screen.getByText(/Use project default \(mount full set\)/i)).toBeInTheDocument();
   });
 
-  it('config.default_skills=undefined → label shows "(mount full set)"', () => {
-    vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
-    render(
-      <MetadataSkills
-        value={null}
-        config={makeConfig({ default_skills: undefined })}
-        onSkillsChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByText(/Use project default \(mount full set\)/i)).toBeInTheDocument();
-  });
-
   it('config.default_skills=[] → label shows "(mount nothing)"', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(

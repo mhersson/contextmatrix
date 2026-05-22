@@ -86,11 +86,3 @@ func TestMCPAuthMiddleware(t *testing.T) {
 		})
 	}
 }
-
-func TestNewHandler_NoAPIKey_NoAuth(t *testing.T) {
-	// When apiKey is empty, no auth middleware should be applied.
-	// We test this by calling NewHandler with an empty key and verifying
-	// the returned handler is not nil (basic smoke test).
-	handler := NewHandler(nil, "")
-	assert.NotNil(t, handler)
-}

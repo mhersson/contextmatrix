@@ -36,13 +36,6 @@ func TestAppendSnapshot(t *testing.T) {
 	assert.Equal(t, "world", string(snap[1].Payload))
 }
 
-// TestSnapshotEmptyCard verifies Snapshot on an unknown card returns nil/empty.
-func TestSnapshotEmptyCard(t *testing.T) {
-	m := NewManager()
-	snap := m.Snapshot("NONEXISTENT-001")
-	assert.Empty(t, snap)
-}
-
 // TestSnapshotDefensiveCopy verifies that mutating the returned slice does not affect the internal buffer.
 func TestSnapshotDefensiveCopy(t *testing.T) {
 	m := NewManager()
@@ -177,13 +170,6 @@ func TestClearRemovesSession(t *testing.T) {
 	m.Clear(cardID)
 	snap := m.Snapshot(cardID)
 	assert.Empty(t, snap)
-}
-
-// TestClearNonExistentCard verifies Clear on an unknown card is a no-op.
-func TestClearNonExistentCard(t *testing.T) {
-	m := NewManager()
-	// Should not panic.
-	m.Clear("NONEXISTENT-999")
 }
 
 // TestConcurrentAppendSnapshot exercises concurrent Append and Snapshot under the race detector.

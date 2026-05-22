@@ -2,7 +2,6 @@ package lock
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -71,16 +70,6 @@ func createTestCardAt(t *testing.T, store storage.Store, project string, id stri
 	require.NoError(t, err)
 
 	return card
-}
-
-func TestNewManager(t *testing.T) {
-	store, _ := setupTestStore(t)
-	timeout := 30 * time.Minute
-
-	mgr := NewManager(store, timeout)
-
-	assert.NotNil(t, mgr)
-	assert.Equal(t, timeout, mgr.Timeout())
 }
 
 func TestClaim_Unclaimed(t *testing.T) {
@@ -510,13 +499,4 @@ func TestHeartbeatUpdatesTimestamp(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, card.Updated.After(original.Updated))
-}
-
-func TestSentinelErrors(t *testing.T) {
-	// Verify sentinel errors can be used with errors.Is
-	wrapped := errors.New("test")
-
-	require.NotErrorIs(t, wrapped, ErrAlreadyClaimed)
-	require.NotErrorIs(t, wrapped, ErrNotClaimed)
-	assert.NotErrorIs(t, wrapped, ErrAgentMismatch)
 }

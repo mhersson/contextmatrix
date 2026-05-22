@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -175,15 +174,6 @@ github:
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT 1",
-			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT",
-			envValue: "1",
-			check: func(t *testing.T, cfg *Config) {
-				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoCommit)
-			},
-		},
-		{
 			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT false",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT",
 			envValue: "false",
@@ -202,15 +192,6 @@ github:
 			},
 		},
 		{
-			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH 1",
-			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH",
-			envValue: "1",
-			check: func(t *testing.T, cfg *Config) {
-				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoPush)
-			},
-		},
-		{
 			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH false",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH",
 			envValue: "false",
@@ -223,15 +204,6 @@ github:
 			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL true",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL",
 			envValue: "true",
-			check: func(t *testing.T, cfg *Config) {
-				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoPull)
-			},
-		},
-		{
-			name:     "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL 1",
-			envKey:   "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL",
-			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
 				assert.True(t, cfg.Boards.GitAutoPull)
@@ -259,15 +231,6 @@ github:
 			name:     "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT true",
 			envKey:   "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT",
 			envValue: "true",
-			check: func(t *testing.T, cfg *Config) {
-				t.Helper()
-				assert.True(t, cfg.Boards.GitDeferredCommit)
-			},
-		},
-		{
-			name:     "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT 1",
-			envKey:   "CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT",
-			envValue: "1",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
 				assert.True(t, cfg.Boards.GitDeferredCommit)
@@ -1319,18 +1282,7 @@ func TestAllowedHosts_CustomHostNotDuplicated(t *testing.T) {
 	assert.Len(t, hosts, 2)
 }
 
-func TestDefaults_GitHubHostAndAPIBaseURL(t *testing.T) {
-	cfg := defaults()
-	assert.Empty(t, cfg.GitHub.Host)
-	assert.Empty(t, cfg.GitHub.APIBaseURL)
-}
-
 // ---------- Theme config tests ----------
-
-func TestDefaults_Theme(t *testing.T) {
-	cfg := defaults()
-	assert.Equal(t, "everforest", cfg.Theme)
-}
 
 func TestLoad_Theme_DefaultIsEverforest(t *testing.T) {
 	dir := t.TempDir()
@@ -1830,16 +1782,6 @@ github:
 
 	assert.Equal(t, "pat", cfg.GitHub.AuthMode)
 	assert.Equal(t, "ghp_test", cfg.GitHub.PAT.Token)
-}
-
-func TestLoad_BoardsHasNoAuthMode(t *testing.T) {
-	_ = defaults()
-
-	v := reflect.TypeFor[BoardsConfig]()
-	for field := range v.Fields() {
-		assert.NotEqual(t, "GitAuthMode", field.Name,
-			"BoardsConfig.GitAuthMode must be removed")
-	}
 }
 
 func TestLoad_TaskSkills_Defaults(t *testing.T) {

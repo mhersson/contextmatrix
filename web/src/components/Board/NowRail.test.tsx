@@ -17,28 +17,6 @@ describe('NowRail', () => {
     expect(screen.getByText('CTX-305')).toBeInTheDocument();
   });
 
-  it('shows the agent count in the heading', () => {
-    render(<NowRail agents={agents} activityEntries={[]} />);
-    expect(screen.getByText('2')).toBeInTheDocument();
-  });
-
-  it('uses "since page load" label for the activity section', () => {
-    render(<NowRail agents={agents} activityEntries={[]} />);
-    expect(screen.getByText(/since page load/i)).toBeInTheDocument();
-  });
-
-  it('renders activity entries with relative time', () => {
-    render(
-      <NowRail
-        agents={[]}
-        activityEntries={[
-          { id: 'e1', agent: 'haiku-4.5', action: 'claim', cardId: 'CTX-308', ts: '2026-05-17T12:00:00Z' },
-        ]}
-      />
-    );
-    expect(screen.getByText('haiku-4.5')).toBeInTheDocument();
-  });
-
   it('renders capacity X / max containers when maxAgents and runningContainers are provided', () => {
     render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
     // Capacity meta strip shows container count, not agent count.

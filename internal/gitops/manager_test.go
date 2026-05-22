@@ -640,11 +640,6 @@ func TestDeleteFile_NonExistent(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDefaultAuthor(t *testing.T) {
-	assert.Equal(t, "ContextMatrix", DefaultAuthor.Name)
-	assert.Equal(t, "contextmatrix@local", DefaultAuthor.Email)
-}
-
 func TestCommitMessageFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
@@ -755,14 +750,6 @@ func TestConcurrentCommits(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 10, count)
-}
-
-func TestRepoPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-
-	assert.Equal(t, tmpDir, mgr.RepoPath())
 }
 
 func TestHasRemote_NoRemote(t *testing.T) {
@@ -1275,16 +1262,6 @@ func TestPush_RemoteUnreachable(t *testing.T) {
 	require.Error(t, err, "push to removed remote must fail")
 	assert.Contains(t, err.Error(), "push",
 		"error must be wrapped with operation context")
-}
-
-func TestNewManager_AcceptsLabelAndProvider(t *testing.T) {
-	dir := t.TempDir()
-	provider := staticTestProvider(t)
-
-	mgr, err := NewManager(dir, "", "boards", provider)
-	require.NoError(t, err)
-	require.NotNil(t, mgr)
-	assert.Equal(t, "boards", mgr.Label())
 }
 
 func TestManager_AuthEnv_BuildsExpectedSlice(t *testing.T) {

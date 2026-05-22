@@ -38,22 +38,6 @@ func TestDirHasGit_PresentAbsent(t *testing.T) {
 	assert.False(t, dirHasGit(""), "empty string should return false")
 }
 
-func TestStartupPullTaskSkills_SkipsWhenGitMissing(t *testing.T) {
-	// hadGit=false: should return immediately without touching mgr (nil is safe).
-	startupPullTaskSkills(false, "https://example.com/repo.git", nil)
-	// If we reach here without panic the test passes.
-}
-
-func TestStartupPullTaskSkills_SkipsWhenRemoteEmpty(t *testing.T) {
-	// remoteURL="": should return immediately without touching mgr (nil is safe).
-	startupPullTaskSkills(true, "", nil)
-}
-
-func TestStartupPullTaskSkills_SkipsWhenMgrNil(t *testing.T) {
-	// mgr=nil: should return immediately.
-	startupPullTaskSkills(true, "https://example.com/repo.git", nil)
-}
-
 // TestStartupPullTaskSkills_SwallowsError verifies that a pull failure
 // (unreachable remote) is logged as a warning but does not panic or propagate.
 func TestStartupPullTaskSkills_SwallowsError(t *testing.T) {

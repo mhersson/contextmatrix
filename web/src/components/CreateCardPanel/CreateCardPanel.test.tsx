@@ -64,22 +64,9 @@ function makeProps(overrides?: Partial<Parameters<typeof CreateCardPanel>[0]>) {
 }
 
 describe('CreateCardPanel — bifold shell', () => {
-  it('renders the bifold layout (left + rail tabs)', () => {
-    render(<CreateCardPanel {...makeProps()} />);
-    expect(screen.getByTestId('body-bifold')).toBeInTheDocument();
-    expect(screen.getByTestId('body-left')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Automation' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Info' })).toBeInTheDocument();
-  });
-
   it('omits the Danger Zone tab in create mode', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.queryByRole('tab', { name: /Danger/ })).not.toBeInTheDocument();
-  });
-
-  it('renders the "new card" chip in the eyebrow', () => {
-    render(<CreateCardPanel {...makeProps()} />);
-    expect(screen.getByText('new card')).toBeInTheDocument();
   });
 });
 

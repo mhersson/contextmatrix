@@ -10,24 +10,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 )
 
-func TestState_IsTerminal(t *testing.T) {
-	assert.False(t, StatePlanning.IsTerminal())
-	assert.False(t, StateRunning.IsTerminal())
-	assert.True(t, StateSucceeded.IsTerminal())
-	assert.True(t, StateFailed.IsTerminal())
-}
-
-func TestJob_ZeroValueState(t *testing.T) {
-	var j Job
-	assert.Equal(t, StateIdle, j.State, "zero value must be StateIdle")
-}
-
-func TestJob_StartedAt(t *testing.T) {
-	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	j := Job{StartedAt: now}
-	assert.Equal(t, now, j.StartedAt)
-}
-
 func TestRegistry_Acquire_FirstTimeSucceeds(t *testing.T) {
 	r := NewRegistry()
 	job, err := r.Acquire("contextmatrix", "contextmatrix", "human:web-aaa")

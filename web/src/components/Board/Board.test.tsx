@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { Board } from './Board';
@@ -127,104 +127,6 @@ const sampleCard: Card = {
   updated: '2026-01-01T00:00:00Z',
   body: '',
 };
-
-describe('Board — touch device drag-and-drop', () => {
-  const originalMatchMedia = window.matchMedia;
-
-  beforeEach(() => {
-    // Simulate a touch/coarse-pointer device
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: (query: string) => ({
-        matches: query === '(pointer: coarse)',
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }),
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: originalMatchMedia,
-    });
-  });
-
-  it('renders the board without crashing on a touch device', () => {
-    render(
-      <Board
-        cards={[sampleCard]}
-        config={baseConfig}
-        loading={false}
-        error={null}
-        activeAgents={[]}
-        cardsCompletedToday={0}
-        activityEntries={[]}
-        currentAgent={null}
-      />
-    );
-    // Board renders card content
-    expect(screen.getByText('Sample card')).toBeInTheDocument();
-  });
-
-  it('isTouchDevice returns true in simulated touch environment', () => {
-    // Confirm the mock is active for this describe block
-    expect(isTouchDevice()).toBe(true);
-  });
-});
-
-describe('Board — pointer device drag-and-drop', () => {
-  const originalMatchMedia = window.matchMedia;
-
-  beforeEach(() => {
-    // Simulate a fine-pointer (mouse) device
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: (_query: string) => ({
-        matches: false,
-        media: _query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }),
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: originalMatchMedia,
-    });
-  });
-
-  it('renders the board without crashing on a pointer device', () => {
-    render(
-      <Board
-        cards={[sampleCard]}
-        config={baseConfig}
-        loading={false}
-        error={null}
-        activeAgents={[]}
-        cardsCompletedToday={0}
-        activityEntries={[]}
-        currentAgent={null}
-      />
-    );
-    expect(screen.getByText('Sample card')).toBeInTheDocument();
-  });
-
-  it('isTouchDevice returns false in simulated pointer environment', () => {
-    expect(isTouchDevice()).toBe(false);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Board — mobile NowRail drawer

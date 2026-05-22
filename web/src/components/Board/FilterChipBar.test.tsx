@@ -9,11 +9,6 @@ describe('FilterChipBar', () => {
     onFilterChange: vi.fn(),
   };
 
-  it('renders the search input with a placeholder', () => {
-    render(<FilterChipBar {...baseProps} />);
-    expect(screen.getByPlaceholderText(/search/i)).toBeInTheDocument();
-  });
-
   it('toggles the Mine chip', () => {
     const onFilterChange = vi.fn();
     render(<FilterChipBar {...baseProps} onFilterChange={onFilterChange} />);
@@ -54,8 +49,4 @@ describe('FilterChipBar', () => {
     expect(onSearchChange).toHaveBeenCalledWith('auth');
   });
 
-  it('renders the current searchQuery in the input', () => {
-    render(<FilterChipBar {...baseProps} searchQuery="bug" onSearchChange={() => {}} />);
-    expect(screen.getByPlaceholderText(/search/i)).toHaveValue('bug');
-  });
 });

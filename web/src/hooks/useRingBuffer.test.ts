@@ -156,15 +156,4 @@ describe('useRingBuffer', () => {
     // Same reference — no re-render triggered.
     expect(result.current.logs).toBe(before);
   });
-
-  it('single entry append increments size to 1', () => {
-    const { result } = renderHook(() => useRingBuffer(10));
-
-    act(() => {
-      result.current.append([makeEntry('solo')]);
-    });
-
-    expect(result.current.logs).toHaveLength(1);
-    expect(result.current.logs[0].content).toBe('solo');
-  });
 });

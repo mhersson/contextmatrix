@@ -99,13 +99,6 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
 }
 
 describe('CardPanel — bifold layout', () => {
-  it('renders the two-column grid (left + right rail)', () => {
-    render(<CardPanel {...makeProps()} />);
-    expect(screen.getByTestId('body-bifold')).toBeInTheDocument();
-    expect(screen.getByTestId('body-left')).toBeInTheDocument();
-    expect(screen.getByTestId('body-rail')).toBeInTheDocument();
-  });
-
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();

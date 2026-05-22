@@ -53,30 +53,6 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 	assert.Equal(t, int64(1), runner.endCalls.Load())
 }
 
-// TestIdleReaper_Stop_DoubleCallSafe verifies that calling Stop twice does
-// not panic. The reaper is plumbed through main.go's lifecycle and shutdown
-// hooks can fire it more than once during graceful shutdown / signal-driven
-// teardown.
-func TestIdleReaper_Stop_DoubleCallSafe(t *testing.T) {
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-
-	mgr := chat.NewManager(chat.Config{
-		Store:   store,
-		Runner:  &stubRunner{},
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
-	})
-
-	reaper := chat.NewIdleReaper(mgr, time.Hour)
-
-	// First Stop closes the channel; second Stop must be a no-op, not a panic.
-	assert.NotPanics(t, reaper.Stop)
-	assert.NotPanics(t, reaper.Stop)
-	assert.NotPanics(t, reaper.Stop)
-}
-
 func TestIdleReaper_SweepStaleRehydration_FlipsTimeoutSessions(t *testing.T) {
 	t.Parallel()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))

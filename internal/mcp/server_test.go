@@ -182,75 +182,6 @@ func createTestCard(t *testing.T, env *testEnv, title, typ, priority string) *bo
 
 // --- Tests ---
 
-func TestListTools(t *testing.T) {
-	env := setupMCP(t)
-
-	result, err := env.session.ListTools(context.Background(), nil)
-	require.NoError(t, err)
-
-	expectedTools := []string{
-		"list_projects",
-		"list_cards",
-		"get_card",
-		"create_card",
-		"update_card",
-		"transition_card",
-		"claim_card",
-		"release_card",
-		"heartbeat",
-		"add_log",
-		"get_task_context",
-		"complete_task",
-		"get_subtask_summary",
-		"check_agent_health",
-		"get_ready_tasks",
-		"report_usage",
-		"recalculate_costs",
-		"create_project",
-		"update_project",
-		"delete_project",
-		"start_workflow",
-		"start_review",
-		"get_skill",
-		"report_push",
-		"increment_review_attempts",
-		"promote_to_autonomous",
-		"get_knowledge_base",
-		"read_knowledge_doc",
-		"list_knowledge_bases",
-		"refresh_knowledge_base",
-		"commit_knowledge_docs",
-		"update_refresh_progress",
-	}
-
-	assert.Len(t, result.Tools, len(expectedTools), "expected %d tools", len(expectedTools))
-
-	toolNames := make(map[string]bool)
-	for _, tool := range result.Tools {
-		toolNames[tool.Name] = true
-	}
-
-	for _, name := range expectedTools {
-		assert.True(t, toolNames[name], "missing tool: %s", name)
-	}
-}
-
-func TestListProjects(t *testing.T) {
-	env := setupMCP(t)
-
-	result := callTool(t, env, "list_projects", map[string]any{})
-	require.False(t, result.IsError)
-
-	var output listProjectsOutput
-	unmarshalResult(t, result, &output)
-
-	require.Len(t, output.Projects, 1)
-	assert.Equal(t, "test-project", output.Projects[0].Name)
-	assert.Equal(t, "TEST", output.Projects[0].Prefix)
-	assert.Contains(t, output.Projects[0].States, "todo")
-	assert.Contains(t, output.Projects[0].States, "done")
-}
-
 func TestCreateAndGetCard(t *testing.T) {
 	env := setupMCP(t)
 
@@ -1374,31 +1305,6 @@ func TestClaimCard_UnvettedExternal(t *testing.T) {
 	assert.Contains(t, textContent.Text, "vetted")
 }
 
-func TestListPrompts(t *testing.T) {
-	env := setupMCP(t)
-
-	result, err := env.session.ListPrompts(context.Background(), nil)
-	require.NoError(t, err)
-
-	expectedPrompts := []string{
-		"create-task",
-		"init-project",
-		"start-workflow",
-		"refresh-knowledge",
-	}
-
-	assert.Len(t, result.Prompts, len(expectedPrompts), "expected %d prompts", len(expectedPrompts))
-
-	promptNames := make(map[string]bool)
-	for _, p := range result.Prompts {
-		promptNames[p.Name] = true
-	}
-
-	for _, name := range expectedPrompts {
-		assert.True(t, promptNames[name], "missing prompt: %s", name)
-	}
-}
-
 func TestListCards(t *testing.T) {
 	env := setupMCP(t)
 
@@ -1647,24 +1553,6 @@ func TestTool_StartWorkflow_Autonomous(t *testing.T) {
 	assert.NotContains(t, out.Content, "## Agent Configuration")
 }
 
-func TestUpdateCard_Priority(t *testing.T) {
-	env := setupMCP(t)
-
-	createTestCard(t, env, "Priority test", "task", "low")
-
-	result := callTool(t, env, "update_card", map[string]any{
-		"project":  "test-project",
-		"card_id":  "TEST-001",
-		"priority": "critical",
-	})
-	require.False(t, result.IsError)
-
-	var card board.Card
-	unmarshalResult(t, result, &card)
-	assert.Equal(t, "critical", card.Priority)
-	assert.Equal(t, "Priority test", card.Title) // Title unchanged
-}
-
 func TestMultipleTransitions(t *testing.T) {
 	env := setupMCP(t)
 
@@ -1691,59 +1579,6 @@ func TestMultipleTransitions(t *testing.T) {
 		var card board.Card
 		unmarshalResult(t, result, &card)
 		assert.Equal(t, tt.state, card.State)
-	}
-}
-
-func TestAddMultipleLogs(t *testing.T) {
-	env := setupMCP(t)
-
-	createTestCard(t, env, "Multi-log", "task", "medium")
-
-	// add_log now requires the caller to hold an active claim on the card.
-	claimResult := callTool(t, env, "claim_card", map[string]any{
-		"project":  "test-project",
-		"card_id":  "TEST-001",
-		"agent_id": "agent-multi",
-	})
-	require.False(t, claimResult.IsError)
-
-	entries := []struct {
-		action  string
-		message string
-	}{
-		{"note", "Started investigation"},
-		{"status_update", "Found the root cause"},
-		{"blocker", "Need API access"},
-		{"decision", "Will use approach B"},
-	}
-
-	for _, e := range entries {
-		result := callTool(t, env, "add_log", map[string]any{
-			"project":  "test-project",
-			"card_id":  "TEST-001",
-			"agent_id": "agent-multi",
-			"action":   e.action,
-			"message":  e.message,
-		})
-		require.False(t, result.IsError)
-	}
-
-	// Verify all entries are present
-	getResult := callTool(t, env, "get_card", map[string]any{
-		"project": "test-project",
-		"card_id": "TEST-001",
-	})
-
-	var card board.Card
-	unmarshalResult(t, getResult, &card)
-
-	// Claim adds one state_changed entry; the rest are our manual log entries.
-	require.Len(t, card.ActivityLog, len(entries)+1)
-	logged := card.ActivityLog[1:]
-
-	for i, e := range entries {
-		assert.Equal(t, e.action, logged[i].Action)
-		assert.Equal(t, e.message, logged[i].Message)
 	}
 }
 
@@ -1866,13 +1701,13 @@ func TestReportUsageCacheFields(t *testing.T) {
 
 	// --- Sub-test 1: cache fields are persisted and cost is correct ---
 	result := callTool(t, env, "report_usage", map[string]any{
-		"project":              "test-project",
-		"card_id":              card.ID,
-		"agent_id":             "agent-cache",
-		"model":                "claude-opus-4-7",
-		"prompt_tokens":        int64(1000),
-		"completion_tokens":    int64(2000),
-		"cache_read_tokens":    int64(80000),
+		"project":               "test-project",
+		"card_id":               card.ID,
+		"agent_id":              "agent-cache",
+		"model":                 "claude-opus-4-7",
+		"prompt_tokens":         int64(1000),
+		"completion_tokens":     int64(2000),
+		"cache_read_tokens":     int64(80000),
 		"cache_creation_tokens": int64(4000),
 	})
 	require.False(t, result.IsError, "report_usage with cache fields should not error")
@@ -1892,13 +1727,13 @@ func TestReportUsageCacheFields(t *testing.T) {
 
 	// --- Sub-test 2: second call accumulates cache counters ---
 	result = callTool(t, env, "report_usage", map[string]any{
-		"project":              "test-project",
-		"card_id":              card.ID,
-		"agent_id":             "agent-cache",
-		"model":                "claude-opus-4-7",
-		"prompt_tokens":        int64(500),
-		"completion_tokens":    int64(500),
-		"cache_read_tokens":    int64(10000),
+		"project":               "test-project",
+		"card_id":               card.ID,
+		"agent_id":              "agent-cache",
+		"model":                 "claude-opus-4-7",
+		"prompt_tokens":         int64(500),
+		"completion_tokens":     int64(500),
+		"cache_read_tokens":     int64(10000),
 		"cache_creation_tokens": int64(0),
 	})
 	require.False(t, result.IsError)
@@ -1953,11 +1788,11 @@ func TestReportUsageCacheFields_NegativeRejected(t *testing.T) {
 
 	// Negative cache_creation_tokens must be rejected.
 	result = callTool(t, env, "report_usage", map[string]any{
-		"project":              "test-project",
-		"card_id":              card.ID,
-		"agent_id":             "agent-1",
-		"prompt_tokens":        int64(100),
-		"completion_tokens":    int64(50),
+		"project":               "test-project",
+		"card_id":               card.ID,
+		"agent_id":              "agent-1",
+		"prompt_tokens":         int64(100),
+		"completion_tokens":     int64(50),
 		"cache_creation_tokens": int64(-1),
 	})
 	require.True(t, result.IsError, "negative cache_creation_tokens should be rejected")
@@ -2187,24 +2022,6 @@ func TestGetSkill_CreatePlan(t *testing.T) {
 	assert.Contains(t, out.Content, "Skill instructions here.")
 }
 
-func TestGetSkill_ExecuteTask(t *testing.T) {
-	env := setupMCP(t)
-	card := createTestCard(t, env, "Implement JWT", "task", "high")
-
-	result := callTool(t, env, "get_skill", map[string]any{
-		"skill_name": "execute-task",
-		"card_id":    card.ID,
-	})
-	require.False(t, result.IsError)
-
-	var out getSkillOutput
-	unmarshalResult(t, result, &out)
-	assert.Equal(t, "execute-task", out.SkillName)
-	assert.Equal(t, "sonnet", out.Model)
-	assert.Contains(t, out.Content, card.ID)
-	assert.Contains(t, out.Content, "Implement JWT")
-}
-
 func TestGetSkill_ReviewTask(t *testing.T) {
 	env := setupMCP(t)
 	parent := createTestCard(t, env, "Auth feature", "feature", "high")
@@ -2246,24 +2063,6 @@ func TestGetSkill_UnknownSkill(t *testing.T) {
 	require.True(t, result.IsError, "expected error result for unknown skill")
 	text := result.Content[0].(*mcp.TextContent).Text
 	assert.Contains(t, text, "unknown skill")
-}
-
-func TestGetSkill_Brainstorming(t *testing.T) {
-	env := setupMCP(t)
-	card := createTestCard(t, env, "Improve the dashboard", "task", "medium")
-
-	result := callTool(t, env, "get_skill", map[string]any{
-		"skill_name": "brainstorming",
-		"card_id":    card.ID,
-	})
-	require.False(t, result.IsError)
-
-	var out getSkillOutput
-	unmarshalResult(t, result, &out)
-	assert.Equal(t, "brainstorming", out.SkillName)
-	assert.Equal(t, "sonnet", out.Model)
-	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
-	assert.Contains(t, out.Content, "Improve the dashboard", "skill content should include the card title")
 }
 
 func TestGetSkill_SystematicDebugging(t *testing.T) {

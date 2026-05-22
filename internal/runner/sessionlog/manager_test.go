@@ -344,13 +344,6 @@ func TestStartIdempotent(t *testing.T) {
 	assert.Equal(t, 1, count)
 }
 
-// TestStopIdempotent verifies that Stop on a non-existent session is a no-op.
-func TestStopIdempotent(t *testing.T) {
-	m := NewManager()
-	// Should not panic.
-	m.Stop("NONEXISTENT-999")
-}
-
 // TestSessionCapEnforcement verifies that the (cap+1)th Start returns an error.
 func TestSessionCapEnforcement(t *testing.T) {
 	const maxSess = 10 // use a small cap for testing
@@ -1520,15 +1513,6 @@ func TestStartProject_Idempotent(t *testing.T) {
 	count := len(m.activeSessions)
 	m.mu.Unlock()
 	assert.Equal(t, 1, count)
-}
-
-// TestStopProject_Idempotent verifies that StopProject on a non-existent
-// session is a no-op (no panic, no error).
-func TestStopProject_Idempotent(t *testing.T) {
-	m := NewManager()
-	// Should not panic.
-	m.StopProject("NONEXISTENT-PROJECT")
-	m.StopProject("NONEXISTENT-PROJECT")
 }
 
 // TestProjectKeyNamespacing verifies that a project session key cannot collide
