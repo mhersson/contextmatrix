@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 export interface AskUserQuestionOption {
   label: string;
@@ -14,14 +14,8 @@ export interface AskUserQuestionItem {
 
 export interface AskUserQuestionPayload {
   questions: AskUserQuestionItem[];
-  /** Number of questions dropped at the clamp boundary; 0 if no clamp fired. */
-  truncatedQuestions: number;
-  /** Per-question count of options dropped; index matches `questions`. */
-  truncatedOptions: number[];
 }
 
-const MAX_QUESTIONS = 20;
-const MAX_OPTIONS = 20;
 const MAX_MALFORMED_PREVIEW = 200;
 
 export interface UserQuestionCardProps {
@@ -47,31 +41,22 @@ function parsePayload(content: string): AskUserQuestionPayload | null {
     const rawQuestions = (parsed as { questions?: unknown }).questions;
     if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
 
-    const truncatedQuestions = Math.max(0, rawQuestions.length - MAX_QUESTIONS);
-    const clampedQuestions = rawQuestions.slice(0, MAX_QUESTIONS);
-
     const questions: AskUserQuestionItem[] = [];
-    const truncatedOptions: number[] = [];
 
-    for (const raw of clampedQuestions) {
+    for (const raw of rawQuestions) {
       if (!raw || typeof raw !== 'object') continue;
       const q = raw as Partial<AskUserQuestionItem> & { options?: unknown };
-      const optionsArray = Array.isArray(q.options) ? q.options : [];
-      const truncatedOpts = Math.max(0, optionsArray.length - MAX_OPTIONS);
-      const clampedOpts = optionsArray.slice(0, MAX_OPTIONS) as AskUserQuestionOption[];
-
       questions.push({
         question: q.question ?? '',
         header: q.header,
         multiSelect: q.multiSelect,
-        options: clampedOpts,
+        options: Array.isArray(q.options) ? (q.options as AskUserQuestionOption[]) : [],
       });
-      truncatedOptions.push(truncatedOpts);
     }
 
     if (questions.length === 0) return null;
 
-    return { questions, truncatedQuestions, truncatedOptions };
+    return { questions };
   } catch {
     return null;
   }
@@ -81,8 +66,10 @@ export function UserQuestionCard({ content, disabled, onAnswer }: UserQuestionCa
   const payload = useMemo(() => parsePayload(content), [content]);
 
   if (!payload) {
-    const preview = content.length > MAX_MALFORMED_PREVIEW
-      ? content.slice(0, MAX_MALFORMED_PREVIEW) + '…'
+    // Slice on codepoint boundaries so a non-BMP character can never split
+    // a UTF-16 surrogate pair and leave a lone half in the preview.
+    const preview = [...content].length > MAX_MALFORMED_PREVIEW
+      ? [...content].slice(0, MAX_MALFORMED_PREVIEW).join('') + '…'
       : content;
     return (
       <div
@@ -97,9 +84,6 @@ export function UserQuestionCard({ content, disabled, onAnswer }: UserQuestionCa
 
   return (
     <div
-      role="status"
-      aria-live="polite"
-      aria-label="Claude is asking a question"
       className="rounded-md border-l-2 px-3 py-2 space-y-3"
       style={{ backgroundColor: 'var(--bg-purple)', borderLeftColor: 'var(--purple)', color: 'var(--fg)' }}
       data-testid="user-question-card"
@@ -118,18 +102,9 @@ export function UserQuestionCard({ content, disabled, onAnswer }: UserQuestionCa
             item={q}
             disabled={disabled}
             onAnswer={onAnswer}
-            truncatedOptions={payload.truncatedOptions[idx]}
           />
         );
       })}
-      {payload.truncatedQuestions > 0 && (
-        <div
-          className="text-xs font-mono italic"
-          style={{ color: 'var(--grey1)' }}
-        >
-          [{payload.truncatedQuestions} more question{payload.truncatedQuestions === 1 ? '' : 's'} truncated]
-        </div>
-      )}
     </div>
   );
 }
@@ -138,7 +113,6 @@ interface QuestionProps {
   item: AskUserQuestionItem;
   disabled: boolean;
   onAnswer: (text: string) => void | Promise<void>;
-  truncatedOptions: number;
 }
 
 function QuestionHeader({ header }: { header?: string }) {
@@ -153,25 +127,14 @@ function QuestionHeader({ header }: { header?: string }) {
   );
 }
 
-function TruncatedOptionsLine({ count }: { count: number }) {
-  if (count === 0) return null;
+function SingleSelectQuestion({ item, disabled, onAnswer }: QuestionProps) {
+  const questionId = useId();
   return (
-    <div
-      className="text-xs font-mono italic px-2"
-      style={{ color: 'var(--grey1)' }}
-    >
-      [{count} more option{count === 1 ? '' : 's'} truncated]
-    </div>
-  );
-}
-
-function SingleSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: QuestionProps) {
-  return (
-    <fieldset className="space-y-2 border-0 p-0 m-0">
+    <div role="group" aria-labelledby={questionId} className="space-y-2">
       <QuestionHeader header={item.header} />
-      <legend className="text-sm" style={{ color: 'var(--fg)' }}>
+      <div id={questionId} className="text-sm" style={{ color: 'var(--fg)' }}>
         {item.question}
-      </legend>
+      </div>
       <div className="flex flex-col gap-1.5">
         {item.options.map((opt, idx) => (
           <button
@@ -192,12 +155,12 @@ function SingleSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: Qu
           </button>
         ))}
       </div>
-      <TruncatedOptionsLine count={truncatedOptions} />
-    </fieldset>
+    </div>
   );
 }
 
-function MultiSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: QuestionProps) {
+function MultiSelectQuestion({ item, disabled, onAnswer }: QuestionProps) {
+  const questionId = useId();
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const toggle = (idx: number) => {
@@ -222,11 +185,11 @@ function MultiSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: Que
   };
 
   return (
-    <fieldset className="space-y-2 border-0 p-0 m-0">
+    <div role="group" aria-labelledby={questionId} className="space-y-2">
       <QuestionHeader header={item.header} />
-      <legend className="text-sm" style={{ color: 'var(--fg)' }}>
+      <div id={questionId} className="text-sm" style={{ color: 'var(--fg)' }}>
         {item.question}
-      </legend>
+      </div>
       <div className="flex flex-col gap-1.5">
         {item.options.map((opt, idx) => {
           const checked = selected.has(idx);
@@ -234,7 +197,7 @@ function MultiSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: Que
             <label
               key={idx}
               data-testid={`user-question-option-${idx}`}
-              className="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer border text-sm disabled:cursor-not-allowed"
+              className="flex items-start gap-2 px-2 py-1.5 rounded border text-sm"
               style={{
                 borderColor: checked ? 'var(--aqua)' : 'var(--bg3)',
                 backgroundColor: checked ? 'var(--bg-blue)' : 'transparent',
@@ -261,7 +224,6 @@ function MultiSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: Que
           );
         })}
       </div>
-      <TruncatedOptionsLine count={truncatedOptions} />
       <button
         type="button"
         onClick={sendMulti}
@@ -274,6 +236,6 @@ function MultiSelectQuestion({ item, disabled, onAnswer, truncatedOptions }: Que
       >
         Send ({selected.size})
       </button>
-    </fieldset>
+    </div>
   );
 }

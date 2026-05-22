@@ -250,7 +250,7 @@ and renders one card per chat entry:
   render a `--red` fallback line (`data-testid="user-question-malformed"`)
   rather than crashing.
 - Buttons are disabled when `sendDisabled || readOnlyMessage` (passed
-  through `ChatPanel` as `answersDisabled`), so scrolled-back history is
+  through `ChatPanel` as `interactionDisabled`), so scrolled-back history is
   visible but not interactive.
 
 The answer reuses the existing `onSend` channel — `CardChat` routes it via

@@ -426,28 +426,6 @@ describe('ChatPanel', () => {
       expect(screen.queryByTestId('user-question-option-0')).not.toBeInTheDocument();
     });
 
-    it('clamps oversized payloads and shows a truncation note', () => {
-      // Build a payload with 22 questions and 22 options each — both
-      // exceed the 20-cap. The card should clamp to 20 and surface a
-      // "[N more truncated]" line.
-      const opts = Array.from({ length: 22 }, (_, i) => ({ label: `opt-${i}` }));
-      const questions = Array.from({ length: 22 }, (_, i) => ({
-        question: `Q${i}?`,
-        options: opts,
-      }));
-      const payload = JSON.stringify({ questions });
-      const uqLogs: LogEntry[] = [
-        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: payload },
-      ];
-      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
-      // Q19 (last clamped) renders; Q20 (first dropped) does not.
-      expect(screen.getByText('Q19?')).toBeInTheDocument();
-      expect(screen.queryByText('Q20?')).not.toBeInTheDocument();
-      // Truncation notes appear for both questions and options.
-      expect(screen.getByText(/2 more questions truncated/)).toBeInTheDocument();
-      expect(screen.getAllByText(/2 more options truncated/).length).toBeGreaterThan(0);
-    });
-
     it('uses index-based selection so duplicate-label options stay independent', () => {
       const onSend = vi.fn();
       const payload = JSON.stringify({
