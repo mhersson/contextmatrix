@@ -44,6 +44,7 @@ const (
 	RoleToolCall          = "tool_call"
 	RoleToolResult        = "tool_result"
 	RoleToolResultSummary = "tool_result_summary"
+	RoleUserQuestion      = "user_question"
 	RoleStderr            = "stderr"
 	RoleSystem            = "system"
 )
@@ -148,6 +149,17 @@ func filterMessage(m Message) (ResumeTurn, bool) {
 		return ResumeTurn{
 			Seq:     m.Seq,
 			Role:    m.Role,
+			Content: capContent(m.Content),
+		}, true
+
+	case RoleUserQuestion:
+		// Surface user_question entries to the rehydrating agent as
+		// tool_call turns so the runner's resume-role allowlist accepts
+		// them. The JSON payload is preserved (capped if oversized) so
+		// the agent can see what was asked.
+		return ResumeTurn{
+			Seq:     m.Seq,
+			Role:    RoleToolCall,
 			Content: capContent(m.Content),
 		}, true
 

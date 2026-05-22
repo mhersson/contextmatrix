@@ -323,6 +323,8 @@ func roleFromLogType(typ string) Role {
 		return RoleToolCall
 	case "tool_result":
 		return RoleToolResult
+	case "user_question":
+		return RoleUserQuestion
 	case "stderr":
 		return RoleStderr
 	case "user":

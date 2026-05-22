@@ -40,6 +40,7 @@ const (
 	RoleAssistantThinking Role = "assistant_thinking"
 	RoleToolCall          Role = "tool_call"
 	RoleToolResult        Role = "tool_result"
+	RoleUserQuestion      Role = "user_question"
 	RoleStderr            Role = "stderr"
 	RoleSystem            Role = "system"
 )
