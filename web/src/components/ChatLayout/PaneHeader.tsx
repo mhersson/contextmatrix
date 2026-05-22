@@ -213,6 +213,17 @@ function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackM
     ? `Context: ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens (${pct}%)`
     : `Context: ${tokens.toLocaleString()} tokens`;
 
+  const cost = live?.estimatedCostUsd;
+  const showCost = cost != null && cost > 0;
+  const costTooltip = showCost
+    ? formatCostTooltip({
+        promptTokens: live?.promptTokens,
+        completionTokens: live?.completionTokens,
+        cacheReadTokens: live?.cacheReadTokens,
+        cacheCreationTokens: live?.cacheCreationTokens,
+      })
+    : '';
+
   return (
     <>
       <span className="chat-pane-model-pill" title={label}>{label}</span>
@@ -223,24 +234,14 @@ function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackM
           title={tooltip}
         >{pct}%</span>
       )}
-      {(() => {
-        const c = live;
-        if (c?.estimatedCostUsd == null || c.estimatedCostUsd <= 0) return null;
-        const costTooltip = formatCostTooltip({
-          promptTokens: c.promptTokens,
-          completionTokens: c.completionTokens,
-          cacheReadTokens: c.cacheReadTokens,
-          cacheCreationTokens: c.cacheCreationTokens,
-        });
-        return (
-          <span
-            className="chat-pane-cost"
-            style={{ color: 'var(--grey1)' }}
-            aria-label={`Estimated cost ${c.estimatedCostUsd.toFixed(2)} dollars`}
-            {...(costTooltip ? { title: costTooltip } : {})}
-          >${c.estimatedCostUsd.toFixed(2)}</span>
-        );
-      })()}
+      {showCost && (
+        <span
+          className="chat-pane-cost"
+          style={{ color: 'var(--grey1)' }}
+          aria-label={`Estimated cost ${cost.toFixed(2)} dollars`}
+          title={costTooltip || undefined}
+        >${cost.toFixed(2)}</span>
+      )}
     </>
   );
 }
