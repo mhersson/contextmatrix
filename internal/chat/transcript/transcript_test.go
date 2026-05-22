@@ -22,9 +22,10 @@ func TestBuild_FiltersByRole(t *testing.T) {
 		{Seq: 2, Role: RoleAssistantThinking, Content: "thinking aloud"},
 		{Seq: 3, Role: RoleAssistantText, Content: "hi back"},
 		{Seq: 4, Role: RoleToolCall, Content: "Bash: ls"},
-		{Seq: 5, Role: RoleToolResult, Content: "file1\nfile2\n"},
-		{Seq: 6, Role: RoleStderr, Content: "container plumbing"},
-		{Seq: 7, Role: RoleSystem, Content: "system boilerplate"},
+		{Seq: 5, Role: RoleUserQuestion, Content: `{"questions":[{"question":"q","options":[{"label":"a"}]}]}`},
+		{Seq: 6, Role: RoleToolResult, Content: "file1\nfile2\n"},
+		{Seq: 7, Role: RoleStderr, Content: "container plumbing"},
+		{Seq: 8, Role: RoleSystem, Content: "system boilerplate"},
 	}
 
 	got := Build(in, BuildOpts{})
@@ -32,9 +33,9 @@ func TestBuild_FiltersByRole(t *testing.T) {
 
 	roles := rolesOf(got.Turns)
 	assert.Equal(t,
-		[]string{"user", "assistant_text", "tool_call", "tool_result_summary"},
+		[]string{"user", "assistant_text", "tool_call", "user_question", "tool_result_summary"},
 		roles,
-		"only user/assistant_text/tool_call/tool_result_summary should survive")
+		"only user/assistant_text/tool_call/user_question/tool_result_summary should survive")
 }
 
 func TestBuild_PreservesUserQuestionRole(t *testing.T) {

@@ -71,8 +71,8 @@ type ResumeContext struct {
 
 // ResumeTurn is one filtered, possibly summarized transcript entry in the
 // rehydration payload. Roles: "user", "assistant_text", "tool_call",
-// "tool_result_summary" (tool_result bodies are collapsed to a one-liner
-// outcome by the transcript builder).
+// "user_question", "tool_result_summary" (tool_result bodies are collapsed
+// to a one-liner outcome by the transcript builder).
 type ResumeTurn struct {
 	Seq     int64  `json:"seq"`
 	Role    string `json:"role"`
