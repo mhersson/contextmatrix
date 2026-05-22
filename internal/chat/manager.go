@@ -15,6 +15,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat/transcript"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // ErrTooManyConcurrent is returned by OpenSession when the number of active
@@ -122,6 +123,10 @@ type Config struct {
 	// or a missing/unreadable file is non-fatal: cold open proceeds with
 	// an empty primer and a WARN log.
 	PrimerPath string
+
+	// Pricer is used to compute token costs for chat sessions. Optional:
+	// nil means cost computation is skipped.
+	Pricer Pricer
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -139,6 +144,7 @@ type Manager struct {
 	rehydrationTimeout time.Duration
 	defaultModel       string
 	primerPath         string
+	pricer             Pricer
 
 	mu        sync.Mutex
 	seqMap    map[string]int64           // sessionID → last assigned seq
@@ -193,6 +199,10 @@ type Manager struct {
 	statusLocks   map[string]*sync.Mutex
 
 	closeOnce sync.Once
+
+	// costCache holds the most-recently computed GetChatCostSummary result.
+	// Guarded by mu. Zero value means "not yet computed."
+	costCache chatCostCache
 }
 
 // NewManager constructs a Manager. Required: Store, Runner.
@@ -218,6 +228,7 @@ func NewManager(cfg Config) *Manager {
 		rehydrationTimeout: cfg.RehydrationTimeout,
 		defaultModel:       cfg.DefaultModel,
 		primerPath:         cfg.PrimerPath,
+		pricer:             cfg.Pricer,
 		seqMap:             make(map[string]int64),
 		titled:             make(map[string]bool),
 		consumers:          make(map[string]*consumerHandle),
@@ -329,9 +340,16 @@ func roleFromLogType(typ string) Role {
 }
 
 // handleUsageEntry processes a Claude stream-json usage block reported by the
-// runner. The session row's context_tokens are updated and a session_updated
-// SSE event is published so the UI header indicator refreshes in real time.
+// runner. Each frame carries per-turn (per-assistant-message) token counts —
+// NOT cumulative session totals. The values are passed directly to
+// IncrementSessionCost, which atomically accumulates them into the session row.
+// The session row's context_tokens are also updated and a session_updated SSE
+// event is published so the UI header indicator refreshes in real time.
 // Errors are non-fatal — usage is a UI niceness, not a correctness property.
+//
+// Invoked only from the per-session runner-log consumer goroutine.
+// IncrementSessionCost is atomic so any future change weakening that invariant
+// cannot lose updates.
 func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogEntry) {
 	if e.Usage == nil {
 		return
@@ -353,11 +371,53 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 		return
 	}
 
+	// Each frame carries per-turn token counts — pass them directly.
+	// No snapshot subtraction: the runner emits one usage block per assistant
+	// message (Anthropic Messages-API semantics), not cumulative session totals.
+	prompt := e.Usage.InputTokens
+	completion := e.Usage.OutputTokens
+	cacheRead := e.Usage.CacheReadTokens
+	cacheCreate := e.Usage.CacheCreateTokens
+
+	// Resolve model: prefer frame-level model, fall back to default.
+	model := e.Model
+	if model == "" {
+		model = m.defaultModel
+	}
+
+	// Price the per-turn tokens.
+	var cost float64
+
+	if m.pricer != nil {
+		c, known := m.pricer.PriceTokens(model, prompt, cacheRead, cacheCreate, completion)
+		if !known {
+			m.logger.Warn("chat: handleUsageEntry: unknown model, cost recorded as $0",
+				"session_id", sessionID, "model", model)
+			metrics.ChatUsageUnknownModelTotal.WithLabelValues(model).Inc()
+			// cost stays 0; token counters still advance.
+		} else {
+			cost = c
+		}
+	}
+
+	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, model)
+	if err != nil {
+		m.logger.Debug("chat: handleUsageEntry: increment session cost failed",
+			"session_id", sessionID, "error", err)
+
+		return // Do NOT publish SessionUpdate — mirrors UpdateContextTokens early-return.
+	}
+
 	if m.hub != nil {
 		m.hub.PublishSessionUpdate(sessionID, SessionUpdate{
 			ContextTokens:          tokens,
 			ContextTokensUpdatedAt: updatedAt,
-			Model:                  e.Model,
+			Model:                  model,
+			EstimatedCostUSD:       newCost,
+			PromptTokens:           newPrompt,
+			CompletionTokens:       newCompletion,
+			CacheReadTokens:        newCacheRead,
+			CacheCreationTokens:    newCacheCreation,
 		})
 	}
 }
@@ -1741,4 +1801,64 @@ func (m *Manager) UpdateSessionMetadata(ctx context.Context, s Session) error {
 // browser ring buffer beyond what the SSE in-memory ring can replay.
 func (m *Manager) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]Message, error) {
 	return m.store.ListMessages(ctx, sessionID, sinceSeq, limit)
+}
+
+// chatCostCacheTTL is the minimum duration between re-computations of the
+// chat cost summary. Dashboard fan-out (one call per project) would otherwise
+// amplify a single server-wide computation N× on every poll cycle.
+const chatCostCacheTTL = 30 * time.Second
+
+// chatCostCache holds the most-recently computed chat cost summary values so
+// GetChatCostSummary can serve cache hits without a SQL round-trip.
+type chatCostCache struct {
+	last30d    float64
+	prior30d   float64
+	series30d  []float64
+	computedAt time.Time
+}
+
+// GetChatCostSummary returns server-wide chat cost aggregates aligned on UTC
+// midnight. The result is cached for chatCostCacheTTL to prevent N× SQL
+// amplification when multiple projects fan out concurrent dashboard requests.
+//
+// Errors are not cached: a transient store error causes the next caller to
+// retry immediately. The returned values are zero on error; callers should
+// log the error and emit a metric but continue rendering the dashboard.
+func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d float64, series30d []float64, err error) {
+	now := m.clk.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+
+	// Check cache under lock.
+	m.mu.Lock()
+	cached := m.costCache
+	m.mu.Unlock()
+
+	if !cached.computedAt.IsZero() && now.Sub(cached.computedAt) < chatCostCacheTTL {
+		// Return a defensive copy so the caller cannot mutate the cached backing
+		// array. The cache entry itself is never exposed — copy-on-read.
+		return cached.last30d, cached.prior30d, append([]float64(nil), cached.series30d...), nil
+	}
+
+	// Cache miss or expiry: re-compute.
+	last30d, prior30d, series30d, err = m.store.AggregateCost(ctx, since, until)
+	if err != nil {
+		// Do NOT cache errors: next caller should retry immediately.
+		return 0, 0, nil, fmt.Errorf("chat: GetChatCostSummary: %w", err)
+	}
+
+	m.mu.Lock()
+	m.costCache = chatCostCache{
+		last30d:    last30d,
+		prior30d:   prior30d,
+		series30d:  series30d,
+		computedAt: now,
+	}
+	m.mu.Unlock()
+
+	// Return a defensive copy here too: the value returned to this first caller
+	// must not share backing array with the freshly-cached entry. Copy-on-read
+	// is the chosen invariant — the cache entry is always private to the cache.
+	return last30d, prior30d, append([]float64(nil), series30d...), nil
 }

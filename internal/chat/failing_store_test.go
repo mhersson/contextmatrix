@@ -11,7 +11,8 @@ import (
 )
 
 // failingStore wraps a real chat.Store and can inject a one-shot error on
-// SetRehydrationActive. All other methods delegate directly to the inner store.
+// SetRehydrationActive. All other methods delegate to the inner store via
+// embedding — only methods that inject faults need explicit overrides.
 // Used only in tests.
 type failingStore struct {
 	chat.Store
@@ -30,62 +31,6 @@ func (f *failingStore) SetRehydrationActive(ctx context.Context, sessionID strin
 	}
 
 	return f.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
-}
-
-// Remaining Store methods delegate to the inner store via embedding, so we
-// only need explicit overrides for methods where we inject faults.
-// These thin wrappers exist to satisfy the interface with pointer receiver:
-
-func (f *failingStore) CreateSession(ctx context.Context, s chat.Session) error {
-	return f.Store.CreateSession(ctx, s)
-}
-
-func (f *failingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
-	return f.Store.GetSession(ctx, id)
-}
-
-func (f *failingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
-	return f.Store.ListSessions(ctx, filter)
-}
-
-func (f *failingStore) UpdateSession(ctx context.Context, s chat.Session) error {
-	return f.Store.UpdateSession(ctx, s)
-}
-
-func (f *failingStore) DeleteSession(ctx context.Context, id string) error {
-	return f.Store.DeleteSession(ctx, id)
-}
-
-func (f *failingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
-	return f.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
-}
-
-func (f *failingStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
-	return f.Store.AppendMessage(ctx, m)
-}
-
-func (f *failingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	return f.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
-}
-
-func (f *failingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
-	return f.Store.ListMessagesTail(ctx, sessionID, limit)
-}
-
-func (f *failingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
-	return f.Store.MaxSeq(ctx, sessionID)
-}
-
-func (f *failingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
-	return f.Store.CountSessionsByStatus(ctx, statuses...)
-}
-
-func (f *failingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
-	return f.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
-}
-
-func (f *failingStore) Close() error {
-	return f.Store.Close()
 }
 
 // trackingStore wraps a real chat.Store and records the Status of every
@@ -112,61 +57,6 @@ func (ts *trackingStore) writtenStatuses() []chat.Status {
 	copy(out, ts.statuses)
 
 	return out
-}
-
-// Explicit interface delegation (needed because trackingStore has a pointer
-// receiver on UpdateSession, which shadows the embedded interface).
-
-func (ts *trackingStore) CreateSession(ctx context.Context, s chat.Session) error {
-	return ts.Store.CreateSession(ctx, s)
-}
-
-func (ts *trackingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
-	return ts.Store.GetSession(ctx, id)
-}
-
-func (ts *trackingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
-	return ts.Store.ListSessions(ctx, filter)
-}
-
-func (ts *trackingStore) DeleteSession(ctx context.Context, id string) error {
-	return ts.Store.DeleteSession(ctx, id)
-}
-
-func (ts *trackingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
-	return ts.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
-}
-
-func (ts *trackingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
-	return ts.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
-}
-
-func (ts *trackingStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
-	return ts.Store.AppendMessage(ctx, m)
-}
-
-func (ts *trackingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	return ts.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
-}
-
-func (ts *trackingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
-	return ts.Store.ListMessagesTail(ctx, sessionID, limit)
-}
-
-func (ts *trackingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
-	return ts.Store.MaxSeq(ctx, sessionID)
-}
-
-func (ts *trackingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
-	return ts.Store.CountSessionsByStatus(ctx, statuses...)
-}
-
-func (ts *trackingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
-	return ts.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
-}
-
-func (ts *trackingStore) Close() error {
-	return ts.Store.Close()
 }
 
 // yieldingStore wraps a real chat.Store and inserts a randomised sleep
@@ -203,63 +93,6 @@ func (y *yieldingStore) SetRehydrationActive(ctx context.Context, sessionID stri
 	return err
 }
 
-// Explicit interface delegation — pointer-receiver SetRehydrationActive
-// would otherwise shadow only that method while the rest fall through to
-// the embedded chat.Store. Listing every method keeps go vet happy and
-// mirrors the failingStore/trackingStore pattern.
-
-func (y *yieldingStore) CreateSession(ctx context.Context, s chat.Session) error {
-	return y.Store.CreateSession(ctx, s)
-}
-
-func (y *yieldingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
-	return y.Store.GetSession(ctx, id)
-}
-
-func (y *yieldingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
-	return y.Store.ListSessions(ctx, filter)
-}
-
-func (y *yieldingStore) UpdateSession(ctx context.Context, s chat.Session) error {
-	return y.Store.UpdateSession(ctx, s)
-}
-
-func (y *yieldingStore) DeleteSession(ctx context.Context, id string) error {
-	return y.Store.DeleteSession(ctx, id)
-}
-
-func (y *yieldingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
-	return y.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
-}
-
-func (y *yieldingStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
-	return y.Store.AppendMessage(ctx, m)
-}
-
-func (y *yieldingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	return y.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
-}
-
-func (y *yieldingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
-	return y.Store.ListMessagesTail(ctx, sessionID, limit)
-}
-
-func (y *yieldingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
-	return y.Store.MaxSeq(ctx, sessionID)
-}
-
-func (y *yieldingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
-	return y.Store.CountSessionsByStatus(ctx, statuses...)
-}
-
-func (y *yieldingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
-	return y.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
-}
-
-func (y *yieldingStore) Close() error {
-	return y.Store.Close()
-}
-
 // clearAtomicFailingStore wraps a real chat.Store and can inject a one-shot
 // failure into ClearTranscriptAtomic. Used by
 // TestClearContext_DividerFailureLeavesTranscriptClean.
@@ -277,56 +110,6 @@ func (c *clearAtomicFailingStore) ClearTranscriptAtomic(ctx context.Context, ses
 
 	return c.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
 }
-
-func (c *clearAtomicFailingStore) CreateSession(ctx context.Context, s chat.Session) error {
-	return c.Store.CreateSession(ctx, s)
-}
-
-func (c *clearAtomicFailingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
-	return c.Store.GetSession(ctx, id)
-}
-
-func (c *clearAtomicFailingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
-	return c.Store.ListSessions(ctx, filter)
-}
-
-func (c *clearAtomicFailingStore) UpdateSession(ctx context.Context, s chat.Session) error {
-	return c.Store.UpdateSession(ctx, s)
-}
-
-func (c *clearAtomicFailingStore) DeleteSession(ctx context.Context, id string) error {
-	return c.Store.DeleteSession(ctx, id)
-}
-
-func (c *clearAtomicFailingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
-	return c.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
-}
-
-func (c *clearAtomicFailingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
-	return c.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
-}
-
-func (c *clearAtomicFailingStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
-	return c.Store.AppendMessage(ctx, m)
-}
-
-func (c *clearAtomicFailingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	return c.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
-}
-
-func (c *clearAtomicFailingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
-	return c.Store.ListMessagesTail(ctx, sessionID, limit)
-}
-
-func (c *clearAtomicFailingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
-	return c.Store.MaxSeq(ctx, sessionID)
-}
-
-func (c *clearAtomicFailingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
-	return c.Store.CountSessionsByStatus(ctx, statuses...)
-}
-
-func (c *clearAtomicFailingStore) Close() error { return c.Store.Close() }
 
 // sessionGate is a per-session-id blocking gate used by gatingStore. block(id)
 // arms the gate so the next AppendMessage call with that id parks on a
@@ -406,10 +189,7 @@ func (g *sessionGate) wait(sessionID string) {
 
 // gatingStore wraps a real chat.Store and routes AppendMessage through a
 // sessionGate so tests can park individual append calls per-session-id. All
-// other methods delegate to the embedded store. Modelled on yieldingStore and
-// failingStore — explicit method overrides for every Store method because the
-// pointer-receiver AppendMessage would otherwise shadow only that one and
-// leave the rest fall-through, which go vet flags as ambiguous.
+// other methods delegate to the embedded store via embedding.
 type gatingStore struct {
 	chat.Store
 	gate *sessionGate
@@ -419,56 +199,4 @@ func (g *gatingStore) AppendMessage(ctx context.Context, m chat.Message) (int64,
 	g.gate.wait(m.SessionID)
 
 	return g.Store.AppendMessage(ctx, m)
-}
-
-func (g *gatingStore) CreateSession(ctx context.Context, s chat.Session) error {
-	return g.Store.CreateSession(ctx, s)
-}
-
-func (g *gatingStore) GetSession(ctx context.Context, id string) (chat.Session, error) {
-	return g.Store.GetSession(ctx, id)
-}
-
-func (g *gatingStore) ListSessions(ctx context.Context, filter chat.SessionFilter) ([]chat.Session, error) {
-	return g.Store.ListSessions(ctx, filter)
-}
-
-func (g *gatingStore) UpdateSession(ctx context.Context, s chat.Session) error {
-	return g.Store.UpdateSession(ctx, s)
-}
-
-func (g *gatingStore) DeleteSession(ctx context.Context, id string) error {
-	return g.Store.DeleteSession(ctx, id)
-}
-
-func (g *gatingStore) SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error {
-	return g.Store.SetRehydrationActive(ctx, sessionID, active, startedAt)
-}
-
-func (g *gatingStore) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
-	return g.Store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt)
-}
-
-func (g *gatingStore) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	return g.Store.ListMessages(ctx, sessionID, sinceSeq, limit)
-}
-
-func (g *gatingStore) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
-	return g.Store.ListMessagesTail(ctx, sessionID, limit)
-}
-
-func (g *gatingStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
-	return g.Store.MaxSeq(ctx, sessionID)
-}
-
-func (g *gatingStore) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
-	return g.Store.CountSessionsByStatus(ctx, statuses...)
-}
-
-func (g *gatingStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
-	return g.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
-}
-
-func (g *gatingStore) Close() error {
-	return g.Store.Close()
 }

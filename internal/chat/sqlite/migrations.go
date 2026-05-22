@@ -117,6 +117,36 @@ var migrations = []migration{
 				`ALTER TABLE chat_sessions ADD COLUMN rehydration_started_at INTEGER`)
 		},
 	},
+	{
+		version: 6,
+		up: func(ctx context.Context, db *sql.DB) error {
+			// Token counters and running cost accumulate from usage stream-json
+			// frames via IncrementSessionCost. All columns default to 0 so
+			// pre-v6 rows are backward-compatible without a data migration.
+			if err := addColumnIfMissing(ctx, db, "chat_sessions", "prompt_tokens",
+				`ALTER TABLE chat_sessions ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+
+			if err := addColumnIfMissing(ctx, db, "chat_sessions", "completion_tokens",
+				`ALTER TABLE chat_sessions ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+
+			if err := addColumnIfMissing(ctx, db, "chat_sessions", "cache_read_tokens",
+				`ALTER TABLE chat_sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+
+			if err := addColumnIfMissing(ctx, db, "chat_sessions", "cache_creation_tokens",
+				`ALTER TABLE chat_sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+
+			return addColumnIfMissing(ctx, db, "chat_sessions", "estimated_cost_usd",
+				`ALTER TABLE chat_sessions ADD COLUMN estimated_cost_usd REAL NOT NULL DEFAULT 0`)
+		},
+	},
 }
 
 // addColumnIfMissing applies an ALTER TABLE ADD COLUMN statement only if the

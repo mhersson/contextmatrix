@@ -25,13 +25,26 @@ const (
 	cacheCreationMultiplier = 1.25
 )
 
-// costFor computes the estimated cost in USD for a single usage delta using
+// PriceTokens computes the estimated cost in USD for a single usage delta using
 // the per-tier multipliers for cached tokens.
-func costFor(rate ModelRate, prompt, cacheRead, cacheCreation, completion int64) float64 {
+func PriceTokens(rate ModelRate, prompt, cacheRead, cacheCreation, completion int64) float64 {
 	return float64(prompt)*rate.Prompt +
 		float64(cacheRead)*rate.Prompt*cacheReadMultiplier +
 		float64(cacheCreation)*rate.Prompt*cacheCreationMultiplier +
 		float64(completion)*rate.Completion
+}
+
+// PriceTokens looks up the model in the service's cost map and, when found,
+// delegates to the package-level PriceTokens helper. Returns (cost, true) when
+// the model is known and (0, false) when it is not. Chat and other callers use
+// this via the chat.Pricer interface.
+func (s *CardService) PriceTokens(model string, prompt, cacheRead, cacheCreation, completion int64) (float64, bool) {
+	rate, ok := s.tokenCosts[model]
+	if !ok {
+		return 0, false
+	}
+
+	return PriceTokens(rate, prompt, cacheRead, cacheCreation, completion), true
 }
 
 // ReportUsageInput contains the fields for reporting token usage on a card.
@@ -120,7 +133,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// Warn when a model name is provided but not found in the cost map.
 	if input.Model != "" {
 		if rate, ok := s.tokenCosts[input.Model]; ok {
-			deltaCost := costFor(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
+			deltaCost := PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 			card.TokenUsage.EstimatedCostUSD += deltaCost
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
@@ -177,11 +190,11 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		Agent:     input.AgentID,
 		Timestamp: card.Updated,
 		Data: map[string]any{
-			"prompt_tokens":       input.PromptTokens,
-			"completion_tokens":   input.CompletionTokens,
-			"cache_read_tokens":   input.CacheReadTokens,
+			"prompt_tokens":         input.PromptTokens,
+			"completion_tokens":     input.CompletionTokens,
+			"cache_read_tokens":     input.CacheReadTokens,
 			"cache_creation_tokens": input.CacheCreationTokens,
-			"model":               input.Model,
+			"model":                 input.Model,
 		},
 	})
 
@@ -276,7 +289,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			return nil, fmt.Errorf("get card snapshot %s: %w", card.ID, err)
 		}
 
-		cost := costFor(rate, card.TokenUsage.PromptTokens, card.TokenUsage.CacheReadTokens, card.TokenUsage.CacheCreationTokens, card.TokenUsage.CompletionTokens)
+		cost := PriceTokens(rate, card.TokenUsage.PromptTokens, card.TokenUsage.CacheReadTokens, card.TokenUsage.CacheCreationTokens, card.TokenUsage.CompletionTokens)
 
 		card.TokenUsage.EstimatedCostUSD = cost
 		// Persist the effective model name so future recalculations are idempotent.

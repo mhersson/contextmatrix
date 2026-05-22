@@ -30,6 +30,16 @@ type Store interface {
 	// matches.
 	UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error
 
+	// IncrementSessionCost atomically adds the supplied token deltas and cost
+	// to the session row using a single UPDATE … RETURNING statement. This is
+	// race-free even under concurrent increments because the DB performs the
+	// arithmetic, not the caller. Returns the new running totals. Returns
+	// ErrSessionNotFound when no row matches (errors.Is(err, sql.ErrNoRows)).
+	IncrementSessionCost(ctx context.Context, sessionID string,
+		dPrompt, dCompletion, dCacheRead, dCacheCreation int64,
+		dCost float64, model string,
+	) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost float64, err error)
+
 	// UpdateSessionTitle writes only the title column without touching the
 	// rest of the session row. Used by the AppendMessage auto-title path so
 	// a concurrent OpenSession/MarkActive between the title-read and the
@@ -61,6 +71,15 @@ type Store interface {
 	// one of the supplied values. Used by openCold to enforce MaxConcurrent
 	// without fetching full rows just for len().
 	CountSessionsByStatus(ctx context.Context, statuses ...Status) (int, error)
+
+	// AggregateCost returns cost aggregates over the supplied time windows.
+	// last30d is the sum of estimated_cost_usd for sessions whose last_active
+	// falls in [since, until). prior30d covers the prior window of equal
+	// width ending at since. series30d is a length-30 daily slice (index 0 =
+	// since, index 29 = the day before until), filled with 0.0 for days with
+	// no sessions. The caller is responsible for aligning since/until to UTC
+	// midnight boundaries; no boundary adjustment is performed here.
+	AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error)
 
 	Close() error
 }

@@ -174,6 +174,9 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
             costSeries30d={aggregated.cost_series_30d}
             stateCountsParents={aggregated.state_counts_parents}
             doneTodayParents={aggregated.cards_completed_today_parents}
+            chatCostLast30dUsd={aggregated.chat_cost_usd_last_30d ?? 0}
+            chatCostPrior30dUsd={aggregated.chat_cost_usd_prior_30d ?? 0}
+            chatCostSeries30d={aggregated.chat_cost_series_30d}
           />
         </div>
         <div className="apd-section-pad apd-grid-asym">

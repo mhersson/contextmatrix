@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -227,5 +228,266 @@ func TestStore_ListMessagesTail_ReturnsNewestNInChronologicalOrder(t *testing.T)
 	// Newest 10 are seq 41..50, returned in ASC order.
 	for i, m := range msgs {
 		require.Equal(t, int64(41+i), m.Seq, "row %d", i)
+	}
+}
+
+// newTestSession is a helper that creates a minimal session and returns its ID.
+func newTestSession(t *testing.T, store *Store) string {
+	t.Helper()
+
+	ctx := context.Background()
+	sessionID := chat.NewID()
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID:         sessionID,
+		Title:      "test",
+		Status:     chat.StatusCold,
+		CreatedAt:  time.Now().UTC().Truncate(time.Second),
+		LastActive: time.Now().UTC().Truncate(time.Second),
+		CreatedBy:  "human:test",
+	}))
+
+	return sessionID
+}
+
+func TestIncrementSessionCost_HappyPath(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	// First frame: 100 prompt, 50 completion, 200 cache_read, 10 cache_creation, $0.01
+	p, c, cr, cc, cost, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 200, 10, 0.01, "claude-sonnet-4-6")
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), p)
+	assert.Equal(t, int64(50), c)
+	assert.Equal(t, int64(200), cr)
+	assert.Equal(t, int64(10), cc)
+	assert.InDelta(t, 0.01, cost, 1e-9)
+
+	// Second frame: another 100 prompt, 50 completion — totals double.
+	p2, c2, cr2, cc2, cost2, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	require.NoError(t, err)
+	assert.Equal(t, int64(200), p2)
+	assert.Equal(t, int64(100), c2)
+	assert.Equal(t, int64(200), cr2)
+	assert.Equal(t, int64(10), cc2)
+	assert.InDelta(t, 0.02, cost2, 1e-9)
+
+	// Verify the row also reflects the totals via GetSession.
+	sess, err := store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(200), sess.PromptTokens)
+	assert.Equal(t, int64(100), sess.CompletionTokens)
+	assert.InDelta(t, 0.02, sess.EstimatedCostUSD, 1e-9)
+}
+
+func TestIncrementSessionCost_NotFound(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, "nonexistent-session", 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
+	require.ErrorIs(t, err, chat.ErrSessionNotFound)
+}
+
+func TestIncrementSessionCost_ConcurrentIncrementsAreRaceFree(t *testing.T) {
+	// N goroutines each increment by 1 token and $0.001. The final totals must
+	// equal N×1 and N×0.001 exactly, proving the UPDATE is atomic.
+	const N = 20
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	var wg sync.WaitGroup
+	for range N {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, "claude-sonnet-4-6")
+			assert.NoError(t, err)
+		}()
+	}
+
+	wg.Wait()
+
+	sess, err := store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(N), sess.PromptTokens, "all increments must be visible")
+	assert.InDelta(t, float64(N)*0.001, sess.EstimatedCostUSD, 1e-6)
+}
+
+func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	// Seed session with a known model.
+	sessionID := chat.NewID()
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID:         sessionID,
+		Title:      "model-preserve-test",
+		Status:     chat.StatusCold,
+		CreatedAt:  time.Now().UTC().Truncate(time.Second),
+		LastActive: time.Now().UTC().Truncate(time.Second),
+		CreatedBy:  "human:test",
+		Model:      "claude-sonnet-4-6",
+	}))
+
+	// Call with empty model — existing column value must be preserved.
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "")
+	require.NoError(t, err)
+
+	sess, err := store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-4-6", sess.Model, "empty model must not overwrite existing value")
+
+	// Call with a real model — column must be updated.
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "claude-opus-4-7")
+	require.NoError(t, err)
+
+	sess, err = store.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-7", sess.Model, "non-empty model must update the column")
+}
+
+// newTestSessionAtTime creates a session with a specific last_active timestamp.
+func newTestSessionAtTime(t *testing.T, store *Store, lastActive time.Time, cost float64) string {
+	t.Helper()
+
+	ctx := context.Background()
+	sessionID := chat.NewID()
+	now := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID:         sessionID,
+		Title:      "test-cost",
+		Status:     chat.StatusCold,
+		CreatedAt:  now,
+		LastActive: lastActive,
+		CreatedBy:  "human:test",
+	}))
+
+	if cost > 0 {
+		_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, cost, "claude-sonnet-4-6")
+		require.NoError(t, err)
+	}
+
+	return sessionID
+}
+
+func TestAggregateCost_HappyPath(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	// Use a fixed "now" for deterministic bucket indices.
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+
+	// Session A: today (last_active = now-2h). Cost $1.00. -> series[29]
+	newTestSessionAtTime(t, store, now.Add(-2*time.Hour), 1.00)
+
+	// Session B: 10 days ago. Cost $2.00. -> series[19] (29-10)
+	newTestSessionAtTime(t, store, todayStart.Add(-10*24*time.Hour).Add(6*time.Hour), 2.00)
+
+	// Session C: 20 days ago. Cost $3.00. -> series[9] (29-20)
+	newTestSessionAtTime(t, store, todayStart.Add(-20*24*time.Hour).Add(6*time.Hour), 3.00)
+
+	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+
+	// Total last30d = 1 + 2 + 3 = 6
+	assert.InDelta(t, 6.00, last30d, 1e-9, "last30d should be sum of all three")
+	assert.InDelta(t, 0.0, prior30d, 1e-9, "prior30d should be 0")
+
+	require.Len(t, series30d, 30)
+	assert.InDelta(t, 1.00, series30d[29], 1e-9, "today's session at series[29]")
+	assert.InDelta(t, 2.00, series30d[19], 1e-9, "10-days-ago session at series[19]")
+	assert.InDelta(t, 3.00, series30d[9], 1e-9, "20-days-ago session at series[9]")
+
+	// All other buckets zero.
+	for i, v := range series30d {
+		if i != 9 && i != 19 && i != 29 {
+			assert.InDelta(t, 0.0, v, 1e-9, "bucket %d should be zero", i)
+		}
+	}
+
+	// sum(series30d) must equal last30d.
+	var seriesSum float64
+	for _, v := range series30d {
+		seriesSum += v
+	}
+
+	assert.InDelta(t, last30d, seriesSum, 1e-9, "sum(series30d) must equal last30d")
+}
+
+func TestAggregateCost_Empty(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+
+	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, last30d, 1e-9)
+	assert.InDelta(t, 0.0, prior30d, 1e-9)
+	require.Len(t, series30d, 30)
+
+	for i, v := range series30d {
+		assert.InDelta(t, 0.0, v, 1e-9, "bucket %d should be zero", i)
+	}
+}
+
+func TestAggregateCost_PriorPeriod(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+
+	// Session 35 days ago — in the prior window (since-30..since).
+	newTestSessionAtTime(t, store, todayStart.Add(-35*24*time.Hour).Add(6*time.Hour), 5.00)
+
+	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, last30d, 1e-9, "last30d should be 0 (session is outside window)")
+	assert.InDelta(t, 5.0, prior30d, 1e-9, "prior30d should capture the 35-day-old session")
+
+	require.Len(t, series30d, 30)
+
+	for i, v := range series30d {
+		assert.InDelta(t, 0.0, v, 1e-9, "series bucket %d should be zero", i)
 	}
 }

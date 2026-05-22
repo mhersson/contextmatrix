@@ -680,7 +680,10 @@ Returns dashboard metrics for a project.
       "completion_tokens": 1200,
       "estimated_cost_usd": 0.033
     }
-  ]
+  ],
+  "chat_cost_usd_last_30d": 0.142,
+  "chat_cost_usd_prior_30d": 0.098,
+  "chat_cost_series_30d": [0.001, 0.004, 0.009, "... (30 daily buckets, oldest first)"]
 }
 ```
 
@@ -704,6 +707,20 @@ day; each card's cumulative cost is attributed to its last-touch day. All three
 fields may be absent on older servers — treat a missing value as `0`. The
 all-time `total_cost_usd` field is unchanged.
 
+`chat_cost_usd_last_30d`, `chat_cost_usd_prior_30d`, and `chat_cost_series_30d`
+are **server-wide** aggregates (not per-project) that ride on the per-project
+dashboard payload for fan-out convenience. They sum `estimated_cost_usd` across
+all chat sessions bucketed by `last_active`, aligned on UTC midnight so today's
+partial day occupies `chat_cost_series_30d[29]`. **Important caching behavior:**
+`chat.Manager.GetChatCostSummary` caches the result for 30 seconds
+(`chatCostCacheTTL`). When multiple projects are fetched in quick succession (the
+All Projects view fans out one request per project), all responses within the same
+30-second window return identical chat-cost values. Frontend aggregation picks the
+**first response with a numeric `chat_cost_usd_last_30d`** (i.e. `typeof ... ===
+'number'`) — not the first non-zero value — so a genuinely-zero last30d with
+non-zero prior30d still propagates correctly. All three fields are omitted on
+older servers; treat a missing value as `0`.
+
 `metric_series` is an 8-sample daily window (oldest first, today last) for
 each tile on the board's metrics ribbon. Each slice always has exactly 8
 entries. `shipped` is bucketed by `updated` on cards in the `done` state;
@@ -713,6 +730,13 @@ reconstructed end-of-day state is `in_progress`/`review` **and** which
 currently have an assigned agent (claim history isn't tracked, so per-day
 agent presence is approximate). Cards that pre-date state-change logging
 fall back to their current `state` for the whole window.
+
+**Prometheus counters related to chat cost (served on the admin `/metrics` endpoint):**
+
+| Counter                                           | Labels  | Meaning                                                                                                                                |
+| ------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `contextmatrix_chat_usage_unknown_model_total`    | `model` | Incremented when `handleUsageEntry` prices a frame whose model is not in `token_costs`. Tokens accumulate normally; cost stays `$0` for that frame. |
+| `contextmatrix_chat_cost_summary_errors_total`    | —       | Incremented when `GetChatCostSummary` fails inside `GetDashboard`. The dashboard still renders with zero-valued chat-cost fields on each error. |
 
 ### GET /api/projects/{project}/activity
 
@@ -1218,6 +1242,11 @@ Response fields that the UI header consumes:
 | `context_tokens`            | int     | Last `input + cache_read + cache_create` reported by Claude. Updated on every assistant turn.                                              |
 | `context_tokens_updated_at` | RFC3339 | Timestamp of the last `context_tokens` update. Zero (`0001-01-01T00:00:00Z`) until the first usage entry.                                  |
 | `rehydration_active`        | bool    | `true` between cold-reopen and the agent's `chat_rehydration_complete` call. Drives the "Restoring workspace…" banner. Omitted when false. |
+| `prompt_tokens`             | int64   | Cumulative input tokens reported across all usage frames for this session. Omitted when zero.                                              |
+| `completion_tokens`         | int64   | Cumulative output tokens. Omitted when zero.                                                                                               |
+| `cache_read_tokens`         | int64   | Cumulative cache-read tokens. Omitted when zero.                                                                                           |
+| `cache_creation_tokens`     | int64   | Cumulative cache-creation tokens. Omitted when zero.                                                                                       |
+| `estimated_cost_usd`        | float64 | Running cost total in USD, computed using the same cache-tier formula as card-scoped `report_usage`. Precision floor ~$0.0001. Omitted when zero. |
 
 ### PATCH /api/chats/{id}
 
@@ -1402,6 +1431,11 @@ kinds share the wire:
   | `model`                      | string    | Model name, set on first usage event.                                        |
   | `rehydration_active`         | boolean   | `false` once `chat_rehydration_complete` is called.                          |
   | `status`                     | string    | Lifecycle transition. Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. See `ChatStatus` values below. |
+  | `prompt_tokens`              | int64     | New cumulative prompt-token total after this usage frame. Omitted when zero (no cost update in this event). |
+  | `completion_tokens`          | int64     | New cumulative completion-token total. Omitted when zero.                    |
+  | `cache_read_tokens`          | int64     | New cumulative cache-read-token total. Omitted when zero.                    |
+  | `cache_creation_tokens`      | int64     | New cumulative cache-creation-token total. Omitted when zero.                |
+  | `estimated_cost_usd`         | float64   | New running cost total in USD after this frame. Omitted when zero. Matches the value now persisted on the session row. |
 
   **`ChatStatus` values:**
 

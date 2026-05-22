@@ -567,3 +567,44 @@ time with 422 `VALIDATION_ERROR` (`ErrInvalidAutonomousConfig`,
 `field: "create_pr"`). The reverse — `feature_branch: true` with
 `create_pr: false` — is allowed; the runner will create and push the branch
 without opening a pull request.
+
+## `chat_sessions` SQLite schema
+
+Chat session state is persisted in a SQLite database (separate from the boards
+git repo and the images store). The table is versioned via `schema_migrations`;
+migrations are idempotent — each column addition uses `addColumnIfMissing` to
+guard against re-runs on databases that already have the column.
+
+**Schema as of migration v6:**
+
+| Column                       | Type    | Default | Meaning                                                             |
+| ---------------------------- | ------- | ------- | ------------------------------------------------------------------- |
+| `id`                         | TEXT PK | —       | ULID-shaped session identifier.                                     |
+| `title`                      | TEXT    | —       | Human-readable session name (auto-filled from first user message).  |
+| `project`                    | TEXT    | —       | Associated project slug; empty for cross-project sessions.          |
+| `status`                     | TEXT    | —       | Lifecycle state (`cold`, `active`, `warm-idle`, `ending`).          |
+| `created_at`                 | INTEGER | —       | Unix epoch of session creation.                                     |
+| `last_active`                | INTEGER | —       | Unix epoch of last activity; indexed for dashboard range queries.   |
+| `created_by`                 | TEXT    | —       | Agent ID of the session creator.                                    |
+| `container_id`               | TEXT    | NULL    | Runner container ID; cleared when the session goes cold.            |
+| `workspace`                  | TEXT    | NULL    | JSON-encoded workspace directory list.                              |
+| `model`                      | TEXT    | `''`    | Orchestrator model ID; added in migration v3.                       |
+| `context_tokens`             | INTEGER | `0`     | Last context-window token count; added in migration v3.             |
+| `context_tokens_updated_at`  | INTEGER | NULL    | Unix epoch of last context-token update; added in migration v3.     |
+| `rehydration_active`         | INTEGER | `0`     | Boolean flag for rehydration phase; added in migration v3.          |
+| `rehydration_started_at`     | INTEGER | NULL    | Unix epoch when rehydration started; added in migration v5.         |
+| `prompt_tokens`              | INTEGER | `0`     | Cumulative input tokens from all usage frames; **added in migration v6**. |
+| `completion_tokens`          | INTEGER | `0`     | Cumulative output tokens; **added in migration v6**.                |
+| `cache_read_tokens`          | INTEGER | `0`     | Cumulative cache-read tokens; **added in migration v6**.            |
+| `cache_creation_tokens`      | INTEGER | `0`     | Cumulative cache-creation tokens; **added in migration v6**.        |
+| `estimated_cost_usd`         | REAL    | `0`     | Running USD cost total accumulated via `IncrementSessionCost`; **added in migration v6**. |
+
+The five v6 columns all use `NOT NULL DEFAULT 0` so pre-migration rows are
+backward-compatible without a data backfill; sessions that existed before v6
+simply show zero cost.
+
+**`estimated_cost_usd` precision:** stored as SQLite `REAL` (IEEE 754
+double). The precision floor is approximately $0.0001 per frame; rounding
+drift accumulates over long sessions. Dashboards round to two decimal places
+for display. If sub-cent billing accuracy is ever required, migrate to
+integer cents.

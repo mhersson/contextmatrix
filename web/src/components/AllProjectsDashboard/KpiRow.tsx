@@ -7,6 +7,9 @@ interface KpiRowProps {
   costSeries30d: number[] | undefined;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
+  chatCostLast30dUsd: number;
+  chatCostPrior30dUsd: number;
+  chatCostSeries30d: number[] | undefined;
 }
 
 interface KpiTileProps {
@@ -123,9 +126,21 @@ function CostValue({ amount }: { amount: number }) {
 const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
 
 const COST_TOOLTIP =
-  'Sum of estimated cost on cards updated in the last 30 days. Each card’s full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day.';
+  "Sum of estimated cost on cards updated in the last 30 days. Each card's full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day.";
 
-export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCountsParents, doneTodayParents }: KpiRowProps) {
+const CHAT_COST_TOOLTIP =
+  "Server-wide chat session cost over the last 30 UTC days, bucketed by session last-active day. Cached server-side for 30 seconds.";
+
+export function KpiRow({
+  costLast30dUsd,
+  costPrior30dUsd,
+  costSeries30d,
+  stateCountsParents,
+  doneTodayParents,
+  chatCostLast30dUsd,
+  chatCostPrior30dUsd,
+  chatCostSeries30d,
+}: KpiRowProps) {
   const openParents = stateCountsParents['todo'] ?? 0;
   const inProgressParents = (stateCountsParents['in_progress'] ?? 0) + (stateCountsParents['review'] ?? 0);
 
@@ -140,10 +155,19 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
   // like $9.99 -> $10 (rounds to 0% but is technically negative).
   const deltaUp = hasDelta && (costLast30dUsd >= costPrior30dUsd || deltaPct === 0);
 
+  const hasChatDelta =
+    Number.isFinite(chatCostLast30dUsd) &&
+    Number.isFinite(chatCostPrior30dUsd) &&
+    chatCostPrior30dUsd > 0;
+  const chatDeltaPct = hasChatDelta
+    ? Math.round(((chatCostLast30dUsd - chatCostPrior30dUsd) / chatCostPrior30dUsd) * 100)
+    : 0;
+  const chatDeltaUp = hasChatDelta && (chatCostLast30dUsd >= chatCostPrior30dUsd || chatDeltaPct === 0);
+
   return (
     <div
       className="apd-kpi-row"
-      style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}
     >
       <KpiTile
         label="Open tasks"
@@ -178,6 +202,17 @@ export function KpiRow({ costLast30dUsd, costPrior30dUsd, costSeries30d, stateCo
         tooltip={COST_TOOLTIP}
         delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
         sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--purple)' } : undefined}
+      />
+      {/* Spec says accent="purple" but blue is used here to disambiguate from the adjacent card-scoped Cost tile which is purple. */}
+      <KpiTile
+        label="Chat cost · 30d"
+        badge="USD"
+        value={<CostValue amount={chatCostLast30dUsd} />}
+        source="sum(chat.cost where last_active >= now-30d)"
+        accent="blue"
+        tooltip={CHAT_COST_TOOLTIP}
+        delta={hasChatDelta ? { pct: chatDeltaPct, up: chatDeltaUp } : undefined}
+        sparkline={chatCostSeries30d !== undefined ? { values: chatCostSeries30d, color: 'var(--blue)' } : undefined}
       />
     </div>
   );

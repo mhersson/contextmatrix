@@ -161,6 +161,13 @@ export function aggregateDashboards(
     }
   }
 
+  // Chat cost is server-wide (not per-project). Pick the first response that
+  // carries a numeric value — using `typeof === 'number'` rather than a
+  // truthiness check so a genuinely-zero last30d with non-zero prior30d is
+  // not silently dropped.
+  const responses = Array.from(summaries.values());
+  const chatCostSource = responses.find((r) => typeof r.chat_cost_usd_last_30d === 'number');
+
   return {
     state_counts: stateCounts,
     state_counts_parents: stateCountsParents,
@@ -187,6 +194,9 @@ export function aggregateDashboards(
     agent_costs: Array.from(agentCostMap.values()),
     model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
+    chat_cost_usd_last_30d: chatCostSource?.chat_cost_usd_last_30d,
+    chat_cost_usd_prior_30d: chatCostSource?.chat_cost_usd_prior_30d,
+    chat_cost_series_30d: chatCostSource?.chat_cost_series_30d,
   };
 }
 
