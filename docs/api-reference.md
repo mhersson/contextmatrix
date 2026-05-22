@@ -614,10 +614,15 @@ Returns aggregated token usage across all cards in a project.
 {
   "prompt_tokens": 45000,
   "completion_tokens": 12000,
+  "cache_read_tokens": 380000,
+  "cache_creation_tokens": 12000,
   "estimated_cost_usd": 0.315,
   "card_count": 8
 }
 ```
+
+`cache_read_tokens` and `cache_creation_tokens` are zero-valued on projects that
+have no cache activity and are always present in the response (not `omitempty`).
 
 ### GET /api/projects/{project}/dashboard
 
