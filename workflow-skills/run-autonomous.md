@@ -136,7 +136,7 @@ Based on the card's current state and body content:
       caller_model='<your_model>')`.
     - Spawn as sub-agent via `Agent` with the returned `model` and `content`.
       Do NOT execute inline even if `inline` is true.
-    - **Use `isolation: "worktree"`** when spawning multiple agents in parallel.
+    - **Do NOT pass `isolation: "worktree"`.** Sub-agents run inline in your working tree on the feature branch.
     - Spawn all ready subtasks in **parallel**.
 10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` on the
     parent every 5 minutes. After each `heartbeat`, call `report_usage` with
@@ -191,21 +191,7 @@ Based on the card's current state and body content:
     5. Call `add_log(card_id=<id>, action='respawned',
        message='Agent stalled, respawning (attempt N)')`.
 
-11. Ensure sub-agent changes are on the feature branch before Phase 4.
-
-    **If no sub-agent used worktree isolation** (single-agent case): changes are
-    already in the working tree, uncommitted. Nothing to aggregate — proceed to
-    step 12.
-
-    **If sub-agents used worktree isolation:** sub-agents committed on their
-    worktree branches. Cherry-pick each worktree branch onto the feature branch:
-    `git cherry-pick <worktree_branch>` for each subtask worktree. Skip any
-    worktree with no commits since `main`. If a dependent subtask's worktree
-    re-applied an earlier subtask's changes (because worktrees branch off
-    `main`, not off your active branch), cherry-pick only the superset — do not
-    cherry-pick the dependencies separately.
-
-12. Proceed to Phase 4.
+11. Sub-agent changes are already in your working tree on the feature branch. Proceed to Phase 4.
 
 ## Phase 4: Documentation (always sub-agent)
 
@@ -269,7 +255,7 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-18. Call `report_usage` one final time with your remaining token consumption.
+18. Commit any remaining changes in a conventional commit with a bullet-point body. **No card IDs in commit messages.** Skip if nothing to commit. Then call `report_usage` one final time with your remaining token consumption.
 19. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
@@ -306,11 +292,11 @@ Based on the card's current state and body content:
 
 ## Git Workflow
 
-- `feature_branch` enabled: orchestrator creates and checks out the feature
-  branch in Step 1. Sub-agents commit to the current branch — no branch
-  checkout or push. Orchestrator pushes and creates PR in Phase 6.
-- `feature_branch` not enabled: sub-agents commit to the current branch only.
-  Never push.
+- `feature_branch` enabled: orchestrator checks out the feature branch in
+  Step 1. Execute-task sub-agents leave changes in the working tree; the
+  doc sub-agent commits doc files; orchestrator commits remaining changes
+  at Phase 6 step 18, pushes, and opens the PR.
+- `feature_branch` not enabled: never push.
 
 ## Rules
 
