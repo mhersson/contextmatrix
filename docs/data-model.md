@@ -184,6 +184,8 @@ token_usage:
   model: claude-sonnet-4-6
   prompt_tokens: 12340
   completion_tokens: 5670
+  cache_read_tokens: 80000     # optional, omitted when zero
+  cache_creation_tokens: 4000  # optional, omitted when zero
   estimated_cost_usd: 0.122
 created: 2026-03-30T10:00:00Z
 updated: 2026-03-30T14:30:00Z
@@ -319,12 +321,35 @@ type Source struct {
 }
 
 type TokenUsage struct {
-    Model            string  `yaml:"model,omitempty"    json:"model,omitempty"`
-    PromptTokens     int64   `yaml:"prompt_tokens"      json:"prompt_tokens"`
-    CompletionTokens int64   `yaml:"completion_tokens"  json:"completion_tokens"`
-    EstimatedCostUSD float64 `yaml:"estimated_cost_usd" json:"estimated_cost_usd"`
+    Model               string  `yaml:"model,omitempty"                 json:"model,omitempty"`
+    PromptTokens        int64   `yaml:"prompt_tokens"                   json:"prompt_tokens"`
+    CompletionTokens    int64   `yaml:"completion_tokens"               json:"completion_tokens"`
+    CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
+    CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+    EstimatedCostUSD    float64 `yaml:"estimated_cost_usd"              json:"estimated_cost_usd"`
 }
 ```
+
+`CacheReadTokens` and `CacheCreationTokens` are optional (`omitempty`); they are
+absent from the YAML/JSON when zero (i.e. on cards reported before this feature
+and on cards whose agents do not pass cache fields). `RecalculateCosts` handles
+absent values correctly — missing fields default to 0 and do not affect the
+recalculated cost.
+
+**Cost formula** (applied per `report_usage` call and by `RecalculateCosts`):
+
+```
+estimated_cost_usd +=
+    prompt_tokens         * rate.Prompt
+  + cache_read_tokens     * rate.Prompt * 0.10
+  + cache_creation_tokens * rate.Prompt * 1.25
+  + completion_tokens     * rate.Completion
+```
+
+`cache_creation_tokens` uses a single 1.25× multiplier, collapsing the 5-minute
+and 1-hour cache-write tiers. Claude Code uses the 5-minute tier by default.
+Agents should pass the `cache_creation_input_tokens` field from Claude's
+stream-json `usage` frame directly — no tier distinction is required.
 
 ```go
 // internal/board/project.go
