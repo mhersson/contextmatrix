@@ -58,6 +58,8 @@ export interface TaskSkillSummary {
 export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
   estimated_cost_usd: number;
 }
 

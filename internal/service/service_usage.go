@@ -22,10 +22,12 @@ type ModelRate struct {
 
 // ReportUsageInput contains the fields for reporting token usage on a card.
 type ReportUsageInput struct {
-	AgentID          string
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
+	AgentID             string
+	Model               string
+	PromptTokens        int64
+	CompletionTokens    int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
 }
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
@@ -95,12 +97,17 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 
 	card.TokenUsage.PromptTokens += input.PromptTokens
 	card.TokenUsage.CompletionTokens += input.CompletionTokens
+	card.TokenUsage.CacheReadTokens += input.CacheReadTokens
+	card.TokenUsage.CacheCreationTokens += input.CacheCreationTokens
 
 	// Calculate cost delta for this report and add to running total.
 	// Warn when a model name is provided but not found in the cost map.
 	if input.Model != "" {
 		if rate, ok := s.tokenCosts[input.Model]; ok {
-			deltaCost := float64(input.PromptTokens)*rate.Prompt + float64(input.CompletionTokens)*rate.Completion
+			deltaCost := float64(input.PromptTokens)*rate.Prompt +
+				float64(input.CacheReadTokens)*rate.Prompt*0.10 +
+				float64(input.CacheCreationTokens)*rate.Prompt*1.25 +
+				float64(input.CompletionTokens)*rate.Completion
 			card.TokenUsage.EstimatedCostUSD += deltaCost
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
@@ -250,6 +257,8 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 		}
 
 		cost := float64(card.TokenUsage.PromptTokens)*rate.Prompt +
+			float64(card.TokenUsage.CacheReadTokens)*rate.Prompt*0.10 +
+			float64(card.TokenUsage.CacheCreationTokens)*rate.Prompt*1.25 +
 			float64(card.TokenUsage.CompletionTokens)*rate.Completion
 
 		card.TokenUsage.EstimatedCostUSD = cost

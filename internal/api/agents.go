@@ -204,9 +204,11 @@ func (h *agentHandlers) getCardContext(w http.ResponseWriter, r *http.Request) {
 
 // reportUsageRequest is the JSON body for reporting token usage.
 type reportUsageRequest struct {
-	Model            string `json:"model"`
-	PromptTokens     int64  `json:"prompt_tokens"`
-	CompletionTokens int64  `json:"completion_tokens"`
+	Model               string `json:"model"`
+	PromptTokens        int64  `json:"prompt_tokens"`
+	CompletionTokens    int64  `json:"completion_tokens"`
+	CacheReadTokens     int64  `json:"cache_read_tokens"`
+	CacheCreationTokens int64  `json:"cache_creation_tokens"`
 }
 
 // reportUsage handles POST /api/projects/{project}/cards/{id}/usage.
@@ -234,11 +236,19 @@ func (h *agentHandlers) reportUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.PromptTokens < 0 || req.CompletionTokens < 0 || req.CacheReadTokens < 0 || req.CacheCreationTokens < 0 {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "token counts must be non-negative", "")
+
+		return
+	}
+
 	card, err := h.svc.ReportUsage(r.Context(), projectName, cardID, service.ReportUsageInput{
-		AgentID:          agentID,
-		Model:            req.Model,
-		PromptTokens:     req.PromptTokens,
-		CompletionTokens: req.CompletionTokens,
+		AgentID:             agentID,
+		Model:               req.Model,
+		PromptTokens:        req.PromptTokens,
+		CompletionTokens:    req.CompletionTokens,
+		CacheReadTokens:     req.CacheReadTokens,
+		CacheCreationTokens: req.CacheCreationTokens,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)
