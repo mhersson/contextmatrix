@@ -135,6 +135,16 @@ var (
 		Help: "report_usage calls where the model is not in the token_costs map (cost not calculated).",
 	}, []string{"model"})
 
+	// ChatUsageUnknownModelTotal counts handleUsageEntry calls where the model
+	// name resolved from the usage frame is not in the configured token_costs
+	// map. Cost is persisted as $0 for that frame; tokens still accumulate.
+	// The model label lets operators detect deprecated or misconfigured model
+	// names in active chat sessions.
+	ChatUsageUnknownModelTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_usage_unknown_model_total",
+		Help: "chat usage frames where the model is not in the token_costs map (cost recorded as $0).",
+	}, []string{"model"})
+
 	// GitHubPagesTruncatedTotal counts FetchOpenIssues / FetchBranches calls
 	// that hit the maxPages safety cap and silently dropped remaining pages.
 	// The resource label is one of {issues, branches}.
@@ -142,6 +152,15 @@ var (
 		Name: "contextmatrix_github_pages_truncated_total",
 		Help: "GitHub API paginated fetches that hit the maxPages cap and dropped remaining pages.",
 	}, []string{"resource"})
+
+	// ChatCostSummaryErrorsTotal counts GetChatCostSummary failures inside
+	// GetDashboard. Each increment means the chat-cost fields on the dashboard
+	// payload fell back to zero for that request. Operators should alert on a
+	// sustained non-zero rate as it indicates a broken chat store or schema mismatch.
+	ChatCostSummaryErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_cost_summary_errors_total",
+		Help: "GetChatCostSummary failures during GetDashboard (chat-cost fields fall back to zero).",
+	})
 )
 
 // Register registers all metrics with the given registerer. Re-registering an
@@ -167,6 +186,8 @@ func Register(reg prometheus.Registerer) {
 		RollbackFailuresTotal,
 		ReportUsageUnknownModelTotal,
 		GitHubPagesTruncatedTotal,
+		ChatUsageUnknownModelTotal,
+		ChatCostSummaryErrorsTotal,
 	}
 
 	for _, c := range collectors {

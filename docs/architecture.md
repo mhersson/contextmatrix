@@ -192,7 +192,12 @@ and commit completion. The service layer closes that gap on failure:
   multi-step operations. Every mutation follows: validate → store write → git
   commit → event publish. Also runs the heartbeat timeout checker goroutine,
   which lives here (not in the lock manager) because it coordinates store, git,
-  and events.
+  and events. Satisfies the `chat.Pricer` interface (via `CardService.PriceTokens`,
+  wired into `chat.Config.Pricer`) so chat-session cost frames share the same
+  cache-tier formula as card-scoped `report_usage`. Holds a `chatCostSummarizer`
+  field (wired via `SetChatCostSummarizer`) that, when non-nil, is called on each
+  `GetDashboard` invocation to append server-wide chat-cost aggregates to the
+  per-project `DashboardData` payload.
 - **Session Log Manager** (`runner/sessionlog.Manager`): server-side per-card
   SSE buffer and fan-out hub. Keeps a single long-lived authenticated upstream
   connection to the runner per active card, tees events into a bounded ring
@@ -218,6 +223,33 @@ and commit completion. The service layer closes that gap on failure:
   `chat_rehydration_complete` MCP tool is gated by the calling container's
   `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`): a caller can only flip
   its own session's rehydration flag.
+
+  **Cost accumulation:** each `usage` stream-json frame from the runner log
+  stream reaches `handleUsageEntry`. Usage frames carry per-turn
+  (per-assistant-message) token counts — the runner emits one
+  `message.usage` block per assistant turn following the Anthropic
+  Messages-API contract; these are NOT cumulative session totals. The
+  values are passed directly (no snapshot subtraction) to
+  `chat.Pricer.PriceTokens(model, prompt, cacheRead, cacheCreate,
+  completion)`. The `chat.Pricer` interface (defined in
+  `internal/chat/pricer.go`; satisfied by `*service.CardService`) applies
+  the same cache-tier cost formula used on the card-scoped `report_usage`
+  path. `Store.IncrementSessionCost` persists the
+  result via a single atomic `UPDATE ... SET col = col + ? ... RETURNING ...`
+  — one SQL round-trip, no read-modify-write window. On persist error the
+  function returns without publishing an SSE `session_updated` event, mirroring
+  the `UpdateContextTokens` early-return pattern. On success, a
+  `session_updated` event carrying the new running totals (`prompt_tokens`,
+  `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`,
+  `estimated_cost_usd`) is published to the per-session SSE hub so the chat
+  header cost indicator updates in real time. `GetChatCostSummary` aggregates
+  server-wide chat cost over a 30-day UTC window; the result is cached for 30
+  seconds (`chatCostCacheTTL`) to prevent N× SQL amplification when the All
+  Projects view fans out one dashboard request per project. See
+  [`docs/api-reference.md`](api-reference.md)
+  § `GET /api/projects/{project}/dashboard` for the full field specification
+  and caching semantics.
+
 - **chat.Transcript** (`chat/transcript`): pure transcript-shaping function — no
   I/O, no state. `Build(messages, opts)` filters out `rehydration_phase=TRUE`
   entries, drops non-conversation roles (stderr, tool results), pins the first
@@ -238,9 +270,11 @@ and commit completion. The service layer closes that gap on failure:
   per-session hub so memory does not grow with session churn. Two event kinds
   share the hub: `message` (a new transcript row, with seq + role + content) and
   `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
-  model, and `status` for lifecycle transitions — with no transcript content). The
-  `status` field uses a pointer so `omitempty` distinguishes "no lifecycle change"
-  from a deliberate transition.
+  model, `status` for lifecycle transitions, and the five cost/token running-total
+  fields (`prompt_tokens`, `completion_tokens`, `cache_read_tokens`,
+  `cache_creation_tokens`, `estimated_cost_usd`) — with no transcript content).
+  The `status` field uses a pointer so `omitempty` distinguishes "no lifecycle
+  change" from a deliberate transition.
 
   Server-side, `publishSessionUpdate` fans out the event in a goroutine so callers
   holding a sessionHub lock don't deadlock. Lifecycle entry points that emit `status`:
@@ -341,8 +375,12 @@ and commit completion. The service layer closes that gap on failure:
   (`contextmatrix_report_usage_unknown_model_total`, labeled by model) in
   `internal/service/service_usage.go` (incremented when `report_usage` is called
   with a model absent from `token_costs` — alert on a sustained non-zero rate to
-  detect misconfigured or newly deployed models). See the full metric list in
-  `internal/metrics/metrics.go`.
+  detect misconfigured or newly deployed models). Two chat-specific counters are
+  also registered: `contextmatrix_chat_usage_unknown_model_total` (labeled by
+  model, incremented in `handleUsageEntry` when a chat usage frame references an
+  unpriced model) and `contextmatrix_chat_cost_summary_errors_total` (unlabeled,
+  incremented when `GetChatCostSummary` fails during a `GetDashboard` call). See
+  the full metric list in `internal/metrics/metrics.go`.
 
 ## Git repository scope
 

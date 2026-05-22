@@ -64,6 +64,16 @@ type Session struct {
 	// LastActive — against the rehydration timeout so an actively-typing user
 	// whose agent crashed mid-rehydration does not prevent the sweep from firing.
 	RehydrationStartedAt *time.Time `json:"rehydration_started_at,omitempty"`
+
+	// Token counters — cumulative totals from all usage frames for this session.
+	PromptTokens        int64 `json:"prompt_tokens,omitempty"`
+	CompletionTokens    int64 `json:"completion_tokens,omitempty"`
+	CacheReadTokens     int64 `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens,omitempty"`
+	// EstimatedCostUSD is a float64 running total of the estimated USD cost
+	// accumulated from all usage frames. Precision floor is ~$0.0001; migrate
+	// to integer cents if sub-cent billing accuracy is ever required.
+	EstimatedCostUSD float64 `json:"estimated_cost_usd,omitempty"`
 }
 
 // Message is a single persisted transcript entry. Kind discriminates
@@ -96,8 +106,10 @@ type LogEntry struct {
 	Model     string
 }
 
-// TokenUsage carries the per-turn context window accounting reported by
-// Claude in its stream-json output. The sum of all four fields approximates
+// TokenUsage carries per-turn (per-assistant-message) token counts from the
+// Anthropic Messages-API usage block emitted by the runner for each assistant
+// turn. These are NOT cumulative session totals — each frame reports only the
+// tokens consumed by that single turn. The sum of all four fields approximates
 // the prompt size Claude actually processed; the UI typically displays
 // InputTokens + CacheReadTokens + CacheCreateTokens as "context used.".
 type TokenUsage struct {

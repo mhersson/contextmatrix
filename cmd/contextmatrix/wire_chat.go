@@ -62,6 +62,7 @@ func wireChat(
 		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
 		DefaultModel:       cfg.Chat.DefaultModel,
 		PrimerPath:         primerPath,
+		Pricer:             svc,
 		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -133,6 +134,10 @@ func wireChat(
 	}
 
 	slog.Info("chat manager initialized", "idle_ttl", cfg.Chat.IdleTTL, "max_concurrent", cfg.Chat.MaxConcurrent)
+
+	// Wire the chat cost summarizer so GetDashboard can populate the
+	// "Chat cost · 30d" tile. Done after both chatMgr and svc are constructed.
+	svc.SetChatCostSummarizer(chatMgr)
 
 	// Resume runner-log consumers for sessions that survived a CM restart.
 	// Without this, active/warm-idle sessions stay marked alive in the DB

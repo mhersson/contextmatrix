@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -118,10 +119,44 @@ type CardService struct {
 	// the full server).
 	refreshRegistry *refresh.Registry
 
+	// chatCostSummarizer is optional. When non-nil, GetDashboard calls
+	// GetChatCostSummary and populates the three chat-cost fields on the
+	// DashboardData response. Wired via SetChatCostSummarizer after both the
+	// CardService and chat.Manager have been constructed.
+	//
+	// Stored as atomic.Pointer so SetChatCostSummarizer (called once at startup)
+	// and GetDashboard (called concurrently per HTTP request) do not race under
+	// the Go memory model. The pointer-to-interface pattern avoids the
+	// same-concrete-type restriction of atomic.Value.
+	chatCostSummarizer atomic.Pointer[ChatCostSummarizer]
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
 	templates map[string]map[string]string // project -> type -> template
+}
+
+// SetChatCostSummarizer wires a ChatCostSummarizer into the service. Nil-safe:
+// passing nil disables the chat-cost branch in GetDashboard. Safe to call
+// concurrently with GetDashboard — the value is stored atomically.
+func (s *CardService) SetChatCostSummarizer(cs ChatCostSummarizer) {
+	if cs == nil {
+		s.chatCostSummarizer.Store(nil)
+	} else {
+		s.chatCostSummarizer.Store(&cs)
+	}
+}
+
+// chatCostSummarizerOrNil returns the current ChatCostSummarizer, or nil if
+// none has been set. It dereferences the atomic pointer so callers receive a
+// plain interface value without exposing the pointer-to-interface indirection.
+func (s *CardService) chatCostSummarizerOrNil() ChatCostSummarizer {
+	p := s.chatCostSummarizer.Load()
+	if p == nil {
+		return nil
+	}
+
+	return *p
 }
 
 // NewCardService creates a new CardService with the given dependencies.

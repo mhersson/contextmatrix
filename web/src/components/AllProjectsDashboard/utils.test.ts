@@ -266,3 +266,60 @@ describe('aggregateDashboards 30-day cost fields', () => {
     expect(result.total_cost_usd_prior_30d).toBe(0);
   });
 });
+
+describe('aggregateDashboards chat cost picker', () => {
+  it('picker_picks_first_numeric_even_when_zero — preserves zero last30d with non-zero prior30d', () => {
+    // First response has chat_cost_usd_last_30d: 0 and chat_cost_usd_prior_30d: 50.
+    // A truthiness-based picker would drop this and pick nothing (or a wrong source).
+    const first = summary({
+      chat_cost_usd_last_30d: 0,
+      chat_cost_usd_prior_30d: 50,
+    });
+    const second = summary({
+      chat_cost_usd_last_30d: 12.5,
+      chat_cost_usd_prior_30d: 10,
+    });
+
+    const summaries = new Map([
+      ['proj-a', first],
+      ['proj-b', second],
+    ]);
+    const result = aggregateDashboards(summaries);
+
+    // First response wins (it has a numeric last30d, even though it is zero).
+    expect(result.chat_cost_usd_last_30d).toBe(0);
+    expect(result.chat_cost_usd_prior_30d).toBe(50);
+  });
+
+  it('picker_skips_undefined — falls back to second response when first has no chat cost', () => {
+    const first = summary({
+      // chat_cost_usd_last_30d is absent (undefined)
+    });
+    const second = summary({
+      chat_cost_usd_last_30d: 12.5,
+      chat_cost_usd_prior_30d: 10,
+    });
+
+    const summaries = new Map([
+      ['proj-a', first],
+      ['proj-b', second],
+    ]);
+    const result = aggregateDashboards(summaries);
+
+    // Second response wins because first has no numeric last30d.
+    expect(result.chat_cost_usd_last_30d).toBe(12.5);
+    expect(result.chat_cost_usd_prior_30d).toBe(10);
+  });
+
+  it('returns undefined chat cost fields when no response has them', () => {
+    const summaries = new Map([
+      ['proj-a', summary()],
+      ['proj-b', summary()],
+    ]);
+    const result = aggregateDashboards(summaries);
+
+    expect(result.chat_cost_usd_last_30d).toBeUndefined();
+    expect(result.chat_cost_usd_prior_30d).toBeUndefined();
+    expect(result.chat_cost_series_30d).toBeUndefined();
+  });
+});

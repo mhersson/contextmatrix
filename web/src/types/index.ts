@@ -270,6 +270,10 @@ export interface DashboardData {
   agent_costs: AgentCost[];
   model_costs: ModelCost[];
   card_costs: CardCost[];
+  // Server-wide chat cost aggregates (not per-project; cached 30s server-side).
+  chat_cost_usd_last_30d?: number;
+  chat_cost_usd_prior_30d?: number;
+  chat_cost_series_30d?: number[];
 }
 
 export interface ActivityFeedEntry {
@@ -420,6 +424,13 @@ export interface ChatSession {
   context_tokens?: number;
   context_tokens_updated_at?: string;
   rehydration_active?: boolean;
+  // Token counters and cost — cumulative totals from all usage frames.
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  /** Running total in USD. Precision floor ~$0.0001. */
+  estimated_cost_usd?: number;
 }
 
 export interface ChatMessage {
@@ -451,4 +462,10 @@ export interface ChatSessionUpdate {
   model?: string;
   rehydration_active?: boolean;
   status?: ChatStatus;
+  // Cost and token counters — new running totals after each usage frame.
+  estimated_cost_usd?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }

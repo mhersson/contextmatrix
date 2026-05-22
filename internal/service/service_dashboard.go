@@ -8,8 +8,17 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
+
+// ChatCostSummarizer is the consumer-defined interface for retrieving server-wide
+// chat session cost aggregates. Defined here (not in the chat package) to avoid a
+// service → chat import edge. *chat.Manager satisfies it without modification.
+type ChatCostSummarizer interface {
+	GetChatCostSummary(ctx context.Context) (last30d, prior30d float64, series30d []float64, err error)
+}
 
 // ActiveAgent describes an agent currently working on a card.
 type ActiveAgent struct {
@@ -94,6 +103,13 @@ type DashboardData struct {
 	AgentCosts                   []AgentCost    `json:"agent_costs"`
 	ModelCosts                   []ModelCost    `json:"model_costs"`
 	CardCosts                    []CardCost     `json:"card_costs"`
+	// ChatCostUSDLast30d, ChatCostUSDPrior30d, and ChatCostSeries30d are
+	// server-wide aggregates (not per-project). They ride on the per-project
+	// dashboard payload for fan-out convenience and are cached in chat.Manager
+	// for 30 seconds to prevent N× amplification on concurrent project polls.
+	ChatCostUSDLast30d  float64   `json:"chat_cost_usd_last_30d"`
+	ChatCostUSDPrior30d float64   `json:"chat_cost_usd_prior_30d"`
+	ChatCostSeries30d   []float64 `json:"chat_cost_series_30d,omitempty"`
 }
 
 // GetDashboard computes aggregated dashboard data for a project.
@@ -123,6 +139,27 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	activeAgents := buildAgentList(cards, now)
 	costLast30d, costPrior30d, costSeries30d := bucketCostSeries(cards, now, tz)
 
+	// Server-wide chat cost summary. Errors here are non-fatal: the rest of
+	// the dashboard still renders with zero values for the chat-cost fields.
+	var (
+		chatLast30d, chatPrior30d float64
+		chatSeries30d             []float64
+	)
+
+	if cs := s.chatCostSummarizerOrNil(); cs != nil {
+		var chatErr error
+
+		chatLast30d, chatPrior30d, chatSeries30d, chatErr = cs.GetChatCostSummary(ctx)
+		if chatErr != nil {
+			ctxlog.Logger(ctx).Warn("chat cost summary failed", "error", chatErr)
+			metrics.ChatCostSummaryErrorsTotal.Inc()
+			// Zero-value fallback: chatLast30d, chatPrior30d stay 0, chatSeries30d stays nil.
+			chatLast30d = 0
+			chatPrior30d = 0
+			chatSeries30d = nil
+		}
+	}
+
 	return &DashboardData{
 		StateCounts:                  stateCounts,
 		StateCountsParents:           stateCountsParents,
@@ -141,6 +178,9 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		AgentCosts:                   agentCosts,
 		ModelCosts:                   modelCosts,
 		CardCosts:                    cardCosts,
+		ChatCostUSDLast30d:           chatLast30d,
+		ChatCostUSDPrior30d:          chatPrior30d,
+		ChatCostSeries30d:            chatSeries30d,
 	}, nil
 }
 
@@ -466,6 +506,7 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 			for i := range numDays {
 				if !updated.Before(dayStarts[i]) && updated.Before(dayEnds[i]) {
 					series30d[i] += cost
+
 					break
 				}
 			}

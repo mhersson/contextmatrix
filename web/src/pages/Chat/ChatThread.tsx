@@ -49,6 +49,21 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
       ...(sessionUpdate.rehydration_active !== undefined
         ? { rehydration_active: sessionUpdate.rehydration_active }
         : {}),
+      ...(sessionUpdate.estimated_cost_usd !== undefined
+        ? { estimated_cost_usd: sessionUpdate.estimated_cost_usd }
+        : {}),
+      ...(sessionUpdate.prompt_tokens !== undefined
+        ? { prompt_tokens: sessionUpdate.prompt_tokens }
+        : {}),
+      ...(sessionUpdate.completion_tokens !== undefined
+        ? { completion_tokens: sessionUpdate.completion_tokens }
+        : {}),
+      ...(sessionUpdate.cache_read_tokens !== undefined
+        ? { cache_read_tokens: sessionUpdate.cache_read_tokens }
+        : {}),
+      ...(sessionUpdate.cache_creation_tokens !== undefined
+        ? { cache_creation_tokens: sessionUpdate.cache_creation_tokens }
+        : {}),
     } as ChatSession;
   }, [session, sessionUpdate]);
 
@@ -273,7 +288,25 @@ export function ChatThread({ sessionID, onDeleted, embedded = false, isFocused =
               {view.project}
             </span>
           )}
-          <ChatHeaderInfo model={view.model} contextTokens={view.context_tokens} />
+          <ChatHeaderInfo
+            model={view.model}
+            contextTokens={view.context_tokens}
+            estimatedCostUsd={
+              sessionUpdate?.estimated_cost_usd ?? view.estimated_cost_usd
+            }
+            promptTokens={
+              sessionUpdate?.prompt_tokens ?? view.prompt_tokens
+            }
+            completionTokens={
+              sessionUpdate?.completion_tokens ?? view.completion_tokens
+            }
+            cacheReadTokens={
+              sessionUpdate?.cache_read_tokens ?? view.cache_read_tokens
+            }
+            cacheCreationTokens={
+              sessionUpdate?.cache_creation_tokens ?? view.cache_creation_tokens
+            }
+          />
           <span className="text-xs" style={{ color: 'var(--grey1)' }}>{view.status}</span>
           <span
             className="w-2 h-2 rounded-full shrink-0"

@@ -681,6 +681,186 @@ func TestStateAtTimeFromChanges_ReturnsLatestAtOrBeforeT(t *testing.T) {
 	assert.Equal(t, "in_progress", stateAtTimeFromChanges(&board.Card{}, changes, "todo", t0.Add(24*time.Hour)))
 }
 
+// stubChatCostSummarizer is a test double that returns fixed values.
+type stubChatCostSummarizer struct {
+	last30d   float64
+	prior30d  float64
+	series30d []float64
+	err       error
+	calls     int
+}
+
+func (s *stubChatCostSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, []float64, error) {
+	s.calls++
+
+	return s.last30d, s.prior30d, s.series30d, s.err
+}
+
+func TestGetDashboard_ChatCostSummarizer_PopulatesFields(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	stub := &stubChatCostSummarizer{
+		last30d:   12.50,
+		prior30d:  8.00,
+		series30d: make([]float64, 30),
+	}
+	stub.series30d[29] = 12.50
+
+	svc.SetChatCostSummarizer(stub)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 12.50, data.ChatCostUSDLast30d, 1e-9, "ChatCostUSDLast30d should match stub")
+	assert.InDelta(t, 8.00, data.ChatCostUSDPrior30d, 1e-9, "ChatCostUSDPrior30d should match stub")
+	require.Len(t, data.ChatCostSeries30d, 30)
+	assert.InDelta(t, 12.50, data.ChatCostSeries30d[29], 1e-9, "ChatCostSeries30d[29] should match stub")
+	assert.Equal(t, 1, stub.calls, "GetChatCostSummary must be called exactly once")
+}
+
+func TestGetDashboard_ChatCostSummarizer_ErrorFallsBackToZero(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	stub := &stubChatCostSummarizer{
+		err: fmt.Errorf("injected chat cost error"),
+	}
+	svc.SetChatCostSummarizer(stub)
+
+	// GetDashboard must succeed despite the summarizer error.
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err, "GetDashboard must not propagate chat cost error")
+
+	// Chat cost fields must be zero.
+	assert.InDelta(t, 0.0, data.ChatCostUSDLast30d, 1e-9, "ChatCostUSDLast30d must be zero on error")
+	assert.InDelta(t, 0.0, data.ChatCostUSDPrior30d, 1e-9, "ChatCostUSDPrior30d must be zero on error")
+	assert.Nil(t, data.ChatCostSeries30d, "ChatCostSeries30d must be nil on error")
+}
+
+func TestGetDashboard_NilChatCostSummarizer_ReturnsZero(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// No SetChatCostSummarizer call — chatCostSummarizer is nil.
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.0, data.ChatCostUSDLast30d, 1e-9)
+	assert.InDelta(t, 0.0, data.ChatCostUSDPrior30d, 1e-9)
+	assert.Nil(t, data.ChatCostSeries30d)
+}
+
+// concurrentSafeSummarizer is a minimal ChatCostSummarizer that is safe for
+// concurrent use. It returns fixed zero values and has no mutable fields —
+// used only to exercise the atomic load/store path without a racy counter.
+type concurrentSafeSummarizer struct {
+	last30d   float64
+	prior30d  float64
+	series30d []float64
+}
+
+func (c *concurrentSafeSummarizer) GetChatCostSummary(_ context.Context) (float64, float64, []float64, error) {
+	// Return copies so callers cannot race on the backing array.
+	return c.last30d, c.prior30d, append([]float64(nil), c.series30d...), nil
+}
+
+// TestSetChatCostSummarizer_ConcurrentReadWrite exercises SetChatCostSummarizer
+// and GetDashboard concurrently to confirm there is no data race under -race.
+// The test does not assert specific values — correctness is secondary to the
+// absence of a race-detector report.
+func TestSetChatCostSummarizer_ConcurrentReadWrite(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Use a concurrency-safe stub so the race detector reports only real
+	// production-code races, not test-double counter increments.
+	stub := &concurrentSafeSummarizer{
+		last30d:   5.00,
+		prior30d:  3.00,
+		series30d: make([]float64, 30),
+	}
+
+	const goroutines = 20
+
+	ready := make(chan struct{})
+	done := make(chan struct{})
+
+	// Writers: repeatedly call SetChatCostSummarizer.
+	for range goroutines / 2 {
+		go func() {
+			<-ready
+
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					svc.SetChatCostSummarizer(stub)
+				}
+			}
+		}()
+	}
+
+	// Readers: repeatedly call GetDashboard.
+	for range goroutines / 2 {
+		go func() {
+			<-ready
+
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					_, _ = svc.GetDashboard(ctx, project)
+				}
+			}
+		}()
+	}
+
+	close(ready)
+	time.Sleep(50 * time.Millisecond)
+	close(done)
+}
+
+// TestSetChatCostSummarizer_NilDisablesBranch confirms that storing nil via
+// SetChatCostSummarizer restores the zero-value fallback behaviour.
+func TestSetChatCostSummarizer_NilDisablesBranch(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	stub := &stubChatCostSummarizer{last30d: 9.99, prior30d: 4.44, series30d: make([]float64, 30)}
+	svc.SetChatCostSummarizer(stub)
+
+	// First call — summarizer is active.
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+	assert.InDelta(t, 9.99, data.ChatCostUSDLast30d, 1e-9, "summarizer active: should see stub value")
+
+	// Now disable by passing nil.
+	svc.SetChatCostSummarizer(nil)
+
+	data, err = svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, data.ChatCostUSDLast30d, 1e-9, "summarizer nil: should fall back to zero")
+	assert.Nil(t, data.ChatCostSeries30d, "summarizer nil: ChatCostSeries30d must be nil")
+}
+
 func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministically(t *testing.T) {
 	t0 := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
 	// Two changes at the same timestamp — extractStateChanges uses stable

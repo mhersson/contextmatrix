@@ -2914,3 +2914,810 @@ func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// handleUsageEntry behaviour tests
+// ---------------------------------------------------------------------------
+
+// stubPricer is a minimal chat.Pricer implementation for tests. knownModels
+// maps model name → cost-per-call. An unknown model returns (0, false).
+type stubPricer struct {
+	knownModels map[string]float64 // model → cost returned per PriceTokens call
+}
+
+func newStubPricer(known map[string]float64) *stubPricer {
+	return &stubPricer{knownModels: known}
+}
+
+func (p *stubPricer) PriceTokens(model string, _, _, _, _ int64) (float64, bool) {
+	cost, ok := p.knownModels[model]
+
+	return cost, ok
+}
+
+// incrementFailingStore wraps a real chat.Store and can inject a one-shot error
+// into IncrementSessionCost. All other methods delegate to the inner store.
+type incrementFailingStore struct {
+	chat.Store
+	failNext atomic.Bool
+}
+
+func (s *incrementFailingStore) FailNextIncrement() { s.failNext.Store(true) }
+
+func (s *incrementFailingStore) IncrementSessionCost(ctx context.Context, sessionID string, dPrompt, dCompletion, dCacheRead, dCacheCreation int64, dCost float64, model string) (int64, int64, int64, int64, float64, error) {
+	if s.failNext.CompareAndSwap(true, false) {
+		return 0, 0, 0, 0, 0, errors.New("injected: IncrementSessionCost failure")
+	}
+
+	return s.Store.IncrementSessionCost(ctx, sessionID, dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model)
+}
+
+// openAndWaitForUsageEvent opens the session and waits for a session_updated
+// event with non-zero ContextTokens (the signal that handleUsageEntry ran).
+// Returns the event or fails after 2s.
+func openAndWaitForUsageEvent(t *testing.T, mgr *chat.Manager, hub *chat.SSEHub, sessionID string) chat.SSEEvent {
+	t.Helper()
+
+	ctx := context.Background()
+	events, _, err := hub.Subscribe(sessionID, 0)
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sessionID)
+	require.NoError(t, err)
+
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-events:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.ContextTokens > 0 {
+				return e
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for session_updated event with context_tokens")
+		}
+	}
+}
+
+// TestHandleUsageEntry_AccumulatesAcrossFrames verifies that three sequential
+// per-turn usage frames are summed correctly into the session row. Each frame
+// carries the token counts for a single assistant turn — not cumulative totals.
+func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Pricer returns $0.01 per call regardless of token counts.
+	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
+
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			// Frame 1: turn tokens 100/50/200/10
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 200, CacheCreateTokens: 10}, Model: "claude-sonnet-4-6"},
+			// Frame 2: turn tokens 50/25/100/5
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 50, OutputTokens: 25, CacheReadTokens: 100, CacheCreateTokens: 5}, Model: "claude-sonnet-4-6"},
+			// Frame 3: turn tokens 80/40/150/8
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 80, OutputTokens: 40, CacheReadTokens: 150, CacheCreateTokens: 8}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	events, _, _ := hub.Subscribe(sess.ID, 0)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Wait for the 3rd frame's session_updated:
+	// context_tokens = input + cache_read + cache_create = 80 + 150 + 8 = 238 (last frame only, UpdateContextTokens is per-frame).
+	// We detect completion by waiting until prompt_tokens in DB reaches 230 (100+50+80).
+	var lastUpdate *chat.SessionUpdate
+
+	deadline := time.After(3 * time.Second)
+
+	for {
+		select {
+		case e := <-events:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.PromptTokens == 230 {
+				lastUpdate = e.SessionUpdate
+			}
+		case <-deadline:
+			if lastUpdate == nil {
+				t.Fatal("timed out waiting for 3rd usage frame (PromptTokens==230)")
+			}
+		}
+
+		if lastUpdate != nil {
+			break
+		}
+	}
+
+	// After 3 frames, DB totals: 230 prompt (100+50+80), 115 completion (50+25+40),
+	// 450 cache_read (200+100+150), 23 cache_creation (10+5+8), $0.03 cost.
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
+		s, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		if s.PromptTokens == 230 {
+			assert.Equal(t, int64(230), s.PromptTokens)
+			assert.Equal(t, int64(115), s.CompletionTokens)
+			assert.Equal(t, int64(450), s.CacheReadTokens)
+			assert.Equal(t, int64(23), s.CacheCreationTokens)
+			assert.InDelta(t, 0.03, s.EstimatedCostUSD, 1e-6)
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("DB prompt_tokens never reached 230")
+}
+
+// TestHandleUsageEntry_NegativeDeltaRegression is a regression test ensuring
+// that a smaller frame following a larger one does not produce a negative delta.
+// Previously, treating frames as cumulative totals would subtract the previous
+// snapshot and produce negative increments when turn B < turn A.
+func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
+
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			// Turn A: large turn.
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 200, OutputTokens: 80}, Model: "claude-sonnet-4-6"},
+			// Turn B: smaller turn — would have produced negative delta under old math.
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 50, OutputTokens: 20}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	events, _, _ := hub.Subscribe(sess.ID, 0)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Wait until prompt_tokens reaches 250 (200+50).
+	deadline := time.After(3 * time.Second)
+
+	for {
+		select {
+		case e := <-events:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.PromptTokens == 250 {
+				// Both turns accumulated correctly — verify DB.
+				dbDeadline := time.Now().Add(time.Second)
+				for time.Now().Before(dbDeadline) {
+					s, err := store.GetSession(ctx, sess.ID)
+					require.NoError(t, err)
+
+					if s.PromptTokens == 250 {
+						assert.Equal(t, int64(250), s.PromptTokens, "smaller turn must not produce negative delta")
+						assert.Equal(t, int64(100), s.CompletionTokens)
+
+						return
+					}
+
+					time.Sleep(10 * time.Millisecond)
+				}
+
+				t.Fatal("DB prompt_tokens never reached 250")
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for PromptTokens==250")
+		}
+	}
+}
+
+// TestHandleUsageEntry_EndSessionReopenAccumulates verifies that cost
+// accumulation persists correctly across an EndSession + reopen cycle. The
+// second open must not reset or subtract from the first open's totals.
+func TestHandleUsageEntry_EndSessionReopenAccumulates(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
+
+	// A runner that delivers one frame per open, alternating on each StartChat.
+	runner := &twoPhaseUsageRunner{
+		phase1: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 40}, Model: "claude-sonnet-4-6"},
+		},
+		phase2: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 50, OutputTokens: 20}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	// --- Phase 1: open, wait for frame, end session ---
+	events1, _, _ := hub.Subscribe(sess.ID, 0)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Wait for phase-1 frame to land (PromptTokens == 100 in SSE).
+	deadline1 := time.After(3 * time.Second)
+
+waitPhase1:
+	for {
+		select {
+		case e := <-events1:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.PromptTokens == 100 {
+				break waitPhase1
+			}
+		case <-deadline1:
+			t.Fatal("timed out waiting for phase-1 usage frame (PromptTokens==100)")
+		}
+	}
+
+	// Verify DB after phase 1.
+	s1, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), s1.PromptTokens, "phase-1 prompt tokens")
+
+	// End the session (cold transition).
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	// --- Phase 2: reopen, wait for frame, assert cumulative totals ---
+	events2, _, _ := hub.Subscribe(sess.ID, 0)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Wait for phase-2 frame to land (PromptTokens == 150 cumulative in SSE).
+	deadline2 := time.After(3 * time.Second)
+
+waitPhase2:
+	for {
+		select {
+		case e := <-events2:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.PromptTokens == 150 {
+				break waitPhase2
+			}
+		case <-deadline2:
+			t.Fatal("timed out waiting for phase-2 usage frame (PromptTokens==150)")
+		}
+	}
+
+	// DB must show cumulative total: 100 + 50 = 150 (no negative-delta reset on reopen).
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
+		s, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		if s.PromptTokens == 150 {
+			assert.Equal(t, int64(150), s.PromptTokens, "EndSession+reopen must not reset or subtract")
+			assert.Equal(t, int64(60), s.CompletionTokens)
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("DB prompt_tokens never reached 150 after EndSession+reopen")
+}
+
+// twoPhaseUsageRunner is a stub RunnerClient that delivers phase1 entries on the
+// first StartChat, and phase2 entries on the second (simulating EndSession + reopen).
+type twoPhaseUsageRunner struct {
+	mu     sync.Mutex
+	calls  int
+	phase1 []chat.LogEntry
+	phase2 []chat.LogEntry
+}
+
+func (r *twoPhaseUsageRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+	r.mu.Lock()
+	r.calls++
+	r.mu.Unlock()
+
+	return "container-twophase", nil
+}
+
+func (r *twoPhaseUsageRunner) EndChat(_ context.Context, _ string) error { return nil }
+
+func (r *twoPhaseUsageRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (r *twoPhaseUsageRunner) StreamLogs(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+	r.mu.Lock()
+	calls := r.calls
+	r.mu.Unlock()
+
+	entries := r.phase1
+	if calls > 1 {
+		entries = r.phase2
+	}
+
+	for _, e := range entries {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		onEntry(e)
+	}
+
+	<-ctx.Done()
+
+	return ctx.Err()
+}
+
+// TestHandleUsageEntry_NilPricer verifies that tokens still accumulate and no
+// panic occurs when Manager is wired without a Pricer.
+func TestHandleUsageEntry_NilPricer(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 500, OutputTokens: 100}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       nil, // explicitly nil
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	// Token counters must have advanced, cost must stay 0.
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
+		s, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		if s.PromptTokens == 500 {
+			assert.Equal(t, int64(500), s.PromptTokens)
+			assert.Equal(t, int64(100), s.CompletionTokens)
+			assert.InDelta(t, 0.0, s.EstimatedCostUSD, 1e-9, "nil-pricer must produce zero cost")
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("DB prompt_tokens never reached 500 with nil pricer")
+}
+
+// TestHandleUsageEntry_UnknownModel verifies that an unknown model still
+// advances token counters, records cost $0, and does not panic.
+func TestHandleUsageEntry_UnknownModel(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 300, OutputTokens: 50}, Model: "totally-unknown-model-xyz"},
+		},
+	}
+
+	pricer := newStubPricer(map[string]float64{}) // empty — all models unknown
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
+		s, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		if s.PromptTokens == 300 {
+			assert.Equal(t, int64(300), s.PromptTokens)
+			assert.InDelta(t, 0.0, s.EstimatedCostUSD, 1e-9, "unknown-model cost must be $0")
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("DB prompt_tokens never reached 300 for unknown model")
+}
+
+// TestHandleUsageEntry_NoSSEPublishOnPersistError verifies that no
+// session_updated event is published when IncrementSessionCost fails.
+func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	realStore, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	fStore := &incrementFailingStore{Store: realStore}
+
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
+	mgr := chat.NewManager(chat.Config{
+		Store:        fStore,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	events, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+
+	// Arm the fault BEFORE opening so the first usage frame fails on IncrementSessionCost.
+	fStore.FailNextIncrement()
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Wait briefly — if a session_updated with EstimatedCostUSD is published,
+	// that's the bug. We only accept a session_updated with status (cold→active).
+	timeout := time.After(500 * time.Millisecond)
+
+	for {
+		select {
+		case e := <-events:
+			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil {
+				// An active status push is expected from OpenSession — allow it.
+				if e.SessionUpdate.Status != nil {
+					continue
+				}
+
+				// Any other session_updated (with context_tokens from the
+				// UpdateContextTokens call or cost fields) means the usage
+				// event ran — that's the context_tokens one. But if
+				// EstimatedCostUSD is non-zero that's the bug.
+				if e.SessionUpdate.EstimatedCostUSD != 0 {
+					t.Fatalf("session_updated with EstimatedCostUSD published despite IncrementSessionCost error: %+v", e.SessionUpdate)
+				}
+			}
+		case <-timeout:
+			return // no spurious cost event published — test passes
+		}
+	}
+}
+
+// TestHandleUsageEntry_PreservesContextTokens verifies that both
+// UpdateContextTokens AND IncrementSessionCost are called per frame —
+// the existing context-tokens flow must not be dropped.
+func TestHandleUsageEntry_PreservesContextTokens(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.005})
+	runner := &usageStreamingRunner{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 4000, CacheCreateTokens: 200}, Model: "claude-sonnet-4-6"},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Runner:       runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "claude-sonnet-4-6",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	// context_tokens = input + cache_read + cache_create = 1000 + 4000 + 200 = 5200
+	dbDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(dbDeadline) {
+		s, err := store.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		if s.ContextTokens == 5200 && s.PromptTokens == 1000 {
+			// Both paths ran correctly.
+			assert.Equal(t, int64(5200), s.ContextTokens, "UpdateContextTokens must still run")
+			assert.Equal(t, int64(1000), s.PromptTokens, "IncrementSessionCost must also run")
+			assert.Equal(t, int64(500), s.CompletionTokens)
+			assert.InDelta(t, 0.005, s.EstimatedCostUSD, 1e-6)
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("session never had both context_tokens=5200 and prompt_tokens=1000")
+}
+
+// aggregateCountingStore wraps a real chat.Store and counts AggregateCost calls.
+type aggregateCountingStore struct {
+	chat.Store
+	calls atomic.Int64
+}
+
+func (a *aggregateCountingStore) AggregateCost(ctx context.Context, since, until time.Time) (float64, float64, []float64, error) {
+	a.calls.Add(1)
+
+	return a.Store.AggregateCost(ctx, since, until)
+}
+
+// failingAggregateCostStore wraps a real store and returns an error for every
+// AggregateCost call. Used to verify that errors are not cached.
+type failingAggregateCostStore struct {
+	chat.Store
+	calls atomic.Int64
+}
+
+func (f *failingAggregateCostStore) AggregateCost(_ context.Context, _, _ time.Time) (float64, float64, []float64, error) {
+	f.calls.Add(1)
+
+	return 0, 0, nil, errors.New("injected AggregateCost failure")
+}
+
+// TestGetChatCostSummary_UTCAlignment seeds a session with last_active = now-2h
+// and asserts that its cost appears in both last30d AND series30d[29].
+func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := sqlite.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	ctx := context.Background()
+
+	// Fix clock at 14:00 UTC so "now - 2h" = 12:00 UTC today (still today).
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Runner:  &stubRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// Seed a session with last_active = now - 2h.
+	sessID := chat.NewID()
+	require.NoError(t, realStore.CreateSession(ctx, chat.Session{
+		ID:         sessID,
+		Title:      "utc-align-test",
+		Status:     chat.StatusCold,
+		CreatedAt:  now.Add(-2 * time.Hour),
+		LastActive: now.Add(-2 * time.Hour),
+		CreatedBy:  "human:test",
+	}))
+
+	// Add cost via IncrementSessionCost.
+	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	last30d, _, series30d, err := mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+
+	// last30d should include the cost.
+	assert.InDelta(t, 1.50, last30d, 1e-9, "last30d must include the session seeded 2h ago")
+
+	// series30d[29] = today's bucket (UTC midnight alignment).
+	require.Len(t, series30d, 30, "series30d must be length 30")
+	assert.InDelta(t, 1.50, series30d[29], 1e-9, "series30d[29] must contain today's cost (regression: UTC off-by-one)")
+}
+
+// TestGetChatCostSummary_Cache verifies that rapid successive calls hit the
+// store exactly once, and that advancing the clock by 31s causes a re-query.
+func TestGetChatCostSummary_Cache(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := sqlite.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	countingStore := &aggregateCountingStore{Store: realStore}
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   countingStore,
+		Runner:  &stubRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	// First call: cache miss → store hit (count = 1).
+	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), countingStore.calls.Load(), "first call should hit store")
+
+	// Second call: cache hit → store NOT hit (count stays 1).
+	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), countingStore.calls.Load(), "second call within TTL should use cache")
+
+	// Advance clock by 31s past the TTL → cache expired.
+	clk.Advance(31 * time.Second)
+
+	// Third call: cache expired → store hit again (count = 2).
+	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), countingStore.calls.Load(), "third call after TTL expiry should re-query store")
+}
+
+// TestGetChatCostSummary_ErrorNotCached verifies that errors from AggregateCost
+// are never cached: every call on an error path reaches the store.
+func TestGetChatCostSummary_ErrorNotCached(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := sqlite.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	failStore := &failingAggregateCostStore{Store: realStore}
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   failStore,
+		Runner:  &stubRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	// First error call → count = 1.
+	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	require.Error(t, err, "should return error from failing store")
+	assert.Equal(t, int64(1), failStore.calls.Load())
+
+	// Second call → error not cached → count = 2.
+	_, _, _, err = mgr.GetChatCostSummary(ctx)
+	require.Error(t, err)
+	assert.Equal(t, int64(2), failStore.calls.Load(), "error must not be cached: second call should also hit store")
+}
+
+// TestGetChatCostSummary_SeriesDefensiveCopy verifies that mutating the
+// series30d slice returned by the first call does not corrupt the cached entry
+// or the slice returned by a second call within the same TTL window.
+func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := sqlite.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	ctx := context.Background()
+
+	// Fix clock so both calls fall within the 30s TTL.
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Runner:  &stubRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// Seed a session whose cost will appear in series30d[29].
+	sessID := chat.NewID()
+	require.NoError(t, realStore.CreateSession(ctx, chat.Session{
+		ID:         sessID,
+		Title:      "copy-test",
+		Status:     chat.StatusCold,
+		CreatedAt:  now.Add(-1 * time.Hour),
+		LastActive: now.Add(-1 * time.Hour),
+		CreatedBy:  "human:test",
+	}))
+	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	// First call — populates cache and returns a copy.
+	_, _, series1, err := mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	require.Len(t, series1, 30, "series1 must have 30 elements")
+
+	// Mutate the returned slice.
+	origVal := series1[29]
+	series1[29] = 999.99
+
+	// Second call — still within TTL window, must use the cache.
+	// The cached entry must be unaffected by the mutation above.
+	_, _, series2, err := mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	require.Len(t, series2, 30, "series2 must have 30 elements")
+
+	assert.InDelta(t, origVal, series2[29], 1e-9,
+		"mutating series1 must not corrupt the cached entry: series2[29] should still equal the original value")
+}

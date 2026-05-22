@@ -71,7 +71,8 @@ func (s *Store) Close() error { return s.db.Close() }
 // new fields don't drift between GetSession, ListSessions, and scanSession.
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
-    rehydration_started_at`
+    rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
+    cache_creation_tokens, estimated_cost_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -493,6 +494,11 @@ func scanSession(sc scanner) (chat.Session, error) {
 		contextTokensUpdatedAt      sql.NullInt64
 		rehydrationActive           int
 		rehydrationStartedAt        sql.NullInt64
+		promptTokens                int64
+		completionTokens            int64
+		cacheReadTokens             int64
+		cacheCreationTokens         int64
+		estimatedCostUSD            float64
 	)
 
 	if err := sc.Scan(
@@ -500,6 +506,8 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&containerID, &workspaceJSON,
 		&model, &contextTokens, &contextTokensUpdatedAt, &rehydrationActive,
 		&rehydrationStartedAt,
+		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
+		&estimatedCostUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -527,6 +535,12 @@ func scanSession(sc scanner) (chat.Session, error) {
 		s.RehydrationStartedAt = &t
 	}
 
+	s.PromptTokens = promptTokens
+	s.CompletionTokens = completionTokens
+	s.CacheReadTokens = cacheReadTokens
+	s.CacheCreationTokens = cacheCreationTokens
+	s.EstimatedCostUSD = estimatedCostUSD
+
 	if workspaceJSON.Valid && workspaceJSON.String != "" && workspaceJSON.String != "null" {
 		if err := json.Unmarshal([]byte(workspaceJSON.String), &s.Workspace); err != nil {
 			return chat.Session{}, fmt.Errorf("chat: unmarshal workspace: %w", err)
@@ -534,4 +548,124 @@ func scanSession(sc scanner) (chat.Session, error) {
 	}
 
 	return s, nil
+}
+
+// AggregateCost returns cost aggregates over the 30-day window [since, until)
+// and the equal-width prior window [since-30d, since). series30d is a
+// length-30 daily slice; index 0 = since, index 29 = the day before until.
+// Days with no sessions are filled with 0.0. Uses the idx_chat_sessions_last_active
+// index for both range scans.
+func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error) {
+	const numDays = 30
+
+	series30d = make([]float64, numDays)
+
+	// last30d: sum of cost in [since, until).
+	row := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
+		 FROM chat_sessions
+		 WHERE last_active >= ? AND last_active < ?`,
+		since.Unix(), until.Unix(),
+	)
+	if err = row.Scan(&last30d); err != nil {
+		return 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
+	}
+
+	// prior30d: sum of cost in the equal-width window before since.
+	priorStart := since.Add(-30 * 24 * time.Hour)
+
+	row = s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
+		 FROM chat_sessions
+		 WHERE last_active >= ? AND last_active < ?`,
+		priorStart.Unix(), since.Unix(),
+	)
+	if err = row.Scan(&prior30d); err != nil {
+		return 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
+	}
+
+	// series30d: per-day sums bucketed by date(last_active, 'unixepoch').
+	// Returns only rows with sessions; the Go fill-loop zeroes the rest.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT date(last_active, 'unixepoch') AS day, SUM(estimated_cost_usd) AS day_cost
+		 FROM chat_sessions
+		 WHERE last_active >= ? AND last_active < ?
+		 GROUP BY day
+		 ORDER BY day ASC`,
+		since.Unix(), until.Unix(),
+	)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
+	}
+	defer rows.Close()
+
+	// Compute once: midnight UTC of the start of the window.
+	sinceDay := time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, time.UTC)
+
+	for rows.Next() {
+		var (
+			dayStr  string
+			dayCost float64
+		)
+
+		if err = rows.Scan(&dayStr, &dayCost); err != nil {
+			return 0, 0, nil, fmt.Errorf("chat: aggregate cost series scan: %w", err)
+		}
+
+		// Parse the day string (SQLite date() returns "YYYY-MM-DD").
+		t, parseErr := time.Parse("2006-01-02", dayStr)
+		if parseErr != nil {
+			continue // skip unparseable rows rather than abort
+		}
+
+		// Compute the bucket index: days since since (truncated to midnight UTC).
+		tDay := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+		idx := int(tDay.Sub(sinceDay).Hours() / 24)
+
+		if idx >= 0 && idx < numDays {
+			series30d[idx] += dayCost
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series rows: %w", err)
+	}
+
+	return last30d, prior30d, series30d, nil
+}
+
+// IncrementSessionCost atomically adds token deltas and cost to the session row
+// using a single UPDATE … RETURNING statement. Race-free: the DB performs the
+// arithmetic so concurrent increments cannot interleave. Returns ErrSessionNotFound
+// when no matching row exists.
+func (s *Store) IncrementSessionCost(
+	ctx context.Context,
+	sessionID string,
+	dPrompt, dCompletion, dCacheRead, dCacheCreation int64,
+	dCost float64,
+	model string,
+) (newPrompt, newCompletion, newCacheRead, newCacheCreation int64, newCost float64, err error) {
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE chat_sessions SET
+			prompt_tokens       = prompt_tokens       + ?,
+			completion_tokens   = completion_tokens   + ?,
+			cache_read_tokens   = cache_read_tokens   + ?,
+			cache_creation_tokens = cache_creation_tokens + ?,
+			estimated_cost_usd  = estimated_cost_usd  + ?,
+			model               = COALESCE(NULLIF(?, ''), model)
+		WHERE id = ?
+		RETURNING prompt_tokens, completion_tokens, cache_read_tokens,
+		          cache_creation_tokens, estimated_cost_usd`,
+		dPrompt, dCompletion, dCacheRead, dCacheCreation, dCost, model, sessionID,
+	)
+
+	if err := row.Scan(&newPrompt, &newCompletion, &newCacheRead, &newCacheCreation, &newCost); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, 0, 0, 0, 0, chat.ErrSessionNotFound
+		}
+
+		return 0, 0, 0, 0, 0, fmt.Errorf("chat: increment session cost: %w", err)
+	}
+
+	return newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, nil
 }
