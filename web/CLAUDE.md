@@ -353,14 +353,21 @@ export interface ChatSessionUpdate {
   model?: string;
   rehydration_active?: boolean;
   status?: ChatStatus;  // present only when the lifecycle state changed
+  // Running cost totals — updated after each usage frame from the runner.
+  estimated_cost_usd?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
 ```
 
 `last_chat_id` localStorage key tracks the focused pane's chat. In the
 multi-pane layout (see next section), `useChatLayout` writes the key
-whenever focus moves; `ChatThread` only writes it in non-embedded (mobile
-single-pane) mode. This preserves backward compat with external readers
-that expect a single "current chat" pointer.
+whenever focus moves; `ChatThread` skips the write when `embedded` is true
+(always the case in the current multi-pane layout, where every `ChatThread`
+is mounted embedded inside a `ChatPane`). This preserves backward compat
+with external readers that expect a single "current chat" pointer.
 
 ### Timestamps in ChatPanel
 
@@ -407,9 +414,8 @@ panels library.
 - `splitFromPane(slot)` / `cancelEmptyPane(slot)` — manual "+ split"
   button creates an empty pane with a "Pick a chat" picker; Esc cancels.
 - `closePane(slot)` — removes the pane (the chat session itself is **not**
-  deleted; the End / Reopen / Delete actions live on `ChatThread`'s
-  non-embedded header and are reachable on mobile or by closing other
-  panes down to one).
+  deleted; End / Reopen / Delete are always reachable via `PaneHeader`'s
+  ⋮ menu on any remaining pane).
 - `movePane(fromSlot, toSlot)` — unconditional swap of the two slots' contents (including null-on-either-side); then `normalize()` collapses any empty slots. Focus follows the dragged chat: `focused = toSlot` when the source had a chat; `lastFocusedAt[toSlot]` is stamped. No-op when `fromSlot === toSlot`. Used exclusively by pane-header drags (see below).
 - `focus(slot)` — stamps `lastFocusedAt[slot] = Date.now()` for LRU.
 
@@ -484,9 +490,13 @@ re-declare them locally.
 
 `useMediaQuery('(min-width: 768px)')` toggles single-pane mode. The hook's
 state persists across resizes; only one pane (the focused one) is
-rendered. Sidebar drag is disabled on touch devices. The full
-`ChatThread` (with its End / Reopen / Delete header) is rendered
-*non-embedded* on mobile so all chat actions stay reachable.
+rendered. Sidebar drag is disabled on touch devices.
+
+Both desktop and mobile render `ChatThread` as *embedded* inside a `ChatPane`.
+`PaneHeader` provides the ⋮ menu for End / Reopen / Delete on both breakpoints.
+On mobile, `MobileChatHeader` (hamburger + title + "+ new chat" button) is
+rendered above `<ChatLayout isMobile={true}>`; the `ChatLayout` itself still
+renders a single `ChatPane` whose body is the embedded `ChatThread`.
 
 ### Visual tokens
 
