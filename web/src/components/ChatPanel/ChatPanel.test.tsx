@@ -346,14 +346,13 @@ describe('ChatPanel', () => {
         { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: multiQ },
       ];
       render(<ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={false} />);
-      const checkboxes = screen.getAllByRole('checkbox');
-      // 3 question checkboxes + 3 filter-bar checkboxes (Text, Tool calls, Thinking).
-      const optionBoxes = checkboxes.filter((cb) =>
-        ['a', 'b', 'c'].includes((cb.parentElement?.textContent ?? '').trim()),
-      );
-      expect(optionBoxes.length).toBe(3);
-      fireEvent.click(optionBoxes[0]);
-      fireEvent.click(optionBoxes[2]);
+      const opt0 = screen.getByTestId('user-question-option-0');
+      const opt2 = screen.getByTestId('user-question-option-2');
+      // Click the label (multi-select wraps the checkbox inside a label
+      // tagged with the option testid); the click propagates to the
+      // checkbox input via the browser's label association.
+      fireEvent.click(opt0);
+      fireEvent.click(opt2);
       fireEvent.click(screen.getByRole('button', { name: /Send \(2\)/ }));
       expect(onSend).toHaveBeenCalledWith('a, c');
     });
@@ -411,6 +410,72 @@ describe('ChatPanel', () => {
       render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
       expect(screen.getByText('Q1?')).toBeInTheDocument();
       expect(screen.getByText('Q2?')).toBeInTheDocument();
+    });
+
+    it('does not crash when a question is missing the options field', () => {
+      // Defence-in-depth: runner-side validation should reject this shape,
+      // but the frontend must not crash if a malformed payload slips
+      // through (e.g. a future schema change).
+      const payload = JSON.stringify({ questions: [{ question: 'lonely' }] });
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: payload },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      // Card renders with the question text but no option buttons.
+      expect(screen.getByText('lonely')).toBeInTheDocument();
+      expect(screen.queryByTestId('user-question-option-0')).not.toBeInTheDocument();
+    });
+
+    it('clamps oversized payloads and shows a truncation note', () => {
+      // Build a payload with 22 questions and 22 options each — both
+      // exceed the 20-cap. The card should clamp to 20 and surface a
+      // "[N more truncated]" line.
+      const opts = Array.from({ length: 22 }, (_, i) => ({ label: `opt-${i}` }));
+      const questions = Array.from({ length: 22 }, (_, i) => ({
+        question: `Q${i}?`,
+        options: opts,
+      }));
+      const payload = JSON.stringify({ questions });
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: payload },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      // Q19 (last clamped) renders; Q20 (first dropped) does not.
+      expect(screen.getByText('Q19?')).toBeInTheDocument();
+      expect(screen.queryByText('Q20?')).not.toBeInTheDocument();
+      // Truncation notes appear for both questions and options.
+      expect(screen.getByText(/2 more questions truncated/)).toBeInTheDocument();
+      expect(screen.getAllByText(/2 more options truncated/).length).toBeGreaterThan(0);
+    });
+
+    it('uses index-based selection so duplicate-label options stay independent', () => {
+      const onSend = vi.fn();
+      const payload = JSON.stringify({
+        questions: [
+          { question: 'pick', multiSelect: true, options: [{ label: 'dup' }, { label: 'dup' }] },
+        ],
+      });
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: payload },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={onSend} sendDisabled={false} />);
+      // Clicking the first duplicate should NOT also toggle the second.
+      fireEvent.click(screen.getByTestId('user-question-option-0'));
+      fireEvent.click(screen.getByRole('button', { name: /Send \(1\)/ }));
+      expect(onSend).toHaveBeenCalledWith('dup');
+    });
+
+    it('caps the malformed-payload preview', () => {
+      const huge = 'x'.repeat(500);
+      const uqLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user_question', content: huge },
+      ];
+      render(<ChatPanel logs={uqLogs} onSend={() => {}} sendDisabled={false} />);
+      const node = screen.getByTestId('user-question-malformed');
+      // The 200-char cap plus ellipsis means the rendered text is well
+      // under the original 500.
+      expect(node.textContent?.length).toBeLessThan(huge.length);
+      expect(node.textContent).toContain('…');
     });
   });
 });

@@ -78,7 +78,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
     [logs, showText, showToolCalls, showThinking],
   );
 
-  const answersDisabled = sendDisabled || !!readOnlyMessage;
+  const interactionDisabled = sendDisabled || !!readOnlyMessage;
 
   const decoratedLogs = useMemo<Decorated[]>(() => {
     const result = new Array<Decorated>(filteredLogs.length);
@@ -143,15 +143,25 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         {decoratedLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          decoratedLogs.map((d) => (
-            <ChatEntry
-              key={d.entry.seq ?? d.entry.ts}
-              entry={d.entry}
-              stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
-              onSend={onSend}
-              answersDisabled={answersDisabled}
-            />
-          ))
+          decoratedLogs.map((d) => {
+            if (d.entry.type === 'user_question') {
+              return (
+                <UserQuestionCard
+                  key={d.entry.seq ?? d.entry.ts}
+                  content={d.entry.content}
+                  disabled={interactionDisabled}
+                  onAnswer={onSend}
+                />
+              );
+            }
+            return (
+              <ChatEntry
+                key={d.entry.seq ?? d.entry.ts}
+                entry={d.entry}
+                stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
+              />
+            );
+          })
         )}
       </div>
 
@@ -176,14 +186,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
   );
 }
 
-interface ChatEntryProps {
-  entry: LogEntry;
-  stamp: { hhmm: string; title: string } | null;
-  onSend: (content: string) => void | Promise<void>;
-  answersDisabled: boolean;
-}
-
-function ChatEntry({ entry, stamp, onSend, answersDisabled }: ChatEntryProps) {
+function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; title: string } | null }) {
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message
   // style. The match is on kind (not content) so the rendering survives
@@ -205,16 +208,6 @@ function ChatEntry({ entry, stamp, onSend, answersDisabled }: ChatEntryProps) {
         </span>
         <hr className="flex-1 border-t" style={{ borderColor: 'var(--bg3)' }} />
       </div>
-    );
-  }
-
-  if (entry.type === 'user_question') {
-    return (
-      <UserQuestionCard
-        content={entry.content}
-        disabled={answersDisabled}
-        onAnswer={onSend}
-      />
     );
   }
 

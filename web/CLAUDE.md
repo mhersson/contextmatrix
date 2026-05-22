@@ -256,9 +256,10 @@ and renders one card per chat entry:
 The answer reuses the existing `onSend` channel — `CardChat` routes it via
 `api.sendCardMessage`, and global chat via `useChatStream`'s
 `sendChatMessage` — so the runner sees the user's answer as a normal
-text turn. No structured `tool_result` is sent back to Claude; that is a
-deliberate scope decision (see plan
-`memoized-purring-crane.md`).
+text turn. No structured `tool_result` is sent back to Claude: Claude
+Code's CLI bridge currently has no path to inject a synthesized
+`tool_result` for an externally-answered tool call, so the answer is
+sent as a plain user turn instead.
 
 ### Rail tabs + default tab on HITL
 
