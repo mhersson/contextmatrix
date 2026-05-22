@@ -1155,6 +1155,80 @@ foundMessage:
 	assert.Equal(t, int64(1), runner.streamCalls.Load())
 }
 
+// TestManager_BridgesUserQuestionLogEntry verifies that a runner LogEntry
+// of type "user_question" is persisted as a RoleUserQuestion message and
+// published on the SSE hub with its JSON payload intact. The frontend
+// uses this role to render the structured AskUserQuestion card.
+func TestManager_BridgesUserQuestionLogEntry(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	payload := `{"questions":[{"question":"Which?","options":[{"label":"a"},{"label":"b"}]}]}`
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: payload})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	hub := chat.NewSSEHub(128)
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "uq", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	ch, _, _ := hub.Subscribe(sess.ID, 0)
+
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	// Unwind the consumer goroutine on test exit so the streamLogsFn
+	// returns from its ctx.Done() block before the SQLite store closes —
+	// otherwise the goroutine leaks past test return.
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sess.ID) })
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			if e.Kind == chat.SSEKindSessionUpdate {
+				continue
+			}
+
+			assert.Equal(t, chat.RoleUserQuestion, e.Role)
+			assert.Equal(t, payload, e.Content)
+
+			return
+		case <-deadline:
+			t.Fatal("hub did not receive user_question event")
+		}
+	}
+}
+
 // TestManager_EndThenReopen_SpawnsFreshConsumer is the regression for the
 // startConsumer ↔ stopConsumer cleanup race. With the unfixed code,
 // stopConsumer cancels the consumer context and returns immediately; the

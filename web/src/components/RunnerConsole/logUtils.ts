@@ -9,6 +9,7 @@ export const TYPE_COLORS: Record<LogEntryType, string> = {
   system: 'var(--green)',
   user: 'var(--blue)',
   gap: 'var(--orange)',
+  user_question: 'var(--purple)',
 };
 
 export const cardBadgeColor = idColor;

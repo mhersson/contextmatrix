@@ -4,6 +4,7 @@ import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { formatHHMM, formatTitle, TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatComposer } from './ChatComposer';
+import { UserQuestionCard } from './UserQuestionCard';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -70,10 +71,14 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         if (e.type === 'text') return showText;
         if (e.type === 'tool_call') return showToolCalls;
         if (e.type === 'thinking') return showThinking;
+        // 'user_question' is always shown — it is the structured prompt the
+        // assistant is waiting on, and hiding it would strand the user.
         return true;
       }),
     [logs, showText, showToolCalls, showThinking],
   );
+
+  const interactionDisabled = sendDisabled || !!readOnlyMessage;
 
   const decoratedLogs = useMemo<Decorated[]>(() => {
     const result = new Array<Decorated>(filteredLogs.length);
@@ -138,13 +143,25 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         {decoratedLogs.length === 0 ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          decoratedLogs.map((d) => (
-            <ChatEntry
-              key={d.entry.seq ?? d.entry.ts}
-              entry={d.entry}
-              stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
-            />
-          ))
+          decoratedLogs.map((d) => {
+            if (d.entry.type === 'user_question') {
+              return (
+                <UserQuestionCard
+                  key={d.entry.seq ?? d.entry.ts}
+                  content={d.entry.content}
+                  disabled={interactionDisabled}
+                  onAnswer={onSend}
+                />
+              );
+            }
+            return (
+              <ChatEntry
+                key={d.entry.seq ?? d.entry.ts}
+                entry={d.entry}
+                stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
+              />
+            );
+          })
         )}
       </div>
 

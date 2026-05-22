@@ -27,6 +27,8 @@ function roleToType(role: string): LogEntry['type'] {
       return 'thinking';
     case 'tool_call':
       return 'tool_call';
+    case 'user_question':
+      return 'user_question';
     case 'stderr':
       return 'stderr';
     case 'system':
