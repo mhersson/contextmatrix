@@ -46,7 +46,9 @@ Default to `claude-sonnet-4-6`. Upgrade all three specialists to
 `claude-opus-4-7` when total changed lines (insertions + deletions)
 exceed 200.
 
-Run `git diff <base>..HEAD --shortstat`. The output is one line, e.g.
+Run `git diff <base>..HEAD --shortstat` (branch base) or
+`git diff <base> --shortstat` (snapshot base; see change-set computation
+below). The output is one line, e.g.
 `4 files changed, 187 insertions(+), 1 deletion(-)`. Sum insertions and
 deletions; compare to 200. Either or both fields may be absent if the
 diff is pure-add or pure-delete — treat missing as zero.
@@ -73,14 +75,18 @@ silently drop the missing specialty's coverage.
 - `card_id`, `project`, and **your `agent_id`** (specialists call `report_usage`
   / `add_log` with your id; the server enforces `agent_id == AssignedAgent`).
 - Change-set computation:
-  1. **Determine the diff base.** Read the parent card's activity log. If a
-     prior entry has `action="review_completed"`, parse `head=<sha>` from its
-     `message` and use that SHA as the diff base. Otherwise use the card's
-     `base_branch` if set, else `main`.
-  2. `git diff <base>..HEAD --name-only`.
-  3. `git status --porcelain` for working-tree (`M`, `A`, `??`).
-  4. Union of 2+3 is the review surface. `Read` each file directly. Untracked
-     files are in scope.
+  1. **Determine the diff base.** Read the parent card's activity log.
+     - If a prior entry has `action="review_completed"`, parse `head=<sha>`
+       from its message — this is a working-tree snapshot from the prior
+       pass.
+     - Otherwise use the card's `base_branch` if set, else `main`.
+  2. **Compute the review surface:**
+     - Snapshot base: `git diff <sha> --name-only` (working tree vs.
+       snapshot — single command captures the delta).
+     - Branch base: `git diff <base>..HEAD --name-only` plus
+       `git status --porcelain` for working-tree (`M`, `A`, `??`). Union
+       is the surface.
+  3. `Read` each file directly. Untracked files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
 - Engage relevant skills via the Skill tool (`go-development`, `code-review`,
   etc.); log each with
@@ -254,13 +260,21 @@ recommendation: approve | approve_with_notes | revise
 summary: <one-line summary>
 ```
 
-Then call:
+Then capture a working-tree snapshot and call `add_log`:
 
 ```
+SNAPSHOT=$(git stash create -u)
+if [ -z "$SNAPSHOT" ]; then
+  SNAPSHOT=$(git rev-parse HEAD)
+fi
+
 add_log(card_id=<parent>, agent_id=<your id>,
         action="review_completed",
-        message="head=<git rev-parse HEAD> recommendation=<approve|approve_with_notes|revise>")
+        message="head=$SNAPSHOT recommendation=<approve|approve_with_notes|revise>")
 ```
+
+The SHA is a `git stash create -u` snapshot — never use bare `git stash`,
+which would reset the working tree.
 
 Do **not** call `release_card`. Do **not** call `transition_card`.
 

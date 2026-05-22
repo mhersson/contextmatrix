@@ -2894,10 +2894,10 @@ func TestCreateCard_PreservesSkillsThroughDependsOn(t *testing.T) {
 // TestReviewTaskSkill_StrictProductionReadyBar pins the production-ready bar
 // in workflow-skills/review-task.md: the file must frame the review as a
 // production-ready gate near the top, declare the 4-tier severity scale
-// (Critical / Important / Minor / Nits), and synthesise Critical/Important/
-// Minor concerns to `revise` while reserving `approve_with_notes` for
-// nits-only outcomes and `approve` for no-concern outcomes. A malformed or
-// missing specialist must also force `revise`.
+// (Critical / Important / Minor / Nits), and synthesise Critical/Important
+// concerns to `revise`, Minor-only outcomes to `approve_with_notes`, and
+// Nits-only or no-concern outcomes to `approve`. A malformed or missing
+// specialist must also force `revise`.
 func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "workflow-skills", "review-task.md")
 	data, err := os.ReadFile(skillPath)
@@ -2926,20 +2926,20 @@ func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 	assert.Regexp(t, `(?im)^#{3,4}\s+Nits\b`, content,
 		"review-task.md must define a Nits tier heading")
 
-	// Strict synthesis: Critical/Important/Minor → revise. The regex tolerates
-	// minor wording drift but anchors on the three tier names and the verb.
+	// Strict synthesis: Critical or Important → revise. The regex tolerates
+	// minor wording drift but anchors on the two tier names and the verb.
 	assert.Regexp(t,
-		`(?is)Critical[^.]{0,80}Important[^.]{0,80}Minor[^.]{0,200}revise`,
+		`(?is)Critical\s+or\s+Important[^.]{0,200}revise`,
 		content,
-		"review-task.md synthesis must send Critical/Important/Minor concerns to revise")
+		"review-task.md synthesis must send Critical or Important concerns to revise")
 
-	// Only Nits → approve_with_notes.
-	assert.Regexp(t, `(?is)Only\s+Nits[^.]{0,200}approve_with_notes`, content,
-		"review-task.md synthesis must map nits-only outcomes to approve_with_notes")
+	// Only Minor → approve_with_notes.
+	assert.Regexp(t, `(?is)Only\s+Minor[^.]{0,200}approve_with_notes`, content,
+		"review-task.md synthesis must map Minor-only outcomes to approve_with_notes")
 
-	// No concerns at any tier → approve.
-	assert.Regexp(t, `(?is)No concerns[^.]{0,160}`+"`approve`", content,
-		"review-task.md synthesis must map no-concerns outcomes to approve")
+	// Only Nits or no concerns → approve.
+	assert.Regexp(t, `(?is)Only\s+Nits\s+or\s+no\s+concerns[^.]{0,160}`+"`approve`", content,
+		"review-task.md synthesis must map Nits-only or no-concern outcomes to approve")
 
 	// Missing or malformed specialist must resolve to revise (the regex is
 	// tolerant of wording drift but requires the rule to actually mention the
@@ -2950,24 +2950,24 @@ func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 		"review-task.md must force revise when a specialist returns nothing or malformed output")
 }
 
-// TestOrchestratorHaltThreshold_FiveCycles pins the autonomous halt threshold
-// at 5 review cycles in both orchestrator skills. Drift guards use anchored
+// TestOrchestratorHaltThreshold_TwoCycles pins the autonomous halt threshold
+// at 2 review cycles in both orchestrator skills. Drift guards use anchored
 // NotRegexp so the test only fires when the old `>= 3` / `< 3` halt phrasing
 // reappears in the halt-threshold context — unrelated occurrences of the
 // number "3" elsewhere in the file are not false positives.
-func TestOrchestratorHaltThreshold_FiveCycles(t *testing.T) {
+func TestOrchestratorHaltThreshold_TwoCycles(t *testing.T) {
 	createPlanPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	createPlanData, err := os.ReadFile(createPlanPath)
 	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
 
 	createPlan := string(createPlanData)
 
-	// Phase 8 must compare review_attempts against >= 5 and halt with the
+	// Phase 8 must compare review_attempts against >= 2 and halt with the
 	// matching reason string.
-	assert.Regexp(t, `(?i)returned count is\s*>=\s*5\b`, createPlan,
-		"create-plan.md Phase 8 must halt when review_attempts >= 5")
-	assert.Regexp(t, `(?i)reason:\s*5\s+review\s+cycles\b`, createPlan,
-		"create-plan.md AUTONOMOUS_HALTED reason must say 5 review cycles")
+	assert.Regexp(t, `(?i)returned count is\s*>=\s*2\b`, createPlan,
+		"create-plan.md Phase 8 must halt when review_attempts >= 2")
+	assert.Regexp(t, `(?i)reason:\s*2\s+review\s+cycles\b`, createPlan,
+		"create-plan.md AUTONOMOUS_HALTED reason must say 2 review cycles")
 	// Drift guard: the old >= 3 phrasing in the same halt phrase context
 	// must not regress.
 	assert.NotRegexp(t, `(?i)count is\s*>=\s*3\b`, createPlan,
@@ -2979,13 +2979,13 @@ func TestOrchestratorHaltThreshold_FiveCycles(t *testing.T) {
 
 	runAuto := string(runAutoData)
 
-	// Phase 5 must branch on review_attempts < 5 / >= 5 with matching reason.
-	assert.Regexp(t, `(?i)If \*\*<\s*5\*\*`, runAuto,
-		"run-autonomous.md must branch on review_attempts < 5")
-	assert.Regexp(t, `(?i)If \*\*>=\s*5\*\*`, runAuto,
-		"run-autonomous.md must halt on review_attempts >= 5")
-	assert.Regexp(t, `(?i)reason:\s*5\s+review\s+cycles\b`, runAuto,
-		"run-autonomous.md AUTONOMOUS_HALTED reason must say 5 review cycles")
+	// Phase 5 must branch on review_attempts < 2 / >= 2 with matching reason.
+	assert.Regexp(t, `(?i)If \*\*<\s*2\*\*`, runAuto,
+		"run-autonomous.md must branch on review_attempts < 2")
+	assert.Regexp(t, `(?i)If \*\*>=\s*2\*\*`, runAuto,
+		"run-autonomous.md must halt on review_attempts >= 2")
+	assert.Regexp(t, `(?i)reason:\s*review\s+cycle\s+budget\s*\(2\)\s+exhausted`, runAuto,
+		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 2-cycle budget")
 	// Drift guards: anchored on the bold-formatted threshold patterns so we
 	// only catch regressions to the old 3-cycle phrasing, not unrelated
 	// numerals elsewhere in the file.
