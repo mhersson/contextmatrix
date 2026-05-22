@@ -82,7 +82,8 @@ silently drop the missing specialty's coverage.
   etc.); log each with
   `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
-  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=...)`.
+  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
+  Map stream-json `usage` frame fields: `usage.input_tokens` → `prompt_tokens`, `usage.output_tokens` → `completion_tokens`, `usage.cache_read_tokens` → `cache_read_tokens`, `usage.cache_creation_tokens` → `cache_creation_tokens`.
 - Return the output format below — nothing else.
 
 Specialist hard constraints:
@@ -232,6 +233,7 @@ Call `report_usage` for synthesis only:
 - `prompt_tokens` / `completion_tokens`: synthesizer-only consumption (Pass 1,
   prompt construction, merging). Specialists already reported their own — do not
   add them.
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
 Print exactly:
 

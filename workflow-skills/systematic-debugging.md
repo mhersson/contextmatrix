@@ -35,10 +35,16 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
   investigation step (a non-trivial grep, reading a multi-file path,
   forming a hypothesis).
 - After each `heartbeat`, call `report_usage` with `card_id`, `agent_id`,
-  `model: "claude-sonnet-4-6"`, and your token consumption since the last
-  report.
+  `model: "claude-sonnet-4-6"`, `prompt_tokens`, `completion_tokens`, and
+  `cache_read_tokens` / `cache_creation_tokens` if available.
 - If a single phase takes longer than 5 minutes of work, heartbeat
   proactively mid-phase.
+
+Map stream-json `usage` frame fields to `report_usage` parameters:
+- `usage.input_tokens` → `prompt_tokens`
+- `usage.output_tokens` → `completion_tokens`
+- `usage.cache_read_tokens` → `cache_read_tokens`
+- `usage.cache_creation_tokens` → `cache_creation_tokens`
 
 ## The Iron Law
 

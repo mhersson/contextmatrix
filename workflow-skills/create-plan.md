@@ -228,6 +228,12 @@ type to `subtask` for any card created with a `parent` field.
 
 ## Step 4: Report usage
 
+Map stream-json `usage` frame fields to `report_usage` parameters:
+- `usage.input_tokens` → `prompt_tokens`
+- `usage.output_tokens` → `completion_tokens`
+- `usage.cache_read_tokens` → `cache_read_tokens`
+- `usage.cache_creation_tokens` → `cache_creation_tokens`
+
 Call `report_usage` with:
 
 - `card_id`: the parent card ID you are planning
@@ -236,6 +242,7 @@ Call `report_usage` with:
   are powered by the model named X" line — do NOT hardcode a specific model
   name)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
 ## Step 5: Emit structured output
 
@@ -356,6 +363,7 @@ orchestrator's context.
      name)
    - `prompt_tokens` / `completion_tokens`: your estimated token consumption
      since the last report
+   - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
    a. Wait 1 minute between checks. b. Call
    `check_agent_health(parent_id=<parent_id>)` to get the health status of all
@@ -593,6 +601,7 @@ consumption:
   name)
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption since
   the last report
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
 Transition the parent card to `done`:
 `transition_card(card_id=<parent_id>, new_state='done')`.

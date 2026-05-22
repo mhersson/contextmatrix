@@ -486,6 +486,13 @@ Refresh runs outside any card context, so `report_usage` (which requires
 is not tracked centrally for this skill — surface the rough total to the
 user in your final summary if useful, but do not call `report_usage`.
 
+If you are adapting this skill for a context where `report_usage` is
+applicable, map stream-json `usage` frame fields as follows:
+- `usage.input_tokens` → `prompt_tokens`
+- `usage.output_tokens` → `completion_tokens`
+- `usage.cache_read_tokens` → `cache_read_tokens`
+- `usage.cache_creation_tokens` → `cache_creation_tokens`
+
 ## Constraints
 
 - Never modify the target code repo.
