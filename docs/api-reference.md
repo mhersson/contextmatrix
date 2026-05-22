@@ -1080,8 +1080,10 @@ Marker frames have a distinct shape:
 | `terminal` | `{"type":"terminal","seq":N}`          | Session ended; no further events                           |
 | `dropped`  | `{"type":"dropped","seq":N,"count":N}` | Server ring-buffer overflowed; `count` events were evicted |
 
-`type` for normal events is one of: `text`, `thinking`, `tool_call`, `stderr`,
-`system`, `user`.
+`type` for normal events is one of: `text`, `thinking`, `tool_call`,
+`user_question`, `stderr`, `system`, `user`. `user_question` carries a
+Claude Code `AskUserQuestion` tool call as a structured JSON payload; the
+chat UI renders it as a clickable option card.
 
 The connection is closed when the browser disconnects or the session receives a
 terminal event.

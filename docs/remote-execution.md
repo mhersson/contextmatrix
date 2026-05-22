@@ -682,6 +682,7 @@ publishes a corresponding event on the per-session SSE hub.
 | `text`      | Claude Code stdout | Parsed assistant text block                                                                                                                                                                                                                                                                                                         |
 | `thinking`  | Claude Code stdout | Parsed assistant thinking block                                                                                                                                                                                                                                                                                                     |
 | `tool_call` | Claude Code stdout | Non-MCP tool call: `Name: <summary>`, truncated to 200 runes with `…`                                                                                                                                                                                                                                                               |
+| `user_question` | Claude Code stdout | `AskUserQuestion` tool call. `content` is the JSON payload (`{"questions":[{"question","header?","multiSelect?","options":[{"label","description?"}]}]}`); unknown fields are preserved on the wire. The chat UI renders this as a clickable option card. Malformed payloads fall back to `tool_call`. |
 | `stderr`    | Container stderr   | Raw stderr line from the container                                                                                                                                                                                                                                                                                                  |
 | `system`    | Runner lifecycle   | Container lifecycle events (started, completed, failed, canceled)                                                                                                                                                                                                                                                                   |
 | `user`      | Chat input         | User message submitted via the chat input                                                                                                                                                                                                                                                                                           |
@@ -1167,10 +1168,10 @@ Sources that call `Publish`:
 - **`container.Manager`** — emits `system` entries for container lifecycle
   events (started, completed, failed, canceled, timed-out) and `stderr` entries
   for each container stderr line.
-- **`logparser.ProcessStream`** — emits `text`, `thinking`, and `tool_call`
-  entries parsed from Claude Code's `--output-format stream-json` stdout. The
-  caller (container manager) pre-fills `card_id` and `project` on each entry
-  before publishing.
+- **`logparser.ProcessStream`** — emits `text`, `thinking`, `tool_call`, and
+  `user_question` entries parsed from Claude Code's `--output-format
+  stream-json` stdout. The caller (container manager) pre-fills `card_id` and
+  `project` on each entry before publishing.
 
 ### Runner: `GET /logs` SSE Endpoint
 
