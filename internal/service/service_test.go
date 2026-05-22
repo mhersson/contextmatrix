@@ -1875,21 +1875,7 @@ func TestReportUsageCacheTierMultipliers(t *testing.T) {
 				CacheCreationTokens: 4000,
 				CompletionTokens:    2000,
 			},
-			// 1000*0.000005 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 2000*0.000025
-			// = 0.005 + 0.04 + 0.025 + 0.05
-			// = 0.120 … wait let me recompute:
-			// 1000*0.000005       = 0.005
-			// 80000*0.000005*0.10 = 0.04
-			// 4000*0.000005*1.25  = 0.025
-			// 2000*0.000025       = 0.05
-			// Total               = 0.120
-			// But the acceptance spec says $0.135. Let me recheck: the spec uses the
-			// public claude-opus-4-7 rates. The test cost map in setupTestWithCosts
-			// uses Prompt=0.000005 (=$5/Mtok), Completion=0.000025 (=$25/Mtok).
-			// With those rates the answer is 0.120 not 0.135. The $0.135 figure in
-			// the card body assumes the *real* published rates for claude-opus-4-7
-			// ($15/$75 per Mtok). The test cost map uses different (cheaper) rates
-			// so we verify the math is correct relative to those rates.
+			// test rates ($5/$25 per Mtok) give 0.120, not the $0.135 from the card spec ($15/$75 per Mtok).
 			wantCostApprox: 1000*promptRate +
 				80000*promptRate*0.10 +
 				4000*promptRate*1.25 +
@@ -1962,12 +1948,20 @@ func TestReportUsageCacheAccumulatesAcrossCalls(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for _, delta := range []ReportUsageInput{
+	// claude-opus-4-7: Prompt=0.000005, Completion=0.000025
+	const promptRate = 0.000005
+
+	deltas := []ReportUsageInput{
 		{AgentID: "a1", Model: "claude-opus-4-7", CacheReadTokens: 10000, CacheCreationTokens: 1000},
 		{AgentID: "a1", Model: "claude-opus-4-7", CacheReadTokens: 20000, CacheCreationTokens: 2000},
 		{AgentID: "a1", Model: "claude-opus-4-7", CacheReadTokens: 50000, CacheCreationTokens: 1000},
-	} {
-		_, err = svc.ReportUsage(ctx, "test-project", card.ID, delta)
+	}
+
+	var wantSummedCost float64
+	for _, d := range deltas {
+		wantSummedCost += float64(d.CacheReadTokens)*promptRate*cacheReadMultiplier +
+			float64(d.CacheCreationTokens)*promptRate*cacheCreationMultiplier
+		_, err = svc.ReportUsage(ctx, "test-project", card.ID, d)
 		require.NoError(t, err)
 	}
 
@@ -1976,6 +1970,7 @@ func TestReportUsageCacheAccumulatesAcrossCalls(t *testing.T) {
 	require.NotNil(t, result.TokenUsage)
 	assert.Equal(t, int64(80000), result.TokenUsage.CacheReadTokens)
 	assert.Equal(t, int64(4000), result.TokenUsage.CacheCreationTokens)
+	assert.InDelta(t, wantSummedCost, result.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
 // TestRecalculateCostsWithCacheTiers verifies that RecalculateCosts applies
@@ -3215,6 +3210,46 @@ func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001)
+}
+
+// TestRecalculateCostsCacheOnlyCard verifies that RecalculateCosts re-prices a card
+// whose PromptTokens and CompletionTokens are both zero but whose cache counters are
+// non-zero — a case the old two-field guard incorrectly skipped.
+func TestRecalculateCostsCacheOnlyCard(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "cache-only card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Report cache tokens only (no prompt/completion) without a model so cost stays $0.
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:             "agent-1",
+		CacheReadTokens:     80000,
+		CacheCreationTokens: 4000,
+	})
+	require.NoError(t, err)
+
+	// Confirm cost is $0 before recalculation.
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, before.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// RecalculateCosts must now pick up this card despite PromptTokens==0.
+	result, err := svc.RecalculateCosts(ctx, "test-project", "claude-opus-4-7")
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.CardsUpdated)
+
+	// claude-opus-4-7: Prompt=0.000005
+	// 0 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 0 = 0.04 + 0.025 = 0.065
+	const wantCost = 80000*0.000005*cacheReadMultiplier + 4000*0.000005*cacheCreationMultiplier
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, wantCost, after.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
 // TestReportUsageUnknownModelEndToEnd verifies the full unknown-model round-trip:

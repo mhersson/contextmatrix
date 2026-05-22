@@ -20,6 +20,20 @@ type ModelRate struct {
 	Completion float64
 }
 
+const (
+	cacheReadMultiplier     = 0.10
+	cacheCreationMultiplier = 1.25
+)
+
+// costFor computes the estimated cost in USD for a single usage delta using
+// the per-tier multipliers for cached tokens.
+func costFor(rate ModelRate, prompt, cacheRead, cacheCreation, completion int64) float64 {
+	return float64(prompt)*rate.Prompt +
+		float64(cacheRead)*rate.Prompt*cacheReadMultiplier +
+		float64(cacheCreation)*rate.Prompt*cacheCreationMultiplier +
+		float64(completion)*rate.Completion
+}
+
 // ReportUsageInput contains the fields for reporting token usage on a card.
 type ReportUsageInput struct {
 	AgentID             string
@@ -32,10 +46,12 @@ type ReportUsageInput struct {
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
 type ProjectUsage struct {
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
-	CardCount        int     `json:"card_count"`
+	PromptTokens        int64   `json:"prompt_tokens"`
+	CompletionTokens    int64   `json:"completion_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	EstimatedCostUSD    float64 `json:"estimated_cost_usd"`
+	CardCount           int     `json:"card_count"`
 }
 
 // RecalculateCostsResult summarises the outcome of a cost recalculation pass.
@@ -104,10 +120,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// Warn when a model name is provided but not found in the cost map.
 	if input.Model != "" {
 		if rate, ok := s.tokenCosts[input.Model]; ok {
-			deltaCost := float64(input.PromptTokens)*rate.Prompt +
-				float64(input.CacheReadTokens)*rate.Prompt*0.10 +
-				float64(input.CacheCreationTokens)*rate.Prompt*1.25 +
-				float64(input.CompletionTokens)*rate.Completion
+			deltaCost := costFor(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 			card.TokenUsage.EstimatedCostUSD += deltaCost
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
@@ -164,9 +177,11 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		Agent:     input.AgentID,
 		Timestamp: card.Updated,
 		Data: map[string]any{
-			"prompt_tokens":     input.PromptTokens,
-			"completion_tokens": input.CompletionTokens,
-			"model":             input.Model,
+			"prompt_tokens":       input.PromptTokens,
+			"completion_tokens":   input.CompletionTokens,
+			"cache_read_tokens":   input.CacheReadTokens,
+			"cache_creation_tokens": input.CacheCreationTokens,
+			"model":               input.Model,
 		},
 	})
 
@@ -188,6 +203,8 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 		if card.TokenUsage != nil {
 			usage.PromptTokens += card.TokenUsage.PromptTokens
 			usage.CompletionTokens += card.TokenUsage.CompletionTokens
+			usage.CacheReadTokens += card.TokenUsage.CacheReadTokens
+			usage.CacheCreationTokens += card.TokenUsage.CacheCreationTokens
 			usage.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
 			usage.CardCount++
 		}
@@ -226,7 +243,10 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			continue
 		}
 
-		if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 {
+		if card.TokenUsage.PromptTokens == 0 &&
+			card.TokenUsage.CompletionTokens == 0 &&
+			card.TokenUsage.CacheReadTokens == 0 &&
+			card.TokenUsage.CacheCreationTokens == 0 {
 			continue
 		}
 
@@ -256,10 +276,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			return nil, fmt.Errorf("get card snapshot %s: %w", card.ID, err)
 		}
 
-		cost := float64(card.TokenUsage.PromptTokens)*rate.Prompt +
-			float64(card.TokenUsage.CacheReadTokens)*rate.Prompt*0.10 +
-			float64(card.TokenUsage.CacheCreationTokens)*rate.Prompt*1.25 +
-			float64(card.TokenUsage.CompletionTokens)*rate.Completion
+		cost := costFor(rate, card.TokenUsage.PromptTokens, card.TokenUsage.CacheReadTokens, card.TokenUsage.CacheCreationTokens, card.TokenUsage.CompletionTokens)
 
 		card.TokenUsage.EstimatedCostUSD = cost
 		// Persist the effective model name so future recalculations are idempotent.
