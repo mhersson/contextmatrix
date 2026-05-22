@@ -165,7 +165,10 @@ Break the work into subtasks following these rules:
   testable result
 - Set `depends_on` correctly — a subtask that needs another subtask's output
   must declare the dependency
-- Order subtasks so that independent ones can run **in parallel**
+- Order subtasks so that independent ones can run **in parallel**.
+  Parallel-eligible siblings (same dependency level) MUST touch disjoint
+  files. If two subtasks need the same file, merge them or sequence them
+  via `depends_on`.
 - Write clear, specific titles — an agent reading only the title should
   understand the scope
 - Include acceptance criteria or key details in each subtask's body
@@ -197,7 +200,7 @@ check each item:
 
 **Internal consistency.** Do any subtasks contradict each other or assume incompatible data models?
 
-**Files touched.** Are file paths consistent across dependent subtasks?
+**Files touched.** (a) File paths consistent across *dependent* subtasks? (b) File paths **disjoint across *parallel* siblings**? If any two parallel siblings claim the same file, merge them or add a `depends_on` link.
 
 **Scope check.** Has the plan grown beyond the parent card's requirements? Trim excess to sibling cards.
 
@@ -326,9 +329,8 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 # Phase 5: Execution (always sub-agents)
 
 Execute-task runs MUST be spawned as sub-agents via the `Agent` tool. **Do NOT
-execute inline even if `get_skill` returns `inline: true`.** Context isolation
-is required so each subtask runs in its own worktree and does not bloat the
-orchestrator's context.
+execute inline even if `get_skill` returns `inline: true`.** Sub-agents share
+the orchestrator's working tree on the feature branch.
 
 0. Create or switch to the feature branch. Call `get_card(card_id=<parent_id>)`
    and read `feature_branch` and `branch_name`. If `feature_branch` is true and
@@ -348,10 +350,9 @@ orchestrator's context.
    - `model`: the `model` from `get_skill` — **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
    - `prompt`: the `content` from `get_skill`
-   - `isolation`: `"worktree"` — **REQUIRED** when spawning multiple agents in
-     parallel. Omit only for a single agent. Spawn all ready tasks **in
-     parallel** (multiple `Agent` tool calls in one message). Do NOT execute
-     inline even if `inline` is true in the response.
+   - **Do NOT pass `isolation: "worktree"`.** Spawn all ready tasks in
+     parallel (multiple `Agent` tool calls in one message). Do NOT execute
+     inline even if `inline` is true.
 4. **Monitor sub-agents with health checking.** After spawning agents, enter a
    monitoring loop. **Call `heartbeat` on the parent card every 5 minutes during
    this loop.** **After each `heartbeat`, also call `report_usage` to record
@@ -411,31 +412,8 @@ orchestrator's context.
    5. Call
       `add_log(card_id=<id>, action='respawned', message='Agent stalled, respawning (attempt N)')`.
 
-5. When all subtasks are done, ensure their changes are on your active branch
-   before Phase 6.
-
-   **If no sub-agent used worktree isolation** (single-agent case): their
-   changes are already in your working tree, uncommitted. Nothing to aggregate —
-   proceed to step 6. Phase 9 picks them up at squash time.
-
-   **If sub-agents used worktree isolation AND the parent is autonomous:**
-   sub-agents committed on their worktree branches. Cherry-pick each worktree
-   branch onto the feature branch: `git cherry-pick <worktree_branch>` for each
-   subtask worktree. Skip any worktree with no commits since `main`.
-
-   **If sub-agents used worktree isolation AND the parent is HITL:** sub-agents
-   left changes uncommitted in their worktrees. For each sub-agent worktree
-   that has modified files:
-   a. In the worktree: `git add -A && git commit -m "wip(<card_id>): <subtask_title>"`.
-   b. From your working tree: `git cherry-pick <worktree_branch>`.
-
-   **Dependent-subtask caveat (both worktree cases):** if a dependent subtask's
-   worktree re-applied an earlier subtask's changes (because worktrees branch
-   off `main`, not off your active branch), cherry-pick only the superset — do
-   not cherry-pick the dependencies separately.
-
-   HITL WIP commits are intermediate; Phase 9 squashes them into a single
-   conventional commit before any push.
+5. Sub-agent changes are already in the working tree on the feature branch.
+   Phase 9 commits them. Proceed to step 6.
 
 6. Release your claim on the parent card so the documentation agent can claim
    it: `release_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
@@ -552,8 +530,8 @@ container is disposable and uncommitted work is lost; in Autonomous there is no
 user to prompt. Execute all of the following without confirmation, then go
 straight to Phase 10:
 
-1. Commit all changes (code + docs) in a single commit using conventional commit
-   style with a bullet-point body. No card IDs in commit messages.
+1. Commit any remaining changes in a conventional commit with a bullet-point
+   body. No card IDs in commit messages.
 2. Push the feature branch: `git push -u origin <branch_name>`.
 3. Create a PR using `gh pr create`. If the card has a `base_branch` field, pass
    `--base <base_branch>` so the PR targets the correct branch.
@@ -566,8 +544,7 @@ Ask the user:
 
 > Want me to commit these changes?
 
-Do NOT offer to commit earlier — all changes (code + docs) are committed
-together so the user sees the complete picture first.
+Do NOT offer to commit earlier in the workflow.
 
 Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
