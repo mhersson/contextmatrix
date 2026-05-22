@@ -93,27 +93,29 @@ jobs:
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
-      # Fails only on findings with an upstream fix (fixed_version set).
-      # Findings without a fix are printed for visibility but don't block.
-      - name: Run govulncheck (fail only on fixable findings)
+      # Fails only on symbol-level findings (your code actually calls the
+      # vulnerable symbol) that also have an upstream fix available.
+      # Module/package-level findings without a callable trace are noise from
+      # transitive deps and don't block CI.
+      - name: Run govulncheck (fail only on callable, fixable findings)
         run: |
           set -euo pipefail
           govulncheck -format=json ./... > /tmp/vuln.json 2>&1 || true
 
           FIXABLE=$(jq -s '[.[] | select(.finding != null
-                                          and .finding.fixed_version != null
-                                          and .finding.fixed_version != "")] | length' /tmp/vuln.json)
+                                          and (.finding.fixed_version // "") != ""
+                                          and (.finding.trace | any((.function // "") != "")))] | length' /tmp/vuln.json)
 
-          echo "fixable findings: ${FIXABLE}"
+          echo "callable + fixable findings: ${FIXABLE}"
 
           govulncheck ./... || true
 
           if [ "${FIXABLE:-0}" -gt 0 ]; then
-            echo "::error::Fixable vulnerabilities detected. See output above."
+            echo "::error::Callable, fixable vulnerabilities detected. See output above."
             exit 1
           fi
 
-          echo "No fixable vulnerabilities. Remaining findings have no upstream fix available."
+          echo "No callable, fixable vulnerabilities. Remaining findings are uncalled by this code or have no upstream fix."
 
   hadolint:
     if: github.event_name != 'push'
