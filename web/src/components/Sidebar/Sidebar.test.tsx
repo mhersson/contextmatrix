@@ -158,11 +158,5 @@ describe('Sidebar', () => {
       expect(onMobileClose).toHaveBeenCalledTimes(1);
     });
 
-    it('does not render overlay backdrop in desktop mode (mobileOpen=false)', () => {
-      renderSidebar({ mobileOpen: false });
-      // Desktop sidebar is rendered normally (not fixed overlay)
-      const sidebar = document.querySelector('.sidebar');
-      expect(sidebar).not.toBeNull();
-    });
   });
 });

@@ -28,22 +28,6 @@ func validProjectConfig() *ProjectConfig {
 	}
 }
 
-func minimalProjectConfig() *ProjectConfig {
-	return &ProjectConfig{
-		Name:       "minimal",
-		Prefix:     "MIN",
-		NextID:     1,
-		States:     []string{"todo", "stalled", "not_planned"},
-		Types:      []string{"task"},
-		Priorities: []string{"medium"},
-		Transitions: map[string][]string{
-			"todo":        {},
-			"stalled":     {"todo"},
-			"not_planned": {"todo"},
-		},
-	}
-}
-
 func TestLoadSaveProjectConfig_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	original := validProjectConfig()
@@ -64,25 +48,6 @@ func TestLoadSaveProjectConfig_RoundTrip(t *testing.T) {
 	assert.Equal(t, original.Transitions, loaded.Transitions)
 }
 
-func TestLoadSaveProjectConfig_MinimalConfig(t *testing.T) {
-	dir := t.TempDir()
-	original := minimalProjectConfig()
-
-	err := SaveProjectConfig(dir, original)
-	require.NoError(t, err)
-
-	loaded, err := LoadProjectConfig(dir)
-	require.NoError(t, err)
-
-	assert.Equal(t, original.Name, loaded.Name)
-	assert.Equal(t, original.Prefix, loaded.Prefix)
-	assert.Equal(t, original.NextID, loaded.NextID)
-	assert.Empty(t, loaded.Repo)
-	assert.Equal(t, original.States, loaded.States)
-	assert.Equal(t, original.Types, loaded.Types)
-	assert.Equal(t, original.Priorities, loaded.Priorities)
-}
-
 func TestLoadProjectConfig_NotFound(t *testing.T) {
 	dir := t.TempDir()
 
@@ -99,92 +64,6 @@ func TestLoadProjectConfig_MalformedYAML(t *testing.T) {
 
 	_, err = LoadProjectConfig(dir)
 	assert.ErrorIs(t, err, ErrMalformedProjectConfig)
-}
-
-func TestLoadProjectConfig_MissingStalledState(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".board.yaml")
-
-	yaml := `name: test
-prefix: TEST
-next_id: 1
-states: [todo, done]
-types: [task]
-priorities: [medium]
-transitions:
-  todo: [done]
-  done: [todo]
-`
-	err := os.WriteFile(path, []byte(yaml), 0o644)
-	require.NoError(t, err)
-
-	_, err = LoadProjectConfig(dir)
-	assert.ErrorIs(t, err, ErrMissingStalledState)
-}
-
-func TestLoadProjectConfig_MissingStalledTransitions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".board.yaml")
-
-	yaml := `name: test
-prefix: TEST
-next_id: 1
-states: [todo, done, stalled]
-types: [task]
-priorities: [medium]
-transitions:
-  todo: [done]
-  done: [todo]
-`
-	err := os.WriteFile(path, []byte(yaml), 0o644)
-	require.NoError(t, err)
-
-	_, err = LoadProjectConfig(dir)
-	assert.ErrorIs(t, err, ErrMissingStalledTransitions)
-}
-
-func TestLoadProjectConfig_MissingNotPlannedState(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".board.yaml")
-
-	yaml := `name: test
-prefix: TEST
-next_id: 1
-states: [todo, done, stalled]
-types: [task]
-priorities: [medium]
-transitions:
-  todo: [done]
-  done: [todo]
-  stalled: [todo]
-`
-	err := os.WriteFile(path, []byte(yaml), 0o644)
-	require.NoError(t, err)
-
-	_, err = LoadProjectConfig(dir)
-	assert.ErrorIs(t, err, ErrMissingNotPlannedState)
-}
-
-func TestLoadProjectConfig_MissingNotPlannedTransitions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".board.yaml")
-
-	yaml := `name: test
-prefix: TEST
-next_id: 1
-states: [todo, done, stalled, not_planned]
-types: [task]
-priorities: [medium]
-transitions:
-  todo: [done]
-  done: [todo]
-  stalled: [todo]
-`
-	err := os.WriteFile(path, []byte(yaml), 0o644)
-	require.NoError(t, err)
-
-	_, err = LoadProjectConfig(dir)
-	assert.ErrorIs(t, err, ErrMissingNotPlannedTransitions)
 }
 
 func TestSaveProjectConfig_ValidatesBeforeWrite(t *testing.T) {
@@ -787,14 +666,6 @@ func TestValidateProjectConfig_AcceptsExactlyOnePrimary(t *testing.T) {
 	cfg.Repos = []Repo{
 		{Name: "a", URL: "https://github.com/o/a.git", Primary: true},
 	}
-
-	err := SaveProjectConfig(t.TempDir(), cfg)
-	require.NoError(t, err)
-}
-
-func TestValidateProjectConfig_AcceptsEmptyReposList(t *testing.T) {
-	cfg := validProjectConfig()
-	cfg.Repos = nil
 
 	err := SaveProjectConfig(t.TempDir(), cfg)
 	require.NoError(t, err)

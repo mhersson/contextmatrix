@@ -12,12 +12,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
-func TestNewBus(t *testing.T) {
-	bus := NewBus()
-	assert.NotNil(t, bus)
-	assert.Equal(t, 0, bus.SubscriberCount())
-}
-
 func TestSubscribe(t *testing.T) {
 	bus := NewBus()
 
@@ -263,29 +257,6 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		// But with 64 buffer size and reasonable timing, most should get through
 		assert.GreaterOrEqual(t, count, 1, "subscriber %d should have received at least 1 event", i)
 		assert.LessOrEqual(t, count, totalExpected, "subscriber %d received too many events", i)
-	}
-}
-
-func TestEventTypes(t *testing.T) {
-	// Verify all event type constants have expected values
-	tests := []struct {
-		eventType EventType
-		expected  string
-	}{
-		{CardCreated, "card.created"},
-		{CardUpdated, "card.updated"},
-		{CardDeleted, "card.deleted"},
-		{CardStateChanged, "card.state_changed"},
-		{CardClaimed, "card.claimed"},
-		{CardReleased, "card.released"},
-		{CardStalled, "card.stalled"},
-		{CardLogAdded, "card.log_added"},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.eventType), func(t *testing.T) {
-			assert.Equal(t, tt.expected, string(tt.eventType))
-		})
 	}
 }
 

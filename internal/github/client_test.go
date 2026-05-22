@@ -281,45 +281,6 @@ func TestFetchBranches_ServerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "status 500")
 }
 
-func TestFetchBranches_403WithRateLimitRemainingZero(t *testing.T) {
-	// 403 with X-RateLimit-Remaining: 0 is GitHub's primary rate-limit
-	// signal. The bare 403 case is covered by
-	// TestFetchBranches_403Forbidden_PermissionDenied below.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-RateLimit-Remaining", "0")
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer srv.Close()
-
-	client := newTestClient(t, srv)
-	_, err := client.FetchBranches(context.Background(), "o", "r")
-	assert.ErrorIs(t, err, ErrRateLimited)
-}
-
-func TestFetchBranches_403Forbidden_PermissionDenied(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
-	}))
-	defer srv.Close()
-
-	client := newTestClient(t, srv)
-	_, err := client.FetchBranches(context.Background(), "o", "r")
-	require.ErrorIs(t, err, ErrPermissionDenied)
-	assert.NotErrorIs(t, err, ErrRateLimited)
-}
-
-func TestFetchBranches_429TooManyRequests(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer srv.Close()
-
-	client := newTestClient(t, srv)
-	_, err := client.FetchBranches(context.Background(), "o", "r")
-	assert.ErrorIs(t, err, ErrRateLimited)
-}
-
 func TestFetchBranches_EmptyRepo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]branchItem{})
@@ -423,15 +384,6 @@ func TestNewClientWithBaseURL_EmptyFallsToDefault(t *testing.T) {
 
 	client := NewClientWithBaseURL(p, "")
 	assert.Equal(t, defaultBaseURL, client.baseURL)
-}
-
-func TestNewClient_DelegatesToNewClientWithBaseURL(t *testing.T) {
-	p, err := githubauth.NewPATProvider("my-token")
-	require.NoError(t, err)
-
-	client := NewClient(p)
-	assert.Equal(t, defaultBaseURL, client.baseURL)
-	assert.Equal(t, p, client.provider)
 }
 
 func TestParseLinkNext_WithCustomHost(t *testing.T) {

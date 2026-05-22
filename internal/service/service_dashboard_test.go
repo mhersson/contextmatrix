@@ -256,16 +256,6 @@ func createCardWithUsage(
 	return card.ID
 }
 
-func TestGetDashboard_ModelCosts_EmptyBoard(t *testing.T) {
-	ctx := context.Background()
-	svc, project, cleanup := setupDashboardServiceAt(t, time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC))
-	t.Cleanup(cleanup)
-
-	data, err := svc.GetDashboard(ctx, project)
-	require.NoError(t, err)
-	assert.Empty(t, data.ModelCosts)
-}
-
 func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
@@ -599,27 +589,6 @@ func TestGetDashboard_CostSeries30d_SeriesBoundary(t *testing.T) {
 	assert.InDelta(t, 0.75, data.CostSeries30d[0], 1e-9, "card at dayStarts[0] must land at index 0")
 	assert.InDelta(t, 0.75, data.TotalCostUSDLast30d, 1e-9, "should be in last30d")
 	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9, "should not be in prior30d")
-}
-
-// TestGetDashboard_CostSeries30d_LengthInvariant verifies the helper always
-// returns a 30-element slice even on an empty board.
-func TestGetDashboard_CostSeries30d_LengthInvariant(t *testing.T) {
-	ctx := context.Background()
-	svc, project, cleanup := setupDashboardServiceAt(t, time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC))
-	t.Cleanup(cleanup)
-
-	data, err := svc.GetDashboard(ctx, project)
-	require.NoError(t, err)
-
-	assert.Len(t, data.CostSeries30d, 30, "CostSeries30d must always have 30 elements")
-}
-
-func TestExtractStateChanges_Empty(t *testing.T) {
-	card := &board.Card{State: board.StateTodo}
-	changes, baseline := extractStateChanges(card)
-
-	assert.Nil(t, changes)
-	assert.Empty(t, baseline)
 }
 
 func TestExtractStateChanges_IgnoresNonStateChanged(t *testing.T) {

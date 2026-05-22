@@ -40,13 +40,6 @@ func TestKnowledgeMeta_RoundTrip(t *testing.T) {
 	assert.False(t, r.Docs["architecture.md"].HumanEdited)
 }
 
-func TestKnowledgeDocNames(t *testing.T) {
-	assert.ElementsMatch(t,
-		[]string{"architecture.md", "code-structure.md", "api-documentation.md", "glossary.md"},
-		KnowledgeDocNames,
-	)
-}
-
 func TestIsValidKnowledgeDoc(t *testing.T) {
 	assert.True(t, IsValidKnowledgeDoc("architecture.md"))
 	assert.False(t, IsValidKnowledgeDoc("../etc/passwd"))

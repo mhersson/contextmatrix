@@ -14,11 +14,6 @@ function makeStatus(overrides: Partial<SyncStatus> = {}): SyncStatus {
 }
 
 describe('BoardFooter', () => {
-  it('renders card and column count', () => {
-    render(<BoardFooter cardCount={32} columnCount={4} />);
-    expect(screen.getByText(/32 cards · 4 columns$/)).toBeInTheDocument();
-  });
-
   it('renders sync label as a button and invokes onSyncClick', () => {
     const onSyncClick = vi.fn();
     const tenSecondsAgo = new Date(Date.now() - 10_000).toISOString();

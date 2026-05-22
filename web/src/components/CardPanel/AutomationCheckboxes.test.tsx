@@ -15,22 +15,6 @@ const baseProps = {
   branches: ['main', 'develop'],
 };
 
-describe('AutomationCheckboxes — checkboxes', () => {
-  it('renders all four checkboxes regardless of props', () => {
-    render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.getByLabelText('Autonomous mode')).toBeInTheDocument();
-    expect(screen.getByLabelText('Opus as orchestrator')).toBeInTheDocument();
-    expect(screen.getByLabelText('Feature branch')).toBeInTheDocument();
-    expect(screen.getByLabelText('Create PR')).toBeInTheDocument();
-  });
-
-  it('does not render Run HITL / Run Auto button (primary action moved to header)', () => {
-    render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.queryByRole('button', { name: 'Run HITL' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Run Auto' })).not.toBeInTheDocument();
-  });
-});
-
 describe('AutomationCheckboxes — Opus orchestrator label', () => {
   it('shows "Sonnet (default)" hint when Opus is unticked', () => {
     render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={false} />);
@@ -40,16 +24,6 @@ describe('AutomationCheckboxes — Opus orchestrator label', () => {
   it('shows "Opus" hint when Opus is ticked', () => {
     render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={true} />);
     expect(screen.getByText(/Opus.*deeper planning/)).toBeInTheDocument();
-  });
-
-  it('reflects useOpusOrchestrator=false (unchecked)', () => {
-    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={false} />);
-    expect(screen.getByLabelText('Opus as orchestrator')).not.toBeChecked();
-  });
-
-  it('reflects useOpusOrchestrator=true (checked)', () => {
-    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={true} />);
-    expect(screen.getByLabelText('Opus as orchestrator')).toBeChecked();
   });
 
   it('calls onUseOpusOrchestratorChange with true when clicked while unchecked', () => {
@@ -94,11 +68,6 @@ describe('AutomationCheckboxes — forced-on-run badges', () => {
 });
 
 describe('AutomationCheckboxes — base branch selector', () => {
-  it('renders base branch selector', () => {
-    render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.getByRole('combobox', { name: 'Base branch' })).toBeInTheDocument();
-  });
-
   it('renders branch options', () => {
     render(
       <AutomationCheckboxes

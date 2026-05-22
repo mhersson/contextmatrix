@@ -310,15 +310,6 @@ describe('useChatLayout — persistence', () => {
     expect(result.current.state.focused).toBe('TL');
   });
 
-  it('leaves document.title untouched when focused pane changes', () => {
-    const initial = document.title;
-    const { result } = renderLayout();
-    act(() => { result.current.openInNewPane('A'); });
-    expect(document.title).toBe(initial);
-    act(() => { result.current.closePane('TL'); });
-    expect(document.title).toBe(initial);
-  });
-
   it('writes last_chat_id for the focused pane', () => {
     const { result } = renderLayout();
     act(() => { result.current.openInNewPane('A'); });

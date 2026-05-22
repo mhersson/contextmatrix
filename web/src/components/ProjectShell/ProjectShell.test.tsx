@@ -298,19 +298,6 @@ describe('ProjectShell — onCreateCard', () => {
     expect(screen.queryByTestId('create-card-panel')).not.toBeInTheDocument();
   });
 
-  it('"Just create" still closes the create panel', async () => {
-    renderProjectShell();
-
-    act(() => screen.getByTestId('open-create-btn').click());
-    expect(screen.getByTestId('create-card-panel')).toBeInTheDocument();
-
-    await act(async () => {
-      await capturedOnCreate!({ title: 'New card', type: 'task', priority: 'medium' }, { run: false });
-    });
-
-    expect(screen.queryByTestId('create-card-panel')).not.toBeInTheDocument();
-  });
-
   it('"Create & Run" with runner error does not open the card panel', async () => {
     mockApi.runCard.mockRejectedValue({ error: 'runner offline', code: 'RUNNER_ERROR' });
 

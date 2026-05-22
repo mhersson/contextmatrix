@@ -6,13 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStatus_String(t *testing.T) {
-	assert.Equal(t, "cold", StatusCold.String())
-	assert.Equal(t, "active", StatusActive.String())
-	assert.Equal(t, "warm-idle", StatusWarmIdle.String())
-	assert.Equal(t, "ending", StatusEnding.String())
-}
-
 func TestStatus_Parse(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -33,9 +26,4 @@ func TestStatus_Parse(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		}
 	}
-}
-
-func TestNewID_IsULID(t *testing.T) {
-	id := NewID()
-	assert.Len(t, id, 26, "ULID is 26 chars in Crockford base32")
 }

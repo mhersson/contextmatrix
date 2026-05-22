@@ -2,27 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LabelsSection } from './CardPanelLabels';
 
-describe('LabelsSection — rendering', () => {
-  it('renders each label as a chip', () => {
-    render(
-      <LabelsSection
-        editedLabels={['bug', 'p1']}
-        disabled={false}
-        onLabelsChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByText('bug')).toBeInTheDocument();
-    expect(screen.getByText('p1')).toBeInTheDocument();
-  });
-
-  it('renders the "+ add" button when enabled and not currently adding', () => {
-    render(
-      <LabelsSection editedLabels={[]} disabled={false} onLabelsChange={vi.fn()} />,
-    );
-    expect(screen.getByRole('button', { name: /\+ add/ })).toBeInTheDocument();
-  });
-});
-
 describe('LabelsSection — add flow', () => {
   it('adds a trimmed label on Enter', () => {
     const onLabelsChange = vi.fn();

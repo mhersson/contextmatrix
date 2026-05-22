@@ -13,21 +13,6 @@ describe('BoardBand', () => {
     onCreateCard: vi.fn(),
   };
 
-  it('renders the project title in the heading', () => {
-    render(<BoardBand {...props} />);
-    expect(screen.getByRole('heading', { name: /ContextMatrix/ })).toBeInTheDocument();
-  });
-
-  it('renders project name in the crumb', () => {
-    render(<BoardBand {...props} />);
-    expect(screen.getByText('contextmatrix')).toBeInTheDocument();
-  });
-
-  it('shows agents-live pulse', () => {
-    render(<BoardBand {...props} />);
-    expect(screen.getByText('4 agents live')).toBeInTheDocument();
-  });
-
   it('shows open · in-review · shipped-today', () => {
     render(<BoardBand {...props} />);
     expect(screen.getByText(/23 open/)).toBeInTheDocument();

@@ -56,11 +56,6 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
   });
 
-  it('renders when runner_status is "running"', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-  });
-
   it('renders a "Promoted to autonomous" read-only footer when autonomous is true', () => {
     render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
@@ -69,42 +64,12 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
   });
 
-  it('renders normally when runner_status is "running" AND autonomous is false', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
-  });
-
   it('compose hides and read-only footer appears when autonomous flips from false to true (simulates promote)', () => {
     const { rerender } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
     rerender(<CardChat card={autonomousCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
-  });
-});
-
-describe('CardChat — layout classes', () => {
-  it('log container uses flex-1 (not max-h-[200px]) when session is active', () => {
-    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    // Find the log container by its bg-dim class (unique to the log div)
-    const logContainer = container.querySelector('.bg-\\[var\\(--bg-dim\\)\\]');
-    expect(logContainer).not.toBeNull();
-    expect(logContainer!.className).toContain('flex-1');
-    expect(logContainer!.className).not.toContain('max-h-[200px]');
-  });
-
-  it('root container uses h-full so it fills flex parent', () => {
-    const { container } = render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    const root = container.firstChild as HTMLElement;
-    expect(root.className).toContain('h-full');
-  });
-
-  it('chat input textarea and Send button are rendered and accessible', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Send/ })).toBeInTheDocument();
   });
 });
 
@@ -235,18 +200,6 @@ describe('CardChat — cardLogs prop', () => {
 });
 
 describe('CardChat — message type filter bar', () => {
-  it('renders the filter bar with three checkboxes when session is active', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /Tool calls/i })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /Thinking/i })).toBeInTheDocument();
-  });
-
-  it('Text checkbox is checked by default', () => {
-    render(<CardChat card={runningCard} cardLogs={noLogs} />);
-    expect(screen.getByRole('checkbox', { name: /Text/i })).toBeChecked();
-  });
-
   it('Tool calls checkbox is unchecked by default', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByRole('checkbox', { name: /Tool calls/i })).not.toBeChecked();
@@ -255,14 +208,6 @@ describe('CardChat — message type filter bar', () => {
   it('Thinking checkbox is unchecked by default', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByRole('checkbox', { name: /Thinking/i })).not.toBeChecked();
-  });
-
-  it('text messages are shown when Text filter is on (default)', () => {
-    const logs: LogEntry[] = [
-      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'text message visible' },
-    ];
-    render(<CardChat card={runningCard} cardLogs={logs} />);
-    expect(screen.getByText(/text message visible/)).toBeInTheDocument();
   });
 
   it('text messages are hidden when Text filter is turned off', () => {

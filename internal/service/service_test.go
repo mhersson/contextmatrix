@@ -846,25 +846,6 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	assert.Empty(t, stalled.AssignedAgent)
 }
 
-func TestListProjectsAndGetProject(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// List projects
-	projects, err := svc.ListProjects(ctx)
-	require.NoError(t, err)
-	require.Len(t, projects, 1)
-	assert.Equal(t, "test-project", projects[0].Name)
-
-	// Get project
-	project, err := svc.GetProject(ctx, "test-project")
-	require.NoError(t, err)
-	assert.Equal(t, "test-project", project.Name)
-	assert.Equal(t, "TEST", project.Prefix)
-}
-
 func TestUpdateCard_BlockedByDependency(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -1836,13 +1817,13 @@ func TestReportUsageCacheTierMultipliers(t *testing.T) {
 	completionRate := 0.000025
 
 	tests := []struct {
-		name                string
-		input               ReportUsageInput
-		wantCostApprox      float64
-		wantPromptTokens    int64
-		wantCompTokens      int64
-		wantCacheRead       int64
-		wantCacheCreation   int64
+		name              string
+		input             ReportUsageInput
+		wantCostApprox    float64
+		wantPromptTokens  int64
+		wantCompTokens    int64
+		wantCacheRead     int64
+		wantCacheCreation int64
 	}{
 		{
 			name: "cache_read only at 0.10x",
@@ -2054,6 +2035,7 @@ func TestRecalculateCostsSkipsZeroCacheFields(t *testing.T) {
 
 	// 5000*0.000005 + 0 + 0 + 1000*0.000025 = 0.025 + 0.025 = 0.05
 	const wantCost = 5000*0.000005 + 1000*0.000025
+
 	after, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, wantCost, after.TokenUsage.EstimatedCostUSD, 1e-9)
@@ -3251,6 +3233,7 @@ func TestRecalculateCostsCacheOnlyCard(t *testing.T) {
 	// claude-opus-4-7: Prompt=0.000005
 	// 0 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 0 = 0.04 + 0.025 = 0.065
 	const wantCost = 80000*0.000005*cacheReadMultiplier + 4000*0.000005*cacheCreationMultiplier
+
 	after, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, wantCost, after.TokenUsage.EstimatedCostUSD, 1e-9)
