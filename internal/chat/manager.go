@@ -1636,6 +1636,14 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	}
 
 	if sess.Status == StatusCold {
+		// Cold-wedge cleanup: a prior EndSession may have persisted cold but
+		// been interrupted before the post-stopConsumer delete ran, leaving
+		// a stale entry in memory. The consumer is guaranteed stopped here
+		// (cold sessions have no live StreamLogs), so the delete is race-free.
+		m.mu.Lock()
+		delete(m.pendingToolUseID, id)
+		m.mu.Unlock()
+
 		return nil
 	}
 
@@ -1691,7 +1699,10 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 
 	// Clear any stale pending tool_use_id so a subsequent openCold does not
 	// forward a tool_result that references a tool_use block from the now-dead
-	// container. Mirrors the identical cleanup in DeleteSession.
+	// container. MUST run after stopConsumer above — the consumer goroutine
+	// writes to pendingToolUseID on every user_question entry, so a delete
+	// before stopConsumer would race with a late-arriving entry. Mirrors the
+	// identical cleanup in DeleteSession.
 	m.mu.Lock()
 	delete(m.pendingToolUseID, id)
 	m.mu.Unlock()

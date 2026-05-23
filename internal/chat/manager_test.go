@@ -4058,6 +4058,43 @@ func TestManager_EndSession_ClearsPendingToolUseID(t *testing.T) {
 	assert.Empty(t, got, "EndSession must clear pending tool_use_id")
 }
 
+// TestManager_EndSession_StatusCold_ClearsPendingToolUseID verifies the
+// already-cold early-return branch of EndSession also clears a stale pending
+// tool_use_id. Simulates a wedge where a prior EndSession persisted cold but
+// was interrupted before the in-memory cleanup ran — a subsequent EndSession
+// must not leave the stale id behind for openCold to forward.
+func TestManager_EndSession_StatusCold_ClearsPendingToolUseID(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  &stubRunner{},
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	// Drive the session to cold via the normal happy path.
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	// Simulate the wedge: re-inject a pending id after the session is cold,
+	// as if a prior EndSession panicked between the store write and the
+	// in-memory delete.
+	mgr.SetPendingToolUseIDForTest(sess.ID, "toolu_wedged")
+
+	// Second EndSession hits the StatusCold early-return branch.
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	got := mgr.ConsumePendingToolUseIDForTest(sess.ID)
+	assert.Empty(t, got, "EndSession early-return on cold must still clear pending tool_use_id")
+}
+
 // TestManager_DoClearContext_DropsPendingToolUseID verifies that ClearContext
 // discards a stored pending tool_use_id; the tool_use block it references no
 // longer exists after a /clear.
