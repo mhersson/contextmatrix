@@ -615,7 +615,10 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
 
-	// Second delete: ON CONFLICT DO NOTHING preserves original archive row, no error.
+	// Second delete: the source SELECT finds no chat_sessions row (hard-deleted
+	// above), so the INSERT is a silent no-op; the existing archive row is
+	// untouched. ON CONFLICT does NOT fire in this path — see
+	// TestDeleteSession_ReinsertedIDPreservesArchive for that case.
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
 
 	// Exactly one archive row.
@@ -624,6 +627,75 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 		`SELECT COUNT(*) FROM chat_cost_archive WHERE id = ?`, sessionID,
 	).Scan(&n))
 	assert.Equal(t, 1, n)
+}
+
+// TestDeleteSession_ReinsertedIDPreservesArchive exercises the ON CONFLICT(id)
+// DO NOTHING clause in DeleteSession. It pre-inserts a row into chat_cost_archive
+// with a sentinel cost and deleted_at, then creates a chat_sessions row with the
+// same id and a different cost. When DeleteSession runs, the INSERT … SELECT
+// finds the source row but the id already exists in the archive, so ON CONFLICT
+// fires and the original archive values are preserved.
+func TestDeleteSession_ReinsertedIDPreservesArchive(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	id := chat.NewID()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	const sentinelCost = 7.77
+
+	sentinelDeletedAt := int64(1_700_000_000) // fixed Unix timestamp as sentinel
+
+	// Step 1: Pre-insert a row directly into chat_cost_archive with sentinel values.
+	_, err = store.db.ExecContext(ctx, `
+		INSERT INTO chat_cost_archive
+			(id, project, model, last_active,
+			 prompt_tokens, completion_tokens, cache_read_tokens,
+			 cache_creation_tokens, estimated_cost_usd, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, "test-project", "claude-sonnet-4-6", now.Unix(),
+		100, 50, 10, 5, sentinelCost, sentinelDeletedAt,
+	)
+	require.NoError(t, err)
+
+	// Step 2: Create a chat_sessions row with the SAME id and a clearly different cost.
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID: id, Title: "reinsertion-test", Status: chat.StatusCold,
+		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
+	}))
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	// Step 3: DeleteSession — INSERT … SELECT finds the source row AND the id
+	// already exists in chat_cost_archive, so ON CONFLICT(id) DO NOTHING fires.
+	require.NoError(t, store.DeleteSession(ctx, id))
+
+	// Step 4: Assert the archive row retains the original sentinel values.
+	var count int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_cost_archive WHERE id = ?`, id,
+	).Scan(&count))
+	assert.Equal(t, 1, count, "exactly one archive row")
+
+	var (
+		gotCost      float64
+		gotDeletedAt int64
+	)
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT estimated_cost_usd, deleted_at FROM chat_cost_archive WHERE id = ?`, id,
+	).Scan(&gotCost, &gotDeletedAt))
+	assert.InDelta(t, sentinelCost, gotCost, 0.001, "archive cost must be the original sentinel, not the session cost")
+	assert.Equal(t, sentinelDeletedAt, gotDeletedAt, "archive deleted_at must be the original sentinel, not updated")
+
+	// The chat_sessions row must be gone.
+	var sessionCount int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_sessions WHERE id = ?`, id,
+	).Scan(&sessionCount))
+	assert.Equal(t, 0, sessionCount, "chat_sessions row must be hard-deleted")
 }
 
 // TestAggregateCost_IncludesArchivedSessions checks that deleted sessions
