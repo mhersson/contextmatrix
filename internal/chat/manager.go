@@ -206,7 +206,8 @@ type Manager struct {
 
 	// pendingToolUseID stores the most-recent tool_use_id received from a
 	// user_question LogEntry, keyed by sessionID. Consumed (read + cleared)
-	// atomically on the next SendUserMessage for that session. Guarded by mu.
+	// atomically on the next SendUserMessage for that session. Re-set on
+	// SendChatMessage failure so a UI retry forwards the same id. Guarded by mu.
 	pendingToolUseID map[string]string
 }
 
