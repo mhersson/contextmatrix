@@ -4010,6 +4010,54 @@ func TestManager_DeleteSession_ClearsPendingToolUseID(t *testing.T) {
 	assert.Empty(t, got, "DeleteSession must clear pending tool_use_id")
 }
 
+// TestManager_EndSession_ClearsPendingToolUseID verifies that EndSession removes
+// the stored pending tool_use_id so a subsequent openCold does not forward a
+// stale tool_result referencing a tool_use block from the previous container.
+func TestManager_EndSession_ClearsPendingToolUseID(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_end"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	// After EndSession, the pending id must be gone.
+	got := mgr.ConsumePendingToolUseIDForTest(sess.ID)
+	assert.Empty(t, got, "EndSession must clear pending tool_use_id")
+}
+
 // TestManager_DoClearContext_DropsPendingToolUseID verifies that ClearContext
 // discards a stored pending tool_use_id; the tool_use block it references no
 // longer exists after a /clear.

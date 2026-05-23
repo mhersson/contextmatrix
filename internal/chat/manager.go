@@ -1688,6 +1688,13 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 			"session_id", sess.ID, "error", rehyErr)
 	}
 
+	// Clear any stale pending tool_use_id so a subsequent openCold does not
+	// forward a tool_result that references a tool_use block from the now-dead
+	// container. Mirrors the identical cleanup in DeleteSession.
+	m.mu.Lock()
+	delete(m.pendingToolUseID, id)
+	m.mu.Unlock()
+
 	cold := StatusCold
 	update := SessionUpdate{Status: &cold}
 
