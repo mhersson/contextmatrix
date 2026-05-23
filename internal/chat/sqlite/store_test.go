@@ -566,7 +566,7 @@ func TestDeleteSession_ArchivesBehavior(t *testing.T) {
 
 	// GetSession, ListSessions, CountSessionsByStatus no longer see the id.
 	_, err = store.GetSession(ctx, sessionID)
-	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
+	require.ErrorIs(t, err, chat.ErrSessionNotFound)
 
 	sessions, err := store.ListSessions(ctx, chat.SessionFilter{})
 	require.NoError(t, err)
