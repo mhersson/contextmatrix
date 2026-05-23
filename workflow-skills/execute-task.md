@@ -30,6 +30,9 @@ Review:
 - Sibling cards to understand what others are working on and avoid overlap
 - `depends_on` — verify all dependencies are in `done` state. If not, you must
   report as blocked (see Step 7).
+- **If your card body has a `## Source` section, call `get_card` on the listed
+  source ID and read its body before writing any code.** The Source card holds
+  the original change context the findings below reference.
 - Run `git status`. You share the working tree with parallel sibling
   sub-agents. Touch only the files in your card's `Files:` line. Treat any
   out-of-scope modifications as siblings' WIP — do not stage, modify, or

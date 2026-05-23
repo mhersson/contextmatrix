@@ -187,23 +187,66 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
 - If any specialist returned nothing or malformed output (per Step 3),
   record the missing specialty as a gap under Concerns and force the
   recommendation to `revise` regardless of the other tiers.
+- Check whether the card under review is itself a follow-up — its title
+  starts with `Follow-up:`. Follow-ups cannot spawn further follow-ups.
 - Decide the recommendation:
   - **Any Critical or Important concern → `revise`.**
-  - **Only Minor concerns (no Critical or Important) → `approve_with_notes`.**
-    Spawn follow-up cards (below).
+  - **Only Minor concerns (no Critical or Important) → `approve_with_notes`**
+    if the bundle test below passes; else `revise` on the original card. On
+    a follow-up card, always `revise` — Minors stay on the same card.
   - **Only Nits or no concerns → `approve`.**
-- On `approve_with_notes`, for each **Minor** finding call `create_card`:
-  - `project`: this card's project.
-  - `title`: `Follow-up: <one-line finding summary>`.
-  - `body`: the finding's full Where/What/Why/Fix block.
-  - `parent`: the current card's parent (if set).
-  - `type`: same as the current card's parent.
-  Skip Nits.
 
 Cite specific files, subtasks, and decisions. Every concern must be actionable.
 
 If Pass 1 failed: recommendation is `revise`, concerns are the failing test/lint
 output, no specialists were spawned.
+
+### Bundle test
+
+One bundled follow-up per cycle, or none — never multiple.
+
+Bundle when a single agent can address all Minors in one focused session:
+shared theme, bounded scope, no design rework spanning items.
+
+Otherwise `revise` the original card. Triggers:
+
+- Any Minor implies non-trivial design rework.
+- Minors span unrelated subsystems or packages.
+- Minors couple to each other or to the original change.
+
+When in doubt, prefer `revise`.
+
+### Spawning the bundled follow-up
+
+On `approve_with_notes`, call `create_card` **exactly once**:
+
+- `project`: this card's project.
+- `title`: `Follow-up: polish from review of <CARD-ID>`.
+- `parent`: the current card's parent (if set).
+- `type`: same as the current card's parent.
+- `body`: exact format below.
+
+```markdown
+## Source
+
+`<CARD-ID>` — `<reviewed card title>`
+
+## What this card is for
+
+<2–4 sentences: what the original change did and why, why these polish
+items were deferred, what a successful pass looks like. Tell the next
+agent to call `get_card` on the source above for the full original body.>
+
+## Findings to address
+
+### Minor
+
+- **Where:** `file:line` — **What:** ... — **Why:** ... — **Fix:** ...
+- (one bullet per Minor finding, preserving the specialist
+  Where/What/Why/Fix format)
+```
+
+Skip Nits.
 
 ## Step 5: Write findings, report, return
 
@@ -283,6 +326,8 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - `update_card` before printing `REVIEW_FINDINGS`.
 - `REVIEW_FINDINGS` block format is exact.
 - All three specialists in one message; sequential spawning is wrong.
+- At most one bundled follow-up per review cycle, or none — never multiple.
+- Follow-up cards (title prefix `Follow-up:`) never spawn further follow-ups.
 - Pass 1 failure short-circuits Pass 2.
 - MCP tools only — never curl, wget, or HTTP.
 - Categorize severity honestly. Critical = broken or unsafe. Important = real
