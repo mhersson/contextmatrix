@@ -16,6 +16,12 @@ type Store interface {
 	GetSession(ctx context.Context, id string) (Session, error)
 	ListSessions(ctx context.Context, filter SessionFilter) ([]Session, error)
 	UpdateSession(ctx context.Context, s Session) error
+
+	// DeleteSession removes the session identified by id. Before the live
+	// record is removed, its cost data and identifying metadata are preserved
+	// so that AggregateCost continues to reflect accurate historical spend
+	// across deleted sessions. Associated messages are dropped along with the
+	// session. Deleting a non-existent or already-deleted id is a no-op.
 	DeleteSession(ctx context.Context, id string) error
 
 	// SetRehydrationActive flips the rehydration_active flag on a session
