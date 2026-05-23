@@ -59,7 +59,7 @@ const EventKindDivider = "divider"
 type RunnerClient interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
-	SendChatMessage(ctx context.Context, sessionID, content, messageID string) error
+	SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error
 	// StreamLogs opens a long-lived SSE subscription to the runner's
 	// /logs?session_id=<id> endpoint and invokes onEntry for each parsed
 	// LogEntry. Returns when ctx is cancelled or the stream closes.
@@ -203,6 +203,11 @@ type Manager struct {
 	// costCache holds the most-recently computed GetChatCostSummary result.
 	// Guarded by mu. Zero value means "not yet computed."
 	costCache chatCostCache
+
+	// pendingToolUseID stores the most-recent tool_use_id received from a
+	// user_question LogEntry, keyed by sessionID. Consumed (read + cleared)
+	// atomically on the next SendUserMessage for that session. Guarded by mu.
+	pendingToolUseID map[string]string
 }
 
 // NewManager constructs a Manager. Required: Store, Runner.
@@ -235,6 +240,7 @@ func NewManager(cfg Config) *Manager {
 		rehydrationActive:  make(map[string]bool),
 		appendLocks:        map[string]*sync.Mutex{},
 		statusLocks:        map[string]*sync.Mutex{},
+		pendingToolUseID:   make(map[string]string),
 	}
 }
 
@@ -285,6 +291,36 @@ func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
 	defer mu.Unlock()
 
 	return fn()
+}
+
+// setPendingToolUseID stores the tool_use_id for a session so the next
+// SendUserMessage can forward it to the runner. No-op when toolUseID is empty.
+// Acquires m.mu briefly.
+//
+// There is a narrow TOCTOU window: if a new user_question arrives between a
+// consumePendingToolUseID call and a re-set on send failure, the re-set will
+// clobber the newer ID. This is acceptable — the user has not yet seen the new
+// question while the previous send is still failing.
+func (m *Manager) setPendingToolUseID(sessionID, toolUseID string) {
+	if toolUseID == "" {
+		return
+	}
+
+	m.mu.Lock()
+	m.pendingToolUseID[sessionID] = toolUseID
+	m.mu.Unlock()
+}
+
+// consumePendingToolUseID atomically reads and clears the pending tool_use_id
+// for a session. Returns "" if none is stored.
+// Acquires m.mu briefly.
+func (m *Manager) consumePendingToolUseID(sessionID string) string {
+	m.mu.Lock()
+	id := m.pendingToolUseID[sessionID]
+	delete(m.pendingToolUseID, sessionID)
+	m.mu.Unlock()
+
+	return id
 }
 
 // publishSessionUpdate fans out a session-update event on the SSE hub.
@@ -465,6 +501,10 @@ func (m *Manager) startConsumer(sessionID string) {
 				m.handleUsageEntry(ctx, sessionID, e)
 
 				return
+			}
+
+			if e.Type == "user_question" && e.ToolUseID != "" {
+				m.setPendingToolUseID(sessionID, e.ToolUseID)
 			}
 
 			role := roleFromLogType(e.Type)
@@ -838,8 +878,12 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // session. The session-not-running guard is checked before entering
 // clearGroup, so this function can assume the session is active or warm-idle.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
+	// Any pending tool_use_id references a tool_use block that will no longer
+	// exist after the context is wiped; discard it before sending /clear.
+	_ = m.consumePendingToolUseID(sessionID)
+
 	clearMsgID := NewID()
-	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID, ""); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
 	}
 
@@ -849,7 +893,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 		primerPresent = true
 		primerMsgID := NewID()
 
-		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
+		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID, ""); err != nil {
 			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
 				"session_id", sessionID, "error", err)
 
@@ -1698,6 +1742,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.seqMap, id)
 	delete(m.titled, id)
 	delete(m.rehydrationActive, id)
+	delete(m.pendingToolUseID, id)
 	m.mu.Unlock()
 
 	// Drop the per-session append lock entry. Held under appendLocksMu
@@ -1768,12 +1813,18 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	msgID := NewID()
+	toolUseID := m.consumePendingToolUseID(sessionID)
 
 	m.logger.Info("chat: forwarding user message to runner",
-		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
+		"session_id", sessionID, "message_id", msgID, "content_len", len(content),
+		slog.Bool("has_tool_use_id", toolUseID != ""))
 
-	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
-		return "", err
+	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID, toolUseID); err != nil {
+		if toolUseID != "" {
+			m.setPendingToolUseID(sessionID, toolUseID)
+		}
+
+		return "", fmt.Errorf("%w: %w", ErrRunnerSend, err)
 	}
 
 	// Runner accepted the message — now safe to persist + publish.
