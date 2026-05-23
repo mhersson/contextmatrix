@@ -95,16 +95,19 @@ type Message struct {
 
 // LogEntry is a parsed event from the runner's /logs SSE stream. The Type
 // values mirror the runner's logbroadcast.LogEntry.Type vocabulary: "text",
-// "thinking", "tool_call", "stderr", "system", "user", "usage". The chat
-// package translates Type → Role when bridging into the transcript. "usage"
-// entries are metadata (Claude stream-json usage block) and carry token
-// counts in Usage; they do NOT become transcript entries.
+// "thinking", "tool_call", "stderr", "system", "user", "usage",
+// "user_question", "tool_result". The chat package translates Type → Role when
+// bridging into the transcript. "usage" entries are metadata (Claude stream-json
+// usage block) and carry token counts in Usage; they do NOT become transcript
+// entries.
 type LogEntry struct {
 	Timestamp time.Time
 	Type      string
 	Content   string
 	Usage     *TokenUsage
 	Model     string
+	// ToolUseID is the stream-json tool_use id carried on "user_question" entries; empty otherwise.
+	ToolUseID string
 }
 
 // TokenUsage carries per-turn (per-assistant-message) token counts from the

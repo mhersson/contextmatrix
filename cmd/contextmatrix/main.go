@@ -557,7 +557,7 @@ func (chatRunnerDisabled) EndChat(_ context.Context, _ string) error {
 	return fmt.Errorf("chat: runner not enabled")
 }
 
-func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _, _ string) error {
 	return fmt.Errorf("chat: runner not enabled")
 }
 

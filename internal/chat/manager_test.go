@@ -48,7 +48,9 @@ type stubRunner struct {
 	sendArgs []sendArg
 }
 
-type sendArg struct{ Content, MessageID string }
+type sendArg struct {
+	Content, MessageID, ToolUseID string
+}
 
 func (s *stubRunner) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
 	s.startCalls.Add(1)
@@ -69,11 +71,11 @@ func (s *stubRunner) EndChat(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func (s *stubRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (s *stubRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error {
 	idx := s.sendCalls.Add(1) - 1
 
 	s.mu.Lock()
-	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID})
+	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID, ToolUseID: toolUseID})
 	seq := s.sendErrSeq
 	s.mu.Unlock()
 
@@ -903,7 +905,7 @@ func (s *slowStartRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (st
 
 func (s *slowStartRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (s *slowStartRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (s *slowStartRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error { return nil }
 
 func (s *slowStartRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
@@ -1774,7 +1776,7 @@ func (r *usageStreamingRunner) StartChat(_ context.Context, _ chat.StartChatOpts
 
 func (r *usageStreamingRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *usageStreamingRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *usageStreamingRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
 
@@ -1923,7 +1925,7 @@ func (r *countingRunner) StartChat(ctx context.Context, opts chat.StartChatOpts)
 
 func (r *countingRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *countingRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (r *countingRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error { return nil }
 
 func (r *countingRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
@@ -2423,13 +2425,13 @@ type clearGatingRunner struct {
 	release  chan struct{}
 }
 
-func (r *clearGatingRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (r *clearGatingRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error {
 	r.gateOnce.Do(func() {
 		close(r.started)
 		<-r.release
 	})
 
-	return r.stubRunner.SendChatMessage(ctx, sessionID, content, messageID)
+	return r.stubRunner.SendChatMessage(ctx, sessionID, content, messageID, toolUseID)
 }
 
 // TestClearContext_ConcurrentCallsSerialised verifies that singleflight
@@ -3335,7 +3337,7 @@ func (r *twoPhaseUsageRunner) StartChat(_ context.Context, _ chat.StartChatOpts)
 
 func (r *twoPhaseUsageRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *twoPhaseUsageRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *twoPhaseUsageRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
 
@@ -3794,4 +3796,409 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	assert.InDelta(t, origVal, series2[29], 1e-9,
 		"mutating series1 must not corrupt the cached entry: series2[29] should still equal the original value")
+}
+
+// TestManager_SendUserMessage_ForwardsToolUseID verifies that when a
+// user_question LogEntry with a ToolUseID arrives from the runner log stream,
+// the next SendUserMessage forwards that ToolUseID to the runner client and
+// then clears it so a subsequent SendUserMessage sends an empty ToolUseID.
+func TestManager_SendUserMessage_ForwardsToolUseID(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: "Which?", ToolUseID: "toolu_abc"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sess.ID) })
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// First SendUserMessage: pending ToolUseID must be forwarded.
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "Approve")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	args := make([]sendArg, len(runner.sendArgs))
+	copy(args, runner.sendArgs)
+	runner.mu.Unlock()
+
+	require.NotEmpty(t, args)
+	assert.Equal(t, "toolu_abc", args[len(args)-1].ToolUseID, "first SendUserMessage must forward ToolUseID")
+
+	// Second SendUserMessage: pending ToolUseID was consumed; must be empty.
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "follow-up")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	args2 := make([]sendArg, len(runner.sendArgs))
+	copy(args2, runner.sendArgs)
+	runner.mu.Unlock()
+
+	assert.Empty(t, args2[len(args2)-1].ToolUseID, "second SendUserMessage must send empty ToolUseID after consume")
+}
+
+// TestManager_SendUserMessage_NoPendingToolUseID verifies that when no
+// user_question with a ToolUseID has been received, SendUserMessage forwards
+// an empty ToolUseID to the runner client.
+func TestManager_SendUserMessage_NoPendingToolUseID(t *testing.T) {
+	mgr, runner, store := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "plain message")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	args := make([]sendArg, len(runner.sendArgs))
+	copy(args, runner.sendArgs)
+	runner.mu.Unlock()
+
+	require.NotEmpty(t, args)
+	assert.Empty(t, args[len(args)-1].ToolUseID, "SendUserMessage without pending ToolUseID must send empty string")
+}
+
+// TestManager_SendUserMessage_ToolUseID_PreservedOnSendError verifies that if
+// runner.SendChatMessage returns an error, the consumed pending tool_use_id is
+// restored so a caller retry still forwards the correct id.
+func TestManager_SendUserMessage_ToolUseID_PreservedOnSendError(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_xyz"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sess.ID) })
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// Arm the runner to fail on the first send.
+	runner.mu.Lock()
+	runner.sendErrSeq = []error{errors.New("runner unreachable")}
+	runner.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "answer")
+	require.Error(t, err, "SendUserMessage must return error on runner failure")
+
+	// Disarm the runner so the retry succeeds.
+	runner.mu.Lock()
+	runner.sendErrSeq = nil
+	runner.mu.Unlock()
+
+	// Retry — the pending tool_use_id must have been restored and forwarded.
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "answer")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	args := make([]sendArg, len(runner.sendArgs))
+	copy(args, runner.sendArgs)
+	runner.mu.Unlock()
+
+	// The last (successful) send must carry toolu_xyz.
+	require.NotEmpty(t, args)
+	assert.Equal(t, "toolu_xyz", args[len(args)-1].ToolUseID, "retry must forward the preserved tool_use_id")
+}
+
+// TestManager_DeleteSession_ClearsPendingToolUseID verifies that DeleteSession
+// removes the stored pending tool_use_id so a future session reusing the same
+// id does not inherit a stale value.
+func TestManager_DeleteSession_ClearsPendingToolUseID(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_del"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	require.NoError(t, mgr.DeleteSession(ctx, sess.ID))
+
+	// After delete, the pending id must be gone.
+	got := mgr.ConsumePendingToolUseIDForTest(sess.ID)
+	assert.Empty(t, got, "DeleteSession must clear pending tool_use_id")
+}
+
+// TestManager_DoClearContext_DropsPendingToolUseID verifies that ClearContext
+// discards a stored pending tool_use_id; the tool_use block it references no
+// longer exists after a /clear.
+func TestManager_DoClearContext_DropsPendingToolUseID(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_clear"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sess.ID) })
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
+
+	// After clear, the pending tool_use_id must have been dropped.
+	got := mgr.ConsumePendingToolUseIDForTest(sess.ID)
+	assert.Empty(t, got, "ClearContext must discard pending tool_use_id")
+
+	// A subsequent SendUserMessage must forward empty tool_use_id.
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "fresh message")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	args := make([]sendArg, len(runner.sendArgs))
+	copy(args, runner.sendArgs)
+	runner.mu.Unlock()
+
+	// Last send is the "fresh message" one; it must have empty ToolUseID.
+	require.NotEmpty(t, args)
+
+	var freshArg *sendArg
+
+	for i := range args {
+		if args[i].Content == "fresh message" {
+			freshArg = &args[i]
+		}
+	}
+
+	require.NotNil(t, freshArg, "fresh message send arg not found")
+	assert.Empty(t, freshArg.ToolUseID, "post-clear SendUserMessage must forward empty tool_use_id")
+}
+
+// TestManager_SendUserMessage_ToolUseID_SessionIsolation verifies that
+// pending tool_use_ids for distinct sessions do not bleed into each other:
+// SendUserMessage(sessionA) gets sessionA's id and SendUserMessage(sessionB)
+// gets sessionB's id.
+func TestManager_SendUserMessage_ToolUseID_SessionIsolation(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	// Create two sessions before building the manager so we know the IDs.
+	sessA, err := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  &stubRunner{},
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	}).CreateSession(ctx, chat.CreateInput{Title: "A", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	sessB, err := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  &stubRunner{},
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	}).CreateSession(ctx, chat.CreateInput{Title: "B", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	readyA := make(chan struct{})
+	readyB := make(chan struct{})
+
+	runner := &stubRunner{
+		streamLogsFn: func(ctx context.Context, sessionID string, onEntry func(chat.LogEntry)) error {
+			switch sessionID {
+			case sessA.ID:
+				onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_A"})
+				close(readyA)
+			case sessB.ID:
+				onEntry(chat.LogEntry{Type: "user_question", Content: "Q?", ToolUseID: "toolu_B"})
+				close(readyB)
+			}
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Runner:  runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	_, err = mgr.OpenSession(ctx, sessA.ID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sessA.ID) })
+
+	_, err = mgr.OpenSession(ctx, sessB.ID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = mgr.EndSession(context.Background(), sessB.ID) })
+
+	select {
+	case <-readyA:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session A: StreamLogs onEntry never invoked")
+	}
+
+	select {
+	case <-readyB:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session B: StreamLogs onEntry never invoked")
+	}
+
+	// SendUserMessage for A — must get toolu_A.
+	_, err = mgr.SendUserMessage(ctx, sessA.ID, "answer A")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	argsA := make([]sendArg, len(runner.sendArgs))
+	copy(argsA, runner.sendArgs)
+	runner.mu.Unlock()
+
+	gotA := ""
+
+	for _, a := range argsA {
+		if a.Content == "answer A" {
+			gotA = a.ToolUseID
+
+			break
+		}
+	}
+
+	assert.Equal(t, "toolu_A", gotA, "session A answer must carry toolu_A")
+
+	// SendUserMessage for B — must get toolu_B, not toolu_A.
+	_, err = mgr.SendUserMessage(ctx, sessB.ID, "answer B")
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	argsB := make([]sendArg, len(runner.sendArgs))
+	copy(argsB, runner.sendArgs)
+	runner.mu.Unlock()
+
+	gotB := ""
+
+	for _, a := range argsB {
+		if a.Content == "answer B" {
+			gotB = a.ToolUseID
+
+			break
+		}
+	}
+
+	assert.Equal(t, "toolu_B", gotB, "session B answer must carry toolu_B, not bleed from session A")
 }

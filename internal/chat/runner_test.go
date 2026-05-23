@@ -124,10 +124,110 @@ func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
-	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1")
+	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "/message", receivedPath)
 	assert.Equal(t, "S1", receivedBody["session_id"])
 	assert.Equal(t, "hello", receivedBody["content"])
 	assert.Equal(t, "msg-1", receivedBody["message_id"])
+}
+
+func TestRunnerClient_SendChatMessage_ToolUseID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		toolUseID     string
+		wantInBody    bool
+		wantToolUseID string
+	}{
+		{
+			name:          "with tool_use_id set",
+			toolUseID:     "toolu_abc",
+			wantInBody:    true,
+			wantToolUseID: "toolu_abc",
+		},
+		{
+			name:       "with empty tool_use_id omits field",
+			toolUseID:  "",
+			wantInBody: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedBody map[string]any
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(body, &receivedBody)
+
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			t.Cleanup(srv.Close)
+
+			rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+			err := rc.SendChatMessage(context.Background(), "S1", "answer", "msg-1", tt.toolUseID)
+			require.NoError(t, err)
+
+			_, present := receivedBody["tool_use_id"]
+			assert.Equal(t, tt.wantInBody, present, "tool_use_id presence mismatch")
+
+			if tt.wantInBody {
+				assert.Equal(t, tt.wantToolUseID, receivedBody["tool_use_id"])
+			}
+		})
+	}
+}
+
+func TestRunnerClient_StreamLogs_ToolUseID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		frame         string
+		wantToolUseID string
+	}{
+		{
+			name:          "frame with tool_use_id",
+			frame:         `{"ts":"2024-01-01T00:00:00Z","type":"user_question","content":"Which?","tool_use_id":"toolu_abc"}`,
+			wantToolUseID: "toolu_abc",
+		},
+		{
+			name:          "frame without tool_use_id",
+			frame:         `{"ts":"2024-01-01T00:00:00Z","type":"user_question","content":"Which?"}`,
+			wantToolUseID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got chat.LogEntry
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("data: " + tt.frame + "\n\n"))
+			}))
+			t.Cleanup(srv.Close)
+
+			rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			_ = rc.StreamLogs(ctx, "S1", func(e chat.LogEntry) {
+				got = e
+
+				cancel()
+			})
+
+			assert.Equal(t, tt.wantToolUseID, got.ToolUseID)
+		})
+	}
 }

@@ -27,3 +27,10 @@ func (m *Manager) RehydrationActiveCacheForTest(sessionID string) (bool, bool) {
 
 	return v, ok
 }
+
+// ConsumePendingToolUseIDForTest is a test-only export of
+// consumePendingToolUseID, allowing package chat_test to assert pending-ID
+// state without going through SendUserMessage side-effects.
+func (m *Manager) ConsumePendingToolUseIDForTest(sessionID string) string {
+	return m.consumePendingToolUseID(sessionID)
+}

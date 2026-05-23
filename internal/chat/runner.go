@@ -75,6 +75,7 @@ type messagePayload struct {
 	SessionID string `json:"session_id"`
 	Content   string `json:"content"`
 	MessageID string `json:"message_id,omitempty"`
+	ToolUseID string `json:"tool_use_id,omitempty"`
 }
 
 func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
@@ -117,8 +118,8 @@ func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
 	return err
 }
 
-func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
-	body, err := json.Marshal(messagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
+func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error {
+	body, err := json.Marshal(messagePayload{SessionID: sessionID, Content: content, MessageID: messageID, ToolUseID: toolUseID})
 	if err != nil {
 		return fmt.Errorf("chat: runner: marshal SendChatMessage payload: %w", err)
 	}
@@ -136,6 +137,7 @@ type runnerLogEntry struct {
 	Content   string          `json:"content,omitempty"`
 	Usage     *runnerLogUsage `json:"usage,omitempty"`
 	Model     string          `json:"model,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
 }
 
 // runnerLogUsage mirrors the runner's logbroadcast.TokenUsage JSON shape.
@@ -218,6 +220,7 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 			Type:      entry.Type,
 			Content:   entry.Content,
 			Model:     entry.Model,
+			ToolUseID: entry.ToolUseID,
 		}
 
 		if entry.Usage != nil {

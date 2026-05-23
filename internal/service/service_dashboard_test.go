@@ -31,7 +31,7 @@ func (noopChatRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string
 
 func (noopChatRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (noopChatRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (noopChatRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error { return nil }
 
 func (noopChatRunner) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
 	return nil
