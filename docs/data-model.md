@@ -571,11 +571,12 @@ without opening a pull request.
 ## `chat_sessions` SQLite schema
 
 Chat session state is persisted in a SQLite database (separate from the boards
-git repo and the images store). The table is versioned via `schema_migrations`;
-migrations are idempotent — each column addition uses `addColumnIfMissing` to
-guard against re-runs on databases that already have the column.
+git repo and the images store). The schema is managed by a single `version: 1`
+migration in `internal/chat/sqlite/migrations.go` that creates all tables in
+their final shape. **Existing `chats.db` files from earlier installs are not
+forward-compatible; delete the file before upgrading.**
 
-**Schema as of migration v6:**
+**`chat_sessions` table:**
 
 | Column                       | Type    | Default | Meaning                                                             |
 | ---------------------------- | ------- | ------- | ------------------------------------------------------------------- |
@@ -588,20 +589,40 @@ guard against re-runs on databases that already have the column.
 | `created_by`                 | TEXT    | —       | Agent ID of the session creator.                                    |
 | `container_id`               | TEXT    | NULL    | Runner container ID; cleared when the session goes cold.            |
 | `workspace`                  | TEXT    | NULL    | JSON-encoded workspace directory list.                              |
-| `model`                      | TEXT    | `''`    | Orchestrator model ID; added in migration v3.                       |
-| `context_tokens`             | INTEGER | `0`     | Last context-window token count; added in migration v3.             |
-| `context_tokens_updated_at`  | INTEGER | NULL    | Unix epoch of last context-token update; added in migration v3.     |
-| `rehydration_active`         | INTEGER | `0`     | Boolean flag for rehydration phase; added in migration v3.          |
-| `rehydration_started_at`     | INTEGER | NULL    | Unix epoch when rehydration started; added in migration v5.         |
-| `prompt_tokens`              | INTEGER | `0`     | Cumulative input tokens from all usage frames; **added in migration v6**. |
-| `completion_tokens`          | INTEGER | `0`     | Cumulative output tokens; **added in migration v6**.                |
-| `cache_read_tokens`          | INTEGER | `0`     | Cumulative cache-read tokens; **added in migration v6**.            |
-| `cache_creation_tokens`      | INTEGER | `0`     | Cumulative cache-creation tokens; **added in migration v6**.        |
-| `estimated_cost_usd`         | REAL    | `0`     | Running USD cost total accumulated via `IncrementSessionCost`; **added in migration v6**. |
+| `model`                      | TEXT    | `''`    | Orchestrator model ID.                                              |
+| `context_tokens`             | INTEGER | `0`     | Last context-window token count.                                    |
+| `context_tokens_updated_at`  | INTEGER | NULL    | Unix epoch of last context-token update.                            |
+| `rehydration_active`         | INTEGER | `0`     | Boolean flag for rehydration phase.                                 |
+| `rehydration_started_at`     | INTEGER | NULL    | Unix epoch when rehydration started.                                |
+| `prompt_tokens`              | INTEGER | `0`     | Cumulative input tokens from all usage frames.                      |
+| `completion_tokens`          | INTEGER | `0`     | Cumulative output tokens.                                           |
+| `cache_read_tokens`          | INTEGER | `0`     | Cumulative cache-read tokens.                                       |
+| `cache_creation_tokens`      | INTEGER | `0`     | Cumulative cache-creation tokens.                                   |
+| `estimated_cost_usd`         | REAL    | `0`     | Running USD cost total accumulated via `IncrementSessionCost`.      |
 
-The five v6 columns all use `NOT NULL DEFAULT 0` so pre-migration rows are
-backward-compatible without a data backfill; sessions that existed before v6
-simply show zero cost.
+**`chat_cost_archive` table:**
+
+When a session is deleted, `DeleteSession` archives its cost columns into this
+table before removing the `chat_sessions` row. The transcript and title are NOT
+preserved. `AggregateCost` queries `UNION ALL` over both `chat_sessions` and
+`chat_cost_archive` so deleted sessions continue to contribute to the 30-day
+dashboard chat-cost rollup.
+
+| Column                | Type    | Default | Meaning                                       |
+| --------------------- | ------- | ------- | --------------------------------------------- |
+| `id`                  | TEXT PK | —       | Same session ID as the deleted `chat_sessions` row. |
+| `project`             | TEXT    | —       | Project slug at deletion time.                |
+| `model`               | TEXT    | `''`    | Model ID at deletion time.                    |
+| `last_active`         | INTEGER | —       | Unix epoch of last activity; indexed for range queries. |
+| `prompt_tokens`       | INTEGER | `0`     | Cumulative input tokens.                      |
+| `completion_tokens`   | INTEGER | `0`     | Cumulative output tokens.                     |
+| `cache_read_tokens`   | INTEGER | `0`     | Cumulative cache-read tokens.                 |
+| `cache_creation_tokens` | INTEGER | `0`  | Cumulative cache-creation tokens.             |
+| `estimated_cost_usd`  | REAL    | `0`     | Accumulated USD cost.                         |
+| `deleted_at`          | INTEGER | —       | Unix epoch when the session was deleted.      |
+
+Archive rows are retained indefinitely (each is ~80 bytes). There is no purge
+mechanism; add one as a future task if needed.
 
 **`estimated_cost_usd` precision:** stored as SQLite `REAL` (IEEE 754
 double). The precision floor is approximately $0.0001 per frame; rounding

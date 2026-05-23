@@ -188,18 +188,17 @@
   bootstrap in `useChatStream` to backfill. Session-update events
   (`session_updated`) are NOT stored in the ring; only `message` events are,
   since session metadata is meant to be re-fetched on reconnect.
-- **Chat schema migrations are versioned:** `internal/chat/sqlite/migrations.go`
-  uses a `schema_migrations(version, applied_at)` table. Every migration is
-  idempotent (`IF EXISTS` / `IF NOT EXISTS`) so a pre-versioning DB picks up
-  unapplied versions on first open without a separate back-fill step. v2 drops
-  the original non-unique `idx_chat_messages_session_seq` and creates the unique
-  index that supersedes it. v3 adds rehydration / context-token columns to
-  `chat_sessions` and a `rehydration_phase` column to `chat_messages` — SQLite
-  has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so v3 uses `addColumnIfMissing`
-  (a `PRAGMA table_info` probe) instead of a raw `ALTER`. When adding v4+,
-  append to the `migrations` slice; do not edit shipped versions, and reach for
-  `addColumnIfMissing` rather than a plain `ALTER` for column adds so re-runs
-  against drifted databases stay safe.
+- **Chat schema is a single v1 migration — existing `chats.db` must be deleted
+  on upgrade:** `internal/chat/sqlite/migrations.go` uses a
+  `schema_migrations(version, applied_at)` table. The entire schema (all tables,
+  indexes) is created by a single `version: 1` entry that runs `CREATE TABLE IF
+  NOT EXISTS` DDL for `chat_sessions`, `chat_messages`, and `chat_cost_archive`
+  in their final shape. The stepwise v1–v6 migration history and the
+  `addColumnIfMissing` helper have been removed. A `chats.db` from a previous
+  install is not forward-compatible; operators must delete it before starting a
+  server that includes this change. When adding a new schema change, append a
+  `version: 2` entry to the slice with idempotent DDL (use `IF NOT EXISTS` /
+  `IF EXISTS`); never edit the v1 entry.
 - **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
   `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap via
   `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID change, the
