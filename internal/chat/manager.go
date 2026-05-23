@@ -1824,7 +1824,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 			m.setPendingToolUseID(sessionID, toolUseID)
 		}
 
-		return "", fmt.Errorf("%w: %w", ErrRunnerSend, err)
+		return "", err
 	}
 
 	// Runner accepted the message — now safe to persist + publish.
