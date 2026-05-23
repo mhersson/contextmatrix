@@ -9,24 +9,19 @@ interface SpotlightStripProps {
 /**
  * Surfaces cards that need attention regardless of column position:
  *   - state == "stalled"
- *   - depends_on.length > 0 && dependencies_met === false
+ *   - state == "blocked"
  *
  * Always rendered — when there is nothing to surface, the strip shows an
  * "all clear" placeholder so the slot in the layout remains visible.
  */
 export function SpotlightStrip({ cards, onCardClick }: SpotlightStripProps) {
   const surfaced = useMemo(
-    () =>
-      cards.filter(
-        (c) =>
-          c.state === 'stalled' ||
-          (c.depends_on && c.depends_on.length > 0 && c.dependencies_met === false)
-      ),
+    () => cards.filter((c) => c.state === 'stalled' || c.state === 'blocked'),
     [cards]
   );
 
   const stalledCount = surfaced.filter((c) => c.state === 'stalled').length;
-  const blockedCount = surfaced.length - stalledCount;
+  const blockedCount = surfaced.filter((c) => c.state === 'blocked').length;
   const empty = surfaced.length === 0;
 
   return (
@@ -36,7 +31,7 @@ export function SpotlightStrip({ cards, onCardClick }: SpotlightStripProps) {
         <span className="spotlight-strip__meta">
           {empty
             ? 'all clear · auto-surfaced'
-            : `${stalledCount} stalled · ${blockedCount} blocked dep · auto-surfaced`}
+            : `${stalledCount} stalled · ${blockedCount} blocked · auto-surfaced`}
         </span>
       </div>
       {empty ? (
@@ -49,11 +44,11 @@ export function SpotlightStrip({ cards, onCardClick }: SpotlightStripProps) {
               key={c.id}
               className="spotlight-card"
               onClick={() => onCardClick(c.id)}
-              aria-label={`Open ${c.id}`}
+              aria-label={`Open ${c.id} – ${c.state === 'stalled' ? 'stalled' : 'blocked'}`}
             >
               <span className="spotlight-card__id">{c.id}</span>
               <span className="spotlight-card__since">
-                {c.state === 'stalled' ? 'stalled' : 'blocked dep'}
+                {c.state === 'stalled' ? 'stalled' : 'blocked'}
               </span>
               <span />
               <span className="spotlight-card__title">{c.title}</span>

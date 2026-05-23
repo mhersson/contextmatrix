@@ -22,12 +22,38 @@ describe('SpotlightStrip', () => {
     expect(screen.queryByText('normal')).not.toBeInTheDocument();
   });
 
-  it('surfaces cards with unmet dependencies', () => {
+  it('does NOT surface dep-blocked cards in non-blocked states', () => {
     const cards = [
-      mkCard({ id: 'CTX-3', title: 'blocked', depends_on: ['CTX-1'], dependencies_met: false }),
+      mkCard({ id: 'CTX-3', title: 'dep-blocked', state: 'todo', depends_on: ['CTX-1'], dependencies_met: false }),
     ];
     render(<SpotlightStrip cards={cards} onCardClick={() => {}} />);
-    expect(screen.getByText('blocked')).toBeInTheDocument();
+    expect(screen.queryByText('dep-blocked')).not.toBeInTheDocument();
+  });
+
+  it("surfaces cards in 'blocked' state", () => {
+    const cards = [
+      mkCard({ id: 'CTX-4', title: 'in-blocked-state', state: 'blocked' }),
+    ];
+    render(<SpotlightStrip cards={cards} onCardClick={() => {}} />);
+    expect(screen.getByText('in-blocked-state')).toBeInTheDocument();
+  });
+
+  it('surfaces stalled cards even with unmet dependencies', () => {
+    const cards = [
+      mkCard({ id: 'CTX-5', title: 'stalled-with-deps', state: 'stalled', depends_on: ['CTX-1'], dependencies_met: false }),
+    ];
+    render(<SpotlightStrip cards={cards} onCardClick={() => {}} />);
+    expect(screen.getByText('stalled-with-deps')).toBeInTheDocument();
+  });
+
+  it('aria-label includes the card state for stalled and blocked cards', () => {
+    const cards = [
+      mkCard({ id: 'CTX-6', title: 'stalled-card', state: 'stalled' }),
+      mkCard({ id: 'CTX-7', title: 'blocked-card', state: 'blocked' }),
+    ];
+    render(<SpotlightStrip cards={cards} onCardClick={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Open CTX-6 – stalled' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open CTX-7 – blocked' })).toBeInTheDocument();
   });
 
   it('renders an "all clear" placeholder when there are no surfaced cards', () => {
