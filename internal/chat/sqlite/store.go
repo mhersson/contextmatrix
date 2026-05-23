@@ -305,9 +305,36 @@ func (s *Store) UpdateContextTokens(ctx context.Context, sessionID string, token
 }
 
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("chat: delete session: %w", err)
+		return fmt.Errorf("chat: delete session: begin tx: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO chat_cost_archive
+			(id, project, model, last_active,
+			 prompt_tokens, completion_tokens, cache_read_tokens,
+			 cache_creation_tokens, estimated_cost_usd, deleted_at)
+		SELECT id, project, model, last_active,
+			prompt_tokens, completion_tokens, cache_read_tokens,
+			cache_creation_tokens, estimated_cost_usd, ?
+		FROM chat_sessions WHERE id = ?
+		ON CONFLICT(id) DO NOTHING`,
+		time.Now().UTC().Unix(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("chat: delete session: archive: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("chat: delete session: delete: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("chat: delete session: commit: %w", err)
 	}
 
 	return nil
@@ -553,19 +580,22 @@ func scanSession(sc scanner) (chat.Session, error) {
 // AggregateCost returns cost aggregates over the 30-day window [since, until)
 // and the equal-width prior window [since-30d, since). series30d is a
 // length-30 daily slice; index 0 = since, index 29 = the day before until.
-// Days with no sessions are filled with 0.0. Uses the idx_chat_sessions_last_active
-// index for both range scans.
+// Days with no sessions are filled with 0.0. Both live sessions and archived
+// (deleted) sessions contribute via UNION ALL over chat_sessions and
+// chat_cost_archive.
 func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last30d, prior30d float64, series30d []float64, err error) {
 	const numDays = 30
 
 	series30d = make([]float64, numDays)
 
-	// last30d: sum of cost in [since, until).
+	// last30d: sum of cost in [since, until) across live + archived sessions.
 	row := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
-		 FROM chat_sessions
-		 WHERE last_active >= ? AND last_active < ?`,
-		since.Unix(), until.Unix(),
+		`SELECT COALESCE(SUM(cost), 0.0) FROM (
+		     SELECT estimated_cost_usd AS cost FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+		     UNION ALL
+		     SELECT estimated_cost_usd AS cost FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?
+		 )`,
+		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
 	if err = row.Scan(&last30d); err != nil {
 		return 0, 0, nil, fmt.Errorf("chat: aggregate cost last30d: %w", err)
@@ -575,24 +605,29 @@ func (s *Store) AggregateCost(ctx context.Context, since, until time.Time) (last
 	priorStart := since.Add(-30 * 24 * time.Hour)
 
 	row = s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
-		 FROM chat_sessions
-		 WHERE last_active >= ? AND last_active < ?`,
-		priorStart.Unix(), since.Unix(),
+		`SELECT COALESCE(SUM(cost), 0.0) FROM (
+		     SELECT estimated_cost_usd AS cost FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+		     UNION ALL
+		     SELECT estimated_cost_usd AS cost FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?
+		 )`,
+		priorStart.Unix(), since.Unix(), priorStart.Unix(), since.Unix(),
 	)
 	if err = row.Scan(&prior30d); err != nil {
 		return 0, 0, nil, fmt.Errorf("chat: aggregate cost prior30d: %w", err)
 	}
 
 	// series30d: per-day sums bucketed by date(last_active, 'unixepoch').
-	// Returns only rows with sessions; the Go fill-loop zeroes the rest.
+	// Returns only rows with data; the Go fill-loop zeroes the rest.
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT date(last_active, 'unixepoch') AS day, SUM(estimated_cost_usd) AS day_cost
-		 FROM chat_sessions
-		 WHERE last_active >= ? AND last_active < ?
+		 FROM (
+		     SELECT last_active, estimated_cost_usd FROM chat_sessions     WHERE last_active >= ? AND last_active < ?
+		     UNION ALL
+		     SELECT last_active, estimated_cost_usd FROM chat_cost_archive WHERE last_active >= ? AND last_active < ?
+		 )
 		 GROUP BY day
 		 ORDER BY day ASC`,
-		since.Unix(), until.Unix(),
+		since.Unix(), until.Unix(), since.Unix(), until.Unix(),
 	)
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("chat: aggregate cost series: %w", err)
