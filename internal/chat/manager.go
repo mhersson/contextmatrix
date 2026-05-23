@@ -1825,7 +1825,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 	m.logger.Info("chat: forwarding user message to runner",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content),
-		slog.Bool("has_tool_use_id", toolUseID != ""))
+		"has_tool_use_id", toolUseID != "")
 
 	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID, toolUseID); err != nil {
 		if toolUseID != "" {
