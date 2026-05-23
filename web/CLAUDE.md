@@ -256,10 +256,14 @@ and renders one card per chat entry:
 The answer reuses the existing `onSend` channel — `CardChat` routes it via
 `api.sendCardMessage`, and global chat via `useChatStream`'s
 `sendChatMessage` — so the runner sees the user's answer as a normal
-text turn. No structured `tool_result` is sent back to Claude: Claude
-Code's CLI bridge currently has no path to inject a synthesized
-`tool_result` for an externally-answered tool call, so the answer is
-sent as a plain user turn instead.
+text turn. The CM chat manager stores the `tool_use_id` from each
+`user_question` log entry and forwards it in the `/message` payload to
+the runner as the optional `tool_use_id` field (`omitempty`). The
+runner-side parser/handler change — capturing that field, constructing a
+`tool_result` stream-json frame, and writing it to container stdin
+instead of a plain user turn — is tracked separately and is not yet
+shipped. Until both sides are deployed, the answer continues to arrive at
+Claude as a plain user turn.
 
 ### Rail tabs + default tab on HITL
 
