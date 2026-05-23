@@ -10,6 +10,8 @@ import (
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/chat/sqlite"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -18,6 +20,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// noopChatRunner is a minimal chat.RunnerClient for tests that do not exercise
+// the runner path (cold opens, message sends, log streaming).
+type noopChatRunner struct{}
+
+func (noopChatRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+	return "noop-container", nil
+}
+
+func (noopChatRunner) EndChat(_ context.Context, _ string) error { return nil }
+
+func (noopChatRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+
+func (noopChatRunner) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
+	return nil
+}
 
 func TestGetDashboard_ShippedWindowCounts(t *testing.T) {
 	ctx := context.Background()
@@ -882,4 +900,68 @@ func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministic
 	got := stateAtTimeFromChanges(card, changes, baseline, t0.Add(time.Minute))
 	// Both entries are at-or-before t; the later-inserted one wins.
 	assert.Equal(t, "review", got)
+}
+
+// TestGetChatCostSummary_DeletePreservesCost guards the invariant introduced by
+// CTXMAX-604: after Manager.DeleteSession, the deleted session's estimated cost
+// must still appear in GetChatCostSummary because DeleteSession archives the
+// cost columns into chat_cost_archive and AggregateCost UNIONs both tables.
+func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
+	ctx := context.Background()
+
+	// Open a real SQLite store backed by a temp directory.
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	realStore, err := sqlite.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = realStore.Close() })
+
+	// Fix the clock so "now - 1h" is well inside the 30-day window.
+	now := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC)
+	clk := clock.Fake(now)
+
+	// Build the first manager — used to capture the baseline and delete the session.
+	mgr := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Runner:  noopChatRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// Seed a cold session whose last_active falls inside the 30-day window.
+	sessID := chat.NewID()
+	require.NoError(t, realStore.CreateSession(ctx, chat.Session{
+		ID:         sessID,
+		Title:      "preserve-cost-test",
+		Status:     chat.StatusCold,
+		CreatedAt:  now.Add(-1 * time.Hour),
+		LastActive: now.Add(-1 * time.Hour),
+		CreatedBy:  "human:test",
+	}))
+
+	// Increment cost so estimated_cost_usd is non-zero.
+	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 1.50, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	// Capture baseline: the cost must appear before deletion.
+	baseline, _, _, err := mgr.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, 1.50, baseline, 1e-9, "baseline last30d must include the seeded session cost")
+
+	// Delete the session — CTXMAX-604 archives cost into chat_cost_archive.
+	require.NoError(t, mgr.DeleteSession(ctx, sessID))
+
+	// Build a fresh manager on the same store to bypass the 30s costCache TTL.
+	// A zero costCache on the new manager forces a re-query from the store.
+	mgr2 := chat.NewManager(chat.Config{
+		Store:   realStore,
+		Runner:  noopChatRunner{},
+		Clock:   clk,
+		IdleTTL: time.Hour,
+	})
+
+	// The cost must survive deletion via the UNION ALL over chat_cost_archive.
+	afterDelete, _, _, err := mgr2.GetChatCostSummary(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, baseline, afterDelete, 1e-9,
+		"deleted session cost must persist via chat_cost_archive UNION branch")
 }

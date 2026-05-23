@@ -491,3 +491,192 @@ func TestAggregateCost_PriorPeriod(t *testing.T) {
 		assert.InDelta(t, 0.0, v, 1e-9, "series bucket %d should be zero", i)
 	}
 }
+
+// TestDeleteSession_ArchivesBehavior covers the archive-on-delete contract.
+func TestDeleteSession_ArchivesBehavior(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC).Truncate(time.Second)
+	sessionID := chat.NewID()
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID:         sessionID,
+		Title:      "archive-test",
+		Project:    "myproject",
+		Status:     chat.StatusCold,
+		CreatedAt:  now,
+		LastActive: now,
+		CreatedBy:  "human:test",
+		Model:      "claude-sonnet-4-6",
+	}))
+	// Add cost so we can assert it's preserved in the archive.
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 100, 50, 20, 10, 0.042, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	// Append a message so we can verify CASCADE.
+	_, err = store.AppendMessage(ctx, chat.Message{
+		SessionID: sessionID, Seq: 1, Role: chat.RoleUser,
+		Content: "{}", CreatedAt: now,
+	})
+	require.NoError(t, err)
+
+	beforeDelete := time.Now().UTC().Unix()
+
+	require.NoError(t, store.DeleteSession(ctx, sessionID))
+
+	afterDelete := time.Now().UTC().Unix()
+
+	// chat_sessions row gone.
+	var sessionCount int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_sessions WHERE id = ?`, sessionID,
+	).Scan(&sessionCount))
+	assert.Equal(t, 0, sessionCount, "chat_sessions row must be gone after delete")
+
+	// chat_messages rows gone (CASCADE).
+	var msgCount int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_messages WHERE session_id = ?`, sessionID,
+	).Scan(&msgCount))
+	assert.Equal(t, 0, msgCount, "chat_messages must be cascade-deleted")
+
+	// Archive row present with correct cost fields.
+	var (
+		archPrompt, archCompletion, archCacheRead, archCacheCreation int64
+		archCost                                                     float64
+		archDeletedAt                                                int64
+	)
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT prompt_tokens, completion_tokens, cache_read_tokens,
+		        cache_creation_tokens, estimated_cost_usd, deleted_at
+		 FROM chat_cost_archive WHERE id = ?`, sessionID,
+	).Scan(&archPrompt, &archCompletion, &archCacheRead, &archCacheCreation, &archCost, &archDeletedAt))
+
+	assert.Equal(t, int64(100), archPrompt)
+	assert.Equal(t, int64(50), archCompletion)
+	assert.Equal(t, int64(20), archCacheRead)
+	assert.Equal(t, int64(10), archCacheCreation)
+	assert.InDelta(t, 0.042, archCost, 1e-9)
+	assert.GreaterOrEqual(t, archDeletedAt, beforeDelete)
+	assert.LessOrEqual(t, archDeletedAt, afterDelete)
+
+	// GetSession, ListSessions, CountSessionsByStatus no longer see the id.
+	_, err = store.GetSession(ctx, sessionID)
+	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
+
+	sessions, err := store.ListSessions(ctx, chat.SessionFilter{})
+	require.NoError(t, err)
+
+	for _, s := range sessions {
+		assert.NotEqual(t, sessionID, s.ID)
+	}
+
+	count, err := store.CountSessionsByStatus(ctx, chat.StatusCold, chat.StatusActive)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestDeleteSession_NonExistentIsNoOp(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, store.DeleteSession(ctx, "does-not-exist"))
+
+	// No archive row created.
+	var n int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_cost_archive WHERE id = ?`, "does-not-exist",
+	).Scan(&n))
+	assert.Equal(t, 0, n)
+}
+
+func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := chat.NewID()
+	require.NoError(t, store.CreateSession(ctx, chat.Session{
+		ID: sessionID, Title: "dbl", Status: chat.StatusCold,
+		CreatedAt: now, LastActive: now, CreatedBy: "human:test",
+	}))
+	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.01, "claude-sonnet-4-6")
+	require.NoError(t, err)
+
+	require.NoError(t, store.DeleteSession(ctx, sessionID))
+
+	// Second delete: ON CONFLICT DO NOTHING preserves original archive row, no error.
+	require.NoError(t, store.DeleteSession(ctx, sessionID))
+
+	// Exactly one archive row.
+	var n int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM chat_cost_archive WHERE id = ?`, sessionID,
+	).Scan(&n))
+	assert.Equal(t, 1, n)
+}
+
+// TestAggregateCost_IncludesArchivedSessions checks that deleted sessions
+// contribute to all three aggregate outputs.
+func TestAggregateCost_IncludesArchivedSessions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+
+	now := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	until := todayStart.Add(24 * time.Hour)
+	since := todayStart.AddDate(0, 0, -29)
+
+	// Live session: today, $1.00.
+	newTestSessionAtTime(t, store, now.Add(-2*time.Hour), 1.00)
+
+	// Session to delete: 10 days ago, $2.00. -> series[19]
+	tenDaysAgo := todayStart.Add(-10 * 24 * time.Hour).Add(6 * time.Hour)
+	idToDelete := newTestSessionAtTime(t, store, tenDaysAgo, 2.00)
+
+	// Session to delete in prior window: 35 days ago, $5.00.
+	thirtyFiveDaysAgo := todayStart.Add(-35 * 24 * time.Hour).Add(6 * time.Hour)
+	idToDeletePrior := newTestSessionAtTime(t, store, thirtyFiveDaysAgo, 5.00)
+
+	// Delete both sessions so they move to the archive.
+	require.NoError(t, store.DeleteSession(ctx, idToDelete))
+	require.NoError(t, store.DeleteSession(ctx, idToDeletePrior))
+
+	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
+	require.NoError(t, err)
+
+	// last30d must include live ($1) + archived ($2) = $3.
+	assert.InDelta(t, 3.00, last30d, 1e-9, "last30d must include archived session")
+
+	// prior30d must include archived $5.
+	assert.InDelta(t, 5.00, prior30d, 1e-9, "prior30d must include archived session")
+
+	require.Len(t, series30d, 30)
+
+	// series[29] = today's live session $1.
+	assert.InDelta(t, 1.00, series30d[29], 1e-9, "today bucket")
+	// series[19] = 10-days-ago archived session $2.
+	assert.InDelta(t, 2.00, series30d[19], 1e-9, "10-days-ago archived bucket")
+
+	// sum(series30d) must equal last30d.
+	var seriesSum float64
+	for _, v := range series30d {
+		seriesSum += v
+	}
+
+	assert.InDelta(t, last30d, seriesSum, 1e-9, "sum(series30d) must equal last30d")
+}

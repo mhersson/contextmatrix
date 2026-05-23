@@ -258,11 +258,15 @@ and commit completion. The service layer closes that gap on failure:
   describing whether the budget clipped older content. Called only on
   `/api/chats/{id}/open` when the session has prior messages.
 - **chat.Store** (`chat.Store`, default impl `chat/sqlite.Store`): SQLite-backed
-  persistence for `chat_sessions` and `chat_messages`. Versioned migrations via
-  the `schema_migrations` table; WAL mode with `MaxOpenConns=5` so concurrent
-  readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the single-writer gate
-  that `chat.Manager.mu` enforces above the pool. Unique index on
-  `(session_id, seq)` is the safety net behind the in-memory seq cache.
+  persistence for `chat_sessions`, `chat_messages`, and `chat_cost_archive`.
+  Schema managed by a single v1 migration in `internal/chat/sqlite/migrations.go`
+  (see `docs/data-model.md` for column details). WAL mode with `MaxOpenConns=5`
+  so concurrent readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the
+  single-writer gate that `chat.Manager.mu` enforces above the pool. Unique index
+  on `(session_id, seq)` is the safety net behind the in-memory seq cache.
+  `DeleteSession` archives cost columns to `chat_cost_archive` before hard-deleting
+  the session row, so `AggregateCost` can `UNION ALL` both tables and preserve
+  deleted sessions' spend in the dashboard summary.
 - **chat.SSEHub** (`chat.SSEHub`): per-session SSE fan-out. Each `sessionHub`
   has a 128-entry ring buffer of recent events and a subscriber set; replays the
   ring on `Subscribe(sinceSeq)` so reconnects within the ring window are
