@@ -18,11 +18,15 @@ import (
 // `claude --permission-prompt-tool mcp__contextmatrix__permission_prompt`
 // invocation in docker/entrypoint.sh.
 //
-// Phase 1: always denies. AskUserQuestion gets a context-aware instruction
-// (chat-mode caller is told to re-ask as plain text; card-mode caller is
-// told to choose a different approach or report via add_log). Without this
-// gate Claude Code auto-denies in headless mode and the model has been
-// observed to silently make decisions the operator never sees.
+// Phase 1: always denies. AskUserQuestion gets a context-aware instruction:
+// chat-mode caller is told to stop and wait silently (the runner's logparser
+// has already surfaced the AskUserQuestion as a UserQuestionCard with
+// clickable option buttons; the user's click sends the chosen label back
+// through the normal chat send path, so the model only needs to wait for
+// its next user turn). Card-mode caller is told to choose a different
+// approach or report via add_log. Without this gate Claude Code auto-denies
+// in headless mode and the model has been observed to silently make
+// decisions the operator never sees.
 //
 // Phase 2 (deferred): AskUserQuestion will block waiting for the operator's
 // answer through the chat UI and return behavior:"allow" with answers
@@ -45,11 +49,19 @@ type permissionDecision struct {
 const (
 	// denyMsgChatAskUserQuestion is returned when AskUserQuestion is called
 	// from a chat-mode container (X-CM-Chat-Session header present). The
-	// operator is reading the chat live, so the model can recover by
-	// re-asking as plain text.
-	denyMsgChatAskUserQuestion = "Reply with your question as plain text to the user. " +
-		"Do NOT proceed, retry this tool, or make assumptions — " +
-		"the user is reading the chat and will answer."
+	// runner's logparser already surfaces the tool_use as a
+	// UserQuestionCard rendered with clickable option buttons; the user's
+	// click is sent through the normal chat send path as a fresh user
+	// message and arrives at the runner as the model's next user turn.
+	// So the model just needs to stop. The strong "end your turn,
+	// no filler text" framing is load-bearing: without it, the model's
+	// first instinct is to acknowledge ("OK, waiting for your answer.")
+	// or re-ask in plain text, both of which duplicate the rendered card.
+	denyMsgChatAskUserQuestion = "The user has already been shown your question " +
+		"with clickable option buttons in the chat UI. Stop now and end your " +
+		"turn — do NOT re-ask, paraphrase, retry this tool, add filler text " +
+		"(\"OK\", \"Waiting for your answer\", etc.), or make assumptions. " +
+		"The user's answer will arrive as the next user message in this chat."
 
 	// denyMsgCardFallback is returned when the caller is not in a chat
 	// session (card mode, autonomous, knowledge-refresh, or any unknown

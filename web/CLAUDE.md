@@ -258,17 +258,23 @@ The answer reuses the existing `onSend` channel — `CardChat` routes it via
 `sendChatMessage` — so the runner sees the user's answer as a normal
 text turn.
 
-**Phase 1 — AskUserQuestion is denied at the MCP permission gate.** Claude
-Code's built-in `AskUserQuestion` tool's `checkPermissions` always returns
-`behavior:"ask"`, which the SDK auto-denies in headless mode. The runner's
-`entrypoint.sh` passes `--permission-prompt-tool
-mcp__contextmatrix__permission_prompt` to all `claude` invocations; the MCP
-tool denies AskUserQuestion with an instruction telling the model to ask via
-plain text in the chat instead. The model's question therefore arrives as a
-normal `text` LogEntry that the user can read and reply to via the standard
-chat send path. The `user_question` LogEntry path (logparser → `UserQuestionCard`
-above) and the chat manager's `pendingToolUseID` infrastructure remain wired
-for Phase 2.
+**Phase 1 — AskUserQuestion is denied at the MCP permission gate, the card
+is the user-side affordance.** Claude Code's built-in `AskUserQuestion`
+tool's `checkPermissions` always returns `behavior:"ask"`, which the SDK
+auto-denies in headless mode. The runner's `entrypoint.sh` passes
+`--permission-prompt-tool mcp__contextmatrix__permission_prompt` to all
+`claude` invocations.
+
+The flow is: the model emits `AskUserQuestion`; the runner's logparser
+surfaces the tool_use as a `user_question` LogEntry; the frontend renders
+it via `UserQuestionCard` with the options as clickable buttons; the MCP
+permission tool denies the call with an instruction telling the model to
+stop and wait silently (the user is already seeing the interactive card,
+so any plain-text re-ask would be a duplicate question); the user clicks
+an option, which sends the option label through the normal chat send path
+as a fresh user message; the runner forwards that message to the agent as
+the next user turn. The chat manager's `pendingToolUseID` infrastructure
+is unused on this Phase 1 path — it remains wired for Phase 2.
 
 **Phase 2 (deferred) — block-and-return-answer.** The same permission_prompt
 tool will block waiting for the user's UI answer (channel keyed by

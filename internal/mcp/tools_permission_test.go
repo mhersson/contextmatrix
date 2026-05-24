@@ -61,7 +61,7 @@ func decodeDecision(t *testing.T, result *mcp.CallToolResult) permissionDecision
 	return got
 }
 
-func TestPermissionPrompt_AskUserQuestion_ChatMode_DenyTellsModelToReReplyInChat(t *testing.T) {
+func TestPermissionPrompt_AskUserQuestion_ChatMode_DenyTellsModelToWaitSilently(t *testing.T) {
 	t.Parallel()
 
 	handler := buildPermissionPromptHandler()
@@ -80,6 +80,20 @@ func TestPermissionPrompt_AskUserQuestion_ChatMode_DenyTellsModelToReReplyInChat
 	assert.Equal(t, "deny", got.Behavior)
 	assert.Equal(t, denyMsgChatAskUserQuestion, got.Message)
 	assert.Empty(t, got.UpdatedInput, "deny must not set updatedInput")
+
+	// Load-bearing substrings — observed agent behavior is to acknowledge
+	// ("OK, waiting…") or re-ask in plain text on top of the rendered
+	// UserQuestionCard, both of which produce a duplicate question for the
+	// user. Lock the *intent* of the message down so it can't quietly drift
+	// back toward a re-ask if the constant is edited.
+	assert.Contains(t, got.Message, "clickable option buttons",
+		"must tell the model the user is already seeing the question as a clickable card")
+	assert.Contains(t, got.Message, "end your turn",
+		"must instruct the model to stop generating, not just wait silently")
+	assert.Contains(t, got.Message, "do NOT re-ask",
+		"must explicitly forbid re-asking the question in plain text")
+	assert.Contains(t, got.Message, "next user message",
+		"must tell the model how the user's answer will arrive")
 }
 
 func TestPermissionPrompt_AskUserQuestion_NoChatSession_DenyTellsModelToReportBlocker(t *testing.T) {
@@ -107,8 +121,10 @@ func TestPermissionPrompt_UnknownTool_FailsClosedWithCardFallback(t *testing.T) 
 
 	handler := buildPermissionPromptHandler()
 	// Even in chat mode, unknown tools that reach the ask gate get the
-	// card-flavored message — the chat-flavored "ask via plain text"
-	// instruction is meaningless for arbitrary tools.
+	// card-flavored message — the chat-flavored "wait, the UI is showing
+	// the question" instruction only makes sense for AskUserQuestion,
+	// which is the only tool whose tool_use is rendered as a clickable
+	// UserQuestionCard.
 	ctx := mcpcontext.WithChatSession(context.Background(), "AAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 	result, _, err := handler(ctx, nil, permissionPromptInput{
