@@ -70,8 +70,21 @@ func registerPermissionPrompt(server *mcp.Server) {
 
 // buildPermissionPromptHandler returns the handler closure. Extracted for
 // direct unit testing without standing up the MCP server.
-func buildPermissionPromptHandler() func(context.Context, *mcp.CallToolRequest, permissionPromptInput) (*mcp.CallToolResult, permissionDecision, error) {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in permissionPromptInput) (*mcp.CallToolResult, permissionDecision, error) {
+//
+// The Out type parameter is `any` (not permissionDecision) on purpose:
+// declaring a typed Out triggers two SDK behaviors that Claude Code's
+// --permission-prompt-tool validator rejects with "Expected a single text
+// block param with type='text' and a string text value":
+//
+//  1. The SDK auto-generates an outputSchema in the tool listing.
+//  2. The SDK auto-populates CallToolResult.StructuredContent from the
+//     returned Out value.
+//
+// Either one alone causes the wire response to carry more than the single
+// text block Claude Code expects. Returning `nil` as Out skips both code
+// paths in the SDK (see toolForErr in go-sdk/mcp/server.go).
+func buildPermissionPromptHandler() func(context.Context, *mcp.CallToolRequest, permissionPromptInput) (*mcp.CallToolResult, any, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in permissionPromptInput) (*mcp.CallToolResult, any, error) {
 		session := mcpcontext.ChatSession(ctx)
 
 		slog.Info("mcp: permission_prompt",
@@ -91,11 +104,11 @@ func buildPermissionPromptHandler() func(context.Context, *mcp.CallToolRequest, 
 		// (no field-ordering surprises from the SDK's auto-marshal path).
 		payload, err := json.Marshal(decision)
 		if err != nil {
-			return nil, permissionDecision{}, fmt.Errorf("permission_prompt: marshal decision: %w", err)
+			return nil, nil, fmt.Errorf("permission_prompt: marshal decision: %w", err)
 		}
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(payload)}},
-		}, decision, nil
+		}, nil, nil
 	}
 }
