@@ -3,13 +3,13 @@ module github.com/mhersson/contextmatrix
 go 1.26.3
 
 require (
-	github.com/go-git/go-git/v5 v5.19.0
+	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/uuid v1.6.0
 	github.com/mhersson/contextmatrix-githubauth v0.1.0
-	github.com/modelcontextprotocol/go-sdk v1.6.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.41.0
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.50.1
