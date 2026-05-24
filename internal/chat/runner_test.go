@@ -124,63 +124,14 @@ func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
-	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1", "")
+	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1")
 	require.NoError(t, err)
 	assert.Equal(t, "/message", receivedPath)
 	assert.Equal(t, "S1", receivedBody["session_id"])
 	assert.Equal(t, "hello", receivedBody["content"])
 	assert.Equal(t, "msg-1", receivedBody["message_id"])
-}
-
-func TestRunnerClient_SendChatMessage_ToolUseID(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		toolUseID     string
-		wantInBody    bool
-		wantToolUseID string
-	}{
-		{
-			name:          "with tool_use_id set",
-			toolUseID:     "toolu_abc",
-			wantInBody:    true,
-			wantToolUseID: "toolu_abc",
-		},
-		{
-			name:       "with empty tool_use_id omits field",
-			toolUseID:  "",
-			wantInBody: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var receivedBody map[string]any
-
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
-				_ = json.Unmarshal(body, &receivedBody)
-
-				w.WriteHeader(http.StatusAccepted)
-				_, _ = w.Write([]byte(`{"ok":true}`))
-			}))
-			t.Cleanup(srv.Close)
-
-			rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
-			err := rc.SendChatMessage(context.Background(), "S1", "answer", "msg-1", tt.toolUseID)
-			require.NoError(t, err)
-
-			_, present := receivedBody["tool_use_id"]
-			assert.Equal(t, tt.wantInBody, present, "tool_use_id presence mismatch")
-
-			if tt.wantInBody {
-				assert.Equal(t, tt.wantToolUseID, receivedBody["tool_use_id"])
-			}
-		})
-	}
+	_, present := receivedBody["tool_use_id"]
+	assert.False(t, present, "tool_use_id must not appear in /message payload (removed in Phase 1)")
 }
 
 func TestRunnerClient_StreamLogs_ToolUseID(t *testing.T) {

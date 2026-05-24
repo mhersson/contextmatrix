@@ -47,21 +47,6 @@ func emitToolUse(w io.Writer, id, name string, input any) error {
 	})
 }
 
-// emitToolResult writes a tool_result frame as a user-message envelope,
-// matching real claude's reply-to-tool shape. The runner's logparser
-// only pays attention to assistant frames, so this is informational for
-// transcripts/operators only.
-func emitToolResult(w io.Writer, toolUseID string, content any) error {
-	return writeJSONLine(w, map[string]any{
-		"type": "user",
-		"message": map[string]any{
-			"content": []map[string]any{
-				{"type": "tool_result", "tool_use_id": toolUseID, "content": content},
-			},
-		},
-	})
-}
-
 // emitResult writes the terminal result frame.
 func emitResult(w io.Writer, summary string) error {
 	return writeJSONLine(w, map[string]any{

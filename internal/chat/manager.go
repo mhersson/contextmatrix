@@ -59,7 +59,7 @@ const EventKindDivider = "divider"
 type RunnerClient interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
-	SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error
+	SendChatMessage(ctx context.Context, sessionID, content, messageID string) error
 	// StreamLogs opens a long-lived SSE subscription to the runner's
 	// /logs?session_id=<id> endpoint and invokes onEntry for each parsed
 	// LogEntry. Returns when ctx is cancelled or the stream closes.
@@ -205,9 +205,13 @@ type Manager struct {
 	costCache chatCostCache
 
 	// pendingToolUseID stores the most-recent tool_use_id received from a
-	// user_question LogEntry, keyed by sessionID. Consumed (read + cleared)
-	// atomically on the next SendUserMessage for that session. Re-set on
-	// SendChatMessage failure so a UI retry forwards the same id. Guarded by mu.
+	// user_question LogEntry, keyed by sessionID. Phase 1: consumed (read +
+	// cleared) atomically on the next SendUserMessage for that session and
+	// discarded — AskUserQuestion is denied at the MCP permission gate so
+	// there is no waiter to satisfy. Phase 2 will signal a blocked
+	// permission_prompt MCP handler with the consumed id + the user's
+	// answer instead of discarding. Cleared on session end/delete/clear-
+	// context lifecycle events. Guarded by mu.
 	pendingToolUseID map[string]string
 }
 
@@ -295,13 +299,9 @@ func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
 }
 
 // setPendingToolUseID stores the tool_use_id for a session so the next
-// SendUserMessage can forward it to the runner. No-op when toolUseID is empty.
-// Acquires m.mu briefly.
-//
-// There is a narrow TOCTOU window: if a new user_question arrives between a
-// consumePendingToolUseID call and a re-set on send failure, the re-set will
-// clobber the newer ID. This is acceptable — the user has not yet seen the new
-// question while the previous send is still failing.
+// SendUserMessage can consume it (Phase 1: discarded; Phase 2: signalled
+// to a blocked permission_prompt waiter with the user's answer). No-op
+// when toolUseID is empty. Acquires m.mu briefly.
 func (m *Manager) setPendingToolUseID(sessionID, toolUseID string) {
 	if toolUseID == "" {
 		return
@@ -884,7 +884,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	_ = m.consumePendingToolUseID(sessionID)
 
 	clearMsgID := NewID()
-	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID, ""); err != nil {
+	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
 	}
 
@@ -894,7 +894,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 		primerPresent = true
 		primerMsgID := NewID()
 
-		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID, ""); err != nil {
+		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
 			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
 				"session_id", sessionID, "error", err)
 
@@ -1832,17 +1832,17 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	msgID := NewID()
-	toolUseID := m.consumePendingToolUseID(sessionID)
+	// Consume any pending tool_use_id so the map does not grow unbounded
+	// across the session. Phase 1 discards it (AskUserQuestion is denied
+	// at the MCP permission gate before the model ever waits for a UI
+	// answer). Phase 2 will signal a blocked permission_prompt waiter
+	// here instead of discarding.
+	_ = m.consumePendingToolUseID(sessionID)
 
 	m.logger.Info("chat: forwarding user message to runner",
-		"session_id", sessionID, "message_id", msgID, "content_len", len(content),
-		"has_tool_use_id", toolUseID != "")
+		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
 
-	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID, toolUseID); err != nil {
-		if toolUseID != "" {
-			m.setPendingToolUseID(sessionID, toolUseID)
-		}
-
+	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
 		return "", err
 	}
 

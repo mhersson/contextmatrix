@@ -106,9 +106,6 @@ func runAutonomous(stdout io.Writer, mcp *mcpClient, project string, args runArg
 	if err := mcp.ClaimCard(project, args.cardID); err != nil {
 		return fmt.Errorf("claim_card: %w", err)
 	}
-	if err := emitToolResult(stdout, "t1", "claimed"); err != nil {
-		return err
-	}
 
 	if d.hangAfterClaim {
 		// Park until externally killed. We use time.Sleep instead of
@@ -152,9 +149,6 @@ func runHITL(stdout io.Writer, stdin io.Reader, mcp *mcpClient, project string, 
 	}
 	if err := mcp.ClaimCard(project, args.cardID); err != nil {
 		return fmt.Errorf("claim_card: %w", err)
-	}
-	if err := emitToolResult(stdout, "t1", "claimed"); err != nil {
-		return err
 	}
 
 	if err := emitText(stdout, "Awaiting input…"); err != nil {

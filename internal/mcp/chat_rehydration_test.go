@@ -59,7 +59,7 @@ func (r *chatStubRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (str
 
 func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error { return nil }
+func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
 
 func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
