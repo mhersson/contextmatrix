@@ -37,7 +37,7 @@ func (r *chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (
 }
 
 func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
-func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _, _ string) error {
+func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
 	r.mu.Lock()
 	idx := r.sendCalls
 	r.sendCalls++

@@ -256,14 +256,27 @@ and renders one card per chat entry:
 The answer reuses the existing `onSend` channel — `CardChat` routes it via
 `api.sendCardMessage`, and global chat via `useChatStream`'s
 `sendChatMessage` — so the runner sees the user's answer as a normal
-text turn. The CM chat manager stores the `tool_use_id` from each
-`user_question` log entry and forwards it in the `/message` payload to
-the runner as the optional `tool_use_id` field (`omitempty`). The
-runner-side parser/handler change — capturing that field, constructing a
-`tool_result` stream-json frame, and writing it to container stdin
-instead of a plain user turn — is tracked separately and is not yet
-shipped. Until both sides are deployed, the answer continues to arrive at
-Claude as a plain user turn.
+text turn.
+
+**Phase 1 — AskUserQuestion is denied at the MCP permission gate.** Claude
+Code's built-in `AskUserQuestion` tool's `checkPermissions` always returns
+`behavior:"ask"`, which the SDK auto-denies in headless mode. The runner's
+`entrypoint.sh` passes `--permission-prompt-tool
+mcp__contextmatrix__permission_prompt` to all `claude` invocations; the MCP
+tool denies AskUserQuestion with an instruction telling the model to ask via
+plain text in the chat instead. The model's question therefore arrives as a
+normal `text` LogEntry that the user can read and reply to via the standard
+chat send path. The `user_question` LogEntry path (logparser → `UserQuestionCard`
+above) and the chat manager's `pendingToolUseID` infrastructure remain wired
+for Phase 2.
+
+**Phase 2 (deferred) — block-and-return-answer.** The same permission_prompt
+tool will block waiting for the user's UI answer (channel keyed by
+`(sessionID, tool_use_id)`) and return `behavior:"allow"` with answers
+pre-filled into `updatedInput`, so Claude Code's built-in `AskUserQuestion`
+emits the proper structured `tool_result`. The CM-side `pendingToolUseID`
+map already exists; Phase 2 will repurpose its consume-on-SendUserMessage
+path to signal the waiter instead of discarding the id.
 
 ### Rail tabs + default tab on HITL
 

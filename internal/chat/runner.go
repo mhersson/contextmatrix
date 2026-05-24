@@ -75,7 +75,6 @@ type messagePayload struct {
 	SessionID string `json:"session_id"`
 	Content   string `json:"content"`
 	MessageID string `json:"message_id,omitempty"`
-	ToolUseID string `json:"tool_use_id,omitempty"`
 }
 
 func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
@@ -118,8 +117,8 @@ func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
 	return err
 }
 
-func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID, toolUseID string) error {
-	body, err := json.Marshal(messagePayload{SessionID: sessionID, Content: content, MessageID: messageID, ToolUseID: toolUseID})
+func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+	body, err := json.Marshal(messagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
 	if err != nil {
 		return fmt.Errorf("chat: runner: marshal SendChatMessage payload: %w", err)
 	}
