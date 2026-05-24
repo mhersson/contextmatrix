@@ -58,6 +58,7 @@ func registerTools(cfg registerToolsConfig) {
 	registerRefreshKnowledgeBase(server, svc)
 	registerCommitKnowledgeDocs(server, svc)
 	registerUpdateRefreshProgress(server, svc)
+	registerPermissionPrompt(server)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.
