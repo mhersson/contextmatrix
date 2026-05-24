@@ -13,7 +13,7 @@ ContextMatrix is a coordination layer — it tracks tasks but never touches your
 project code repositories. Claude Code agents claim tasks, execute them in their
 own repos, and report progress back through the board.
 
-![contextmatrix-kanban-console](assets/contextmatrix-kanban-console.png)
+![contextmatrix-kanban-console](assets/contextmatrix-dogfooding-demo.png)
 
 ## Features
 
