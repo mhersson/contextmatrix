@@ -88,9 +88,16 @@ func setupSyncTest(t *testing.T) (syncer *Syncer, upstream, clone string, bus *e
 	return syncer, upstream, clone, bus
 }
 
-// run executes a command and fails the test on error.
+// run executes a command and fails the test on error. When the command is
+// `git`, one-shot config flags are injected to disable GPG signing so the
+// suite is hermetic regardless of the developer's global commit.gpgsign /
+// tag.gpgsign settings (a working gpg-agent is not guaranteed in CI).
 func run(t *testing.T, dir string, name string, args ...string) string {
 	t.Helper()
+
+	if name == "git" {
+		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
+	}
 
 	cmd := exec.Command(name, args...)
 	if dir != "" {

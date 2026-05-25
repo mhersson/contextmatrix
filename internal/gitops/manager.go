@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -490,6 +491,15 @@ func (m *Manager) reloadRepo() error {
 // GIT_CONFIG_* for PAT) are appended automatically from the Manager's
 // provider.
 func (m *Manager) runGit(ctx context.Context, args ...string) error {
+	// Under `go test`, prepend one-shot config that disables GPG signing
+	// so the suite is hermetic regardless of the developer's global
+	// commit.gpgsign / tag.gpgsign settings (a working gpg-agent is not
+	// guaranteed in test environments). Production code paths (built via
+	// `go build`) skip this branch entirely.
+	if testing.Testing() {
+		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
 

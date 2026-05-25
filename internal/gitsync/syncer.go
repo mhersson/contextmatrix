@@ -15,6 +15,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/clock"
@@ -501,6 +502,14 @@ func (s *Syncer) publishCompleted(trigger string, changesPulled bool, duration t
 // authEnv contains additional environment variables to inject (e.g.
 // GIT_CONFIG_* entries for PAT auth). Pass nil to inherit the caller's env.
 func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (string, error) {
+	// Under `go test`, prepend one-shot config that disables GPG signing so the
+	// suite is hermetic regardless of the developer's global commit.gpgsign /
+	// tag.gpgsign settings (a working gpg-agent is not guaranteed in test
+	// environments). Production builds skip this branch.
+	if testing.Testing() {
+		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
