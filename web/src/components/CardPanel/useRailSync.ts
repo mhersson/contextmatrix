@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type React from 'react';
 import type { Card } from '../../types';
 import type { RailTabKey } from './CardPanelBody';
@@ -77,20 +77,25 @@ export function useRailSync(
   });
 
   // Wrapped setter that persists every change to localStorage.
-  const setRailExpanded: React.Dispatch<React.SetStateAction<boolean>> = (
-    action: React.SetStateAction<boolean>,
-  ) => {
-    setRailExpandedRaw((prev) => {
-      const next = typeof action === 'function' ? action(prev) : action;
-      safeWriteRail(next);
-      return next;
-    });
-  };
+  // Stable reference (dep array []) because setRailExpandedRaw is a stable
+  // React dispatch and safeWriteRail is a module-level function.
+  const setRailExpanded: React.Dispatch<React.SetStateAction<boolean>> = useCallback(
+    (action: React.SetStateAction<boolean>) => {
+      setRailExpandedRaw((prev) => {
+        const next = typeof action === 'function' ? action(prev) : action;
+        safeWriteRail(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   // In-render state machine — must not be moved to useEffect.
   if (sync.cardId !== card.id) {
-    // Card identity changed: full reset. Restore from localStorage so
-    // switching cards doesn't lose the user's rail preference.
+    // Card identity changed: full reset. Re-read from localStorage rather than
+    // using the in-memory railExpanded value: another tab may have written a
+    // different preference since this tab last changed it, and reading here
+    // ensures we pick up that concurrent write instead of clobbering it.
     const restoredExpanded = safeReadRail() ?? isHITLRunning;
     setSync({ cardId: card.id, card, isHITLRunning, hitlOffCount: 0 });
     setEditedCard(card);

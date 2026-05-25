@@ -99,6 +99,10 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
 }
 
 describe('CardPanel — bifold layout', () => {
+  beforeEach(() => {
+    localStorage.removeItem?.('contextmatrix-rail-expanded');
+  });
+
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();
@@ -176,6 +180,10 @@ describe('CardPanel — bifold layout', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand rail' }));
     expect(grid.style.gridTemplateColumns).toContain('600px');
+
+    // Clear the stored preference so the new card starts with no stored state,
+    // which is what this test scenario is testing (no preference → collapsed).
+    localStorage.removeItem?.('contextmatrix-rail-expanded');
 
     // Switching to a different card (new id) is the only path that should
     // collapse the rail.
@@ -602,6 +610,10 @@ describe('CardPanel — keydown listener stability', () => {
 });
 
 describe('CardPanel — rail auto-expand behavior', () => {
+  beforeEach(() => {
+    localStorage.removeItem?.('contextmatrix-rail-expanded');
+  });
+
   it('HITL card mounts with rail expanded and Chat tab selected', () => {
     render(
       <CardPanel

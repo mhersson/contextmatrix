@@ -301,15 +301,17 @@ const defaultTab: RailTabKey = isHITLRunning ? 'chat' : 'automation';
 ```
 
 **Rail auto-expand** mirrors the default-tab logic: `railExpanded` initial state
-is `useState(isHITLRunning)`, so opening a card with an active HITL run starts
-the rail expanded. The user can still manually collapse it after auto-expand.
+is `safeReadRail() ?? isHITLRunning`, so opening a card restores the persisted
+rail preference; if no preference is stored, a HITL run starts the rail expanded.
+The user can still manually collapse it after auto-expand.
 
 On transitions of the sync inputs, UI state is reset as follows:
 
 - **Card identity change** (`sync.cardId !== card.id`): full reset —
-  `editedCard`, `railExpanded → isHITLRunning`, forced-flag badges, and
-  `activeTab → defaultTab`. Switching to a HITL card expands the rail;
-  switching to a non-HITL card collapses it.
+  `editedCard`, `railExpanded → safeReadRail() ?? isHITLRunning`, forced-flag
+  badges, and `activeTab → defaultTab`. The rail is restored to the persisted
+  preference; if none is stored, a HITL card expands it and a non-HITL card
+  leaves it collapsed.
 - **Same card, new object reference from SSE** (`sync.card !== card`, same
   id): `editedCard` refreshes so unedited fields reflect server-side
   updates. `railExpanded`, forced flags, and `activeTab` are preserved so
@@ -330,14 +332,15 @@ On transitions of the sync inputs, UI state is reset as follows:
 
 The transitions are handled in a single in-render `useState` marker block
 (`sync`, keyed by `cardId`, carrying `card`, `isHITLRunning`, and
-`hitlOffCount`) in `CardPanel.tsx` — not a `useEffect` — so the reset is
+`hitlOffCount`) in `useRailSync.ts` (`CardPanel.tsx` calls `useRailSync()`) — not a `useEffect` — so the reset is
 synchronous with the prop change and avoids the double-render that a
 reactive effect would cause. The debounce counter lives in this same
 state object (not a `useRef`) to comply with the `react-hooks/refs` lint
 rule, which forbids reading or writing refs during render.
 
 Mounting into an already-HITL card lands on the `chat` tab and starts with the
-rail expanded via the initial `useState(isHITLRunning)` — no transition needed.
+rail expanded via the initial `safeReadRail() ?? isHITLRunning` — no transition
+needed.
 
 ## Global Chat tab
 
