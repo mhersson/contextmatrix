@@ -23,7 +23,8 @@
   (`palette` key), human agent ID, last selected project, last chat id
   (`last_chat_id`), chat section collapse (`sidebar.chat_section_collapsed`),
   multi-pane chat layout (`chat_layout`), collapsed column/card state, chat
-  filter preferences (`chat_filter_prefs`).
+  filter preferences (`chat_filter_prefs`), rail expanded state
+  (`contextmatrix-rail-expanded`).
 - Theme state is managed via `ThemeProvider` (in `web/src/hooks/useTheme.ts`)
   wrapping the app root. Components consume it with `useTheme()`. The markdown
   editor (`@uiw/react-md-editor`) receives `data-color-mode={theme}` so it
