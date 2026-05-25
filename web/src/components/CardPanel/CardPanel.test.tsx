@@ -99,10 +99,6 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
 }
 
 describe('CardPanel — bifold layout', () => {
-  beforeEach(() => {
-    localStorage.removeItem?.('contextmatrix-rail-expanded');
-  });
-
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();
@@ -610,10 +606,6 @@ describe('CardPanel — keydown listener stability', () => {
 });
 
 describe('CardPanel — rail auto-expand behavior', () => {
-  beforeEach(() => {
-    localStorage.removeItem?.('contextmatrix-rail-expanded');
-  });
-
   it('HITL card mounts with rail expanded and Chat tab selected', () => {
     render(
       <CardPanel

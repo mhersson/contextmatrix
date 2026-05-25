@@ -14,6 +14,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig, SyncStatus } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
+import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
@@ -28,6 +29,8 @@ import { NowRail, type ActivityEntry } from './NowRail';
 import { BoardFooter } from './BoardFooter';
 import { BoardSkeleton } from './BoardSkeleton';
 import { deriveMetricsProps } from './metrics';
+
+const NOW_RAIL_STORAGE_KEY = 'contextmatrix-now-rail-open';
 
 const PRIORITY_RANK: Record<string, number> = {
   critical: 0,
@@ -127,7 +130,13 @@ export function Board({
   const [filter, setFilter] = useState<CardFilter>({});
   const [searchQuery, setSearchQuery] = useState('');
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const [nowRailOpen, setNowRailOpen] = useState(false);
+  const [nowRailOpen, setNowRailOpenState] = useState<boolean>(
+    () => safeReadBool(NOW_RAIL_STORAGE_KEY) ?? false,
+  );
+  const setNowRailOpen = (next: boolean) => {
+    setNowRailOpenState(next);
+    safeWriteBool(NOW_RAIL_STORAGE_KEY, next);
+  };
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
@@ -404,7 +413,7 @@ export function Board({
         cardCount={cards.length}
         columnCount={config.states.filter((s) => s !== 'stalled').length}
         nowRailOpen={nowRailOpen}
-        onToggleNowRail={() => setNowRailOpen((v) => !v)}
+        onToggleNowRail={() => setNowRailOpen(!nowRailOpen)}
         onSyncClick={onSyncClick}
       />
     </div>

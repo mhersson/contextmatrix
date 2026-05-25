@@ -24,7 +24,8 @@
   (`last_chat_id`), chat section collapse (`sidebar.chat_section_collapsed`),
   multi-pane chat layout (`chat_layout`), collapsed column/card state, chat
   filter preferences (`chat_filter_prefs`), rail expanded state
-  (`contextmatrix-rail-expanded`).
+  (`contextmatrix-rail-expanded`), board NowRail open state
+  (`contextmatrix-now-rail-open`).
 - Theme state is managed via `ThemeProvider` (in `web/src/hooks/useTheme.ts`)
   wrapping the app root. Components consume it with `useTheme()`. The markdown
   editor (`@uiw/react-md-editor`) receives `data-color-mode={theme}` so it
@@ -833,19 +834,20 @@ user opens it via the toggle in `BoardFooter`.
 
 | File | Role |
 |---|---|
-| `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. The rail starts hidden at every viewport (`useState(false)`); the user opens it via the **Show rail** button. Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
+| `web/src/components/Board/Board.tsx` | Derives `isMobile` from `useMediaQuery('(max-width: 768px)')`. The rail's open/closed state is persisted to `localStorage` under `contextmatrix-now-rail-open` so it survives route changes (Board unmounts when navigating to `/all`, `/chat`, etc.) and reloads; first-mount default is collapsed. The user toggles it via the **Show rail** button. Renders a `.now-rail-backdrop` sibling when `isMobile && nowRailOpen`, and passes `className="animate-panel-slide-in"` to `NowRail` on mobile so the drawer slides in from the right. |
 | `web/src/components/Board/NowRail.tsx` | Accepts `className?: string` and merges it onto `<aside class="now-rail">`. The desktop layout never receives a className, so the slide-in animation only runs on the mobile breakpoint. |
 | `web/src/index.css` (`@media (max-width: 768px)`) | Switches `.now-rail` to `position: fixed; right: 0; width: min(320px, 88vw); z-index: 50`. Adds `.now-rail-backdrop` (`position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5)`). Makes `.board-footer` `position: sticky; bottom: 0; z-index: 41` so the rail-toggle stays reachable both above the backdrop and during the page's vertical scroll. |
 
 ### Behaviour
 
 - **Desktop (≥ `md`):** Rail is the 280 px sidecar inside the flex row.
-  Hidden by default; toggled via the **Hide rail** / **Show rail** button in
-  `BoardFooter`.
-- **Mobile (< `md`):** Rail is hidden on first mount.
-  Tapping the rail toggle opens the drawer over the kanban with a darkened
-  backdrop. The backdrop or the rail toggle (now at `z-index: 41`) both
-  close it.
+  Toggled via the **Hide rail** / **Show rail** button in `BoardFooter`. The
+  open/closed state is persisted in `localStorage`
+  (`contextmatrix-now-rail-open`); fresh installs default to collapsed.
+- **Mobile (< `md`):** Same persistence as desktop. On first mount with no
+  stored value the rail is collapsed. Tapping the rail toggle opens the
+  drawer over the kanban with a darkened backdrop. The backdrop or the
+  rail toggle (now at `z-index: 41`) both close it.
 
 ### Closing the drawer
 

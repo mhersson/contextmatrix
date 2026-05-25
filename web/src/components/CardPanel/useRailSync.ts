@@ -2,30 +2,12 @@ import { useCallback, useState } from 'react';
 import type React from 'react';
 import type { Card } from '../../types';
 import type { RailTabKey } from './CardPanelBody';
+import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 
 const RAIL_STORAGE_KEY = 'contextmatrix-rail-expanded';
 
-/** Read rail expanded state from localStorage. Returns undefined on error or missing key. */
-function safeReadRail(): boolean | undefined {
-  try {
-    const raw = localStorage.getItem(RAIL_STORAGE_KEY);
-    if (raw === null) return undefined;
-    if (raw === 'true') return true;
-    if (raw === 'false') return false;
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Write rail expanded state to localStorage. Silently ignores errors (e.g. private mode). */
-function safeWriteRail(value: boolean): void {
-  try {
-    localStorage.setItem(RAIL_STORAGE_KEY, String(value));
-  } catch {
-    // ignore
-  }
-}
+const safeReadRail = () => safeReadBool(RAIL_STORAGE_KEY);
+const safeWriteRail = (value: boolean) => safeWriteBool(RAIL_STORAGE_KEY, value);
 
 export interface RailSync {
   railExpanded: boolean;

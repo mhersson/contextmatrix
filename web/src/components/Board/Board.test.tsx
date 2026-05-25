@@ -240,6 +240,53 @@ describe('Board — mobile NowRail drawer', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Board — NowRail open-state persistence
+// ---------------------------------------------------------------------------
+
+describe('Board — NowRail persistence to localStorage', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  const boardProps = {
+    cards: [sampleCard],
+    config: baseConfig,
+    loading: false,
+    error: null,
+    activeAgents: [],
+    cardsCompletedToday: 0,
+    activityEntries: [],
+    currentAgent: null,
+  };
+
+  it('opening the rail, unmounting, and remounting restores the open state', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const first = render(<Board {...boardProps} />);
+    expect(first.container.querySelector('.now-rail')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /show rail/i }));
+    expect(first.container.querySelector('.now-rail')).not.toBeNull();
+
+    first.unmount();
+
+    const second = render(<Board {...boardProps} />);
+    expect(second.container.querySelector('.now-rail')).not.toBeNull();
+  });
+
+  it('treats a malformed stored value as no preference (rail stays closed)', () => {
+    localStorage.setItem('contextmatrix-now-rail-open', 'maybe');
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const { container } = render(<Board {...boardProps} />);
+    expect(container.querySelector('.now-rail')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Board — MetricsRibbon headline fallback during initial mount
 // ---------------------------------------------------------------------------
 
