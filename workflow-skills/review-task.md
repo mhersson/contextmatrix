@@ -305,19 +305,19 @@ summary: <one-line summary>
 
 Then capture a working-tree snapshot and call `add_log`:
 
-```
-SNAPSHOT=$(git stash create -u)
-if [ -z "$SNAPSHOT" ]; then
-  SNAPSHOT=$(git rev-parse HEAD)
-fi
+1. Run `git stash create -u`. If the output is non-empty, that is the snapshot SHA — skip step 2.
+2. If the output is empty (no uncommitted changes), run `git rev-parse HEAD`. That is the snapshot SHA.
+3. Call `add_log`:
 
+```
 add_log(card_id=<parent>, agent_id=<your id>,
         action="review_completed",
-        message="head=$SNAPSHOT recommendation=<approve|approve_with_notes|revise>")
+        message="head=<snapshot SHA> recommendation=<approve|approve_with_notes|revise>")
 ```
 
-The SHA is a `git stash create -u` snapshot — never use bare `git stash`,
-which would reset the working tree.
+Use two separate Bash tool calls for steps 1 and 2. Do not combine them in a
+single call with `&&` or `;`. Never use bare `git stash`, which would reset the
+working tree. `git stash create -u` creates a stash object without touching it.
 
 Do **not** call `release_card`. Do **not** call `transition_card`.
 
