@@ -3,6 +3,20 @@ import { api } from '../api/client';
 import type { BoardEvent, DashboardData } from '../types';
 import { useSSEBus } from './useSSEBus';
 
+// Module-level helper so the fetch+apply pattern is defined once.
+// isCancelled is a thunk so each effect can control its own cancellation flag.
+function fetchDashboard(
+  project: string,
+  setDashboard: (data: DashboardData) => void,
+  isCancelled: () => boolean,
+): void {
+  api.getDashboard(project).then((data) => {
+    if (!isCancelled()) setDashboard(data);
+  }).catch(() => {
+    // non-fatal: board renders with empty fallbacks
+  });
+}
+
 export function useDashboardPolling(project: string | null | undefined, intervalMs: number): DashboardData | null {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const { subscribe } = useSSEBus();
@@ -11,17 +25,10 @@ export function useDashboardPolling(project: string | null | undefined, interval
   useEffect(() => {
     if (!project) return;
     let cancelled = false;
-    api.getDashboard(project).then((data) => {
-      if (!cancelled) setDashboard(data);
-    }).catch(() => {
-      // non-fatal: board renders with empty fallbacks
-    });
+    const isCancelled = () => cancelled;
+    fetchDashboard(project, setDashboard, isCancelled);
     const interval = setInterval(() => {
-      api.getDashboard(project).then((data) => {
-        if (!cancelled) setDashboard(data);
-      }).catch(() => {
-        // non-fatal: board renders with empty fallbacks
-      });
+      fetchDashboard(project, setDashboard, isCancelled);
     }, intervalMs);
     return () => {
       cancelled = true;
@@ -35,14 +42,11 @@ export function useDashboardPolling(project: string | null | undefined, interval
   useEffect(() => {
     if (!project) return;
     let cancelled = false;
+    const isCancelled = () => cancelled;
 
     const handler = (event: BoardEvent) => {
       if (event.project === project) {
-        api.getDashboard(project).then((data) => {
-          if (!cancelled) setDashboard(data);
-        }).catch(() => {
-          // non-fatal: board renders with empty fallbacks
-        });
+        fetchDashboard(project, setDashboard, isCancelled);
       }
     };
 
@@ -56,7 +60,10 @@ export function useDashboardPolling(project: string | null | undefined, interval
       unsubStateChanged();
       unsubReleased();
     };
-  }, [project, subscribe]);
+  // subscribe is a stable useCallback (empty deps in useSSEBus) — omitting it
+  // is intentional so identity changes never recreate duplicate subscriptions.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
 
   return dashboard;
 }
