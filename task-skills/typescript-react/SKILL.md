@@ -65,13 +65,6 @@ Match the project's existing approach — Tailwind, CSS modules, vanilla CSS, st
 - Behavioral tests, not snapshots. Snapshots become noise on a fast-evolving UI.
 - Mock at the network boundary (MSW), not at the React level. Components stay real.
 
-## Scope discipline
-
-- Do what the task asks. Don't refactor surrounding components, don't extract hooks "for reuse" unless reuse is happening now.
-- Three similar JSX blocks beat a premature `<DynamicThing>` abstraction.
-- Don't add prop variants for hypothetical future needs.
-- Default to no comments. Component name and prop types do most of the work; comments only for non-obvious why.
-
 ## Quick red flags
 
 | Red flag                                          | Why it's wrong                                              |
