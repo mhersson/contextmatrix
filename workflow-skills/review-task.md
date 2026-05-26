@@ -224,6 +224,7 @@ On `approve_with_notes`, call `create_card` **exactly once**:
 - `title`: `Follow-up: polish from review of <CARD-ID>`.
 - `parent`: the current card's parent (if set).
 - `type`: same as the current card's parent.
+- `labels`: `["simple"]`.
 - `body`: exact format below.
 
 ```markdown
