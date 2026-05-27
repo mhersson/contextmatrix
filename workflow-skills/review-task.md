@@ -222,6 +222,11 @@ orchestrator and activity log show what was changed.
 
 ## Step 5: Write findings, report, return
 
+**Always append — never replace.** If the card body already has a
+`## Review Findings` section from a prior round, do not overwrite it. Append a
+new section with the round number: `## Review Findings (Round 2)`,
+`## Review Findings (Round 3)`, etc. The first round uses the bare heading.
+
 Append to the parent card body via `update_card`:
 
 ```markdown
