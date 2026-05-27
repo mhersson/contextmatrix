@@ -48,7 +48,7 @@ export function BoardBand({
         </div>
         <h2 className="board-band__title">{title}</h2>
         <div className="board-band__sub">
-          <span className="board-band__pulse">{activeAgents} agents live</span>
+          <span className={activeAgents > 0 ? 'board-band__pulse' : undefined}>{activeAgents} agents live</span>
           <span className="board-band__sep">·</span>
           <span>{openCount} open · {inReviewCount} in review · {shippedToday} shipped today</span>
           {shippedLast7d !== undefined && (
