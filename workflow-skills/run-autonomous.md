@@ -215,12 +215,12 @@ Based on the card's current state and body content:
     writes findings to the parent card body; and prints
     `REVIEW_FINDINGS`.
 17. Parse the `recommendation` from the printed `REVIEW_FINDINGS`. The cycle
-    budget is **`MAX_REVISION_PASSES = 2`** (one initial review + one
-    revision; the second review is the final decision).
+    budget is **`MAX_REVISION_PASSES = 3`** (initial review + up to two
+    revisions; the third review is the final decision).
 
-    - **approve** or **approve_with_notes**: Proceed to Phase 6.
+    - **approve**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
-      - If **< 2**:
+      - If **< 3**:
         1. Increment `review_attempts` by updating the card.
         2. Transition parent back to `in_progress`:
            `transition_card(card_id='<card_id>', new_state='in_progress')`.
@@ -246,7 +246,7 @@ Based on the card's current state and body content:
         "address a finding quickly", stop. Create the subtask. Spawn
         the sub-agent. The protocol is identical whether the fix is
         ten lines or one.
-      - If **>= 2**: **Budget exhausted.** Do not start another revision.
+      - If **>= 3**: **Budget exhausted.** Do not start another revision.
         1. Parse Critical and Important findings from the card body's
            `## Review Findings` section.
         2. For each finding, call `create_card`:
@@ -263,7 +263,7 @@ Based on the card's current state and body content:
            ```
            AUTONOMOUS_HALTED
            card_id: <card_id>
-           reason: review cycle budget (2) exhausted; <N> follow-up cards spawned
+           reason: review cycle budget (3) exhausted; <N> follow-up cards spawned
            action_required: human review of follow-up cards
            ```
 

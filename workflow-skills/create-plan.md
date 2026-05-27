@@ -466,14 +466,14 @@ top-level `autonomous` field is the ONLY source of truth for mode.
 **If `autonomous: true`:** branch on the `recommendation` field in
 `REVIEW_FINDINGS`:
 
-- `approve` or `approve_with_notes`: proceed to Phase 9.
+- `approve`: proceed to Phase 9.
 - `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
-  returned count is >= 2, call `report_usage` with your remaining token
+  returned count is >= 3, call `report_usage` with your remaining token
   consumption, then print:
   ```
   AUTONOMOUS_HALTED
   card_id: <parent_id>
-  reason: 2 review cycles completed without approval
+  reason: 3 review cycles completed without approval
   action_required: human review
   ```
   and stop. Otherwise, follow the **Rejection Loop** below.

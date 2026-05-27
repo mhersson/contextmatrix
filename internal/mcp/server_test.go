@@ -2895,7 +2895,7 @@ func TestCreateCard_PreservesSkillsThroughDependsOn(t *testing.T) {
 // in workflow-skills/review-task.md: the file must frame the review as a
 // production-ready gate near the top, declare the 4-tier severity scale
 // (Critical / Important / Minor / Nits), and synthesise Critical/Important
-// concerns to `revise`, Minor-only outcomes to `approve_with_notes`, and
+// concerns to `revise`, Minor-only outcomes to inline fixing, and
 // Nits-only or no-concern outcomes to `approve`. A malformed or missing
 // specialist must also force `revise`.
 func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
@@ -2933,9 +2933,9 @@ func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 		content,
 		"review-task.md synthesis must send Critical or Important concerns to revise")
 
-	// Only Minor → approve_with_notes.
-	assert.Regexp(t, `(?is)Only\s+Minor[^.]{0,200}approve_with_notes`, content,
-		"review-task.md synthesis must map Minor-only outcomes to approve_with_notes")
+	// Only Minor → inline fix gate.
+	assert.Regexp(t, `(?is)Only\s+Minor[^.]{0,200}inline\s+fix`, content,
+		"review-task.md synthesis must route Minor-only outcomes to the inline fix gate")
 
 	// Only Nits or no concerns → approve.
 	assert.Regexp(t, `(?is)Only\s+Nits\s+or\s+no\s+concerns[^.]{0,160}`+"`approve`", content,
@@ -2950,28 +2950,21 @@ func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 		"review-task.md must force revise when a specialist returns nothing or malformed output")
 }
 
-// TestOrchestratorHaltThreshold_TwoCycles pins the autonomous halt threshold
-// at 2 review cycles in both orchestrator skills. Drift guards use anchored
-// NotRegexp so the test only fires when the old `>= 3` / `< 3` halt phrasing
-// reappears in the halt-threshold context — unrelated occurrences of the
-// number "3" elsewhere in the file are not false positives.
-func TestOrchestratorHaltThreshold_TwoCycles(t *testing.T) {
+// TestOrchestratorHaltThreshold_ThreeCycles pins the autonomous halt threshold
+// at 3 review cycles in both orchestrator skills. Budget was raised from 2 to 3
+// to accommodate inline Minor fixes: review 1 fixes Critical/Important, review
+// 2 attempts inline Minor fixes, review 3 is the fallback if inline fixes fail.
+func TestOrchestratorHaltThreshold_ThreeCycles(t *testing.T) {
 	createPlanPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	createPlanData, err := os.ReadFile(createPlanPath)
 	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
 
 	createPlan := string(createPlanData)
 
-	// Phase 8 must compare review_attempts against >= 2 and halt with the
-	// matching reason string.
-	assert.Regexp(t, `(?i)returned count is\s*>=\s*2\b`, createPlan,
-		"create-plan.md Phase 8 must halt when review_attempts >= 2")
-	assert.Regexp(t, `(?i)reason:\s*2\s+review\s+cycles\b`, createPlan,
-		"create-plan.md AUTONOMOUS_HALTED reason must say 2 review cycles")
-	// Drift guard: the old >= 3 phrasing in the same halt phrase context
-	// must not regress.
-	assert.NotRegexp(t, `(?i)count is\s*>=\s*3\b`, createPlan,
-		"create-plan.md must not use the old >= 3 halt threshold")
+	assert.Regexp(t, `(?i)returned count is\s*>=\s*3\b`, createPlan,
+		"create-plan.md Phase 8 must halt when review_attempts >= 3")
+	assert.Regexp(t, `(?i)reason:\s*3\s+review\s+cycles\b`, createPlan,
+		"create-plan.md AUTONOMOUS_HALTED reason must say 3 review cycles")
 
 	runAutoPath := filepath.Join("..", "..", "workflow-skills", "run-autonomous.md")
 	runAutoData, err := os.ReadFile(runAutoPath)
@@ -2979,18 +2972,10 @@ func TestOrchestratorHaltThreshold_TwoCycles(t *testing.T) {
 
 	runAuto := string(runAutoData)
 
-	// Phase 5 must branch on review_attempts < 2 / >= 2 with matching reason.
-	assert.Regexp(t, `(?i)If \*\*<\s*2\*\*`, runAuto,
-		"run-autonomous.md must branch on review_attempts < 2")
-	assert.Regexp(t, `(?i)If \*\*>=\s*2\*\*`, runAuto,
-		"run-autonomous.md must halt on review_attempts >= 2")
-	assert.Regexp(t, `(?i)reason:\s*review\s+cycle\s+budget\s*\(2\)\s+exhausted`, runAuto,
-		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 2-cycle budget")
-	// Drift guards: anchored on the bold-formatted threshold patterns so we
-	// only catch regressions to the old 3-cycle phrasing, not unrelated
-	// numerals elsewhere in the file.
-	assert.NotRegexp(t, `(?i)If \*\*<\s*3\*\*`, runAuto,
-		"run-autonomous.md must not use the old < 3 branch")
-	assert.NotRegexp(t, `(?i)If \*\*>=\s*3\*\*`, runAuto,
-		"run-autonomous.md must not use the old >= 3 branch")
+	assert.Regexp(t, `(?i)If \*\*<\s*3\*\*`, runAuto,
+		"run-autonomous.md must branch on review_attempts < 3")
+	assert.Regexp(t, `(?i)If \*\*>=\s*3\*\*`, runAuto,
+		"run-autonomous.md must halt on review_attempts >= 3")
+	assert.Regexp(t, `(?i)reason:\s*review\s+cycle\s+budget\s*\(3\)\s+exhausted`, runAuto,
+		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 3-cycle budget")
 }

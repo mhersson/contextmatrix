@@ -10,8 +10,8 @@ You run the review phase inline. You hold the claim from earlier phases — do n
 release it.
 
 This is a **production-ready gate**. Code passes review only when free of
-Critical and Important defects. Minor findings ship via `approve_with_notes`
-and are tracked as follow-up cards (Step 4). Polish-level Nits do not block.
+Critical and Important defects. Minor findings are fixed inline by the
+reviewer (Step 4). Polish-level Nits do not block.
 When in doubt, send the work back — a revise cycle is cheaper than a
 regression in main.
 
@@ -187,13 +187,10 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
 - If any specialist returned nothing or malformed output (per Step 3),
   record the missing specialty as a gap under Concerns and force the
   recommendation to `revise` regardless of the other tiers.
-- Check whether the card under review is itself a follow-up — its title
-  starts with `Follow-up:`. Follow-ups cannot spawn further follow-ups.
 - Decide the recommendation:
   - **Any Critical or Important concern → `revise`.**
-  - **Only Minor concerns (no Critical or Important) → `approve_with_notes`**
-    if the bundle test below passes; else `revise` on the original card. On
-    a follow-up card, always `revise` — Minors stay on the same card.
+  - **Only Minor concerns (no Critical or Important) →** run the inline fix
+    gate below. If it passes, apply the fixes inline. If it fails, `revise`.
   - **Only Nits or no concerns → `approve`.**
 
 Cite specific files, subtasks, and decisions. Every concern must be actionable.
@@ -201,53 +198,27 @@ Cite specific files, subtasks, and decisions. Every concern must be actionable.
 If Pass 1 failed: recommendation is `revise`, concerns are the failing test/lint
 output, no specialists were spawned.
 
-### Bundle test
+### Inline fix gate
 
-One bundled follow-up per cycle, or none — never multiple.
+Fix Minors inline when all of the following hold:
 
-Bundle when a single agent can address all Minors in one focused session:
-shared theme, bounded scope, no design rework spanning items.
+- Every Minor has a concrete Fix field (no design rework needed).
+- Fixes are bounded — no multi-file refactors or API changes.
+- Fixes do not couple to each other or to the original change.
 
-Otherwise `revise` the original card. Triggers:
+If any condition fails, `revise` the original card. When in doubt, `revise`.
 
-- Any Minor implies non-trivial design rework.
-- Minors span unrelated subsystems or packages.
-- Minors couple to each other or to the original change.
+### Applying inline fixes
 
-When in doubt, prefer `revise`.
+For each Minor finding that passed the gate, apply the fix described in its Fix
+field directly in the working tree. After all fixes are applied:
 
-### Spawning the bundled follow-up
+1. Run the project's test suite. If tests fail, revert the fixes
+   (`git checkout -- <files>`) and set the recommendation to `revise`.
+2. If tests pass, set the recommendation to `approve`.
 
-On `approve_with_notes`, call `create_card` **exactly once**:
-
-- `project`: this card's project.
-- `title`: `Follow-up: polish from review of <CARD-ID>`.
-- `parent`: the current card's parent (if set).
-- `type`: same as the current card's parent.
-- `labels`: `["simple"]`.
-- `body`: exact format below.
-
-```markdown
-## Source
-
-`<CARD-ID>` — `<reviewed card title>`
-
-## What this card is for
-
-<2–4 sentences: what the original change did and why, why these polish
-items were deferred, what a successful pass looks like. Tell the next
-agent to call `get_card` on the source above for the full original body.>
-
-## Findings to address
-
-### Minor
-
-- **Where:** `file:line` — **What:** ... — **Why:** ... — **Fix:** ...
-- (one bullet per Minor finding, preserving the specialist
-  Where/What/Why/Fix format)
-```
-
-Skip Nits.
+Mark each fixed Minor in the findings output with `(fixed inline)` so the
+orchestrator and activity log show what was changed.
 
 ## Step 5: Write findings, report, return
 
@@ -282,7 +253,7 @@ Append to the parent card body via `update_card`:
 
 ### Recommendation
 
-approve | approve_with_notes | revise — <one-line rationale>
+approve | revise — <one-line rationale>
 ```
 
 Call `report_usage` for synthesis only:
@@ -300,7 +271,7 @@ Print exactly:
 ```
 REVIEW_FINDINGS
 card_id: <id>
-recommendation: approve | approve_with_notes | revise
+recommendation: approve | revise
 summary: <one-line summary>
 ```
 
@@ -313,7 +284,7 @@ Then capture a working-tree snapshot and call `add_log`:
 ```
 add_log(card_id=<parent>, agent_id=<your id>,
         action="review_completed",
-        message="head=<snapshot SHA> recommendation=<approve|approve_with_notes|revise>")
+        message="head=<snapshot SHA> recommendation=<approve|revise>")
 ```
 
 Use two separate Bash tool calls for steps 1 and 2. Do not combine them in a
@@ -327,8 +298,6 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - `update_card` before printing `REVIEW_FINDINGS`.
 - `REVIEW_FINDINGS` block format is exact.
 - All three specialists in one message; sequential spawning is wrong.
-- At most one bundled follow-up per review cycle, or none — never multiple.
-- Follow-up cards (title prefix `Follow-up:`) never spawn further follow-ups.
 - Pass 1 failure short-circuits Pass 2.
 - MCP tools only — never curl, wget, or HTTP.
 - Categorize severity honestly. Critical = broken or unsafe. Important = real
