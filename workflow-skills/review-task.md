@@ -10,10 +10,9 @@ You run the review phase inline. You hold the claim from earlier phases — do n
 release it.
 
 This is a **production-ready gate**. Code passes review only when free of
-Critical and Important defects. Minor findings are fixed inline by the
-reviewer (Step 4). Polish-level Nits do not block.
-When in doubt, send the work back — a revise cycle is cheaper than a
-regression in main.
+Critical and Important defects. Minor findings are fixed inline by the reviewer
+(Step 4). Polish-level Nits do not block. When in doubt, send the work back — a
+revise cycle is cheaper than a regression in main.
 
 ## Step 1: Confirm claim and load context
 
@@ -32,9 +31,9 @@ If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
   criteria met, edge cases covered.
 - **Scope:** nothing added outside the plan; no cross-subtask assumption
   conflicts.
-- **Tests + lint:** run the project's test suite (`go test ./...`,
-  `npm test`, etc.) and lint if configured. Any failure → Pass 1 failure;
-  include the failing output in the findings.
+- **Tests + lint:** run the project's test suite (`go test ./...`, `npm test`,
+  etc.) and lint if configured. Any failure → Pass 1 failure; include the
+  failing output in the findings.
 
 On success, call `heartbeat(card_id, agent_id)` before Step 3.
 
@@ -43,15 +42,19 @@ On success, call `heartbeat(card_id, agent_id)` before Step 3.
 ### Pick the specialist model
 
 Default to `claude-sonnet-4-6`. Upgrade all three specialists to
-`claude-opus-4-7` when total changed lines (insertions + deletions)
-exceed 200.
+`claude-opus-4-7` when **either** of the following holds:
+
+- total changed lines (insertions + deletions) exceed 600, **or**
+- files changed exceed 10.
 
 Run `git diff <base>..HEAD --shortstat` (branch base) or
-`git diff <base> --shortstat` (snapshot base; see change-set computation
-below). The output is one line, e.g.
-`4 files changed, 187 insertions(+), 1 deletion(-)`. Sum insertions and
-deletions; compare to 200. Either or both fields may be absent if the
-diff is pure-add or pure-delete — treat missing as zero.
+`git diff <base> --shortstat` (snapshot base; see change-set computation below).
+The output is one line, e.g.
+`4 files changed, 187 insertions(+), 1 deletion(-)`. Parse all three numbers.
+Sum insertions and deletions for the line check; use the files-changed value
+directly for the file check. Either or both line fields may be absent if the
+diff is pure-add or pure-delete — treat missing as zero. Upgrade if either
+threshold is exceeded.
 
 The chosen model applies to all three specialists in this review cycle.
 
@@ -65,10 +68,10 @@ Spawn three `Agent` calls in a **single message**. Each:
 Do not pre-read files and embed content in the prompts — specialists read what
 they need.
 
-A missing or malformed specialist report (nothing returned, or output that
-fails to parse against the schema below) is a Pass 2 failure: record the
-gap in Step 4 and force the synthesis recommendation to `revise`. Do not
-silently drop the missing specialty's coverage.
+A missing or malformed specialist report (nothing returned, or output that fails
+to parse against the schema below) is a Pass 2 failure: record the gap in Step 4
+and force the synthesis recommendation to `revise`. Do not silently drop the
+missing specialty's coverage.
 
 ### Common context (in every specialist prompt)
 
@@ -76,16 +79,15 @@ silently drop the missing specialty's coverage.
   / `add_log` with your id; the server enforces `agent_id == AssignedAgent`).
 - Change-set computation:
   1. **Determine the diff base.** Read the parent card's activity log.
-     - If a prior entry has `action="review_completed"`, parse `head=<sha>`
-       from its message — this is a working-tree snapshot from the prior
-       pass.
+     - If a prior entry has `action="review_completed"`, parse `head=<sha>` from
+       its message — this is a working-tree snapshot from the prior pass.
      - Otherwise use the card's `base_branch` if set, else `main`.
   2. **Compute the review surface:**
-     - Snapshot base: `git diff <sha> --name-only` (working tree vs.
-       snapshot — single command captures the delta).
+     - Snapshot base: `git diff <sha> --name-only` (working tree vs. snapshot —
+       single command captures the delta).
      - Branch base: `git diff <base>..HEAD --name-only` plus
-       `git status --porcelain` for working-tree (`M`, `A`, `??`). Union
-       is the surface.
+       `git status --porcelain` for working-tree (`M`, `A`, `??`). Union is the
+       surface.
   3. `Read` each file directly. Untracked files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
 - Engage relevant skills via the Skill tool (`go-development`, `code-review`,
@@ -93,7 +95,10 @@ silently drop the missing specialty's coverage.
   `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
   `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
-  Map stream-json `usage` frame fields: `usage.input_tokens` → `prompt_tokens`, `usage.output_tokens` → `completion_tokens`, `usage.cache_read_input_tokens` → `cache_read_tokens`, `usage.cache_creation_input_tokens` → `cache_creation_tokens`.
+  Map stream-json `usage` frame fields: `usage.input_tokens` → `prompt_tokens`,
+  `usage.output_tokens` → `completion_tokens`, `usage.cache_read_input_tokens` →
+  `cache_read_tokens`, `usage.cache_creation_input_tokens` →
+  `cache_creation_tokens`.
 - Return the output format below — nothing else.
 
 Specialist hard constraints:
@@ -112,8 +117,8 @@ Specialist hard constraints:
 
 - Bugs, logic errors, off-by-one, edge cases.
 - Error / exception handling completeness (silent failures, swallowed errors).
-- Concurrency, races, lock ordering, goroutine leaks, thread leaks,
-  unawaited promises/tasks.
+- Concurrency, races, lock ordering, goroutine leaks, thread leaks, unawaited
+  promises/tasks.
 - Observability: structured logging, metric emission, debuggable error context.
 - Test coverage and quality — do tests exercise new behavior, or are they
   vacuous (asserting on self-configured mocks)? Flag flakiness, time coupling,
@@ -138,8 +143,7 @@ Specialist hard constraints:
 - AuthN/AuthZ deviations from the trust model documented in `CLAUDE.md`. Do not
   flag the absence of auth when the project states it has none.
 - Secrets handling.
-- Dependency hygiene on added/bumped packages: known CVEs, lockfile
-  correctness.
+- Dependency hygiene on added/bumped packages: known CVEs, lockfile correctness.
 - Algorithmic complexity, N+1, quadratic loops on user input.
 - Memory / resource leaks; hot-path allocations; caching effectiveness.
 
@@ -184,13 +188,13 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
   assessment; list each finding once under its most natural specialty.
 - Hunt cross-cutting issues no single specialist owned (e.g., new flag without
   test, docs, or migration path).
-- If any specialist returned nothing or malformed output (per Step 3),
-  record the missing specialty as a gap under Concerns and force the
-  recommendation to `revise` regardless of the other tiers.
+- If any specialist returned nothing or malformed output (per Step 3), record
+  the missing specialty as a gap under Concerns and force the recommendation to
+  `revise` regardless of the other tiers.
 - Decide the recommendation:
   - **Any Critical or Important concern → `revise`.**
-  - **Only Minor concerns (no Critical or Important) →** run the inline fix
-    gate below. If it passes, apply the fixes inline. If it fails, `revise`.
+  - **Only Minor concerns (no Critical or Important) →** run the inline fix gate
+    below. If it passes, apply the fixes inline. If it fails, `revise`.
   - **Only Nits or no concerns → `approve`.**
 
 Cite specific files, subtasks, and decisions. Every concern must be actionable.
@@ -269,7 +273,8 @@ Call `report_usage` for synthesis only:
 - `prompt_tokens` / `completion_tokens`: synthesizer-only consumption (Pass 1,
   prompt construction, merging). Specialists already reported their own — do not
   add them.
-- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage`
+  frame if available
 
 Print exactly:
 
@@ -282,8 +287,10 @@ summary: <one-line summary>
 
 Then capture a working-tree snapshot and call `add_log`:
 
-1. Run `git stash create -u`. If the output is non-empty, that is the snapshot SHA — skip step 2.
-2. If the output is empty (no uncommitted changes), run `git rev-parse HEAD`. That is the snapshot SHA.
+1. Run `git stash create -u`. If the output is non-empty, that is the snapshot
+   SHA — skip step 2.
+2. If the output is empty (no uncommitted changes), run `git rev-parse HEAD`.
+   That is the snapshot SHA.
 3. Call `add_log`:
 
 ```
