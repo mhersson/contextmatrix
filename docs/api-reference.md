@@ -1181,7 +1181,7 @@ Request body:
 {
   "title": "Investigate auth-flow regression",
   "project": "contextmatrix",
-  "model": "claude-opus-4-7"
+  "model": "claude-opus-4-8"
 }
 ```
 
@@ -1210,6 +1210,7 @@ Response:
       "max_tokens": 200000
     },
     { "id": "claude-opus-4-7", "label": "Opus 4.7", "max_tokens": 1000000 },
+    { "id": "claude-opus-4-8", "label": "Opus 4.8", "max_tokens": 1000000 },
     { "id": "claude-sonnet-4-6", "label": "Sonnet 4.6", "max_tokens": 1000000 }
   ],
   "default": "claude-sonnet-4-6"

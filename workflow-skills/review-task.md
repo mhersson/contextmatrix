@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-opus-4-7
+- **Model:** claude-opus-4-8
 
 ---
 
@@ -42,7 +42,7 @@ On success, call `heartbeat(card_id, agent_id)` before Step 3.
 ### Pick the specialist model
 
 Default to `claude-sonnet-4-6`. Upgrade all three specialists to
-`claude-opus-4-7` when **either** of the following holds:
+`claude-opus-4-8` when **either** of the following holds:
 
 - total changed lines (insertions + deletions) exceed 600, **or**
 - files changed exceed 10.

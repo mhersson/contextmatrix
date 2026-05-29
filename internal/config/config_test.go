@@ -1478,7 +1478,7 @@ func TestLoad_OrchestratorModels_DefaultsApplyWhenYAMLOmits(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-7", cfg.Runner.OrchestratorOpusModel)
+	assert.Equal(t, "claude-opus-4-8", cfg.Runner.OrchestratorOpusModel)
 }
 
 func TestLoad_OrchestratorModels_EnvOverridesYAML(t *testing.T) {
@@ -1511,7 +1511,7 @@ github:
 func TestDefaults_OrchestratorModels(t *testing.T) {
 	cfg := defaults()
 	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-7", cfg.Runner.OrchestratorOpusModel)
+	assert.Equal(t, "claude-opus-4-8", cfg.Runner.OrchestratorOpusModel)
 }
 
 func TestDefaults_ReconcileInterval(t *testing.T) {
@@ -2025,6 +2025,7 @@ func TestConfigYamlExampleTokenCosts(t *testing.T) {
 		"claude-sonnet-4-6",
 		"claude-opus-4-6",
 		"claude-opus-4-7",
+		"claude-opus-4-8",
 	}
 
 	for _, model := range expectedModels {

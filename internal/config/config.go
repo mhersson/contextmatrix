@@ -227,7 +227,7 @@ func defaults() *Config {
 		Theme:                "everforest",
 		Runner: RunnerConfig{
 			OrchestratorSonnetModel: "claude-sonnet-4-6",
-			OrchestratorOpusModel:   "claude-opus-4-7",
+			OrchestratorOpusModel:   "claude-opus-4-8",
 			ReconcileInterval:       "60s",
 		},
 		LogFormat:     "text",
@@ -597,6 +597,7 @@ func applyChatDefaults(cfg *Config) {
 		cfg.Chat.Models = map[string]ChatModelConfig{
 			"claude-sonnet-4-6":         {Label: "Sonnet 4.6", MaxTokens: 1000000},
 			"claude-opus-4-7":           {Label: "Opus 4.7", MaxTokens: 1000000},
+			"claude-opus-4-8":           {Label: "Opus 4.8", MaxTokens: 1000000},
 			"claude-haiku-4-5-20251001": {Label: "Haiku 4.5", MaxTokens: 200000},
 		}
 	}

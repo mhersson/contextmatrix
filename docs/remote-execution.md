@@ -323,7 +323,7 @@ state via `POST /api/runner/knowledge-status`.
   "overwrite_docs": ["architecture.md"],
   "mcp_api_key": "...",
   "runner_image": "...",
-  "model": "claude-opus-4-7"
+  "model": "claude-opus-4-8"
 }
 ```
 
@@ -514,7 +514,7 @@ Start a chat container for a session. HMAC-signed.
   "project": "contextmatrix",
   "repo_url": "https://github.com/mhersson/contextmatrix.git",
   "mcp_api_key": "<forwarded as CM_MCP_API_KEY>",
-  "model": "claude-opus-4-7",
+  "model": "claude-opus-4-8",
   "resume": [
     { "seq": 2, "role": "user", "content": "explain the chat manager" },
     {
@@ -1343,7 +1343,7 @@ runner:
   url: "http://localhost:9090" # Runner base URL
   api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
   orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
-  orchestrator_opus_model: "claude-opus-4-7" # Model sent when use_opus_orchestrator is true
+  orchestrator_opus_model: "claude-opus-4-8" # Model sent when use_opus_orchestrator is true
   reconcile_interval: "60s" # Backstop sweep tick; "0s" disables
 
 # Chat (global chat panel)
@@ -1361,6 +1361,9 @@ chat:
       max_tokens: 1000000
     claude-opus-4-7:
       label: "Opus 4.7"
+      max_tokens: 1000000
+    claude-opus-4-8:
+      label: "Opus 4.8"
       max_tokens: 1000000
     claude-haiku-4-5-20251001:
       label: "Haiku 4.5"

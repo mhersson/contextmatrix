@@ -768,7 +768,7 @@ format.
 | `runner.url`                           | `""`                                  | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
 | `runner.api_key`                       | `""`                                  | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
 | `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`                   | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
-| `runner.orchestrator_opus_model`       | `claude-opus-4-7`                     | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
+| `runner.orchestrator_opus_model`       | `claude-opus-4-8`                     | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
 | `runner.reconcile_interval`            | `"60s"`                               | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
 | `chat.db_path`                         | `<XDG_STATE>/contextmatrix/chats.db`  | SQLite database for chat sessions and transcripts                                                                                                                                    |
 | `chat.idle_ttl`                        | `"1h"`                                | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
@@ -796,6 +796,7 @@ token_costs:
   claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 }
   claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 }
   claude-opus-4-7: { prompt: 0.000005, completion: 0.000025 }
+  claude-opus-4-8: { prompt: 0.000005, completion: 0.000025 }
 ```
 
 ### Environment Variables
