@@ -25,22 +25,22 @@ Human ↔ CC (main agent, Opus)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            └── inline: review-task (synthesizer = Opus, your session)
-                  ├── Agent → specialist (correctness, Opus 4-7)
-                  ├── Agent → specialist (design,      Opus 4-7)
-                  └── Agent → specialist (security,    Opus 4-7)
+                  ├── Agent → specialist (correctness, Opus 4-8)
+                  ├── Agent → specialist (design,      Opus 4-8)
+                  └── Agent → specialist (security,    Opus 4-8)
 
 Runner container → CC (orchestrator, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            └── inline: review-task (synthesizer = Sonnet, your session)
-                  ├── Agent → specialist (correctness, Opus 4-7)
-                  ├── Agent → specialist (design,      Opus 4-7)
-                  └── Agent → specialist (security,    Opus 4-7)
+                  ├── Agent → specialist (correctness, Opus 4-8)
+                  ├── Agent → specialist (design,      Opus 4-8)
+                  └── Agent → specialist (security,    Opus 4-8)
 ```
 
 The review skill runs inline in the orchestrator's session (so the `Agent` tool
 is available to spawn the three parallel specialists); specialists run on
-`claude-opus-4-7` regardless of the orchestrator's own model.
+`claude-opus-4-8` regardless of the orchestrator's own model.
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 
@@ -117,7 +117,7 @@ rules:
   themselves. If the review ran in a spawned sub-agent it would silently degrade
   to a single-perspective walkthrough because the parallel spawn would not
   happen. The synthesizer runs on the orchestrator's own model (often Sonnet);
-  the three specialists each run on `claude-opus-4-7`. Do not reintroduce the
+  the three specialists each run on `claude-opus-4-8`. Do not reintroduce the
   model-match gate on `start_review` — it would reproduce the regression.
   (`get_skill('review-task')` still uses the model-match logic for any
   out-of-band callers; the workflow always goes through `start_review`.)
@@ -344,7 +344,7 @@ The flow:
   entirely, writes findings with `recommendation: revise`, and prints
   `REVIEW_FINDINGS`. No specialists are spawned.
 - **Pass 2 — Three parallel specialists:** if Pass 1 succeeds, the orchestrator
-  spawns three `Agent` calls in a single message (`model: claude-opus-4-7`,
+  spawns three `Agent` calls in a single message (`model: claude-opus-4-8`,
   `subagent_type: general-purpose`): Correctness (bugs, edges, errors, races,
   test quality), Design & Maintainability (architecture, naming, complexity,
   docs), and Security & Performance (input validation, secrets, CVEs,
@@ -352,7 +352,7 @@ The flow:
   `agent_id` because `report_usage` and `add_log` enforce
   `agent_id == AssignedAgent` — specialists act on the synthesizer's behalf for
   board writes. Before returning, each specialist calls `report_usage` against
-  the parent card with its own token consumption (model `claude-opus-4-7`); this
+  the parent card with its own token consumption (model `claude-opus-4-8`); this
   is what makes the specialists' cost visible on the card. Specialists do not
   claim, transition, or write findings to the card body — they return a
   structured Markdown report with severity-tiered findings.
@@ -620,6 +620,7 @@ token_costs:
   claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 } # $3.00 / $15.00 per MTok
   claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
   claude-opus-4-7: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
+  claude-opus-4-8: { prompt: 0.000005, completion: 0.000025 } # $5.00 / $25.00 per MTok
 ```
 
 The `report_usage` call must pass `model` matching one of these keys. The model

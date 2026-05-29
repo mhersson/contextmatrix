@@ -90,6 +90,7 @@ token_costs:
   claude-sonnet-4-6:  { prompt: 0.000003,  completion: 0.000015  }  # $3/$15 per MTok
   claude-opus-4-6:    { prompt: 0.000005,  completion: 0.000025  }  # $5/$25 per MTok
   claude-opus-4-7:    { prompt: 0.000005,  completion: 0.000025  }  # $5/$25 per MTok
+  claude-opus-4-8:    { prompt: 0.000005,  completion: 0.000025  }  # $5/$25 per MTok
 
 # Optional API key for MCP endpoint authentication.
 # When set, all MCP requests must include this key in the Authorization header
@@ -203,9 +204,9 @@ runner:
 
   # Model ID used for the Opus orchestrator in autonomous runs (when the user
   # selects the high-capability mode). Update when a newer Opus model ships.
-  # Default: claude-opus-4-7
+  # Default: claude-opus-4-8
   # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL
-  orchestrator_opus_model: "claude-opus-4-7"
+  orchestrator_opus_model: "claude-opus-4-8"
 
   # How often the backstop sweep scans every project for cards that are in a
   # terminal state (done / not_planned), released (no assigned agent), and
@@ -264,6 +265,9 @@ chat:
       max_tokens: 1000000
     claude-opus-4-7:
       label: "Opus 4.7"
+      max_tokens: 1000000
+    claude-opus-4-8:
+      label: "Opus 4.8"
       max_tokens: 1000000
     claude-haiku-4-5-20251001:
       label: "Haiku 4.5"
