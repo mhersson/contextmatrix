@@ -215,11 +215,9 @@ visible:
 | Tool calls | off | `type === 'tool_call'` | `--aqua` |
 | Thinking | off | `type === 'thinking'` | `--grey2` |
 
-Types `user`, `stderr`, `system`, `gap`, and `user_question` are always shown
-regardless of the filter state — they carry user messages, diagnostic
-information, or structured prompts that the user must see (`user_question`
-is the assistant's `AskUserQuestion` tool call rendered as a clickable card;
-see "AskUserQuestion rendering" below).
+Types `user`, `stderr`, `system`, and `gap` are always shown regardless of
+the filter state — they carry user messages or diagnostic information that
+the user must see.
 
 Filtering is applied at render time against the full in-memory buffer
 (`cardLogs`). Toggling a filter on retroactively reveals all messages of that
@@ -235,56 +233,20 @@ State lives in the `useChatFilterPrefs` hook
 and exposes `{ prefs, setPref }`. `ChatPanel.tsx` consumes the hook; no new
 props or context is involved.
 
-### AskUserQuestion rendering
+### AskUserQuestion is denied — no special rendering
 
-`LogEntry.type === 'user_question'` carries a JSON payload from the runner's
-logparser representing a Claude Code `AskUserQuestion` tool call. The wire
-shape is `{ questions: [{ question, header?, multiSelect?, options: [{ label,
-description? }] }] }`. `UserQuestionCard`
-(`web/src/components/ChatPanel/UserQuestionCard.tsx`) parses it defensively
-and renders one card per chat entry:
+There is intentionally **no** frontend rendering for `AskUserQuestion`. The
+tool is denied at the MCP permission gate
+(`mcp__contextmatrix__permission_prompt`, see `internal/mcp/tools_permission.go`)
+with a plain-text redirect instructing the model to ask its question as an
+ordinary chat message with the options inline. The runner suppresses the
+tool, so it never reaches the transcript. Questions therefore arrive as
+normal `text` entries and need no dedicated card.
 
-- Single-select questions render each option as a button that immediately
-  calls `onSend(option.label)` when clicked.
-- Multi-select questions render checkboxes plus a "Send (N)" button that
-  emits the selected labels joined by `, `.
-- Malformed JSON, missing `questions` array, or empty `questions` array all
-  render a `--red` fallback line (`data-testid="user-question-malformed"`)
-  rather than crashing.
-- Buttons are disabled when `sendDisabled || readOnlyMessage` (passed
-  through `ChatPanel` as `interactionDisabled`), so scrolled-back history is
-  visible but not interactive.
-
-The answer reuses the existing `onSend` channel — `CardChat` routes it via
-`api.sendCardMessage`, and global chat via `useChatStream`'s
-`sendChatMessage` — so the runner sees the user's answer as a normal
-text turn.
-
-**Phase 1 — AskUserQuestion is denied at the MCP permission gate, the card
-is the user-side affordance.** Claude Code's built-in `AskUserQuestion`
-tool's `checkPermissions` always returns `behavior:"ask"`, which the SDK
-auto-denies in headless mode. The runner's `entrypoint.sh` passes
-`--permission-prompt-tool mcp__contextmatrix__permission_prompt` to all
-`claude` invocations.
-
-The flow is: the model emits `AskUserQuestion`; the runner's logparser
-surfaces the tool_use as a `user_question` LogEntry; the frontend renders
-it via `UserQuestionCard` with the options as clickable buttons; the MCP
-permission tool denies the call with an instruction telling the model to
-stop and wait silently (the user is already seeing the interactive card,
-so any plain-text re-ask would be a duplicate question); the user clicks
-an option, which sends the option label through the normal chat send path
-as a fresh user message; the runner forwards that message to the agent as
-the next user turn. The chat manager's `pendingToolUseID` infrastructure
-is unused on this Phase 1 path — it remains wired for Phase 2.
-
-**Phase 2 (deferred) — block-and-return-answer.** The same permission_prompt
-tool will block waiting for the user's UI answer (channel keyed by
-`(sessionID, tool_use_id)`) and return `behavior:"allow"` with answers
-pre-filled into `updatedInput`, so Claude Code's built-in `AskUserQuestion`
-emits the proper structured `tool_result`. The CM-side `pendingToolUseID`
-map already exists; Phase 2 will repurpose its consume-on-SendUserMessage
-path to signal the waiter instead of discarding the id.
+Do **not** re-introduce a `user_question` log type, a `UserQuestionCard`
+component, or the `pendingToolUseID` bridging that previously existed — that
+machinery was removed deliberately. Asking in plain text is the agreed
+pattern.
 
 ### Rail tabs + default tab on HITL
 

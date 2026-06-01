@@ -203,16 +203,6 @@ type Manager struct {
 	// costCache holds the most-recently computed GetChatCostSummary result.
 	// Guarded by mu. Zero value means "not yet computed."
 	costCache chatCostCache
-
-	// pendingToolUseID stores the most-recent tool_use_id received from a
-	// user_question LogEntry, keyed by sessionID. Phase 1: consumed (read +
-	// cleared) atomically on the next SendUserMessage for that session and
-	// discarded — AskUserQuestion is denied at the MCP permission gate so
-	// there is no waiter to satisfy. Phase 2 will signal a blocked
-	// permission_prompt MCP handler with the consumed id + the user's
-	// answer instead of discarding. Cleared on session end/delete/clear-
-	// context lifecycle events. Guarded by mu.
-	pendingToolUseID map[string]string
 }
 
 // NewManager constructs a Manager. Required: Store, Runner.
@@ -245,7 +235,6 @@ func NewManager(cfg Config) *Manager {
 		rehydrationActive:  make(map[string]bool),
 		appendLocks:        map[string]*sync.Mutex{},
 		statusLocks:        map[string]*sync.Mutex{},
-		pendingToolUseID:   make(map[string]string),
 	}
 }
 
@@ -298,32 +287,6 @@ func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
 	return fn()
 }
 
-// setPendingToolUseID stores the tool_use_id for a session so the next
-// SendUserMessage can consume it (Phase 1: discarded; Phase 2: signalled
-// to a blocked permission_prompt waiter with the user's answer). No-op
-// when toolUseID is empty. Acquires m.mu briefly.
-func (m *Manager) setPendingToolUseID(sessionID, toolUseID string) {
-	if toolUseID == "" {
-		return
-	}
-
-	m.mu.Lock()
-	m.pendingToolUseID[sessionID] = toolUseID
-	m.mu.Unlock()
-}
-
-// consumePendingToolUseID atomically reads and clears the pending tool_use_id
-// for a session. Returns "" if none is stored.
-// Acquires m.mu briefly.
-func (m *Manager) consumePendingToolUseID(sessionID string) string {
-	m.mu.Lock()
-	id := m.pendingToolUseID[sessionID]
-	delete(m.pendingToolUseID, sessionID)
-	m.mu.Unlock()
-
-	return id
-}
-
 // publishSessionUpdate fans out a session-update event on the SSE hub.
 // The publish runs in a goroutine so callers that hold a sessionHub lock
 // (e.g. OnSubscribe, which fires inside SSEHub.Subscribe while sh.mu is
@@ -360,8 +323,6 @@ func roleFromLogType(typ string) Role {
 		return RoleToolCall
 	case "tool_result":
 		return RoleToolResult
-	case "user_question":
-		return RoleUserQuestion
 	case "stderr":
 		return RoleStderr
 	case "user":
@@ -502,10 +463,6 @@ func (m *Manager) startConsumer(sessionID string) {
 				m.handleUsageEntry(ctx, sessionID, e)
 
 				return
-			}
-
-			if e.Type == "user_question" && e.ToolUseID != "" {
-				m.setPendingToolUseID(sessionID, e.ToolUseID)
 			}
 
 			role := roleFromLogType(e.Type)
@@ -879,10 +836,6 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // session. The session-not-running guard is checked before entering
 // clearGroup, so this function can assume the session is active or warm-idle.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
-	// Any pending tool_use_id references a tool_use block that will no longer
-	// exist after the context is wiped; discard it before sending /clear.
-	_ = m.consumePendingToolUseID(sessionID)
-
 	clearMsgID := NewID()
 	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
@@ -1636,14 +1589,7 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	}
 
 	if sess.Status == StatusCold {
-		// Cold-wedge cleanup: a prior EndSession may have persisted cold but
-		// been interrupted before the post-stopConsumer delete ran, leaving
-		// a stale entry in memory. The consumer is guaranteed stopped here
-		// (cold sessions have no live StreamLogs), so the delete is race-free.
-		m.mu.Lock()
-		delete(m.pendingToolUseID, id)
-		m.mu.Unlock()
-
+		// Ending an already-cold session is a no-op.
 		return nil
 	}
 
@@ -1696,16 +1642,6 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 		m.logger.Warn("chat: EndSession: clear rehydration flag failed",
 			"session_id", sess.ID, "error", rehyErr)
 	}
-
-	// Clear any stale pending tool_use_id so a subsequent openCold does not
-	// forward a tool_result that references a tool_use block from the now-dead
-	// container. MUST run after stopConsumer above — the consumer goroutine
-	// writes to pendingToolUseID on every user_question entry, so a delete
-	// before stopConsumer would race with a late-arriving entry. Mirrors the
-	// identical cleanup in DeleteSession.
-	m.mu.Lock()
-	delete(m.pendingToolUseID, id)
-	m.mu.Unlock()
 
 	cold := StatusCold
 	update := SessionUpdate{Status: &cold}
@@ -1761,7 +1697,6 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.seqMap, id)
 	delete(m.titled, id)
 	delete(m.rehydrationActive, id)
-	delete(m.pendingToolUseID, id)
 	m.mu.Unlock()
 
 	// Drop the per-session append lock entry. Held under appendLocksMu
@@ -1832,12 +1767,6 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	msgID := NewID()
-	// Consume any pending tool_use_id so the map does not grow unbounded
-	// across the session. Phase 1 discards it (AskUserQuestion is denied
-	// at the MCP permission gate before the model ever waits for a UI
-	// answer). Phase 2 will signal a blocked permission_prompt waiter
-	// here instead of discarding.
-	_ = m.consumePendingToolUseID(sessionID)
 
 	m.logger.Info("chat: forwarding user message to runner",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))

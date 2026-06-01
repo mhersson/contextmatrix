@@ -1081,9 +1081,7 @@ Marker frames have a distinct shape:
 | `dropped`  | `{"type":"dropped","seq":N,"count":N}` | Server ring-buffer overflowed; `count` events were evicted |
 
 `type` for normal events is one of: `text`, `thinking`, `tool_call`,
-`user_question`, `stderr`, `system`, `user`. `user_question` carries a
-Claude Code `AskUserQuestion` tool call as a structured JSON payload; the
-chat UI renders it as a clickable option card.
+`stderr`, `system`, `user`.
 
 The connection is closed when the browser disconnects or the session receives a
 terminal event.

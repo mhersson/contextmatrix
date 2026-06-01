@@ -136,7 +136,6 @@ type runnerLogEntry struct {
 	Content   string          `json:"content,omitempty"`
 	Usage     *runnerLogUsage `json:"usage,omitempty"`
 	Model     string          `json:"model,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
 }
 
 // runnerLogUsage mirrors the runner's logbroadcast.TokenUsage JSON shape.
@@ -219,7 +218,6 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 			Type:      entry.Type,
 			Content:   entry.Content,
 			Model:     entry.Model,
-			ToolUseID: entry.ToolUseID,
 		}
 
 		if entry.Usage != nil {
