@@ -328,8 +328,7 @@ export type LogEntryType =
   | 'stderr'
   | 'system'
   | 'user'
-  | 'gap'
-  | 'user_question';
+  | 'gap';
 
 export interface LogEntry {
   ts: string;

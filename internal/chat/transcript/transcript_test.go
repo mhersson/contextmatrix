@@ -22,10 +22,9 @@ func TestBuild_FiltersByRole(t *testing.T) {
 		{Seq: 2, Role: RoleAssistantThinking, Content: "thinking aloud"},
 		{Seq: 3, Role: RoleAssistantText, Content: "hi back"},
 		{Seq: 4, Role: RoleToolCall, Content: "Bash: ls"},
-		{Seq: 5, Role: RoleUserQuestion, Content: `{"questions":[{"question":"q","options":[{"label":"a"}]}]}`},
-		{Seq: 6, Role: RoleToolResult, Content: "file1\nfile2\n"},
-		{Seq: 7, Role: RoleStderr, Content: "container plumbing"},
-		{Seq: 8, Role: RoleSystem, Content: "system boilerplate"},
+		{Seq: 5, Role: RoleToolResult, Content: "file1\nfile2\n"},
+		{Seq: 6, Role: RoleStderr, Content: "container plumbing"},
+		{Seq: 7, Role: RoleSystem, Content: "system boilerplate"},
 	}
 
 	got := Build(in, BuildOpts{})
@@ -33,29 +32,9 @@ func TestBuild_FiltersByRole(t *testing.T) {
 
 	roles := rolesOf(got.Turns)
 	assert.Equal(t,
-		[]string{"user", "assistant_text", "tool_call", "user_question", "tool_result_summary"},
+		[]string{"user", "assistant_text", "tool_call", "tool_result_summary"},
 		roles,
-		"only user/assistant_text/tool_call/user_question/tool_result_summary should survive")
-}
-
-func TestBuild_PreservesUserQuestionRole(t *testing.T) {
-	// user_question entries are preserved in the resume payload with their
-	// native role; the runner's chatResumeRolePattern accepts user_question
-	// directly so no CM-side remap is needed.
-	payload := `{"questions":[{"question":"Which library?","options":[{"label":"a"},{"label":"b"}]}]}`
-	in := []Message{
-		{Seq: 1, Role: RoleUser, Content: "help"},
-		{Seq: 2, Role: RoleUserQuestion, Content: payload},
-		{Seq: 3, Role: RoleUser, Content: "a"},
-	}
-
-	got := Build(in, BuildOpts{})
-	require.NotNil(t, got)
-	require.Len(t, got.Turns, 3)
-	assert.Equal(t, RoleUserQuestion, got.Turns[1].Role,
-		"user_question role must pass through unchanged")
-	assert.Equal(t, payload, got.Turns[1].Content,
-		"user_question payload must be preserved verbatim")
+		"only user/assistant_text/tool_call/tool_result_summary should survive")
 }
 
 func TestBuild_ToolResultSummarized_OK(t *testing.T) {

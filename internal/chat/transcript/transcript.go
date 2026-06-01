@@ -44,7 +44,6 @@ const (
 	RoleToolCall          = "tool_call"
 	RoleToolResult        = "tool_result"
 	RoleToolResultSummary = "tool_result_summary"
-	RoleUserQuestion      = "user_question"
 	RoleStderr            = "stderr"
 	RoleSystem            = "system"
 )
@@ -71,8 +70,8 @@ type ResumeContext struct {
 
 // ResumeTurn is one filtered, possibly summarized transcript entry in the
 // rehydration payload. Roles: "user", "assistant_text", "tool_call",
-// "user_question", "tool_result_summary" (tool_result bodies are collapsed
-// to a one-liner outcome by the transcript builder).
+// "tool_result_summary" (tool_result bodies are collapsed to a one-liner
+// outcome by the transcript builder).
 type ResumeTurn struct {
 	Seq     int64  `json:"seq"`
 	Role    string `json:"role"`
@@ -145,7 +144,7 @@ func filterMessage(m Message) (ResumeTurn, bool) {
 	}
 
 	switch m.Role {
-	case RoleUser, RoleAssistantText, RoleToolCall, RoleUserQuestion:
+	case RoleUser, RoleAssistantText, RoleToolCall:
 		return ResumeTurn{
 			Seq:     m.Seq,
 			Role:    m.Role,

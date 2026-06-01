@@ -61,58 +61,25 @@ func decodeDecision(t *testing.T, result *mcp.CallToolResult) permissionDecision
 	return got
 }
 
-func TestPermissionPrompt_AskUserQuestion_ChatMode_DenyTellsModelToWaitSilently(t *testing.T) {
-	t.Parallel()
-
-	handler := buildPermissionPromptHandler()
-	// Simulate a chat-mode caller by stashing a session ID into context via
-	// the same helper the middleware uses in production.
-	ctx := mcpcontext.WithChatSession(context.Background(), "AAAAAAAAAAAAAAAAAAAAAAAAAA")
-
-	result, _, err := handler(ctx, nil, permissionPromptInput{
-		ToolName:  "AskUserQuestion",
-		Input:     map[string]any{"questions": []any{}},
-		ToolUseID: "toolu_chat_test",
-	})
-	require.NoError(t, err)
-
-	got := decodeDecision(t, result)
-	assert.Equal(t, "deny", got.Behavior)
-	assert.Equal(t, denyMsgChatAskUserQuestion, got.Message)
-	assert.Empty(t, got.UpdatedInput, "deny must not set updatedInput")
-
-	// Load-bearing substrings — observed agent behavior is to acknowledge
-	// ("OK, waiting…") or re-ask in plain text on top of the rendered
-	// UserQuestionCard, both of which produce a duplicate question for the
-	// user. Lock the *intent* of the message down so it can't quietly drift
-	// back toward a re-ask if the constant is edited.
-	assert.Contains(t, got.Message, "clickable option buttons",
-		"must tell the model the user is already seeing the question as a clickable card")
-	assert.Contains(t, got.Message, "end your turn",
-		"must instruct the model to stop generating, not just wait silently")
-	assert.Contains(t, got.Message, "do NOT re-ask",
-		"must explicitly forbid re-asking the question in plain text")
-	assert.Contains(t, got.Message, "next user message",
-		"must tell the model how the user's answer will arrive")
-}
-
-func TestPermissionPrompt_AskUserQuestion_NoChatSession_DenyTellsModelToReportBlocker(t *testing.T) {
+func TestPermissionPrompt_AskUserQuestion_RedirectsToPlainText(t *testing.T) {
 	t.Parallel()
 
 	handler := buildPermissionPromptHandler()
 
-	// No chat session header → card / autonomous / KB mode. No chat surface
-	// to redirect to, so the message points the agent at add_log instead.
+	// AskUserQuestion is denied everywhere with a plain-text redirect. The
+	// runner no longer renders it as a clickable card, so the model must ask
+	// its question as an ordinary message instead — the deny message must say
+	// so and must not reference clickable cards or waiting.
 	result, _, err := handler(context.Background(), nil, permissionPromptInput{
 		ToolName:  "AskUserQuestion",
 		Input:     map[string]any{"questions": []any{}},
-		ToolUseID: "toolu_card_test",
+		ToolUseID: "toolu_ask",
 	})
 	require.NoError(t, err)
 
 	got := decodeDecision(t, result)
 	assert.Equal(t, "deny", got.Behavior)
-	assert.Equal(t, denyMsgCardFallback, got.Message)
+	assert.Equal(t, denyMsgAskUserQuestion, got.Message)
 	assert.Empty(t, got.UpdatedInput, "deny must not set updatedInput")
 }
 
@@ -120,11 +87,9 @@ func TestPermissionPrompt_UnknownTool_FailsClosedWithCardFallback(t *testing.T) 
 	t.Parallel()
 
 	handler := buildPermissionPromptHandler()
-	// Even in chat mode, unknown tools that reach the ask gate get the
-	// card-flavored message — the chat-flavored "wait, the UI is showing
-	// the question" instruction only makes sense for AskUserQuestion,
-	// which is the only tool whose tool_use is rendered as a clickable
-	// UserQuestionCard.
+	// A tool that is not AskUserQuestion and not on the allowlist gets the
+	// generic fallback. A chat session in context must not change that — the
+	// plain-text redirect is AskUserQuestion-specific.
 	ctx := mcpcontext.WithChatSession(context.Background(), "AAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 	result, _, err := handler(ctx, nil, permissionPromptInput{

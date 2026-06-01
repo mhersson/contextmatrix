@@ -18,20 +18,13 @@ import (
 // `claude --permission-prompt-tool mcp__contextmatrix__permission_prompt`
 // invocation in docker/entrypoint.sh.
 //
-// Phase 1: always denies. AskUserQuestion gets a context-aware instruction:
-// chat-mode caller is told to stop and wait silently (the runner's logparser
-// has already surfaced the AskUserQuestion as a UserQuestionCard with
-// clickable option buttons; the user's click sends the chosen label back
-// through the normal chat send path, so the model only needs to wait for
-// its next user turn). Card-mode caller is told to choose a different
-// approach or report via add_log. Without this gate Claude Code auto-denies
-// in headless mode and the model has been observed to silently make
-// decisions the operator never sees.
-//
-// Phase 2 (deferred): AskUserQuestion will block waiting for the operator's
-// answer through the chat UI and return behavior:"allow" with answers
-// pre-filled into updatedInput so AskUserQuestion.call() can emit a proper
-// structured tool_result. Tracked separately.
+// Phase 1: always denies. AskUserQuestion gets a plain-text redirect — the
+// runner no longer renders it as a clickable card, so the model is told to
+// ask its question as an ordinary message (with options listed inline)
+// instead. Every other tool that reaches this gate gets a generic deny.
+// Without this gate Claude Code auto-denies in headless mode with no message,
+// and the model has been observed to silently make decisions the operator
+// never sees.
 type permissionPromptInput struct {
 	ToolName  string         `json:"tool_name" jsonschema:"required,name of the tool the agent is requesting permission for"`
 	Input     map[string]any `json:"input" jsonschema:"input the agent passed to the tool"`
@@ -47,25 +40,19 @@ type permissionDecision struct {
 }
 
 const (
-	// denyMsgChatAskUserQuestion is returned when AskUserQuestion is called
-	// from a chat-mode container (X-CM-Chat-Session header present). The
-	// runner's logparser already surfaces the tool_use as a
-	// UserQuestionCard rendered with clickable option buttons; the user's
-	// click is sent through the normal chat send path as a fresh user
-	// message and arrives at the runner as the model's next user turn.
-	// So the model just needs to stop. The strong "end your turn,
-	// no filler text" framing is load-bearing: without it, the model's
-	// first instinct is to acknowledge ("OK, waiting for your answer.")
-	// or re-ask in plain text, both of which duplicate the rendered card.
-	denyMsgChatAskUserQuestion = "The user has already been shown your question " +
-		"with clickable option buttons in the chat UI. Stop now and end your " +
-		"turn — do NOT re-ask, paraphrase, retry this tool, add filler text " +
-		"(\"OK\", \"Waiting for your answer\", etc.), or make assumptions. " +
-		"The user's answer will arrive as the next user message in this chat."
+	// denyMsgAskUserQuestion is returned when AskUserQuestion reaches the gate.
+	// The runner suppresses AskUserQuestion (it never renders), so the model
+	// must ask in plain text instead — a bare deny with no message would
+	// silently swallow the question. Asking as a normal message naturally ends
+	// the turn and waits for the reply, so no "wait" framing is needed.
+	// Autonomous runs are unlikely to reach here since they avoid interactive
+	// questions; if one does, the plain-text redirect is harmless.
+	denyMsgAskUserQuestion = "AskUserQuestion isn't available here. " +
+		"Ask your question as a plain-text message, listing any options inline."
 
-	// denyMsgCardFallback is returned when the caller is not in a chat
-	// session (card mode, autonomous, knowledge-refresh, or any unknown
-	// tool that hit the ask gate). No human chat surface to redirect to.
+	// denyMsgCardFallback is returned for any other tool that reaches the gate
+	// (a tool not on the runner's --allowed-tools list). Bash is allowlisted
+	// unrestricted, so the common case here is an intentionally-excluded tool.
 	denyMsgCardFallback = "Tool not permitted in this environment. " +
 		"Choose a different approach or stop and report the blocker via add_log."
 )
@@ -105,9 +92,12 @@ func buildPermissionPromptHandler() func(context.Context, *mcp.CallToolRequest, 
 			"session_id", session,
 		)
 
+		// AskUserQuestion gets the plain-text redirect; every other tool that
+		// reaches the gate gets the generic deny.
 		message := denyMsgCardFallback
-		if in.ToolName == "AskUserQuestion" && session != "" {
-			message = denyMsgChatAskUserQuestion
+
+		if in.ToolName == "AskUserQuestion" {
+			message = denyMsgAskUserQuestion
 		}
 
 		decision := permissionDecision{Behavior: "deny", Message: message}
