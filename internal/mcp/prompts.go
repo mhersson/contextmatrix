@@ -46,6 +46,9 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   tasks, etc.), ALWAYS use the provided MCP tools. NEVER use curl, wget, REST
   API calls, or any direct HTTP approach. The MCP tools are the only supported
   interface for agent operations.
+- **Ask the user in plain text.** When you need a decision or clarification,
+  ask as a normal message with any options listed inline. Do not use the
+  AskUserQuestion tool — it is not supported in this workflow.
 - **When in doubt, use /contextmatrix:start-workflow <card_id>.** It routes
   the card through its full lifecycle for you.
 

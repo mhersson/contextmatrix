@@ -134,7 +134,8 @@ You MUST complete each of these in order:
   relate, what order should they be built? Then brainstorm the first
   piece through the normal flow.
 - For appropriately-scoped cards, ask questions one at a time.
-- Prefer multiple-choice questions when possible; open-ended is fine too.
+- Ask in plain text. If there are distinct options, list them inline as a
+  short numbered list. The AskUserQuestion tool is not available — do not use it.
 - Only one question per message — if a topic needs more exploration, break
   it into multiple questions.
 - Focus on understanding: purpose, constraints, success criteria.
@@ -223,7 +224,7 @@ Do NOT transition the card.
 ## Key Principles
 
 - **One question at a time** — don't overwhelm with multiple questions.
-- **Multiple choice preferred** — easier to answer than open-ended when possible.
+- **Plain-text questions** — ask as a normal message; list any options inline.
 - **YAGNI ruthlessly** — remove unnecessary features from all designs.
 - **Explore alternatives** — always propose 2–3 approaches before settling.
 - **Incremental validation** — present design, get approval before moving on.
