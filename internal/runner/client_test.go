@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestClient_Trigger_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/trigger", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		receivedSig = r.Header.Get(signatureHeader)
+		receivedSig = r.Header.Get(protocol.SignatureHeader)
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
@@ -51,15 +52,15 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 	const apiKey = "shared-secret"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sigHeader := r.Header.Get(signatureHeader)
+		sigHeader := r.Header.Get(protocol.SignatureHeader)
 		assert.True(t, strings.HasPrefix(sigHeader, "sha256="))
 		sig := strings.TrimPrefix(sigHeader, "sha256=")
 
-		tsHeader := r.Header.Get(timestampHeader)
+		tsHeader := r.Header.Get(protocol.TimestampHeader)
 		assert.NotEmpty(t, tsHeader, "timestamp header should be present")
 
 		body, _ := io.ReadAll(r.Body)
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, DefaultMaxClockSkew, nil),
+		assert.True(t, protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, nil),
 			"HMAC signature with timestamp should be valid")
 
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
@@ -144,7 +145,7 @@ func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
 	var capturedSigs []string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedSigs = append(capturedSigs, r.Header.Get(signatureHeader))
+		capturedSigs = append(capturedSigs, r.Header.Get(protocol.SignatureHeader))
 		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
 	}))
 	defer srv.Close()
@@ -275,8 +276,8 @@ func TestClient_Message_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/message", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		receivedSig = r.Header.Get(signatureHeader)
-		receivedTS = r.Header.Get(timestampHeader)
+		receivedSig = r.Header.Get(protocol.SignatureHeader)
+		receivedTS = r.Header.Get(protocol.TimestampHeader)
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
@@ -311,8 +312,8 @@ func TestClient_Promote_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/promote", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		receivedSig = r.Header.Get(signatureHeader)
-		receivedTS = r.Header.Get(timestampHeader)
+		receivedSig = r.Header.Get(protocol.SignatureHeader)
+		receivedTS = r.Header.Get(protocol.TimestampHeader)
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
@@ -472,15 +473,15 @@ func TestClient_ListContainers_Success(t *testing.T) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "/containers", r.URL.Path)
 
-		receivedSig = r.Header.Get(signatureHeader)
-		receivedTS = r.Header.Get(timestampHeader)
+		receivedSig = r.Header.Get(protocol.SignatureHeader)
+		receivedTS = r.Header.Get(protocol.TimestampHeader)
 
 		// GET signs an empty body.
 		body, _ := io.ReadAll(r.Body)
 		assert.Empty(t, body, "GET body must be empty")
 
 		sig := strings.TrimPrefix(receivedSig, "sha256=")
-		assert.True(t, VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, receivedTS, nil, DefaultMaxClockSkew, nil),
+		assert.True(t, protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, receivedTS, nil, protocol.DefaultMaxClockSkew, nil),
 			"HMAC over empty body + timestamp must verify")
 
 		payload := map[string]any{

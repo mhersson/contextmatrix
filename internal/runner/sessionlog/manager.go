@@ -3,21 +3,18 @@ package sessionlog
 import (
 	"bufio"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
@@ -1024,39 +1021,11 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 	}, p.CardID, true
 }
 
-// The signed content is "GET\n<uri>\n<ts>." with an empty body, matching the
-// method/uri-bound pattern used by runner.SignRequestHeaders. uri must be the
-// request-target form (`req.URL.RequestURI()`).
-//
-// Why this is inlined rather than calling runner.SignRequestHeaders directly:
-// the internal/runner package depends on internal/board, internal/storage,
-// internal/events, and internal/metrics (via reconcile.go, endsession.go,
-// client.go). Importing it from this leaf subpackage would pull every one
-// of those into sessionlog's dependency closure and make sessionlog a
-// transitive dependency target for refactors anywhere in those packages.
-// The signing algorithm is six lines and exercised by TestSignSSERequest*
-// in manager_test.go; the dual-signer invariant test
-// (TestSignSSERequestMatchesRunnerSigner) fingerprints the same input
-// through both signers so drift is caught at compile-and-test time, not
-// in production.
-//
-// If sessionlog ever needs to call several runner helpers, factor the
-// signing code into a leaf subpackage (e.g. internal/runner/hmacsign) so
-// both runner and runner/sessionlog can import it without re-introducing
-// the heavy dependency closure described above.
+// signSSERequest computes the HMAC auth headers for the upstream SSE GET.
+// The signed content is "GET\n<uri>\n<ts>." with an empty body. uri must be
+// the request-target form (`req.URL.RequestURI()`).
 func signSSERequest(apiKey, uri string) (sigHeader, tsHeader string) {
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	mac := hmac.New(sha256.New, []byte(apiKey))
-	mac.Write([]byte(http.MethodGet))
-	mac.Write([]byte("\n"))
-	mac.Write([]byte(uri))
-	mac.Write([]byte("\n"))
-	mac.Write([]byte(ts))
-	mac.Write([]byte("."))
-	// Empty body for GET.
-	sig := hex.EncodeToString(mac.Sum(nil))
-
-	return "sha256=" + sig, ts
+	return protocol.SignRequestHeaders(apiKey, http.MethodGet, uri, nil)
 }
 
 // backoffDuration returns the exponential back-off delay for the given attempt

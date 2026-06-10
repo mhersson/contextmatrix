@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mhersson/contextmatrix/internal/runner"
+	protocol "github.com/mhersson/contextmatrix-protocol"
 )
 
 // sseStreamClient is a package-level HTTP client for long-lived SSE connections.
@@ -165,7 +165,7 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 		return fmt.Errorf("chat: build logs request: %w", err)
 	}
 
-	sig, ts := runner.SignRequestHeaders(c.key, http.MethodGet, uri, nil)
+	sig, ts := protocol.SignRequestHeaders(c.key, http.MethodGet, uri, nil)
 
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("X-Signature-256", sig)
@@ -264,7 +264,7 @@ func (c *runnerClient) post(ctx context.Context, path string, body []byte) ([]by
 		return nil, fmt.Errorf("chat: build request: %w", err)
 	}
 
-	sig, ts := runner.SignRequestHeaders(c.key, http.MethodPost, uri, body)
+	sig, ts := protocol.SignRequestHeaders(c.key, http.MethodPost, uri, body)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature-256", sig)

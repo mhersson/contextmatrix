@@ -11,14 +11,15 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/clock"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -2260,21 +2261,18 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 		"URI must carry the project query — that's the bytes the signature binds")
 }
 
-// TestSignSSERequestMatchesRunnerSigner is the dual-signer invariant test
-// referenced from signSSERequest's doc comment. It fingerprints the same
-// (method, uri, empty-body, timestamp) tuple through both the inlined
-// sessionlog signer and the canonical runner.SignRequestHeaders by
-// running both within the same wall-clock second and verifying the
-// resulting signatures are byte-identical when their timestamps agree.
-//
-// Why this test exists: signSSERequest is a private re-implementation of
-// runner.SignRequestHeaders, inlined because importing the runner package
-// from this leaf subpackage would pull in board/storage/events/metrics
-// (see the doc comment on signSSERequest). If either signer drifts from
-// the other — different algorithm, different newline/separator, different
-// timestamp granularity — runner-side HMAC verification will fail at
-// runtime; this test catches that at compile-and-test time instead.
-func TestSignSSERequestMatchesRunnerSigner(t *testing.T) {
+// TestSignSSERequestMatchesProtocolSigner is the drift canary between
+// sessionlog's SSE signing and the canonical protocol signer. It fingerprints
+// the same (method, uri, empty-body, timestamp) tuple through both
+// signSSERequest and protocol.SignPayloadWithTimestamp and verifies the
+// resulting signatures are byte-identical. If signSSERequest ever stops
+// delegating to the protocol module — different algorithm, different
+// newline/separator, body-not-empty bug — runner-side HMAC verification
+// will fail at runtime; this test catches that at compile-and-test time
+// instead. The signature recomputation reuses signSSERequest's own
+// timestamp, so it cannot catch granularity drift by itself; the explicit
+// seconds-scale assertion below covers that axis.
+func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 	const apiKey = "shared-secret-for-drift-check"
 
 	cases := []struct {
@@ -2289,47 +2287,35 @@ func TestSignSSERequestMatchesRunnerSigner(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Both signers stamp with time.Now().Unix(). Retry on the second
-			// boundary so the comparison is byte-identical when both sides
-			// see the same timestamp. A handful of retries covers the worst
-			// case of being unlucky enough to straddle a boundary several
-			// times in a row.
-			var (
-				inlineSig, runnerSig string
-				matched              bool
-			)
+			sig, ts := signSSERequest(apiKey, tc.uri)
 
-			for range 5 {
-				var inlineTS, runnerTS string
-
-				inlineSig, inlineTS = signSSERequest(apiKey, tc.uri)
-				runnerSig, runnerTS = runner.SignRequestHeaders(apiKey, http.MethodGet, tc.uri, nil)
-
-				if inlineTS == runnerTS {
-					matched = true
-
-					break
-				}
-			}
-
-			require.True(t, matched,
-				"signSSERequest and runner.SignRequestHeaders both depend on time.Now().Unix(); "+
-					"after 5 retries they should agree on a timestamp within the same second")
-
-			require.True(t, strings.HasPrefix(inlineSig, "sha256="),
+			require.True(t, strings.HasPrefix(sig, "sha256="),
 				"signSSERequest must emit sha256= prefix")
-			require.True(t, strings.HasPrefix(runnerSig, "sha256="),
-				"runner.SignRequestHeaders must emit sha256= prefix")
+
+			// Timestamp granularity: the wire contract stamps with
+			// time.Now().Unix() — a seconds-scale Unix value. A wrapper
+			// emitting milliseconds (or nanoseconds) would still self-match
+			// the recomputation below, so pin the scale explicitly.
+			// 1.7e9 ≈ 2023-11, 4.1e9 ≈ 2099-12; millisecond timestamps are
+			// ~1.7e12 and fail the upper bound.
+			parsed, err := strconv.ParseInt(ts, 10, 64)
+			require.NoError(t, err, "timestamp must be a decimal integer")
+			assert.Greater(t, parsed, int64(1_700_000_000),
+				"timestamp must be a seconds-scale Unix value (too small)")
+			assert.Less(t, parsed, int64(4_100_000_000),
+				"timestamp must be a seconds-scale Unix value — a larger value "+
+					"means millisecond/nanosecond granularity, which the runner rejects")
 
 			// The core invariant: given identical (key, method, uri, ts,
 			// empty body) inputs, both signers must produce byte-identical
 			// signatures. If either side drifts (different newline, missing
 			// dot separator, different algorithm, body-not-empty bug), this
 			// assertion fails.
-			assert.Equal(t, runnerSig, inlineSig,
-				"signSSERequest and runner.SignRequestHeaders have drifted; "+
-					"the inlined copy in manager.go is no longer byte-compatible "+
-					"with internal/runner/hmac.go — runner-side HMAC verification "+
+			want := "sha256=" + protocol.SignPayloadWithTimestamp(apiKey, http.MethodGet, tc.uri, nil, ts)
+			assert.Equal(t, want, sig,
+				"signSSERequest and protocol.SignPayloadWithTimestamp have drifted; "+
+					"sessionlog's SSE signing is no longer byte-compatible with the "+
+					"canonical protocol signer — runner-side HMAC verification "+
 					"will reject sessionlog's SSE requests in production")
 		})
 	}

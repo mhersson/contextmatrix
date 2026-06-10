@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -26,7 +27,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// signHMACAt computes the same HMAC-SHA256 signature runner.SignRequestHeaders
+// signHMACAt computes the same HMAC-SHA256 signature protocol.SignRequestHeaders
 // produces, but lets the test specify the timestamp so we can exercise the
 // clock-skew rejection path without adding a test-only helper to the
 // production runner package.
@@ -945,7 +946,7 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","runner_status":"running","message":"container started"}`, card.ID)
 	bodyBytes := []byte(body)
 
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -1102,7 +1103,7 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 			body := fmt.Sprintf(`{"card_id":"TEST-001","project":"test-project","runner_status":"%s"}`, badStatus)
 			bodyBytes := []byte(body)
 
-			sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
+			sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 			req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 			req.Header.Set("Content-Type", "application/json")
@@ -1172,7 +1173,7 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	bodyBytes := []byte("this is not json")
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/status", bodyBytes)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/runner/status", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -2212,7 +2213,7 @@ func TestGetCardAutonomous_HMAC_Valid(t *testing.T) {
 			defer cleanup()
 
 			path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
-			sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+			sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 			req, _ := http.NewRequest("GET", server.URL+path, nil)
 			req.Header.Set("X-Signature-256", sig)
@@ -2259,7 +2260,7 @@ func TestGetCardAutonomous_HMAC_MissingTimestamp(t *testing.T) {
 	defer cleanup()
 
 	path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
-	sig, _ := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, _ := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -2331,7 +2332,7 @@ func TestGetCardAutonomous_CardNotFound(t *testing.T) {
 	defer cleanup()
 
 	path := "/api/v1/cards/test-project/TEST-999/autonomous"
-	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -2361,7 +2362,7 @@ func TestGetCardAutonomous_RunnerDisabled(t *testing.T) {
 	defer server.Close()
 
 	path := "/api/v1/cards/test-project/" + card.ID + "/autonomous"
-	sig, ts := runner.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -2540,7 +2541,7 @@ func TestAPI_RunnerSkillEngaged(t *testing.T) {
 	bodyBytes, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
 
 	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/runner/skill-engaged", bytes.NewReader(bodyBytes))
 	require.NoError(t, err)
@@ -2607,7 +2608,7 @@ func TestAPI_RunnerSkillEngaged_MissingFields(t *testing.T) {
 
 	// Missing skill_name.
 	bodyBytes := []byte(`{"card_id":"ALPHA-001","project":"alpha"}`)
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/runner/skill-engaged", bodyBytes)
 
 	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/runner/skill-engaged", bytes.NewReader(bodyBytes))
 	require.NoError(t, err)
