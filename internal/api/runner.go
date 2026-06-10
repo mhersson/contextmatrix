@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -784,7 +785,7 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 		return false
 	}
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, runner.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
@@ -847,7 +848,7 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
-	if !runner.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, runner.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return nil, false

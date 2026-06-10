@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -382,11 +383,11 @@ func readBody(resp *http.Response) string {
 
 // signedRunnerRequest builds an HMAC-signed POST request matching the scheme
 // used by runner callbacks: method + "\n" + uri + "\n" + ts + "." + body.
-// Uses runner.SignRequestHeaders so the signing logic stays in one place.
+// Uses protocol.SignRequestHeaders so the signing logic stays in one place.
 func signedRunnerRequest(t *testing.T, baseURL, apiKey, path string, body []byte) *http.Request {
 	t.Helper()
 
-	sigHeader, tsHeader := runner.SignRequestHeaders(apiKey, http.MethodPost, path, body)
+	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, path, body)
 
 	req, err := http.NewRequest(http.MethodPost, baseURL+path, strings.NewReader(string(body)))
 	require.NoError(t, err)

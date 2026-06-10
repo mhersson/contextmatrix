@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
@@ -22,8 +23,6 @@ const (
 	maxRetries = 3
 	// requestTimeout is the per-request timeout.
 	requestTimeout = 10 * time.Second
-	// signatureHeader carries the HMAC-SHA256 signature.
-	signatureHeader = "X-Signature-256"
 )
 
 // BackoffBase is the base duration for exponential retry backoff
@@ -305,7 +304,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
+	signature := protocol.SignPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
 
 	var lastErr error
 	for attempt := range maxRetries {
@@ -359,15 +358,15 @@ func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := signPayloadWithTimestamp(c.apiKey, http.MethodGet, uri, nil, ts)
+	signature := protocol.SignPayloadWithTimestamp(c.apiKey, http.MethodGet, uri, nil, ts)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create GET request: %w", err)
 	}
 
-	req.Header.Set(signatureHeader, "sha256="+signature)
-	req.Header.Set(timestampHeader, ts)
+	req.Header.Set(protocol.SignatureHeader, "sha256="+signature)
+	req.Header.Set(protocol.TimestampHeader, ts)
 
 	result := "failure"
 
@@ -405,8 +404,8 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(signatureHeader, "sha256="+signature)
-	req.Header.Set(timestampHeader, ts)
+	req.Header.Set(protocol.SignatureHeader, "sha256="+signature)
+	req.Header.Set(protocol.TimestampHeader, ts)
 
 	result := "failure"
 
