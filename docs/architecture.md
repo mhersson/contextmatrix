@@ -425,7 +425,7 @@ internal/
   service/           # CardService orchestration (split across service_*.go)
   api/               # REST handlers + SSE + middleware chain + CSRF gate
   mcp/               # MCP server (Streamable HTTP /mcp) + mcpcontext/
-  runner/            # webhook client + HMAC + reconciler
+  runner/            # webhook client + replay cache + reconciler (HMAC via contextmatrix-protocol)
     sessionlog/      # per-card SSE buffer + fan-out hub
   chat/              # chat.Manager + Store + SSEHub + IdleReaper + runner bridge
     sqlite/          # SQLite-backed chat persistence + versioned migrations
