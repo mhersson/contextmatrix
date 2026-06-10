@@ -753,14 +753,14 @@ func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.R
 		return "", "", false
 	}
 
-	sigHeader := r.Header.Get("X-Signature-256")
+	sigHeader := r.Header.Get(protocol.SignatureHeader)
 	if sigHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Signature-256 header", "")
 
 		return "", "", false
 	}
 
-	tsHeader := r.Header.Get("X-Webhook-Timestamp")
+	tsHeader := r.Header.Get(protocol.TimestampHeader)
 	if tsHeader == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "missing X-Webhook-Timestamp header", "")
 
