@@ -30,66 +30,17 @@ const (
 // Exported so tests can override it (remember to restore via t.Cleanup).
 var BackoffBase = time.Second
 
-// TriggerPayload is sent to the runner to start a task.
-type TriggerPayload struct {
-	CardID      string    `json:"card_id"`
-	Project     string    `json:"project"`
-	RepoURL     string    `json:"repo_url"`
-	MCPAPIKey   string    `json:"mcp_api_key,omitempty"`
-	RunnerImage string    `json:"runner_image,omitempty"`
-	BaseBranch  string    `json:"base_branch,omitempty"`
-	Interactive bool      `json:"interactive,omitempty"`
-	Model       string    `json:"model,omitempty"`
-	TaskSkills  *[]string `json:"task_skills,omitempty"`
-}
-
-// KillPayload is sent to the runner to stop a specific task.
-type KillPayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// MessagePayload is sent to the runner to deliver a human message to a running task.
-type MessagePayload struct {
-	CardID    string `json:"card_id"`
-	Project   string `json:"project"`
-	Content   string `json:"content"`
-	MessageID string `json:"message_id"`
-}
-
-// PromotePayload is sent to the runner to promote a task from interactive pause to completion.
-type PromotePayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// EndSessionPayload is sent to the runner to close the stdin of an interactive
-// container so claude exits on EOF. Used when a released card reaches a
-// terminal state.
-type EndSessionPayload struct {
-	CardID  string `json:"card_id"`
-	Project string `json:"project"`
-}
-
-// StopAllPayload is sent to the runner to stop all tasks.
-type StopAllPayload struct {
-	Project string `json:"project,omitempty"`
-}
-
-// RefreshKnowledgePayload is sent to the runner to start a knowledge-base
-// refresh for (project, repo). No card_id — the (project, repo) pair is
-// the job key.
-type RefreshKnowledgePayload struct {
-	Project       string   `json:"project"`
-	Repo          string   `json:"repo"`
-	RepoURL       string   `json:"repo_url"`
-	BaseBranch    string   `json:"base_branch,omitempty"`
-	AgentID       string   `json:"agent_id"`
-	OverwriteDocs []string `json:"overwrite_docs,omitempty"`
-	MCPAPIKey     string   `json:"mcp_api_key,omitempty"`
-	RunnerImage   string   `json:"runner_image,omitempty"`
-	Model         string   `json:"model,omitempty"`
-}
+// Wire DTOs are defined in contextmatrix-protocol; aliased here so existing
+// call sites and tests keep compiling unchanged.
+type (
+	TriggerPayload          = protocol.TriggerPayload
+	KillPayload             = protocol.KillPayload
+	MessagePayload          = protocol.MessagePayload
+	PromotePayload          = protocol.PromotePayload
+	EndSessionPayload       = protocol.EndSessionPayload
+	StopAllPayload          = protocol.StopAllPayload
+	RefreshKnowledgePayload = protocol.RefreshKnowledgePayload
+)
 
 // ContainerInfo is a decoded entry from GET /containers. The runner sources
 // these from Docker directly (filtered on label contextmatrix.runner=true),
@@ -111,25 +62,10 @@ type ContainerInfo struct {
 	Tracked     bool
 }
 
-// containerInfoWire is the on-the-wire shape of a /containers entry. Kept
-// separate from ContainerInfo so the public type carries a parsed time.Time
-// while the HTTP response stays string-valued.
-type containerInfoWire struct {
-	ContainerID string `json:"container_id"`
-	CardID      string `json:"card_id"`
-	SessionID   string `json:"session_id,omitempty"`
-	Project     string `json:"project"`
-	State       string `json:"state"`
-	StartedAt   string `json:"started_at"`
-	Tracked     bool   `json:"tracked"`
-}
-
-type listContainersResponseWire struct {
-	OK         bool                `json:"ok"`
-	Containers []containerInfoWire `json:"containers"`
-}
-
 // WebhookResponse is the expected response from the runner.
+// TODO(A2): decode protocol.ErrorResponse.Code — the runner sends a stable
+// `code` field this type ignores, and never sends `error`; rerouting response
+// handling through the backend interface is A2 scope.
 type WebhookResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message,omitempty"`
@@ -196,12 +132,6 @@ type HealthInfo struct {
 	MaxConcurrent     int
 }
 
-type healthResponseWire struct {
-	OK                bool `json:"ok"`
-	RunningContainers int  `json:"running_containers"`
-	MaxConcurrent     int  `json:"max_concurrent"`
-}
-
 // Health queries the runner's /health endpoint. The runner exposes
 // max_concurrent (its global capacity cap) and the live container count.
 // /health is unauthenticated on the runner side; we still sign so the
@@ -212,7 +142,7 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 		return HealthInfo{}, err
 	}
 
-	var parsed healthResponseWire
+	var parsed protocol.HealthResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return HealthInfo{}, fmt.Errorf("parse /health response: %w", err)
 	}
@@ -232,7 +162,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 		return nil, err
 	}
 
-	var parsed listContainersResponseWire
+	var parsed protocol.ListContainersResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("parse /containers response: %w", err)
 	}
