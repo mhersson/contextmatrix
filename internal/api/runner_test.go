@@ -83,7 +83,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 
 	// Mock runner server that accepts trigger requests.
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -205,7 +205,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -256,7 +256,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -301,7 +301,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -334,7 +334,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -539,7 +539,7 @@ remote_execution:
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -586,7 +586,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -677,7 +677,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -710,7 +710,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -741,7 +741,7 @@ func TestStopAll_HumanOnly(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -841,7 +841,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 	require.NoError(t, err)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1216,7 +1216,7 @@ func TestMessageCard_HumanOnly(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1284,7 +1284,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 	ctx := context.Background()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1332,7 +1332,7 @@ func TestMessageCard_EmptyContent(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1366,7 +1366,7 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 	defer cleanup()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1403,7 +1403,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1505,7 +1505,7 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 	card := newInteractiveRunningCard(t, svc)
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1541,7 +1541,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 	ctx := context.Background()
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1596,7 +1596,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 			promoteCalled++
 		}
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1648,7 +1648,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 			promoteCalled++
 		}
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1732,7 +1732,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer mockRunner.Close()
 
@@ -1796,7 +1796,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -1842,7 +1842,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -1887,7 +1887,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -1938,7 +1938,7 @@ func TestRunCard_Interactive(t *testing.T) {
 			triggerCount++
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -2033,7 +2033,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 			}
 		}
 
-		writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
 	defer fakeRunner.Close()
 
@@ -2091,7 +2091,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -2136,7 +2136,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		defer mockRunner.Close()
 
@@ -2412,7 +2412,7 @@ default_skills:
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
 
-			writeJSON(w, http.StatusOK, runner.WebhookResponse{OK: true})
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 		}))
 		t.Cleanup(mockRunner.Close)
 

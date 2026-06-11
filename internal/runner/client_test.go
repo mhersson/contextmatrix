@@ -31,7 +31,7 @@ func TestClient_Trigger_Success(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -63,7 +63,7 @@ func TestClient_Trigger_VerifiesHMAC(t *testing.T) {
 		assert.True(t, protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, nil),
 			"HMAC signature with timestamp should be valid")
 
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -78,7 +78,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -100,7 +100,7 @@ func TestTriggerPayload_BaseBranch(t *testing.T) {
 	srvOmit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &rawPayload)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srvOmit.Close()
 
@@ -122,7 +122,7 @@ func TestClient_Kill_Success(t *testing.T) {
 		assert.Equal(t, "/kill", r.URL.Path)
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -146,7 +146,7 @@ func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedSigs = append(capturedSigs, r.Header.Get(protocol.SignatureHeader))
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -168,7 +168,7 @@ func TestClient_StopAll_Success(t *testing.T) {
 		assert.Equal(t, "/stop-all", r.URL.Path)
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -195,7 +195,7 @@ func TestClient_RetryOn500(t *testing.T) {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -243,13 +243,14 @@ func TestClient_ContextCancellation(t *testing.T) {
 
 func TestClient_RunnerReturnsNotOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: false, Error: "container limit reached"})
+		_ = json.NewEncoder(w).Encode(protocol.ErrorResponse{OK: false, Code: "container_limit", Message: "container limit reached"})
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "key")
 	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "container_limit")
 	assert.Contains(t, err.Error(), "container limit reached")
 }
 
@@ -281,7 +282,7 @@ func TestClient_Message_Success(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -317,7 +318,7 @@ func TestClient_Promote_Success(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &received)
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -420,7 +421,7 @@ func TestClient_RetryOn503(t *testing.T) {
 // increments runner_webhook_total{result="success"} and not the failure series.
 func TestClient_WebhookMetrics_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(WebhookResponse{OK: true})
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
@@ -576,6 +577,43 @@ func TestClient_ListContainers_RunnerOKFalse(t *testing.T) {
 	c := NewClient(srv.URL, "key")
 	_, err := c.ListContainers(context.Background())
 	require.Error(t, err)
+}
+
+// TestClient_DecodesProtocolErrorCode pins the raw JSON wire shape of a
+// logical rejection on a 2xx transport (unlike TestClient_RunnerReturnsNotOK,
+// which sends a struct-encoded fixture).
+func TestClient_DecodesProtocolErrorCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK) // logical rejection on a 2xx transport
+		_, _ = w.Write([]byte(`{"ok":false,"code":"conflict","message":"card already tracked"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "k")
+	err := c.Kill(context.Background(), KillPayload{CardID: "CM-001", Project: "p"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conflict")
+	assert.Contains(t, err.Error(), "card already tracked")
+}
+
+// TestClient_DecodesProtocolErrorCodeOn4xx pins the real-runner rejection
+// path: protocol.ErrorResponse on a non-2xx status must surface code +
+// message, not the raw JSON body.
+func TestClient_DecodesProtocolErrorCodeOn4xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"conflict","message":"card already tracked"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "k")
+	err := c.Kill(context.Background(), KillPayload{CardID: "CM-001", Project: "p"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conflict")
+	assert.Contains(t, err.Error(), "card already tracked")
+	assert.NotContains(t, err.Error(), "{", "raw JSON must not be embedded in the error")
 }
 
 func TestClient_RefreshKnowledge_SendsSignedPOST(t *testing.T) {
