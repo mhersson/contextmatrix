@@ -57,28 +57,8 @@ func NewRunnerClient(cfg RunnerClientConfig) RunnerClient {
 	return &runnerClient{baseURL: cfg.BaseURL, key: cfg.HMACKey, mcpAPIKey: cfg.MCPAPIKey, httpc: c}
 }
 
-type chatStartPayload struct {
-	SessionID string         `json:"session_id"`
-	Project   string         `json:"project,omitempty"`
-	RepoURL   string         `json:"repo_url,omitempty"`
-	MCPAPIKey string         `json:"mcp_api_key,omitempty"`
-	Model     string         `json:"model,omitempty"`
-	Resume    *ResumeContext `json:"resume,omitempty"`
-	Primer    string         `json:"primer,omitempty"`
-}
-
-type chatEndPayload struct {
-	SessionID string `json:"session_id"`
-}
-
-type messagePayload struct {
-	SessionID string `json:"session_id"`
-	Content   string `json:"content"`
-	MessageID string `json:"message_id,omitempty"`
-}
-
 func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
-	body, err := json.Marshal(chatStartPayload{
+	body, err := json.Marshal(protocol.ChatStartPayload{
 		SessionID: opts.SessionID,
 		Project:   opts.Project,
 		RepoURL:   opts.RepoURL,
@@ -96,9 +76,7 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 		return "", err
 	}
 
-	var out struct {
-		ContainerID string `json:"container_id"`
-	}
+	var out protocol.ChatStartResponse
 	if err := json.Unmarshal(resp, &out); err != nil {
 		return "", fmt.Errorf("chat: decode StartChat resp: %w", err)
 	}
@@ -107,7 +85,7 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 }
 
 func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
-	body, err := json.Marshal(chatEndPayload{SessionID: sessionID})
+	body, err := json.Marshal(protocol.ChatEndPayload{SessionID: sessionID})
 	if err != nil {
 		return fmt.Errorf("chat: runner: marshal EndChat payload: %w", err)
 	}
@@ -118,7 +96,7 @@ func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
 }
 
 func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
-	body, err := json.Marshal(messagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
+	body, err := json.Marshal(protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
 	if err != nil {
 		return fmt.Errorf("chat: runner: marshal SendChatMessage payload: %w", err)
 	}
@@ -126,24 +104,6 @@ func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, 
 	_, err = c.post(ctx, "/message", body)
 
 	return err
-}
-
-// runnerLogEntry mirrors the runner's logbroadcast.LogEntry JSON shape.
-type runnerLogEntry struct {
-	Timestamp time.Time       `json:"ts"`
-	SessionID string          `json:"session_id,omitempty"`
-	Type      string          `json:"type"`
-	Content   string          `json:"content,omitempty"`
-	Usage     *runnerLogUsage `json:"usage,omitempty"`
-	Model     string          `json:"model,omitempty"`
-}
-
-// runnerLogUsage mirrors the runner's logbroadcast.TokenUsage JSON shape.
-type runnerLogUsage struct {
-	InputTokens       int64 `json:"input_tokens"`
-	OutputTokens      int64 `json:"output_tokens"`
-	CacheReadTokens   int64 `json:"cache_read_tokens"`
-	CacheCreateTokens int64 `json:"cache_creation_tokens"`
 }
 
 // StreamLogs subscribes to the runner's HMAC-signed /logs?session_id=<id>
@@ -200,7 +160,7 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 			continue
 		}
 
-		var entry runnerLogEntry
+		var entry protocol.LogEntry
 		if err := json.Unmarshal([]byte(raw), &entry); err != nil {
 			// Log at Debug so schema drift is observable without spamming production.
 			preview := raw

@@ -10,7 +10,11 @@
 // once and unit-test the filtering rules in isolation.
 package transcript
 
-import "strings"
+import (
+	"strings"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+)
 
 const (
 	// DefaultBudgetTokens is the fallback when BuildOpts.BudgetTokens is zero.
@@ -58,25 +62,15 @@ type Message struct {
 	RehydrationPhase bool
 }
 
-// ResumeContext is the rehydration payload CM passes to the runner on a
-// cold-open. The runner writes it to /run/cm-chat/resume.jsonl inside the
-// container; the entrypoint instructs Claude to read it before greeting
-// the operator.
-type ResumeContext struct {
-	Turns   []ResumeTurn `json:"turns"`
-	Clipped bool         `json:"clipped"`
-	OrigSeq int64        `json:"original_seq"`
-}
+// ResumeContext is the rehydration payload wire shape — protocol-owned
+// (the runner writes it to /run/cm-chat/resume.jsonl). Aliased so the
+// builder and the chat package keep their local names.
+type ResumeContext = protocol.ChatResumeContext
 
 // ResumeTurn is one filtered, possibly summarized transcript entry in the
 // rehydration payload. Roles: "user", "assistant_text", "tool_call",
-// "tool_result_summary" (tool_result bodies are collapsed to a one-liner
-// outcome by the transcript builder).
-type ResumeTurn struct {
-	Seq     int64  `json:"seq"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
+// "tool_result_summary".
+type ResumeTurn = protocol.ChatResumeTurn
 
 // BuildOpts carries the knobs the manager passes from config.
 type BuildOpts struct {
