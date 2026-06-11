@@ -561,21 +561,21 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	})
 }
 
-// chatRunnerDisabled is a no-op chat.Backend used when the runner integration
-// is disabled. Every operation returns an error so callers receive a clear
-// "runner not enabled" message rather than a nil-pointer panic.
+// chatRunnerDisabled is a no-op chat.Backend used when no chat backend is
+// configured. Every operation returns an error so callers fail fast instead
+// of nil-panicking.
 type chatRunnerDisabled struct{}
 
 func (chatRunnerDisabled) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
-	return "", fmt.Errorf("chat: runner not enabled")
+	return "", fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) EndChat(_ context.Context, _ string) error {
-	return fmt.Errorf("chat: runner not enabled")
+	return fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
-	return fmt.Errorf("chat: runner not enabled")
+	return fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {

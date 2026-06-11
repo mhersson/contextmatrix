@@ -2682,7 +2682,7 @@ remote_execution:
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
 		defer cleanup()
 
-		// No runner client passed → runnerEnabled = false
+		// No task backend passed → runnerEnabled = false
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
 
 		server := httptest.NewServer(router)
@@ -2704,11 +2704,11 @@ remote_execution:
 			"remote_execution.enabled should be false when runner is globally disabled")
 	})
 
-	t.Run("runner enabled globally but per-project disabled returns false", func(t *testing.T) {
+	t.Run("task backend configured but per-project disabled returns false", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigPerProjectDisabled)
 		defer cleanup()
 
-		// Passing a non-nil runner client → runnerEnabled = true
+		// Passing a non-nil task backend → runnerEnabled = true
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service:    svc,
@@ -2736,7 +2736,7 @@ remote_execution:
 			"remote_execution.enabled should be false when per-project config disables it")
 	})
 
-	t.Run("runner enabled globally with no per-project override returns nil remote_execution", func(t *testing.T) {
+	t.Run("task backend configured with no per-project override returns nil remote_execution", func(t *testing.T) {
 		// Use the default board config (no remote_execution section)
 		svc, bus, cleanup := testSetup(t)
 		defer cleanup()
