@@ -21,6 +21,7 @@ import (
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -2709,7 +2710,12 @@ remote_execution:
 
 		// Passing a non-nil runner client → runnerEnabled = true
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+		router := NewRouter(RouterConfig{
+			Service:    svc,
+			Bus:        bus,
+			Runner:     runnerClient,
+			BackendCfg: config.BackendConfig{CallbackPath: "/api/runner"},
+		})
 
 		server := httptest.NewServer(router)
 		defer server.Close()
@@ -2736,7 +2742,12 @@ remote_execution:
 		defer cleanup()
 
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: runnerClient})
+		router := NewRouter(RouterConfig{
+			Service:    svc,
+			Bus:        bus,
+			Runner:     runnerClient,
+			BackendCfg: config.BackendConfig{CallbackPath: "/api/runner"},
+		})
 
 		server := httptest.NewServer(router)
 		defer server.Close()

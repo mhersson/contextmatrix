@@ -295,14 +295,10 @@ func main() {
 		knowledgeRefresher = runnerSys.Client
 	}
 
-	// Transitional bridge until wiring reads the backend selectors (next
-	// commit): derive the handler config from the legacy runner block.
-	taskBackendCfg := config.BackendConfig{
-		APIKey:                  cfg.Runner.APIKey,
-		CallbackPath:            "/api/runner",
-		OrchestratorSonnetModel: cfg.Runner.OrchestratorSonnetModel,
-		OrchestratorOpusModel:   cfg.Runner.OrchestratorOpusModel,
-	}
+	// BackendCfg is the resolved default_backend entry; zero value when no
+	// task backend is configured (handlers behind the Runner-nil gate never
+	// read it then).
+	taskBackendCfg, _ := cfg.TaskBackendConfig()
 
 	sessionMgr := runnerSys.SessionLog
 

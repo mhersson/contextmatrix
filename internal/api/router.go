@@ -255,6 +255,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// they stay at literal paths regardless of callback_path. So does the
 	// runner-called GET /api/v1/cards/.../autonomous.
 	if cfg.Runner != nil {
+		// Fail fast at startup: an empty callback path would silently mount
+		// the backend callbacks at the server root. Real configs can't get
+		// here (validation enforces the reserved set); this guards sloppy
+		// test fixtures and future wiring bugs. Same panic-at-registration
+		// posture as validateOverrideLimit.
+		if cfg.BackendCfg.CallbackPath == "" {
+			panic("api: RouterConfig.BackendCfg.CallbackPath must be set when Runner is non-nil")
+		}
+
 		cb := cfg.BackendCfg.CallbackPath
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("POST "+cb+"/knowledge-status", rh.runnerKnowledgeStatus)

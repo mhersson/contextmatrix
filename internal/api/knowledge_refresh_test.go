@@ -198,6 +198,7 @@ func TestKnowledgeRefreshAPI_Trigger_HappyPath(t *testing.T) {
 		Bus:                bus,
 		Runner:             runnerClient,
 		KnowledgeRefresher: runnerClient,
+		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
 		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
@@ -246,6 +247,7 @@ func TestKnowledgeRefreshAPI_Trigger_409OnDuplicate(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
 		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
@@ -280,6 +282,7 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsInvalidOverwriteDoc(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
 		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
@@ -317,6 +320,7 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsTooManyOverwriteDocs(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
 		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
