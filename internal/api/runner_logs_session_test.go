@@ -12,24 +12,19 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
-// sseTestEvent is a helper carrying the fields the fake runner server emits.
-type sseTestEvent struct {
-	Seq     uint64
-	Type    string
-	Content string
-	CardID  string // used for cross-card filter tests
-}
-
 // fakeRunnerServer creates a fake runner SSE server that streams events from
 // the provided channel until it is closed, then holds the connection open until
 // the client disconnects.  readyCh is closed once the HTTP headers are sent.
-func fakeRunnerServer(t *testing.T, eventCh <-chan sseTestEvent, readyCh chan struct{}) *httptest.Server {
+// Frames are true protocol.LogEntry wire shape (ts/type/content/card_id) —
+// the runner never emits a seq field.
+func fakeRunnerServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
 
 	var once sync.Once
@@ -48,14 +43,7 @@ func fakeRunnerServer(t *testing.T, eventCh <-chan sseTestEvent, readyCh chan st
 		once.Do(func() { close(readyCh) })
 
 		for evt := range eventCh {
-			payload := map[string]any{
-				"seq":     evt.Seq,
-				"type":    evt.Type,
-				"content": evt.Content,
-				"card_id": evt.CardID,
-			}
-
-			b, err := json.Marshal(payload)
+			b, err := json.Marshal(evt)
 			if err != nil {
 				return
 			}
@@ -158,7 +146,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 		project = "alpha"
 	)
 
-	upstreamCh := make(chan sseTestEvent, 32)
+	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
@@ -175,7 +163,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	<-readyCh
 
 	// Emit one question event for card X.
-	upstreamCh <- sseTestEvent{Seq: 1, Type: "user", Content: "question from agent", CardID: cardID}
+	upstreamCh <- protocol.LogEntry{Type: "user", Content: "question from agent", CardID: cardID}
 
 	// Wait until the buffer holds the event.
 	require.Eventually(t, func() bool {
@@ -203,9 +191,9 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	assert.Equal(t, "question from agent", m["content"])
 
 	// Emit 2 more events while no client is attached.
-	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "thinking…", CardID: cardID}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "thinking…", CardID: cardID}
 
-	upstreamCh <- sseTestEvent{Seq: 3, Type: "tool_call", Content: "tool X", CardID: cardID}
+	upstreamCh <- protocol.LogEntry{Type: "tool_call", Content: "tool X", CardID: cardID}
 
 	// Wait until all 3 events are buffered.
 	require.Eventually(t, func() bool {
@@ -253,7 +241,7 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 		project = "beta"
 	)
 
-	upstreamCh := make(chan sseTestEvent, 32)
+	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
@@ -267,9 +255,9 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 	<-readyCh
 
 	// Emit event for card Y — must NOT appear in card X's buffer.
-	upstreamCh <- sseTestEvent{Seq: 1, Type: "text", Content: "for Y only", CardID: cardY}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "for Y only", CardID: cardY}
 	// Emit event for card X — must appear.
-	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "for X", CardID: cardX}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "for X", CardID: cardX}
 
 	// Wait until card X's buffer holds exactly 1 event (not 2).
 	require.Eventually(t, func() bool {
@@ -315,7 +303,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 		project = "proj-p"
 	)
 
-	upstreamCh := make(chan sseTestEvent, 32)
+	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
@@ -332,11 +320,11 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	<-readyCh
 
 	// Emit events for both cards X and Y.
-	upstreamCh <- sseTestEvent{Seq: 1, Type: "user", Content: "msg-x-1", CardID: cardX}
+	upstreamCh <- protocol.LogEntry{Type: "user", Content: "msg-x-1", CardID: cardX}
 
-	upstreamCh <- sseTestEvent{Seq: 2, Type: "text", Content: "msg-y-1", CardID: cardY}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "msg-y-1", CardID: cardY}
 
-	upstreamCh <- sseTestEvent{Seq: 3, Type: "tool_call", Content: "msg-x-2", CardID: cardX}
+	upstreamCh <- protocol.LogEntry{Type: "tool_call", Content: "msg-x-2", CardID: cardX}
 
 	// Wait until all 3 events are buffered.
 	require.Eventually(t, func() bool {
@@ -370,9 +358,9 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	assert.Equal(t, cardY, m1["card_id"])
 
 	// Emit 2 more events while no client is attached.
-	upstreamCh <- sseTestEvent{Seq: 4, Type: "text", Content: "msg-y-2", CardID: cardY}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "msg-y-2", CardID: cardY}
 
-	upstreamCh <- sseTestEvent{Seq: 5, Type: "text", Content: "msg-x-3", CardID: cardX}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "msg-x-3", CardID: cardX}
 
 	// Wait until all 5 events are buffered.
 	require.Eventually(t, func() bool {

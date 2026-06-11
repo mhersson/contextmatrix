@@ -469,11 +469,11 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	}
 	m.mu.Unlock()
 
-	// Sort the snapshot by Seq so that events with lower sequence numbers are
-	// always delivered before events with higher ones.  The buffer may contain
-	// pump events (Seq > threshold) interleaved with events added via direct
-	// Append calls (Seq ≤ threshold).  Stable sort preserves insertion order
-	// among events with the same Seq.
+	// Sort the snapshot by Seq. Wire events never carry a Seq (the decoder
+	// leaves it 0), so for pump-fed buffers this is a stable identity pass
+	// that preserves insertion order. The sort only reorders events for
+	// direct-Append callers that set an explicit nonzero Seq — tests today;
+	// no production path assigns one.
 	slices.SortStableFunc(snap, func(a, b Event) int {
 		if a.Seq < b.Seq {
 			return -1
@@ -987,34 +987,28 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 // Timeout 0 prevents the per-request deadline from terminating the stream.
 var sseHTTPClient = &http.Client{Timeout: 0}
 
-// sseJSONPayload is the JSON structure expected in SSE data frames from the runner.
-type sseJSONPayload struct {
-	Seq       uint64 `json:"seq"`
-	Timestamp string `json:"timestamp"`
-	Type      string `json:"type"`
-	Content   string `json:"content"`
-	CardID    string `json:"card_id"`
-}
-
 // parseSSEPayload parses a JSON data value from an SSE frame into an Event.
-// It also returns the card_id from the payload (may be empty if the runner
-// did not include it), which callers use to filter cross-card events.
+// Frames are protocol.LogEntry — the shape contextmatrix-runner actually
+// marshals. It also returns the card_id from the payload (may be empty if
+// the runner did not include it), which callers use to filter cross-card
+// events.
+//
+// A frame without a usable ts falls back to arrival time so the event
+// displays honestly (no zero-value 0001-01-01 timestamps in the UI).
+// Event.Seq is not a wire field; it stays zero here, and nothing assigns
+// a nonzero Seq today.
 func parseSSEPayload(raw string) (Event, string, bool) {
-	var p sseJSONPayload
+	var p protocol.LogEntry
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return Event{}, "", false
 	}
 
-	ts := time.Now()
-
-	if p.Timestamp != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, p.Timestamp); err == nil {
-			ts = parsed
-		}
+	ts := p.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
 	}
 
 	return Event{
-		Seq:       p.Seq,
 		Timestamp: ts,
 		Type:      p.Type,
 		Payload:   []byte(p.Content),
