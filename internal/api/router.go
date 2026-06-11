@@ -106,7 +106,8 @@ type RouterConfig struct {
 	Bus                 *events.Bus
 	CORSOrigin          string
 	Syncer              Syncer
-	Runner              *runner.Client
+	Runner              TaskBackend        // nil when no task backend is configured
+	KnowledgeRefresher  KnowledgeRefresher // nil when no task backend is configured
 	RunnerCfg           config.RunnerConfig
 	MCPAPIKey           string
 	Port                int
@@ -206,7 +207,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	krh := &knowledgeRefreshHandlers{
 		svc:       cfg.Service,
 		registry:  cfg.RefreshRegistry,
-		runner:    cfg.Runner,
+		runner:    cfg.KnowledgeRefresher,
 		mcpAPIKey: cfg.MCPAPIKey,
 	}
 	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/refresh-plan", krh.getPlan)

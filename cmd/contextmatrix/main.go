@@ -283,7 +283,18 @@ func main() {
 	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus, chatMgr)
 	defer runnerCleanup()
 
-	runnerClient := runnerSys.Client
+	// Interface fields must stay untyped-nil when the backend is disabled —
+	// a nil *runner.Client wrapped in the interface would defeat every
+	// `!= nil` enablement check in the router.
+	var taskBackend api.TaskBackend
+
+	var knowledgeRefresher api.KnowledgeRefresher
+
+	if runnerSys.Client != nil {
+		taskBackend = runnerSys.Client
+		knowledgeRefresher = runnerSys.Client
+	}
+
 	sessionMgr := runnerSys.SessionLog
 
 	// Create MCP server
@@ -312,7 +323,8 @@ func main() {
 		Bus:                 bus,
 		CORSOrigin:          cfg.CORSOrigin,
 		Syncer:              apiSyncer,
-		Runner:              runnerClient,
+		Runner:              taskBackend,
+		KnowledgeRefresher:  knowledgeRefresher,
 		RunnerCfg:           cfg.Runner,
 		RefreshRegistry:     refreshRegistry,
 		MCPAPIKey:           cfg.MCPAPIKey,

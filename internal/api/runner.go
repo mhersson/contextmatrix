@@ -40,7 +40,7 @@ const (
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
 	svc               *service.CardService
-	runner            *runner.Client // nil when runner is disabled
+	runner            TaskBackend // nil when no task backend is configured
 	runnerCfg         config.RunnerConfig
 	mcpAPIKey         string
 	port              int
@@ -895,7 +895,7 @@ func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request)
 // `ctx` is only consulted to abandon the wait when the caller goes
 // away; the in-flight probe continues so the result still lands in
 // the cache for the next caller.
-func (c *healthProbeCache) get(ctx context.Context, client *runner.Client) (runner.HealthInfo, error) {
+func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.HealthInfo, error) {
 	c.mu.Lock()
 	if time.Now().Before(c.expires) {
 		info, err := c.info, c.err
