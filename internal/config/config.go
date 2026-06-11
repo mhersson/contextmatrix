@@ -23,35 +23,6 @@ type ModelRate struct {
 	Completion float64 `yaml:"completion"`
 }
 
-// MinRunnerAPIKeyLength is the minimum required length for runner.api_key.
-const MinRunnerAPIKeyLength = 32
-
-// RunnerConfig holds configuration for the remote execution runner.
-type RunnerConfig struct {
-	Enabled                 bool   `yaml:"enabled"`
-	URL                     string `yaml:"url"`                       // base URL, e.g. http://localhost:9090
-	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
-	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
-	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
-	ReconcileInterval       string `yaml:"reconcile_interval"`        // how often the backstop sweep scans for leaked containers; "0s" disables
-}
-
-// ReconcileIntervalDuration parses ReconcileInterval as a time.Duration. A
-// zero or unset value returns 0, which disables the sweep in
-// StartReconciliationSweep.
-func (r *RunnerConfig) ReconcileIntervalDuration() time.Duration {
-	if r.ReconcileInterval == "" {
-		return 0
-	}
-
-	d, err := time.ParseDuration(r.ReconcileInterval)
-	if err != nil {
-		return 0
-	}
-
-	return d
-}
-
 // MinBackendAPIKeyLength is the minimum required length for a backend
 // entry's api_key.
 const MinBackendAPIKeyLength = 32
@@ -247,7 +218,6 @@ type Config struct {
 	Theme                string               `yaml:"theme"`
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
-	Runner               RunnerConfig         `yaml:"runner"`
 	// DefaultBackend names the backends entry that executes cards. Empty
 	// disables task execution. Restart required to change.
 	DefaultBackend string `yaml:"default_backend"`
@@ -282,15 +252,10 @@ func defaults() *Config {
 		WorkflowSkillsDir:    "",
 		TaskSkills:           TaskSkillsConfig{},
 		Theme:                "everforest",
-		Runner: RunnerConfig{
-			OrchestratorSonnetModel: "claude-sonnet-4-6",
-			OrchestratorOpusModel:   "claude-opus-4-8",
-			ReconcileInterval:       "60s",
-		},
-		LogFormat:     "text",
-		LogLevel:      "info",
-		AdminPort:     0,
-		AdminBindAddr: "127.0.0.1",
+		LogFormat:            "text",
+		LogLevel:             "info",
+		AdminPort:            0,
+		AdminBindAddr:        "127.0.0.1",
 	}
 }
 
@@ -379,26 +344,6 @@ func (c *Config) Validate() error {
 
 		if interval < 5*time.Minute {
 			return fmt.Errorf("github.issue_importing.sync_interval must be at least 5m, got %s", c.GitHub.IssueImporting.SyncInterval)
-		}
-	}
-
-	if c.Runner.Enabled {
-		if c.Runner.URL == "" {
-			return fmt.Errorf("runner.url is required when runner is enabled")
-		}
-
-		if c.Runner.APIKey == "" {
-			return fmt.Errorf("runner.api_key is required when runner is enabled")
-		}
-
-		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
-			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
-		}
-
-		if c.Runner.ReconcileInterval != "" {
-			if _, err := time.ParseDuration(c.Runner.ReconcileInterval); err != nil {
-				return fmt.Errorf("invalid runner.reconcile_interval %q: %w", c.Runner.ReconcileInterval, err)
-			}
 		}
 	}
 
@@ -582,6 +527,10 @@ func FindConfigPath() string {
 func Load(path string) (*Config, error) {
 	cfg := defaults()
 
+	if err := checkLegacyEnv(); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -612,6 +561,10 @@ func Load(path string) (*Config, error) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(cfg); err != nil {
+		if strings.Contains(err.Error(), "field runner not found") {
+			return nil, fmt.Errorf("parse config: %w — the runner block was replaced by the backends map: move url/api_key to backends.runner, set callback_path: /api/runner, and point default_backend/chat_backend at \"runner\" (see config.yaml.example)", err)
+		}
+
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -877,28 +830,6 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.MCPAPIKey = v
 	}
 
-	cfg.Runner.Enabled = parseBoolEnv("CONTEXTMATRIX_RUNNER_ENABLED", cfg.Runner.Enabled)
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_URL"); v != "" {
-		cfg.Runner.URL = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
-		cfg.Runner.APIKey = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {
-		cfg.Runner.OrchestratorSonnetModel = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
-		cfg.Runner.OrchestratorOpusModel = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
-		cfg.Runner.ReconcileInterval = v
-	}
-
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
 		cfg.GitHub.Host = v
 	}
@@ -1001,6 +932,29 @@ func checkBackendEnvKeys(cfg *Config) error {
 
 		if !known[name] {
 			return fmt.Errorf("%s references no configured backend (known backends: %v) — fix the variable or add the backends entry", name, slices.Sorted(maps.Keys(cfg.Backends)))
+		}
+	}
+
+	return nil
+}
+
+// legacyRunnerEnvVars are the pre-backends env overrides. They configure
+// nothing anymore; failing loudly beats a silently half-configured deploy.
+var legacyRunnerEnvVars = []string{
+	"CONTEXTMATRIX_RUNNER_ENABLED",
+	"CONTEXTMATRIX_RUNNER_URL",
+	"CONTEXTMATRIX_RUNNER_API_KEY",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL",
+	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL",
+}
+
+// checkLegacyEnv rejects retired CONTEXTMATRIX_RUNNER_* variables with a
+// migration pointer.
+func checkLegacyEnv() error {
+	for _, name := range legacyRunnerEnvVars {
+		if os.Getenv(name) != "" {
+			return fmt.Errorf("%s is no longer supported: runner config moved to the backends map — set backends.<name>.* plus default_backend/chat_backend (see config.yaml.example)", name)
 		}
 	}
 

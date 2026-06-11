@@ -707,121 +707,6 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Empty(t, cfg.WorkflowSkillsDir)
 	assert.Empty(t, cfg.MCPAPIKey)
-	assert.False(t, cfg.Runner.Enabled)
-	assert.Empty(t, cfg.Runner.URL)
-	assert.Empty(t, cfg.Runner.APIKey)
-}
-
-func TestLoad_RunnerConfig(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-mcp_api_key: "test-mcp-key"
-runner:
-  enabled: true
-  url: "http://localhost:9090"
-  api_key: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"
-github:
-  auth_mode: "pat"
-  pat:
-    token: "ghp_test"
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "test-mcp-key", cfg.MCPAPIKey)
-	assert.True(t, cfg.Runner.Enabled)
-	assert.Equal(t, "http://localhost:9090", cfg.Runner.URL)
-	assert.Equal(t, "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh", cfg.Runner.APIKey)
-}
-
-func TestLoad_RunnerDisabledByDefault(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.False(t, cfg.Runner.Enabled)
-	assert.Empty(t, cfg.Runner.URL)
-	assert.Empty(t, cfg.Runner.APIKey)
-	assert.Empty(t, cfg.MCPAPIKey)
-}
-
-func TestValidate_RunnerEnabledMissingURL(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
-		Runner:           RunnerConfig{Enabled: true, APIKey: "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh"},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runner.url is required")
-}
-
-func TestValidate_RunnerEnabledMissingAPIKey(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
-		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090"},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runner.api_key is required")
-}
-
-func TestValidate_RunnerEnabledShortAPIKey(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
-		Runner:           RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: "too-short"},
-	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runner.api_key must be at least")
-}
-
-func TestValidate_RunnerDisabledNoValidation(t *testing.T) {
-	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
-		HeartbeatTimeout: "30m",
-		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
-		Runner:           RunnerConfig{Enabled: false},
-	}
-	err := cfg.Validate()
-	assert.NoError(t, err)
-}
-
-func TestLoad_RunnerEnvOverrides(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
-
-	t.Setenv("CONTEXTMATRIX_RUNNER_ENABLED", "true")
-	t.Setenv("CONTEXTMATRIX_RUNNER_URL", "http://runner:9090")
-	t.Setenv("CONTEXTMATRIX_RUNNER_API_KEY", "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh")
-	t.Setenv("CONTEXTMATRIX_MCP_API_KEY", "env-mcp-key")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.True(t, cfg.Runner.Enabled)
-	assert.Equal(t, "http://runner:9090", cfg.Runner.URL)
-	assert.Equal(t, "a]3kF#9xL!mQ7nR$2pW^8vZ&5jB+0dYh", cfg.Runner.APIKey)
-	assert.Equal(t, "env-mcp-key", cfg.MCPAPIKey)
 }
 
 func TestFindConfigPath_XDGConfigHome(t *testing.T) {
@@ -1440,144 +1325,6 @@ func TestValidate_AdminBindAddr_DefaultsToLoopback(t *testing.T) {
 	}
 	require.NoError(t, cfg.Validate())
 	assert.Equal(t, "127.0.0.1", cfg.AdminBindAddr)
-}
-
-// ---------- OrchestratorModel config tests ----------
-
-func TestLoad_OrchestratorModels_YAMLProvidesBothValues(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-runner:
-  orchestrator_sonnet_model: "claude-sonnet-4-99"
-  orchestrator_opus_model: "claude-opus-4-99"
-github:
-  auth_mode: "pat"
-  pat:
-    token: "ghp_test"
-`)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "claude-sonnet-4-99", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-99", cfg.Runner.OrchestratorOpusModel)
-}
-
-func TestLoad_OrchestratorModels_DefaultsApplyWhenYAMLOmits(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-8", cfg.Runner.OrchestratorOpusModel)
-}
-
-func TestLoad_OrchestratorModels_EnvOverridesYAML(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-runner:
-  orchestrator_sonnet_model: "claude-sonnet-4-yaml"
-  orchestrator_opus_model: "claude-opus-4-yaml"
-github:
-  auth_mode: "pat"
-  pat:
-    token: "ghp_test"
-`)
-
-	t.Setenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-4-env")
-	t.Setenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL", "claude-opus-4-env")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "claude-sonnet-4-env", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-env", cfg.Runner.OrchestratorOpusModel)
-}
-
-func TestDefaults_OrchestratorModels(t *testing.T) {
-	cfg := defaults()
-	assert.Equal(t, "claude-sonnet-4-6", cfg.Runner.OrchestratorSonnetModel)
-	assert.Equal(t, "claude-opus-4-8", cfg.Runner.OrchestratorOpusModel)
-}
-
-func TestDefaults_ReconcileInterval(t *testing.T) {
-	cfg := defaults()
-	assert.Equal(t, "60s", cfg.Runner.ReconcileInterval)
-	assert.Equal(t, 60*time.Second, cfg.Runner.ReconcileIntervalDuration())
-}
-
-func TestReconcileIntervalDuration_EmptyReturnsZero(t *testing.T) {
-	r := &RunnerConfig{ReconcileInterval: ""}
-	assert.Equal(t, time.Duration(0), r.ReconcileIntervalDuration())
-}
-
-func TestReconcileIntervalDuration_InvalidReturnsZero(t *testing.T) {
-	r := &RunnerConfig{ReconcileInterval: "not-a-duration"}
-	assert.Equal(t, time.Duration(0), r.ReconcileIntervalDuration())
-}
-
-func TestLoad_ReconcileInterval_EnvOverridesYAML(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-runner:
-  reconcile_interval: "120s"
-github:
-  auth_mode: "pat"
-  pat:
-    token: "ghp_test"
-`)
-
-	t.Setenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL", "30s")
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-
-	assert.Equal(t, "30s", cfg.Runner.ReconcileInterval)
-	assert.Equal(t, 30*time.Second, cfg.Runner.ReconcileIntervalDuration())
-}
-
-func TestLoad_ReconcileInterval_InvalidRejectedWhenEnabled(t *testing.T) {
-	dir := t.TempDir()
-	boardsDir := filepath.Join(dir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
-
-	path := writeConfigFile(t, dir, `
-boards:
-  dir: `+boardsDir+`
-runner:
-  enabled: true
-  url: "http://localhost:9090"
-  api_key: "0123456789012345678901234567890123"
-  reconcile_interval: "not-a-duration"
-github:
-  auth_mode: "pat"
-  pat:
-    token: "ghp_test"
-`)
-
-	_, err := Load(path)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runner.reconcile_interval")
 }
 
 // ---------- LogFormat / LogLevel / AdminPort config tests ----------
@@ -2521,4 +2268,38 @@ backends:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reconcile_interval")
+}
+
+// ---------- Legacy runner migration guard tests ----------
+
+func TestLegacyRunnerYAMLBlockErrors(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	// A config with a legacy runner: block. RunnerConfig is gone;
+	// KnownFields(true) rejects the unknown "runner" key, and Load wraps
+	// the parse error with a migration pointer.
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+`
+runner:
+  enabled: true
+  url: http://localhost:9090
+  api_key: "0123456789abcdef0123456789abcdef"
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner")
+	assert.Contains(t, err.Error(), "backends")
+}
+
+func TestLegacyRunnerEnvErrors(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	t.Setenv("CONTEXTMATRIX_RUNNER_API_KEY", "stale")
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONTEXTMATRIX_RUNNER_API_KEY")
+	assert.Contains(t, err.Error(), "backends")
 }

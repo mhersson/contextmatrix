@@ -82,10 +82,13 @@ mcp_api_key: %q
 boards:
   dir: %s
   git_auto_commit: true
-runner:
-  enabled: true
-  url: http://127.0.0.1:%d
-  api_key: %q
+default_backend: runner
+chat_backend: runner
+backends:
+  runner:
+    url: http://127.0.0.1:%d
+    api_key: %q
+    callback_path: /api/runner
 %s
 %s
 cors_origin: http://127.0.0.1:0

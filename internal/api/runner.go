@@ -932,7 +932,7 @@ func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.
 }
 
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,
-// falling back to the global runner config if not set per-project.
+// falling back to whether a task backend is configured when not set per-project.
 func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {

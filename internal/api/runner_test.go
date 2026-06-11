@@ -2073,9 +2073,10 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 }
 
 // TestRunCard_ModelInPayload verifies that the model field in TriggerPayload is
-// populated from RunnerConfig: OrchestratorOpusModel when use_opus_orchestrator is
-// true, OrchestratorSonnetModel otherwise. Non-default values are used so the test
-// proves that the config is threaded through rather than matching defaults by accident.
+// populated from the backend entry (config.BackendConfig): OrchestratorOpusModel when
+// use_opus_orchestrator is true, OrchestratorSonnetModel otherwise. Non-default values
+// are used so the test proves that the config is threaded through rather than matching
+// defaults by accident.
 func TestRunCard_ModelInPayload(t *testing.T) {
 	ctx := context.Background()
 
