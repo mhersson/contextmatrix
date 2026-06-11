@@ -600,13 +600,13 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, stopAllResponse{AffectedCards: affected, FailedToUpdate: failed})
 }
 
-// runnerStatusRequest is the JSON body for runner status callbacks.
-type runnerStatusRequest struct {
-	CardID       string `json:"card_id"`
-	Project      string `json:"project"`
-	RunnerStatus string `json:"runner_status"`
-	Message      string `json:"message,omitempty"`
-}
+// Callback request bodies are protocol-owned; aliased so handlers and
+// tests keep their local names.
+type (
+	runnerStatusRequest    = protocol.StatusCallbackPayload
+	knowledgeStatusRequest = protocol.KnowledgeStatusPayload
+	skillEngagedRequest    = protocol.SkillEngagedPayload
+)
 
 // runnerStatusUpdate handles POST /api/runner/status — runner callback.
 func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Request) {
@@ -639,15 +639,6 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, card)
-}
-
-// knowledgeStatusRequest is the JSON body the runner posts to
-// POST /api/runner/knowledge-status when a refresh container exits.
-type knowledgeStatusRequest struct {
-	Project string `json:"project"`
-	Repo    string `json:"repo"`
-	State   string `json:"state"` // "succeeded" or "failed" as reported by runner
-	Error   string `json:"error,omitempty"`
 }
 
 // runnerKnowledgeStatus handles POST /api/runner/knowledge-status — the
@@ -792,14 +783,6 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 	}
 
 	return true
-}
-
-// skillEngagedRequest is the JSON body sent by the runner when the agent
-// invokes the Skill tool.
-type skillEngagedRequest struct {
-	CardID    string `json:"card_id"`
-	Project   string `json:"project"`
-	SkillName string `json:"skill_name"`
 }
 
 // handleRunnerSkillEngaged handles POST /api/runner/skill-engaged — runner
