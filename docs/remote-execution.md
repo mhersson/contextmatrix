@@ -708,11 +708,11 @@ replaced with `[REDACTED]`.
 All runner → CM POST callbacks are HMAC-signed (`X-Signature-256` +
 `X-Webhook-Timestamp` over `METHOD\nURI\nTIMESTAMP.BODY`) using the backend's
 own `api_key` (resolved at route-mount time from the backends map entry whose
-`callback_path` matches). CM rejects missing / invalid signatures with 403
-(`INVALID_SIGNATURE`). Each backend's callback endpoints are registered at its
-`callback_path` prefix and are exempt from the CSRF guard. Today's paths:
-`/api/runner` (contextmatrix-runner), `/api/agent` and `/api/chat` (reserved
-for future backends).
+name matches). CM rejects missing / invalid signatures with 403
+(`INVALID_SIGNATURE`). Each backend's callback endpoints are registered at the
+path `/api/<name>` derived from its entry name and are exempt from the CSRF
+guard. Reserved paths: `/api/runner` (contextmatrix-runner), `/api/agent`
+(contextmatrix-agent), `/api/chat` (contextmatrix-chat).
 
 #### POST /api/runner/status
 
@@ -795,8 +795,8 @@ Headers:
 - `X-Signature-256: sha256=<hex>`
 - `X-Webhook-Timestamp: <unix-seconds>`
 
-Only registered when a task backend is configured (`default_backend` names a
-`backends` entry). Missing / invalid HMAC returns 403; unknown card returns 404.
+Only registered when a task backend is configured (runner or agent entry enabled
+in the backends map). Missing / invalid HMAC returns 403; unknown card returns 404.
 
 ### ContextMatrix Operator Endpoints
 
@@ -1091,7 +1091,7 @@ remote_execution:
 Resolution order:
 
 1. Project's `remote_execution.enabled` (if set)
-2. Global: `default_backend` set to a configured backend (fallback)
+2. Global: whether a task backend (runner or agent) is enabled in the backends map
 
 **API responses reflect the effective state.** `GET /api/projects` and
 `GET /api/projects/{project}` always return `remote_execution.enabled` as the
@@ -1101,9 +1101,9 @@ authoritative for whether the run button should be enabled.
 
 ### Global Kill Switch
 
-Set `default_backend: ""` in `config.yaml` (or leave it unset) to disable task
-execution entirely. The run button will not appear in the UI, and trigger
-endpoints return 503. This is a restart-required change.
+Remove or disable all task backends (runner and agent) from the backends map to
+disable task execution entirely. The run button will not appear in the UI, and
+trigger endpoints return 503. This is a restart-required change.
 
 ## Interactive Mode
 
@@ -1347,16 +1347,20 @@ still applies on top of the server snapshot.
 mcp_api_key: "your-bearer-token"
 
 # Execution backends.
-# Backends are read once at startup; changing any entry or selector requires
-# a CM restart. Pre-A2 configs with a top-level `runner:` block must be
-# migrated: move url/api_key into backends.runner, set callback_path to
-# /api/runner, and point both selectors at "runner".
-
-# Which backends entry executes cards ("Run now", reconcile sweep, knowledge refresh).
-default_backend: "runner"
-
-# Which backends entry runs chat containers. Independent of default_backend.
-chat_backend: "runner"
+# Names form a closed set: runner, agent, chat. Roles and callback paths are
+# derived from the entry name — there are no selector fields.
+#   runner  → contextmatrix-runner: executes cards AND serves chat.
+#             Mutually exclusive with agent and chat.
+#   agent   → contextmatrix-agent: executes cards only.
+#   chat    → contextmatrix-chat: serves chat only.
+# Callback paths: /api/<name> (e.g. /api/runner for the runner entry).
+# Backends are read once at startup; any change requires a CM restart.
+#
+# enabled defaults to true; set enabled: false to keep a block without
+# activating it. Switch backends by toggling enabled flags.
+#
+# Task-only fields (orchestrator_sonnet_model, orchestrator_opus_model,
+# reconcile_interval) are valid on runner/agent; rejected on chat.
 
 backends:
   runner:
@@ -1364,13 +1368,11 @@ backends:
     url: "http://localhost:9090"
     # Shared HMAC secret; must match the backend's api_key. Min 32 chars.
     api_key: "shared-hmac-secret"
-    # Reserved CM callback prefix for this backend's inbound callbacks.
-    # One of /api/runner (contextmatrix-runner), /api/agent, /api/chat.
-    callback_path: /api/runner
-    # contextmatrix-runner-specific: model IDs sent in the trigger payload.
+    # enabled: true  # default; omit to activate
+    # Model IDs sent in the trigger payload. Defaults shown.
     orchestrator_sonnet_model: "claude-sonnet-4-6"
     orchestrator_opus_model: "claude-opus-4-8"
-    # contextmatrix-runner-specific: backstop sweep tick; "0s" disables.
+    # Backstop sweep tick; "0s" disables. Default: 60s.
     reconcile_interval: "60s"
 
 # Chat (global chat panel)
@@ -1397,31 +1399,43 @@ chat:
       max_tokens: 200000
 ```
 
-Validation: each backends entry requires `url`, an `api_key` of at least 32
-characters (`MinBackendAPIKeyLength`), and a `callback_path` from the reserved
-set. `reconcile_interval` accepts any `time.Duration` string; `"0s"` or empty
-disables the sweep.
+Validation: each enabled backends entry requires `url` and an `api_key` of at
+least 32 characters (`MinBackendAPIKeyLength`). Disabled entries
+(`enabled: false`) are inert placeholders — they skip all further validation.
+`reconcile_interval` accepts any `time.Duration` string; `"0s"` or empty
+disables the sweep. `runner` is mutually exclusive with `agent` and `chat`
+(validation error if more than one is simultaneously enabled).
 
 Environment variable overrides:
 
 - `CONTEXTMATRIX_MCP_API_KEY`
-- `CONTEXTMATRIX_DEFAULT_BACKEND` — select which backends entry executes cards
-- `CONTEXTMATRIX_CHAT_BACKEND` — select which backends entry runs chat containers
 - `CONTEXTMATRIX_BACKEND_RUNNER_URL` — override `backends.runner.url`
 - `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY` — override `backends.runner.api_key`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED` — override `backends.runner.enabled`
 - `CONTEXTMATRIX_CHAT_DB_PATH`
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 
-The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any configured
-backend: replace `RUNNER` with the uppercased backend name. Supported suffixes
-are `_URL` and `_API_KEY`. Unrecognised suffixes or names that do not match a
-configured backend entry fail loudly at startup (no silent misconfiguration).
+The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any declared backend:
+replace `RUNNER` with the uppercased entry name (`AGENT`, `CHAT`). Supported
+suffixes are `_URL`, `_API_KEY`, and `_ENABLED`. The entry must be declared in
+YAML; unrecognised names or suffixes fail loudly at startup.
 
-The legacy `CONTEXTMATRIX_RUNNER_*` env vars (`_ENABLED`, `_URL`, `_API_KEY`,
-`_ORCHESTRATOR_SONNET_MODEL`, `_ORCHESTRATOR_OPUS_MODEL`, `_RECONCILE_INTERVAL`)
-are removed; the server hard-fails if any are still set, with a migration
-pointer to `config.yaml.example`.
+**Migration from pre-A2 configs:** the top-level `runner:` block and
+`CONTEXTMATRIX_RUNNER_*` env vars are gone. Move `url`/`api_key` into
+`backends.runner` (`enabled` defaults to true; nothing else required). Rename
+env vars:
+
+- `CONTEXTMATRIX_RUNNER_URL` → `CONTEXTMATRIX_BACKEND_RUNNER_URL`
+- `CONTEXTMATRIX_RUNNER_API_KEY` → `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY`
+- `CONTEXTMATRIX_RUNNER_ENABLED` → `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`,
+  `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`,
+  `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL` → (YAML-only now — set the field
+  on the `backends.runner` entry; no replacement env var)
+
+The server hard-fails if any legacy `CONTEXTMATRIX_RUNNER_*` vars are still
+set, with a migration pointer to `config.yaml.example`.
 
 ### Runner (`config.yaml` — reference for runner implementor)
 
@@ -1580,7 +1594,7 @@ immediately.
 | ---------------------------- | -------------------- | ------------------------------------------------------ |
 | Stop (card)                  | Single card          | Kills specific container, sets `runner_status: killed` |
 | Stop All                     | All cards in project | Kills all containers for the project                   |
-| `default_backend: ""`        | Global               | Disables all task execution (requires restart)         |
+| No task backend enabled      | Global               | Disables all task execution (requires restart)         |
 | Per-project `enabled: false` | Single project       | Hides run button for that project                      |
 
 ## Graceful Shutdown

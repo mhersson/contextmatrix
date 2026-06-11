@@ -41,13 +41,14 @@ POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
-POST   /api/runner/status                              # backend callback; per-backend HMAC key
-POST   /api/runner/knowledge-status                    # runner KB-refresh terminal callback (HMAC-signed; task-backend required)
-POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; task-backend required)
+POST   /api/runner/status                              # backend callback at derived /api/<name>/status; per-backend HMAC key
+POST   /api/runner/knowledge-status                    # KB-refresh terminal callback at derived /api/<name>/... (HMAC-signed; task-backend required)
+POST   /api/runner/skill-engaged                       # skill-engaged callback at derived /api/<name>/... (HMAC-signed; task-backend required)
 GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached; fixed path)
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; task-backend required)
-# /api/agent/* and /api/chat/* are reserved callback paths for future backends
+# /api/agent/* — callback path when the agent entry is the active task backend
+# /api/chat/*  — reserved for contextmatrix-chat (not yet released)
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
@@ -1006,11 +1007,11 @@ Stop all running remote executions in a project. Human-only. Returns
 
 ### GET /api/runner/health
 
-Browser-facing fixed path — always at `/api/runner/health` regardless of the
-configured `callback_path`. Proxies a `GET /health` to the configured task
-backend and returns the parsed shape. Used by the board's NowRail to render the
-capacity meter (`max_concurrent` is the runner-global cap, not a per-project
-value).
+Browser-facing fixed path — always at `/api/runner/health` regardless of
+which task backend is configured. Proxies a `GET /health` to the configured
+task backend and returns the parsed shape. Used by the board's NowRail to
+render the capacity meter (`max_concurrent` is the runner-global cap, not a
+per-project value).
 
 Returns:
 
@@ -1036,10 +1037,10 @@ endpoint responsive during a runner outage.
 ### GET /api/runner/logs
 
 SSE log stream. Browser-facing fixed path — always at `/api/runner/logs`
-regardless of the configured `callback_path`. Only available when a task backend
-is configured (`default_backend` names a `backends` entry). Not authenticated —
-the browser connects directly; HMAC signing is performed server-side toward the
-runner.
+regardless of which task backend is configured. Only available when a task
+backend is configured (runner or agent entry enabled in the backends map). Not
+authenticated — the browser connects directly; HMAC signing is performed
+server-side toward the runner.
 
 **Query parameters:**
 
@@ -1107,8 +1108,9 @@ architecture, `LogEntry` type details, and session manager configuration.
 
 ### POST /api/runner/status
 
-Runner callback endpoint. Mounts at the configured backend `callback_path`
-(default `/api/runner`). Requires **both** an `X-Signature-256` header
+Runner callback endpoint. Mounts at `/api/<name>` derived from the active task
+backend's entry name (e.g. `/api/runner` for the runner entry, `/api/agent`
+for the agent entry). Requires **both** an `X-Signature-256` header
 (HMAC-SHA256, prefixed with `sha256=`, signed with the matching backend's
 `api_key`) and an `X-Webhook-Timestamp` header (used for clock-skew rejection).
 Missing either header, a malformed signature, or an expired timestamp returns
@@ -1164,13 +1166,13 @@ callback is acknowledged but not acted on.
 
 ### GET /api/v1/cards/{project}/{id}/autonomous
 
-Runner-only read endpoint (fixed path, independent of `callback_path`).
-Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
+Runner-only read endpoint (fixed path, independent of the derived callback
+path). Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
 `X-Webhook-Timestamp`, signed with the task backend's `api_key`). Returns the
 minimal shape `{"autonomous": <bool>}` so the runner can fail-closed verify a
-card's autonomous flag during `/promote` before writing the canned stdin message.
-Only registered when a task backend is configured. No other card fields are
-exposed on this path.
+card's autonomous flag during `/promote` before writing the canned stdin
+message. Only registered when a task backend is configured. No other card
+fields are exposed on this path.
 
 ## Chat Endpoints
 
