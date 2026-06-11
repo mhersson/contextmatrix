@@ -295,6 +295,15 @@ func main() {
 		knowledgeRefresher = runnerSys.Client
 	}
 
+	// Transitional bridge until wiring reads the backend selectors (next
+	// commit): derive the handler config from the legacy runner block.
+	taskBackendCfg := config.BackendConfig{
+		APIKey:                  cfg.Runner.APIKey,
+		CallbackPath:            "/api/runner",
+		OrchestratorSonnetModel: cfg.Runner.OrchestratorSonnetModel,
+		OrchestratorOpusModel:   cfg.Runner.OrchestratorOpusModel,
+	}
+
 	sessionMgr := runnerSys.SessionLog
 
 	// Create MCP server
@@ -325,7 +334,7 @@ func main() {
 		Syncer:              apiSyncer,
 		Runner:              taskBackend,
 		KnowledgeRefresher:  knowledgeRefresher,
-		RunnerCfg:           cfg.Runner,
+		BackendCfg:          taskBackendCfg,
 		RefreshRegistry:     refreshRegistry,
 		MCPAPIKey:           cfg.MCPAPIKey,
 		Port:                cfg.Port,

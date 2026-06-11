@@ -22,9 +22,9 @@ import (
 func makeRunnerHandlers(runnerURL, apiKey string) *runnerHandlers {
 	return &runnerHandlers{
 		runner: runner.NewClient(runnerURL, apiKey),
-		runnerCfg: config.RunnerConfig{
-			URL:    runnerURL,
-			APIKey: apiKey,
+		backendCfg: config.BackendConfig{
+			APIKey:       apiKey,
+			CallbackPath: "/api/runner",
 		},
 	}
 }

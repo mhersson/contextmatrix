@@ -90,10 +90,9 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{
-			Enabled: true,
-			URL:     mockRunner.URL,
-			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+		BackendCfg: config.BackendConfig{
+			APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			CallbackPath: "/api/runner",
 		},
 		MCPAPIKey: "test-mcp-key",
 	})
@@ -212,7 +211,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -263,7 +262,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -308,7 +307,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -341,7 +340,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -385,7 +384,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -448,10 +447,9 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{
-			Enabled: true,
-			URL:     mockRunner.URL,
-			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+		BackendCfg: config.BackendConfig{
+			APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			CallbackPath: "/api/runner",
 		},
 	})
 
@@ -546,7 +544,7 @@ remote_execution:
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -593,7 +591,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -684,7 +682,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -717,7 +715,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -748,7 +746,7 @@ func TestStopAll_HumanOnly(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -848,7 +846,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -898,7 +896,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -937,7 +935,7 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -974,7 +972,7 @@ func TestRunnerStatusUpdate_InvalidSignature(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1011,7 +1009,7 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1091,7 +1089,7 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1132,7 +1130,7 @@ func TestRunnerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", "")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: ""},
+		BackendCfg: config.BackendConfig{APIKey: "", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1166,7 +1164,7 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1223,7 +1221,7 @@ func TestMessageCard_HumanOnly(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1291,7 +1289,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1339,7 +1337,7 @@ func TestMessageCard_EmptyContent(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1373,7 +1371,7 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1410,7 +1408,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1459,7 +1457,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1512,7 +1510,7 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1548,7 +1546,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1603,7 +1601,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1655,7 +1653,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1739,7 +1737,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -1803,7 +1801,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+			BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1849,7 +1847,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+			BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1894,7 +1892,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+			BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 		})
 
 		server := httptest.NewServer(router)
@@ -1945,7 +1943,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{Enabled: true, URL: mockRunner.URL, APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+			BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", CallbackPath: "/api/runner"},
 		})
 
 		server := httptest.NewServer(router)
@@ -2040,10 +2038,9 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	runnerClient := runner.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{
-			Enabled: true,
-			URL:     fakeRunner.URL,
-			APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+		BackendCfg: config.BackendConfig{
+			APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			CallbackPath: "/api/runner",
 		},
 	})
 
@@ -2098,10 +2095,9 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{
-				Enabled:                 true,
-				URL:                     mockRunner.URL,
+			BackendCfg: config.BackendConfig{
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				CallbackPath:            "/api/runner",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},
@@ -2143,10 +2139,9 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{
-				Enabled:                 true,
-				URL:                     mockRunner.URL,
+			BackendCfg: config.BackendConfig{
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				CallbackPath:            "/api/runner",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},
@@ -2195,7 +2190,7 @@ func setupAutonomousEndpoint(t *testing.T, autonomous bool) (*httptest.Server, s
 	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: testRunnerAPIKey},
+		BackendCfg: config.BackendConfig{APIKey: testRunnerAPIKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -2419,10 +2414,9 @@ default_skills:
 		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
-			RunnerCfg: config.RunnerConfig{
-				Enabled: true,
-				URL:     mockRunner.URL,
-				APIKey:  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			BackendCfg: config.BackendConfig{
+				APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				CallbackPath: "/api/runner",
 			},
 		})
 
@@ -2526,7 +2520,7 @@ func TestAPI_RunnerSkillEngaged(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -2567,7 +2561,7 @@ func TestAPI_RunnerSkillEngaged_InvalidSignature(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)
@@ -2600,7 +2594,7 @@ func TestAPI_RunnerSkillEngaged_MissingFields(t *testing.T) {
 	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		RunnerCfg: config.RunnerConfig{Enabled: true, URL: "http://localhost:9090", APIKey: apiKey},
+		BackendCfg: config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 	})
 
 	server := httptest.NewServer(router)

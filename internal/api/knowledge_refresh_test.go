@@ -424,7 +424,7 @@ func TestRunnerKnowledgeStatus_AcceptsValidSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -458,7 +458,7 @@ func TestRunnerKnowledgeStatus_FailedWithoutCommitMarksFailed(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -488,7 +488,7 @@ func TestRunnerKnowledgeStatus_RejectsMissingSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()

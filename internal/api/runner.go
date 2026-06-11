@@ -40,8 +40,8 @@ const (
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
 	svc               *service.CardService
-	runner            TaskBackend // nil when no task backend is configured
-	runnerCfg         config.RunnerConfig
+	runner            TaskBackend          // nil when no task backend is configured
+	backendCfg        config.BackendConfig // resolved default_backend entry; zero value when no task backend is configured
 	mcpAPIKey         string
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
@@ -195,9 +195,9 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build trigger payload.
-	model := h.runnerCfg.OrchestratorSonnetModel
+	model := h.backendCfg.OrchestratorSonnetModel
 	if card.UseOpusOrchestrator {
-		model = h.runnerCfg.OrchestratorOpusModel
+		model = h.backendCfg.OrchestratorOpusModel
 	}
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
@@ -600,8 +600,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, stopAllResponse{AffectedCards: affected, FailedToUpdate: failed})
 }
 
-// Callback request bodies are protocol-owned; aliased so handlers and
-// tests keep their local names.
+// Callback request bodies are protocol-owned; aliased so handlers keep their local names.
 type (
 	runnerStatusRequest    = protocol.StatusCallbackPayload
 	knowledgeStatusRequest = protocol.KnowledgeStatusPayload
@@ -738,7 +737,7 @@ func (h *runnerHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Reques
 // GET (no body) and POST (body in the signed payload) handlers can share
 // this prefix without duplicating the differing tails.
 func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.Request) (sig, ts string, ok bool) {
-	if h.runnerCfg.APIKey == "" {
+	if h.backendCfg.APIKey == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
 
 		return "", "", false
@@ -776,7 +775,7 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 		return false
 	}
 
-	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.backendCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
@@ -831,7 +830,7 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
-	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.backendCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return nil, false
@@ -850,7 +849,7 @@ type runnerHealthResponse struct {
 // getRunnerHealth handles GET /api/runner/health by proxying to the runner's
 // /health endpoint and returning the parsed shape. The UI reads max_concurrent
 // from here to render the NowRail capacity meter — it's the runner-global cap,
-// not a per-project value. Returns 503 when the runner is disabled and 502
+// not a per-project value. Returns 503 when no task backend is configured and 502
 // when the runner is unreachable; callers should fail soft (hide capacity).
 //
 // Probe results are cached for runnerHealthCacheTTL so concurrent tabs and
@@ -937,12 +936,12 @@ func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.
 func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {
-		return h.runnerCfg.Enabled
+		return h.runner != nil
 	}
 
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.Enabled != nil {
 		return *projectCfg.RemoteExecution.Enabled
 	}
 
-	return h.runnerCfg.Enabled
+	return h.runner != nil
 }
