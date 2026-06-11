@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -588,6 +590,10 @@ func Load(path string) (*Config, error) {
 			applyBackendDefaults(cfg)
 			applyEnvOverrides(cfg)
 
+			if err := checkBackendEnvKeys(cfg); err != nil {
+				return nil, err
+			}
+
 			if err := resolvePaths(cfg, path); err != nil {
 				return nil, err
 			}
@@ -613,6 +619,10 @@ func Load(path string) (*Config, error) {
 	applyImagesDefaults(cfg)
 	applyBackendDefaults(cfg)
 	applyEnvOverrides(cfg)
+
+	if err := checkBackendEnvKeys(cfg); err != nil {
+		return nil, err
+	}
 
 	if err := resolvePaths(cfg, path); err != nil {
 		return nil, err
@@ -682,7 +692,9 @@ func applyImagesDefaults(cfg *Config) {
 }
 
 // TaskBackendConfig resolves the default_backend selector. ok is false when
-// task execution is disabled (empty selector).
+// task execution is disabled (empty selector). Validate ensures a non-empty
+// selector names an existing entry, so post-Validate calls with a non-empty
+// selector always return ok=true.
 func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
 	if c.DefaultBackend == "" {
 		return BackendConfig{}, false
@@ -694,7 +706,9 @@ func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
 }
 
 // ChatBackendConfig resolves the chat_backend selector. ok is false when
-// chat execution is disabled (empty selector).
+// chat execution is disabled (empty selector). Validate ensures a non-empty
+// selector names an existing entry, so post-Validate calls with a non-empty
+// selector always return ok=true.
 func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
 	if c.ChatBackendName == "" {
 		return BackendConfig{}, false
@@ -942,6 +956,55 @@ func applyEnvOverrides(cfg *Config) {
 			slog.Warn("ignoring invalid CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "value", v, "error", err)
 		}
 	}
+
+	if v := os.Getenv("CONTEXTMATRIX_DEFAULT_BACKEND"); v != "" {
+		cfg.DefaultBackend = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_CHAT_BACKEND"); v != "" {
+		cfg.ChatBackendName = v
+	}
+
+	for name, b := range cfg.Backends {
+		prefix := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+
+		if v := os.Getenv(prefix + "_URL"); v != "" {
+			b.URL = v
+		}
+
+		if v := os.Getenv(prefix + "_API_KEY"); v != "" {
+			b.APIKey = v
+		}
+
+		cfg.Backends[name] = b
+	}
+}
+
+// checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
+// do not map to a known (name, field) pair — either the backend name is not
+// configured, or the suffix is not _URL / _API_KEY. A typo'd or stale
+// variable must fail loudly, not silently configure nothing. NOTE: when
+// adding a new per-backend env field to applyEnvOverrides, add it to the
+// known set here too, or configs using it will hard-fail at startup.
+func checkBackendEnvKeys(cfg *Config) error {
+	known := map[string]bool{}
+	for name := range cfg.Backends {
+		known["CONTEXTMATRIX_BACKEND_"+strings.ToUpper(name)+"_URL"] = true
+		known["CONTEXTMATRIX_BACKEND_"+strings.ToUpper(name)+"_API_KEY"] = true
+	}
+
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(name, "CONTEXTMATRIX_BACKEND_") {
+			continue
+		}
+
+		if !known[name] {
+			return fmt.Errorf("%s references no configured backend (known backends: %v) — fix the variable or add the backends entry", name, slices.Sorted(maps.Keys(cfg.Backends)))
+		}
+	}
+
+	return nil
 }
 
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.

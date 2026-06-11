@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -2434,4 +2435,90 @@ func TestBackendsConfigDefaults(t *testing.T) {
 
 	_, ok = disabledCfg.ChatBackendConfig()
 	assert.False(t, ok)
+}
+
+// validBackendsBlockNoSelectors is like validBackendsBlock but omits
+// default_backend/chat_backend so tests can supply them via env.
+const validBackendsBlockNoSelectors = `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`
+
+func TestBackendEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	// Config has a backends entry but no selectors in YAML — set them via env.
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlockNoSelectors)
+
+	t.Setenv("CONTEXTMATRIX_DEFAULT_BACKEND", "runner")
+	t.Setenv("CONTEXTMATRIX_CHAT_BACKEND", "runner")
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_URL", "http://override:9999")
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_API_KEY", strings.Repeat("x", 32))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "runner", cfg.DefaultBackend)
+	assert.Equal(t, "runner", cfg.ChatBackendName)
+	assert.Equal(t, "http://override:9999", cfg.Backends["runner"].URL)
+	assert.Equal(t, strings.Repeat("x", 32), cfg.Backends["runner"].APIKey)
+
+	// Selectors set via env must resolve after Validate.
+	tb, ok := cfg.TaskBackendConfig()
+	require.True(t, ok, "TaskBackendConfig must resolve after env-set selector")
+	assert.Equal(t, "http://override:9999", tb.URL)
+}
+
+func TestBackendEnvUnknownNameErrors(t *testing.T) {
+	cases := []struct {
+		name   string
+		envKey string
+	}{
+		{
+			// Backends map has only "runner"; env references a non-existent name.
+			name:   "unknown backend name",
+			envKey: "CONTEXTMATRIX_BACKEND_NOPE_URL",
+		},
+		{
+			// Valid backend name but a suffix outside the _URL/_API_KEY
+			// allowlist must also fail loudly.
+			name:   "known backend name with unknown suffix",
+			envKey: "CONTEXTMATRIX_BACKEND_RUNNER_MODEL",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlockNoSelectors)
+
+			t.Setenv(tc.envKey, "http://x")
+
+			_, err := Load(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.envKey)
+		})
+	}
+}
+
+func TestBackendsConfigValidation_InvalidReconcileInterval(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+    reconcile_interval: "soon"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reconcile_interval")
 }
