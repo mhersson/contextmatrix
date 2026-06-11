@@ -2247,3 +2247,191 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 
 	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "chats.db"), cfg.Chat.DBPath)
 }
+
+// ---------- Backends config tests ----------
+
+// minValidBase returns a minimal YAML string that passes Validate() on its own.
+// Tests append their own backends/default_backend/chat_backend stanzas.
+func minValidBase(boardsDir string) string {
+	return `boards:
+  dir: ` + boardsDir + `
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+`
+}
+
+// validBackendsBlock is the backends YAML block used by the "valid runner entry"
+// case and by TestBackendsConfigDefaults.
+const validBackendsBlock = `
+default_backend: runner
+chat_backend: runner
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`
+
+func TestBackendsConfigValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string // empty = Load must succeed
+	}{
+		{
+			name:    "valid runner entry",
+			yaml:    validBackendsBlock,
+			wantErr: "",
+		},
+		{
+			name: "selector without entry",
+			yaml: `
+default_backend: nope
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`,
+			wantErr: "default_backend",
+		},
+		{
+			name: "chat selector without entry",
+			yaml: `
+default_backend: runner
+chat_backend: nope
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`,
+			wantErr: "chat_backend",
+		},
+		{
+			name: "short api key",
+			yaml: `
+default_backend: runner
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "short"
+    callback_path: /api/runner
+`,
+			wantErr: "api_key",
+		},
+		{
+			name: "missing url",
+			yaml: `
+default_backend: runner
+backends:
+  runner:
+    url: ""
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`,
+			wantErr: "url",
+		},
+		{
+			name: "unreserved callback path",
+			yaml: `
+default_backend: runner
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/foo
+`,
+			wantErr: "callback_path",
+		},
+		{
+			name: "duplicate callback path",
+			yaml: `
+default_backend: runner
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`,
+			wantErr: "callback_path",
+		},
+		{
+			name: "bad backend name",
+			yaml: `
+default_backend: Runner
+backends:
+  Runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    callback_path: /api/runner
+`,
+			wantErr: "backend name",
+		},
+		{
+			name:    "disabled state",
+			yaml:    "",
+			wantErr: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			_, err := Load(path)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestBackendsConfigDefaults(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlock)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	// Per-entry defaults are filled in by applyBackendDefaults.
+	b := cfg.Backends["runner"]
+	assert.Equal(t, "claude-sonnet-4-6", b.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-8", b.OrchestratorOpusModel)
+	assert.Equal(t, "60s", b.ReconcileInterval)
+
+	// TaskBackendConfig resolves the default_backend selector.
+	tb, ok := cfg.TaskBackendConfig()
+	require.True(t, ok)
+	assert.Equal(t, "http://localhost:9090", tb.URL)
+
+	// ChatBackendConfig resolves the chat_backend selector.
+	_, ok = cfg.ChatBackendConfig()
+	require.True(t, ok)
+
+	// Disabled config: no selectors → both helpers return false.
+	disabledDir := t.TempDir()
+	disabledBoardsDir := t.TempDir()
+	disabledPath := writeConfigFile(t, disabledDir, minValidBase(disabledBoardsDir))
+
+	disabledCfg, err := Load(disabledPath)
+	require.NoError(t, err)
+
+	_, ok = disabledCfg.TaskBackendConfig()
+	assert.False(t, ok)
+
+	_, ok = disabledCfg.ChatBackendConfig()
+	assert.False(t, ok)
+}

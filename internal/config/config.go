@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,52 @@ func (r *RunnerConfig) ReconcileIntervalDuration() time.Duration {
 	}
 
 	d, err := time.ParseDuration(r.ReconcileInterval)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
+// MinBackendAPIKeyLength is the minimum required length for a backend
+// entry's api_key.
+const MinBackendAPIKeyLength = 32
+
+// backendNamePattern restricts backends map keys to lowercase alphanumerics
+// so the CONTEXTMATRIX_BACKEND_<NAME>_* env-override scheme stays unambiguous.
+var backendNamePattern = regexp.MustCompile(`^[a-z0-9]+$`)
+
+// reservedCallbackPaths is the closed set of webhook callback prefixes the
+// router understands. /api/runner is contextmatrix-runner's; /api/agent and
+// /api/chat are reserved for future backends.
+var reservedCallbackPaths = map[string]bool{
+	"/api/runner": true,
+	"/api/agent":  true,
+	"/api/chat":   true,
+}
+
+// BackendConfig is one entry in the backends map: an execution backend CM
+// can drive over the contextmatrix-protocol webhook contract. Read once at
+// startup — changing backends or selectors requires a CM restart.
+type BackendConfig struct {
+	URL          string `yaml:"url"`           // base URL, e.g. http://localhost:9090
+	APIKey       string `yaml:"api_key"`       // shared HMAC secret for this backend
+	CallbackPath string `yaml:"callback_path"` // reserved prefix this backend's callbacks mount at
+
+	// contextmatrix-runner-specific knobs; other backend types leave them empty.
+	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"`
+	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
+	ReconcileInterval       string `yaml:"reconcile_interval"`
+}
+
+// ReconcileIntervalDuration parses ReconcileInterval. Zero/unset/invalid
+// returns 0, which disables the reconcile sweep.
+func (b *BackendConfig) ReconcileIntervalDuration() time.Duration {
+	if b.ReconcileInterval == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(b.ReconcileInterval)
 	if err != nil {
 		return 0
 	}
@@ -199,13 +246,21 @@ type Config struct {
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
 	Runner               RunnerConfig         `yaml:"runner"`
-	GitHub               GitHubConfig         `yaml:"github"`
-	LogFormat            string               `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel             string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort            int                  `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr        string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
-	Chat                 ChatConfig           `yaml:"chat"`
-	Images               ImagesConfig         `yaml:"images"`
+	// DefaultBackend names the backends entry that executes cards. Empty
+	// disables task execution. Restart required to change.
+	DefaultBackend string `yaml:"default_backend"`
+	// ChatBackendName names the backends entry that runs chat containers.
+	// Independent of DefaultBackend. Empty disables chat containers.
+	ChatBackendName string `yaml:"chat_backend"`
+	// Backends maps a backend name to its connection config.
+	Backends      map[string]BackendConfig `yaml:"backends"`
+	GitHub        GitHubConfig             `yaml:"github"`
+	LogFormat     string                   `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel      string                   `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort     int                      `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr string                   `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat          ChatConfig               `yaml:"chat"`
+	Images        ImagesConfig             `yaml:"images"`
 }
 
 // defaults returns a Config with default values.
@@ -345,6 +400,55 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// applyBackendDefaults fills per-entry knob defaults for backends that
+	// omit them. Idempotent; mirrors the applyChatDefaults pattern so
+	// callers that bypass Load still get defaults applied.
+	applyBackendDefaults(c)
+
+	seenCallbackPaths := map[string]string{}
+
+	for name, b := range c.Backends {
+		if !backendNamePattern.MatchString(name) {
+			return fmt.Errorf("invalid backend name %q: must match ^[a-z0-9]+$ (the CONTEXTMATRIX_BACKEND_<NAME>_* env scheme depends on it)", name)
+		}
+
+		if b.URL == "" {
+			return fmt.Errorf("backends[%q].url is required", name)
+		}
+
+		if len(b.APIKey) < MinBackendAPIKeyLength {
+			return fmt.Errorf("backends[%q].api_key must be at least %d characters", name, MinBackendAPIKeyLength)
+		}
+
+		if !reservedCallbackPaths[b.CallbackPath] {
+			return fmt.Errorf("backends[%q].callback_path %q must be one of /api/runner, /api/agent, /api/chat", name, b.CallbackPath)
+		}
+
+		if other, dup := seenCallbackPaths[b.CallbackPath]; dup {
+			return fmt.Errorf("backends[%q].callback_path %q already used by backends[%q]", name, b.CallbackPath, other)
+		}
+
+		seenCallbackPaths[b.CallbackPath] = name
+
+		if b.ReconcileInterval != "" {
+			if _, err := time.ParseDuration(b.ReconcileInterval); err != nil {
+				return fmt.Errorf("invalid backends[%q].reconcile_interval %q: %w", name, b.ReconcileInterval, err)
+			}
+		}
+	}
+
+	if c.DefaultBackend != "" {
+		if _, ok := c.Backends[c.DefaultBackend]; !ok {
+			return fmt.Errorf("default_backend %q is not in backends", c.DefaultBackend)
+		}
+	}
+
+	if c.ChatBackendName != "" {
+		if _, ok := c.Backends[c.ChatBackendName]; !ok {
+			return fmt.Errorf("chat_backend %q is not in backends", c.ChatBackendName)
+		}
+	}
+
 	if c.Theme == "" {
 		c.Theme = "everforest"
 	}
@@ -481,6 +585,7 @@ func Load(path string) (*Config, error) {
 		if os.IsNotExist(err) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
+			applyBackendDefaults(cfg)
 			applyEnvOverrides(cfg)
 
 			if err := resolvePaths(cfg, path); err != nil {
@@ -506,6 +611,7 @@ func Load(path string) (*Config, error) {
 
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
+	applyBackendDefaults(cfg)
 	applyEnvOverrides(cfg)
 
 	if err := resolvePaths(cfg, path); err != nil {
@@ -572,6 +678,50 @@ func defaultSQLiteDBPath(filename string) string {
 func applyImagesDefaults(cfg *Config) {
 	if cfg.Images.DBPath == "" {
 		cfg.Images.DBPath = defaultSQLiteDBPath("images.db")
+	}
+}
+
+// TaskBackendConfig resolves the default_backend selector. ok is false when
+// task execution is disabled (empty selector).
+func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
+	if c.DefaultBackend == "" {
+		return BackendConfig{}, false
+	}
+
+	b, ok := c.Backends[c.DefaultBackend]
+
+	return b, ok
+}
+
+// ChatBackendConfig resolves the chat_backend selector. ok is false when
+// chat execution is disabled (empty selector).
+func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
+	if c.ChatBackendName == "" {
+		return BackendConfig{}, false
+	}
+
+	b, ok := c.Backends[c.ChatBackendName]
+
+	return b, ok
+}
+
+// applyBackendDefaults fills per-entry defaults for fields not supplied by
+// YAML. Idempotent.
+func applyBackendDefaults(cfg *Config) {
+	for name, b := range cfg.Backends {
+		if b.OrchestratorSonnetModel == "" {
+			b.OrchestratorSonnetModel = "claude-sonnet-4-6"
+		}
+
+		if b.OrchestratorOpusModel == "" {
+			b.OrchestratorOpusModel = "claude-opus-4-8"
+		}
+
+		if b.ReconcileInterval == "" {
+			b.ReconcileInterval = "60s"
+		}
+
+		cfg.Backends[name] = b
 	}
 }
 
