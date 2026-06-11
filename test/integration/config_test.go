@@ -79,6 +79,8 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T) string {
 	// without them CM falls back to the developer's real XDG state databases,
 	// making the harness non-hermetic (and failing outright when the shared
 	// chats.db predates the current schema).
+	// backends.runner: roles and callback path (/api/runner) are derived from
+	// the entry name; no selector fields or callback_path needed.
 	body := fmt.Sprintf(`port: %d
 log_format: text
 log_level: debug
@@ -86,13 +88,10 @@ mcp_api_key: %q
 boards:
   dir: %s
   git_auto_commit: true
-default_backend: runner
-chat_backend: runner
 backends:
   runner:
     url: http://127.0.0.1:%d
     api_key: %q
-    callback_path: /api/runner
 chat:
   db_path: %s
 images:
