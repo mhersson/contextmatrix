@@ -16,7 +16,7 @@ import (
 // runnerSubsystems groups the optional task-backend client, the session-log
 // manager, and any related coordinators so they can be wired in one place.
 type runnerSubsystems struct {
-	// Client is nil when no task backend is configured (default_backend empty).
+	// Client is nil when no task backend is configured (no enabled runner/agent entry).
 	Client     *runner.Client
 	SessionLog *sessionlog.Manager
 }
@@ -43,7 +43,7 @@ func wireRunnerSubsystems(
 	// --- task backend client (optional) ---
 	if taskEnabled {
 		sys.Client = runner.NewClient(taskCfg.URL, taskCfg.APIKey)
-		slog.Info("task backend enabled", "name", cfg.DefaultBackend, "url", taskCfg.URL)
+		slog.Info("task backend enabled", "name", taskCfg.Name, "url", taskCfg.URL)
 
 		runner.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
 		slog.Info("end-session subscriber started")

@@ -42,7 +42,7 @@ func wireChat(
 	} else {
 		// Nil backend causes nil-pointer panics at call sites. Use a no-op
 		// stub that errors on every operation — chat features require a
-		// configured chat_backend.
+		// configured chat backend.
 		chatBackend = chatRunnerDisabled{}
 	}
 

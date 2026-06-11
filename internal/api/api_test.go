@@ -2714,7 +2714,7 @@ remote_execution:
 			Service:    svc,
 			Bus:        bus,
 			Runner:     runnerClient,
-			BackendCfg: config.BackendConfig{CallbackPath: "/api/runner"},
+			BackendCfg: config.BackendConfig{Name: "runner"},
 		})
 
 		server := httptest.NewServer(router)
@@ -2746,7 +2746,7 @@ remote_execution:
 			Service:    svc,
 			Bus:        bus,
 			Runner:     runnerClient,
-			BackendCfg: config.BackendConfig{CallbackPath: "/api/runner"},
+			BackendCfg: config.BackendConfig{Name: "runner"},
 		})
 
 		server := httptest.NewServer(router)

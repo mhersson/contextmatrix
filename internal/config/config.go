@@ -8,7 +8,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,31 +26,47 @@ type ModelRate struct {
 // entry's api_key.
 const MinBackendAPIKeyLength = 32
 
-// backendNamePattern restricts backends map keys to lowercase alphanumerics
-// so the CONTEXTMATRIX_BACKEND_<NAME>_* env-override scheme stays unambiguous.
-var backendNamePattern = regexp.MustCompile(`^[a-z0-9]+$`)
+// Backend name constants — the closed set of valid backends map keys.
+// Callback paths are derived as /api/<name>.
+const (
+	BackendNameRunner = "runner"
+	BackendNameAgent  = "agent"
+	BackendNameChat   = "chat"
+)
 
-// reservedCallbackPaths is the closed set of webhook callback prefixes the
-// router understands. /api/runner is contextmatrix-runner's; /api/agent and
-// /api/chat are reserved for future backends.
-var reservedCallbackPaths = map[string]bool{
-	"/api/runner": true,
-	"/api/agent":  true,
-	"/api/chat":   true,
-}
+// allowedBackendNames is the closed set used for name validation and env-key
+// allowlisting. Order is stable (runner, agent, chat) for error messages.
+var allowedBackendNames = []string{BackendNameRunner, BackendNameAgent, BackendNameChat}
 
 // BackendConfig is one entry in the backends map: an execution backend CM
 // can drive over the contextmatrix-protocol webhook contract. Read once at
-// startup — changing backends or selectors requires a CM restart.
+// startup — changing backends requires a CM restart.
 type BackendConfig struct {
-	URL          string `yaml:"url"`           // base URL, e.g. http://localhost:9090
-	APIKey       string `yaml:"api_key"`       // shared HMAC secret for this backend
-	CallbackPath string `yaml:"callback_path"` // reserved prefix this backend's callbacks mount at
+	URL     string `yaml:"url"`     // base URL, e.g. http://localhost:9090
+	APIKey  string `yaml:"api_key"` // shared HMAC secret for this backend
+	Enabled *bool  `yaml:"enabled"` // nil means enabled (omitting = active)
 
-	// contextmatrix-runner-specific knobs; other backend types leave them empty.
+	// Name is the map key, set programmatically by applyBackendDefaults.
+	// Never parsed from YAML.
+	Name string `yaml:"-"`
+
+	// Task-backend-only knobs; chat entries must leave these empty.
 	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"`
 	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
 	ReconcileInterval       string `yaml:"reconcile_interval"`
+}
+
+// IsEnabled reports whether this entry is active. nil Enabled defaults to true
+// (presence in the map = active; disabled entries are inert placeholders).
+func (b BackendConfig) IsEnabled() bool {
+	return b.Enabled == nil || *b.Enabled
+}
+
+// CallbackPath returns the webhook callback prefix derived from the entry name:
+// /api/<name>. Name must be set (by applyBackendDefaults or the constructor
+// helpers) before calling this.
+func (b BackendConfig) CallbackPath() string {
+	return "/api/" + b.Name
 }
 
 // ReconcileIntervalDuration parses ReconcileInterval. Zero/unset/invalid
@@ -218,13 +233,8 @@ type Config struct {
 	Theme                string               `yaml:"theme"`
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
-	// DefaultBackend names the backends entry that executes cards. Empty
-	// disables task execution. Restart required to change.
-	DefaultBackend string `yaml:"default_backend"`
-	// ChatBackendName names the backends entry that runs chat containers.
-	// Independent of DefaultBackend. Empty disables chat containers.
-	ChatBackendName string `yaml:"chat_backend"`
-	// Backends maps a backend name to its connection config.
+	// Backends maps a backend name (runner, agent, chat) to its connection
+	// config. Roles and callback paths are derived from the entry name.
 	Backends      map[string]BackendConfig `yaml:"backends"`
 	GitHub        GitHubConfig             `yaml:"github"`
 	LogFormat     string                   `yaml:"log_format"`      // "json" or "text", default "text"
@@ -352,11 +362,20 @@ func (c *Config) Validate() error {
 	// callers that bypass Load still get defaults applied.
 	applyBackendDefaults(c)
 
-	seenCallbackPaths := map[string]string{}
+	allowedSet := map[string]bool{}
+	for _, n := range allowedBackendNames {
+		allowedSet[n] = true
+	}
 
 	for name, b := range c.Backends {
-		if !backendNamePattern.MatchString(name) {
-			return fmt.Errorf("invalid backend name %q: must match ^[a-z0-9]+$ (the CONTEXTMATRIX_BACKEND_<NAME>_* env scheme depends on it)", name)
+		// Name check applies to ALL entries, enabled or not (typo guard).
+		if !allowedSet[name] {
+			return fmt.Errorf("invalid backend name %q: must be one of \"runner\", \"agent\", \"chat\"", name)
+		}
+
+		// Disabled entries are inert placeholders — skip all further checks.
+		if !b.IsEnabled() {
+			continue
 		}
 
 		if b.URL == "" {
@@ -367,15 +386,24 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("backends[%q].api_key must be at least %d characters", name, MinBackendAPIKeyLength)
 		}
 
-		if !reservedCallbackPaths[b.CallbackPath] {
-			return fmt.Errorf("backends[%q].callback_path %q must be one of /api/runner, /api/agent, /api/chat", name, b.CallbackPath)
-		}
+		// chat is a pure chat-serving backend; task-execution knobs don't
+		// apply. Checked before the duration-format check so the operator
+		// sees "must not be set" rather than a misleading format error.
+		if name == BackendNameChat {
+			if b.OrchestratorSonnetModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set on the chat backend", name)
+			}
 
-		if other, dup := seenCallbackPaths[b.CallbackPath]; dup {
-			return fmt.Errorf("backends[%q].callback_path %q already used by backends[%q]", name, b.CallbackPath, other)
-		}
+			if b.OrchestratorOpusModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set on the chat backend", name)
+			}
 
-		seenCallbackPaths[b.CallbackPath] = name
+			if b.ReconcileInterval != "" {
+				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
+			}
+
+			continue
+		}
 
 		if b.ReconcileInterval != "" {
 			if _, err := time.ParseDuration(b.ReconcileInterval); err != nil {
@@ -384,16 +412,27 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.DefaultBackend != "" {
-		if _, ok := c.Backends[c.DefaultBackend]; !ok {
-			return fmt.Errorf("default_backend %q is not in backends", c.DefaultBackend)
-		}
-	}
+	// runner is mutually exclusive with agent and chat: runner already serves
+	// both task execution and chat, so mixing the roles creates ambiguity.
+	runnerEnabled := c.Backends[BackendNameRunner].IsEnabled() && c.Backends[BackendNameRunner].URL != ""
+	agentEnabled := c.Backends[BackendNameAgent].IsEnabled() && c.Backends[BackendNameAgent].URL != ""
+	chatEnabled := c.Backends[BackendNameChat].IsEnabled() && c.Backends[BackendNameChat].URL != ""
 
-	if c.ChatBackendName != "" {
-		if _, ok := c.Backends[c.ChatBackendName]; !ok {
-			return fmt.Errorf("chat_backend %q is not in backends", c.ChatBackendName)
-		}
+	// Only treat an entry as "present+enabled" when it was actually declared
+	// in the map (a missing key returns a zero BackendConfig with Enabled==nil,
+	// which IsEnabled() would report true — so we must check map presence too).
+	_, hasRunner := c.Backends[BackendNameRunner]
+	_, hasAgent := c.Backends[BackendNameAgent]
+	_, hasChat := c.Backends[BackendNameChat]
+
+	runnerActive := hasRunner && runnerEnabled
+	agentActive := hasAgent && agentEnabled
+	chatActive := hasChat && chatEnabled
+
+	if runnerActive && (agentActive || chatActive) {
+		return fmt.Errorf("backends: runner is mutually exclusive with agent and chat " +
+			"(runner already serves both task execution and chat); " +
+			"set enabled: false on the entries you are not using")
 	}
 
 	if c.Theme == "" {
@@ -537,7 +576,10 @@ func Load(path string) (*Config, error) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
 			applyBackendDefaults(cfg)
-			applyEnvOverrides(cfg)
+
+			if err := applyEnvOverrides(cfg); err != nil {
+				return nil, err
+			}
 
 			if err := checkBackendEnvKeys(cfg); err != nil {
 				return nil, err
@@ -562,7 +604,7 @@ func Load(path string) (*Config, error) {
 
 	if err := dec.Decode(cfg); err != nil {
 		if strings.Contains(err.Error(), "field runner not found") {
-			return nil, fmt.Errorf("parse config: %w — the runner block was replaced by the backends map: move url/api_key to backends.runner, set callback_path: /api/runner, and point default_backend/chat_backend at \"runner\" (see config.yaml.example)", err)
+			return nil, fmt.Errorf("parse config: %w — the runner block was replaced by the backends map: move url/api_key into backends.runner (enabled defaults to true; nothing else required)", err)
 		}
 
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -571,7 +613,10 @@ func Load(path string) (*Config, error) {
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyBackendDefaults(cfg)
-	applyEnvOverrides(cfg)
+
+	if err := applyEnvOverrides(cfg); err != nil {
+		return nil, err
+	}
 
 	if err := checkBackendEnvKeys(cfg); err != nil {
 		return nil, err
@@ -644,48 +689,65 @@ func applyImagesDefaults(cfg *Config) {
 	}
 }
 
-// TaskBackendConfig resolves the default_backend selector. ok is false when
-// task execution is disabled (empty selector). Validate ensures a non-empty
-// selector names an existing entry, so post-Validate calls with a non-empty
-// selector always return ok=true.
+// TaskBackendConfig returns the backend responsible for task execution.
+// Precedence: runner (if present+enabled) → agent (if present+enabled) → not found.
+// The returned copy has Name set defensively so callers that bypass Load still
+// get a usable value.
 func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
-	if c.DefaultBackend == "" {
-		return BackendConfig{}, false
+	for _, name := range []string{BackendNameRunner, BackendNameAgent} {
+		b, ok := c.Backends[name]
+		if ok && b.IsEnabled() {
+			b.Name = name
+
+			return b, true
+		}
 	}
 
-	b, ok := c.Backends[c.DefaultBackend]
-
-	return b, ok
+	return BackendConfig{}, false
 }
 
-// ChatBackendConfig resolves the chat_backend selector. ok is false when
-// chat execution is disabled (empty selector). Validate ensures a non-empty
-// selector names an existing entry, so post-Validate calls with a non-empty
-// selector always return ok=true.
+// ChatBackendConfig returns the backend responsible for chat containers.
+// Precedence: runner (if present+enabled) → chat (if present+enabled) → not found.
+// The returned copy has Name set defensively so callers that bypass Load still
+// get a usable value.
 func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
-	if c.ChatBackendName == "" {
-		return BackendConfig{}, false
+	for _, name := range []string{BackendNameRunner, BackendNameChat} {
+		b, ok := c.Backends[name]
+		if ok && b.IsEnabled() {
+			b.Name = name
+
+			return b, true
+		}
 	}
 
-	b, ok := c.Backends[c.ChatBackendName]
-
-	return b, ok
+	return BackendConfig{}, false
 }
 
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
-// YAML. Idempotent.
+// YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
+// flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
+// only from the second run inside Validate — keep that re-run if the Load
+// sequence is ever reordered (pinned by TestBackendEnvEnableGetsDefaults).
 func applyBackendDefaults(cfg *Config) {
 	for name, b := range cfg.Backends {
-		if b.OrchestratorSonnetModel == "" {
-			b.OrchestratorSonnetModel = "claude-sonnet-4-6"
-		}
+		// Name is always set from the map key — cheap and correct even on
+		// disabled placeholders.
+		b.Name = name
 
-		if b.OrchestratorOpusModel == "" {
-			b.OrchestratorOpusModel = "claude-opus-4-8"
-		}
+		// Task-execution defaults apply only to enabled task backends (runner
+		// and agent). The chat backend must not have these fields set at all.
+		if b.IsEnabled() && name != BackendNameChat {
+			if b.OrchestratorSonnetModel == "" {
+				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
+			}
 
-		if b.ReconcileInterval == "" {
-			b.ReconcileInterval = "60s"
+			if b.OrchestratorOpusModel == "" {
+				b.OrchestratorOpusModel = "claude-opus-4-8"
+			}
+
+			if b.ReconcileInterval == "" {
+				b.ReconcileInterval = "60s"
+			}
 		}
 
 		cfg.Backends[name] = b
@@ -744,7 +806,7 @@ func parseBoolEnv(name string, current bool) bool {
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
-func applyEnvOverrides(cfg *Config) {
+func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("CONTEXTMATRIX_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil {
 			cfg.Port = port
@@ -888,14 +950,6 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_DEFAULT_BACKEND"); v != "" {
-		cfg.DefaultBackend = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_CHAT_BACKEND"); v != "" {
-		cfg.ChatBackendName = v
-	}
-
 	for name, b := range cfg.Backends {
 		prefix := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
 
@@ -907,31 +961,49 @@ func applyEnvOverrides(cfg *Config) {
 			b.APIKey = v
 		}
 
+		if v := os.Getenv(prefix + "_ENABLED"); v != "" {
+			enabled, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid %s_ENABLED %q: must be true/false/1/0: %w", prefix, v, err)
+			}
+
+			b.Enabled = &enabled
+		}
+
 		cfg.Backends[name] = b
 	}
+
+	return nil
 }
 
 // checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
-// do not map to a known (name, field) pair — either the backend name is not
-// configured, or the suffix is not _URL / _API_KEY. A typo'd or stale
-// variable must fail loudly, not silently configure nothing. NOTE: when
-// adding a new per-backend env field to applyEnvOverrides, add it to the
-// known set here too, or configs using it will hard-fail at startup.
+// do not map to a known (name, suffix) pair. The backend name must be in the
+// closed set (runner, agent, chat) AND be declared in cfg.Backends; the suffix
+// must be _URL, _API_KEY, or _ENABLED. A typo'd or stale variable must fail
+// loudly, not silently configure nothing. NOTE: when adding a new per-backend
+// env field to applyEnvOverrides, add it to the known set here too.
 func checkBackendEnvKeys(cfg *Config) error {
 	known := map[string]bool{}
+
 	for name := range cfg.Backends {
-		known["CONTEXTMATRIX_BACKEND_"+strings.ToUpper(name)+"_URL"] = true
-		known["CONTEXTMATRIX_BACKEND_"+strings.ToUpper(name)+"_API_KEY"] = true
+		pfx := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+		known[pfx+"_URL"] = true
+		known[pfx+"_API_KEY"] = true
+		known[pfx+"_ENABLED"] = true
 	}
 
 	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if !strings.HasPrefix(name, "CONTEXTMATRIX_BACKEND_") {
+		key, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(key, "CONTEXTMATRIX_BACKEND_") {
 			continue
 		}
 
-		if !known[name] {
-			return fmt.Errorf("%s references no configured backend (known backends: %v) — fix the variable or add the backends entry", name, slices.Sorted(maps.Keys(cfg.Backends)))
+		if !known[key] {
+			return fmt.Errorf("%s references no configured backend "+
+				"(allowed names: %s; declared: %v) — fix the variable name or add the backends entry",
+				key,
+				strings.Join(allowedBackendNames, ", "),
+				slices.Sorted(maps.Keys(cfg.Backends)))
 		}
 	}
 
@@ -949,12 +1021,26 @@ var legacyRunnerEnvVars = []string{
 	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL",
 }
 
+// legacyRunnerEnvMigration maps each retired var to its replacement name.
+var legacyRunnerEnvMigration = map[string]string{
+	"CONTEXTMATRIX_RUNNER_URL":     "CONTEXTMATRIX_BACKEND_RUNNER_URL",
+	"CONTEXTMATRIX_RUNNER_API_KEY": "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY",
+	"CONTEXTMATRIX_RUNNER_ENABLED": "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED",
+}
+
 // checkLegacyEnv rejects retired CONTEXTMATRIX_RUNNER_* variables with a
 // migration pointer.
 func checkLegacyEnv() error {
 	for _, name := range legacyRunnerEnvVars {
 		if os.Getenv(name) != "" {
-			return fmt.Errorf("%s is no longer supported: runner config moved to the backends map — set backends.<name>.* plus default_backend/chat_backend (see config.yaml.example)", name)
+			msg := fmt.Sprintf("%s is no longer supported: runner config moved to the backends map", name)
+			if replacement, ok := legacyRunnerEnvMigration[name]; ok {
+				msg += fmt.Sprintf(" — rename to %s", replacement)
+			} else {
+				msg += " (see config.yaml.example)"
+			}
+
+			return fmt.Errorf("%s", msg) //nolint:err113
 		}
 	}
 

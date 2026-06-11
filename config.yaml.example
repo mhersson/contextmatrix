@@ -180,25 +180,25 @@ task_skills:
 # webhooks to execute cards and chat sessions (today: contextmatrix-runner).
 # See docs/remote-execution.md.
 #
-# RESTART REQUIRED: backends and the two selectors below are read once at
-# startup. Changing them requires a CM restart.
+# RESTART REQUIRED: backends are read once at startup. Changing them requires
+# a CM restart.
 #
 # MIGRATION (pre-A2 configs): the old `runner:` block and CONTEXTMATRIX_RUNNER_*
-# env vars are gone. Move url/api_key into backends.runner, set callback_path
-# to /api/runner, and point both selectors at "runner".
+# env vars are gone. Move url/api_key into backends.runner (enabled defaults
+# to true; nothing else required).
+# Rename env vars: CONTEXTMATRIX_RUNNER_URL   → CONTEXTMATRIX_BACKEND_RUNNER_URL
+#                  CONTEXTMATRIX_RUNNER_API_KEY → CONTEXTMATRIX_BACKEND_RUNNER_API_KEY
+#                  CONTEXTMATRIX_RUNNER_ENABLED → CONTEXTMATRIX_BACKEND_RUNNER_ENABLED
+#
+# ROLE DERIVATION: names form a closed set (runner, agent, chat). Callback
+# paths are /api/<name>. Roles are derived from which entries are enabled:
+#   runner → executes cards AND serves chat (mutually exclusive with agent/chat)
+#   agent  → executes cards only
+#   chat   → serves chat only
+# Set enabled: false to keep a config block without activating it.
 
-# Which backends entry executes cards ("Run now", reconcile sweep,
-# end-session, task session logs). Empty = task execution disabled.
-# Env: CONTEXTMATRIX_DEFAULT_BACKEND
-default_backend: ""
-
-# Which backends entry runs chat containers. Independent of default_backend.
-# Empty = chat containers disabled.
-# Env: CONTEXTMATRIX_CHAT_BACKEND
-chat_backend: ""
-
-# Backend entries. Names must be lowercase alphanumerics (the
-# CONTEXTMATRIX_BACKEND_<NAME>_* env scheme depends on it).
+# Backend entries. Valid names: runner, agent, chat.
+# Env per-entry: CONTEXTMATRIX_BACKEND_<NAME>_{URL,API_KEY,ENABLED}
 backends: {}
 #  runner:
 #    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
@@ -211,12 +211,9 @@ backends: {}
 #    # Env: CONTEXTMATRIX_BACKEND_RUNNER_API_KEY
 #    api_key: ""
 #
-#    # Which reserved CM path prefix this backend's callbacks mount at.
-#    # One of /api/runner, /api/agent, /api/chat; unique per backend.
-#    # contextmatrix-runner uses /api/runner. (The /api/runner/logs and
-#    # /api/runner/health UI endpoints are hard-wired and always registered
-#    # when a task backend is configured — not derived from this setting.)
-#    callback_path: /api/runner
+#    # Set to false to disable this entry without removing the config block.
+#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_ENABLED
+#    # enabled: true
 #
 #    # contextmatrix-runner-specific: model IDs passed in the trigger payload.
 #    # Defaults: claude-sonnet-4-6 / claude-opus-4-8. YAML-only (no env).

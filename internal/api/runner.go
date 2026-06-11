@@ -41,7 +41,7 @@ const (
 type runnerHandlers struct {
 	svc               *service.CardService
 	runner            TaskBackend          // nil when no task backend is configured
-	backendCfg        config.BackendConfig // resolved default_backend entry; zero value when no task backend is configured
+	backendCfg        config.BackendConfig // resolved task-backend entry (Name set); zero value when no task backend is configured
 	mcpAPIKey         string
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured

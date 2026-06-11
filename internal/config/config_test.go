@@ -1999,7 +1999,7 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 // ---------- Backends config tests ----------
 
 // minValidBase returns a minimal YAML string that passes Validate() on its own.
-// Tests append their own backends/default_backend/chat_backend stanzas.
+// Tests append their own backends stanzas.
 func minValidBase(boardsDir string) string {
 	return `boards:
   dir: ` + boardsDir + `
@@ -2010,16 +2010,14 @@ github:
 `
 }
 
-// validBackendsBlock is the backends YAML block used by the "valid runner entry"
-// case and by TestBackendsConfigDefaults.
+// validBackendsBlock is the canonical backends YAML block: a single enabled
+// runner entry. Used by the "valid runner entry" case and by
+// TestBackendsConfigDefaults.
 const validBackendsBlock = `
-default_backend: runner
-chat_backend: runner
 backends:
   runner:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
 `
 
 func TestBackendsConfigValidation(t *testing.T) {
@@ -2034,98 +2032,156 @@ func TestBackendsConfigValidation(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name: "selector without entry",
-			yaml: `
-default_backend: nope
-backends:
-  runner:
-    url: http://localhost:9090
-    api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
-`,
-			wantErr: "default_backend",
-		},
-		{
-			name: "chat selector without entry",
-			yaml: `
-default_backend: runner
-chat_backend: nope
-backends:
-  runner:
-    url: http://localhost:9090
-    api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
-`,
-			wantErr: "chat_backend",
-		},
-		{
 			name: "short api key",
 			yaml: `
-default_backend: runner
 backends:
   runner:
     url: http://localhost:9090
     api_key: "short"
-    callback_path: /api/runner
 `,
 			wantErr: "api_key",
 		},
 		{
 			name: "missing url",
 			yaml: `
-default_backend: runner
 backends:
   runner:
     url: ""
     api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
 `,
 			wantErr: "url",
 		},
 		{
-			name: "unreserved callback path",
+			name: "unknown backend name",
 			yaml: `
-default_backend: runner
 backends:
-  runner:
+  foo:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/foo
-`,
-			wantErr: "callback_path",
-		},
-		{
-			name: "duplicate callback path",
-			yaml: `
-default_backend: runner
-backends:
-  runner:
-    url: http://localhost:9090
-    api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
-  agent:
-    url: http://localhost:9091
-    api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
-`,
-			wantErr: "callback_path",
-		},
-		{
-			name: "bad backend name",
-			yaml: `
-default_backend: Runner
-backends:
-  Runner:
-    url: http://localhost:9090
-    api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
 `,
 			wantErr: "backend name",
 		},
 		{
-			name:    "disabled state",
+			// Unknown name rejected even when disabled (typo guard).
+			name: "unknown name disabled entry still rejected",
+			yaml: `
+backends:
+  typo:
+    enabled: false
+`,
+			wantErr: "backend name",
+		},
+		{
+			name:    "no backends configured",
 			yaml:    "",
 			wantErr: "",
+		},
+		{
+			// runner mutually exclusive with agent.
+			name: "runner and agent both enabled",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+`,
+			wantErr: "mutually exclusive",
+		},
+		{
+			// runner mutually exclusive with chat.
+			name: "runner and chat both enabled",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+`,
+			wantErr: "mutually exclusive",
+		},
+		{
+			// All three blocks present but only runner enabled → valid.
+			name: "all three blocks runner only enabled",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+  agent:
+    enabled: false
+  chat:
+    enabled: false
+`,
+			wantErr: "",
+		},
+		{
+			// agent + chat without runner → valid.
+			name: "agent and chat both enabled without runner",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+`,
+			wantErr: "",
+		},
+		{
+			// Disabled entry with missing url/api_key → valid (incomplete
+			// placeholder is fine when disabled).
+			name: "disabled entry with missing url",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+  agent:
+    enabled: false
+`,
+			wantErr: "",
+		},
+		{
+			// Task-only field on enabled chat entry → error.
+			name: "reconcile_interval on chat entry",
+			yaml: `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    reconcile_interval: "30s"
+`,
+			wantErr: "reconcile_interval must not be set",
+		},
+		{
+			// Even an unparseable value must hit the "not allowed on chat"
+			// error, not a misleading duration-format error.
+			name: "unparseable reconcile_interval on chat entry",
+			yaml: `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    reconcile_interval: "bad-value"
+`,
+			wantErr: "reconcile_interval must not be set",
+		},
+		{
+			name: "orchestrator_sonnet_model on chat entry",
+			yaml: `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    orchestrator_sonnet_model: "claude-sonnet-4-6"
+`,
+			wantErr: "orchestrator_sonnet_model",
 		},
 	}
 
@@ -2154,69 +2210,251 @@ func TestBackendsConfigDefaults(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	// Per-entry defaults are filled in by applyBackendDefaults.
+	// Per-entry defaults filled by applyBackendDefaults on enabled task backends.
 	b := cfg.Backends["runner"]
+	assert.Equal(t, "runner", b.Name)
 	assert.Equal(t, "claude-sonnet-4-6", b.OrchestratorSonnetModel)
 	assert.Equal(t, "claude-opus-4-8", b.OrchestratorOpusModel)
 	assert.Equal(t, "60s", b.ReconcileInterval)
 
-	// TaskBackendConfig resolves the default_backend selector.
+	// TaskBackendConfig: runner present+enabled → returns it with Name set.
 	tb, ok := cfg.TaskBackendConfig()
 	require.True(t, ok)
 	assert.Equal(t, "http://localhost:9090", tb.URL)
+	assert.Equal(t, "runner", tb.Name)
 
-	// ChatBackendConfig resolves the chat_backend selector.
-	_, ok = cfg.ChatBackendConfig()
+	// ChatBackendConfig: runner present+enabled → also serves chat.
+	cb, ok := cfg.ChatBackendConfig()
 	require.True(t, ok)
+	assert.Equal(t, "runner", cb.Name)
 
-	// Disabled config: no selectors → both helpers return false.
-	disabledDir := t.TempDir()
-	disabledBoardsDir := t.TempDir()
-	disabledPath := writeConfigFile(t, disabledDir, minValidBase(disabledBoardsDir))
-
-	disabledCfg, err := Load(disabledPath)
+	// No backends → both helpers return false.
+	emptyDir := t.TempDir()
+	emptyBoardsDir := t.TempDir()
+	emptyCfg, err := Load(writeConfigFile(t, emptyDir, minValidBase(emptyBoardsDir)))
 	require.NoError(t, err)
 
-	_, ok = disabledCfg.TaskBackendConfig()
+	_, ok = emptyCfg.TaskBackendConfig()
 	assert.False(t, ok)
 
-	_, ok = disabledCfg.ChatBackendConfig()
+	_, ok = emptyCfg.ChatBackendConfig()
 	assert.False(t, ok)
 }
 
-// validBackendsBlockNoSelectors is like validBackendsBlock but omits
-// default_backend/chat_backend so tests can supply them via env.
-const validBackendsBlockNoSelectors = `
+func TestBackendsConfigDefaults_ChatEntryNoTaskDefaults(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
 backends:
-  runner:
-    url: http://localhost:9090
+  chat:
+    url: http://localhost:9092
     api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
 `
+	path := writeConfigFile(t, dir, yaml)
 
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	b := cfg.Backends["chat"]
+	assert.Equal(t, "chat", b.Name)
+	// Orchestrator defaults must NOT be applied to the chat backend.
+	assert.Empty(t, b.OrchestratorSonnetModel)
+	assert.Empty(t, b.OrchestratorOpusModel)
+	assert.Empty(t, b.ReconcileInterval)
+}
+
+func TestBackendsRoleDerivation(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+
+	cases := []struct {
+		name         string
+		yaml         string
+		wantTaskName string
+		wantTaskOK   bool
+		wantChatName string
+		wantChatOK   bool
+	}{
+		{
+			name: "runner only",
+			yaml: `backends:
+  runner:
+    url: http://r:9090
+    api_key: "` + apiKey + `"
+`,
+			wantTaskName: "runner", wantTaskOK: true,
+			wantChatName: "runner", wantChatOK: true,
+		},
+		{
+			name: "agent only",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+`,
+			wantTaskName: "agent", wantTaskOK: true,
+			wantChatOK: false,
+		},
+		{
+			name: "chat only",
+			yaml: `backends:
+  chat:
+    url: http://c:9092
+    api_key: "` + apiKey + `"
+`,
+			wantTaskOK:   false,
+			wantChatName: "chat", wantChatOK: true,
+		},
+		{
+			name: "agent and chat",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+  chat:
+    url: http://c:9092
+    api_key: "` + apiKey + `"
+`,
+			wantTaskName: "agent", wantTaskOK: true,
+			wantChatName: "chat", wantChatOK: true,
+		},
+		{
+			name:       "empty backends",
+			yaml:       "",
+			wantTaskOK: false, wantChatOK: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+
+			tb, taskOK := cfg.TaskBackendConfig()
+			assert.Equal(t, tc.wantTaskOK, taskOK)
+
+			if tc.wantTaskOK {
+				assert.Equal(t, tc.wantTaskName, tb.Name)
+			}
+
+			cb, chatOK := cfg.ChatBackendConfig()
+			assert.Equal(t, tc.wantChatOK, chatOK)
+
+			if tc.wantChatOK {
+				assert.Equal(t, tc.wantChatName, cb.Name)
+			}
+		})
+	}
+}
+
+// validBackendsBlock (minimal runner entry) is the fixture for env override
+// tests — no selectors to set anymore, URL/API key come from env.
 func TestBackendEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
-	// Config has a backends entry but no selectors in YAML — set them via env.
-	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlockNoSelectors)
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlock)
 
-	t.Setenv("CONTEXTMATRIX_DEFAULT_BACKEND", "runner")
-	t.Setenv("CONTEXTMATRIX_CHAT_BACKEND", "runner")
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_URL", "http://override:9999")
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_API_KEY", strings.Repeat("x", 32))
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "runner", cfg.DefaultBackend)
-	assert.Equal(t, "runner", cfg.ChatBackendName)
 	assert.Equal(t, "http://override:9999", cfg.Backends["runner"].URL)
 	assert.Equal(t, strings.Repeat("x", 32), cfg.Backends["runner"].APIKey)
 
-	// Selectors set via env must resolve after Validate.
 	tb, ok := cfg.TaskBackendConfig()
-	require.True(t, ok, "TaskBackendConfig must resolve after env-set selector")
+	require.True(t, ok, "TaskBackendConfig must resolve after env URL override")
 	assert.Equal(t, "http://override:9999", tb.URL)
+}
+
+func TestBackendEnvEnabled(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "false")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	// runner disabled via env → TaskBackendConfig returns false.
+	_, ok := cfg.TaskBackendConfig()
+	assert.False(t, ok)
+}
+
+func TestBackendEnvEnableGetsDefaults(t *testing.T) {
+	// An entry disabled in YAML but enabled via env must come out of Load
+	// fully defaulted. This pins the ordering: Validate re-runs
+	// applyBackendDefaults after applyEnvOverrides, so the env-enabled entry
+	// picks up the orchestrator/reconcile defaults.
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  runner:
+    enabled: false
+    url: http://localhost:9090
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "true")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	tb, ok := cfg.TaskBackendConfig()
+	require.True(t, ok, "env-enabled runner must resolve as task backend")
+	assert.Equal(t, "runner", tb.Name)
+	assert.Equal(t, "claude-sonnet-4-6", tb.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-8", tb.OrchestratorOpusModel)
+	assert.Equal(t, "60s", tb.ReconcileInterval)
+}
+
+func TestBackendEnvEnabledInvalidValue(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlock)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "maybe")
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED")
+}
+
+func TestBackendChatEnvURL(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_URL", "http://override:9993")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	cb, ok := cfg.ChatBackendConfig()
+	require.True(t, ok)
+	assert.Equal(t, "http://override:9993", cb.URL)
 }
 
 func TestBackendEnvUnknownNameErrors(t *testing.T) {
@@ -2225,13 +2463,13 @@ func TestBackendEnvUnknownNameErrors(t *testing.T) {
 		envKey string
 	}{
 		{
-			// Backends map has only "runner"; env references a non-existent name.
+			// Env references a name not in the backends map.
 			name:   "unknown backend name",
 			envKey: "CONTEXTMATRIX_BACKEND_NOPE_URL",
 		},
 		{
-			// Valid backend name but a suffix outside the _URL/_API_KEY
-			// allowlist must also fail loudly.
+			// Valid backend name (runner declared in YAML), but suffix not in
+			// the _URL/_API_KEY/_ENABLED allowlist.
 			name:   "known backend name with unknown suffix",
 			envKey: "CONTEXTMATRIX_BACKEND_RUNNER_MODEL",
 		},
@@ -2241,7 +2479,7 @@ func TestBackendEnvUnknownNameErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			boardsDir := t.TempDir()
-			path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlockNoSelectors)
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlock)
 
 			t.Setenv(tc.envKey, "http://x")
 
@@ -2260,7 +2498,6 @@ backends:
   runner:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
-    callback_path: /api/runner
     reconcile_interval: "soon"
 `
 	path := writeConfigFile(t, dir, yaml)
@@ -2275,9 +2512,9 @@ backends:
 func TestLegacyRunnerYAMLBlockErrors(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
-	// A config with a legacy runner: block. RunnerConfig is gone;
-	// KnownFields(true) rejects the unknown "runner" key, and Load wraps
-	// the parse error with a migration pointer.
+	// A config with a legacy runner: block. KnownFields(true) rejects the
+	// unknown "runner" key, and Load wraps the parse error with a migration
+	// pointer telling the operator to move url/api_key into backends.runner.
 	path := writeConfigFile(t, dir, minValidBase(boardsDir)+`
 runner:
   enabled: true
@@ -2302,4 +2539,31 @@ func TestLegacyRunnerEnvErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "CONTEXTMATRIX_RUNNER_API_KEY")
 	assert.Contains(t, err.Error(), "backends")
+}
+
+func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	// URL and API key have specific replacement names in the error.
+	cases := []struct {
+		legacyVar   string
+		replacement string
+	}{
+		{"CONTEXTMATRIX_RUNNER_URL", "CONTEXTMATRIX_BACKEND_RUNNER_URL"},
+		{"CONTEXTMATRIX_RUNNER_API_KEY", "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY"},
+		{"CONTEXTMATRIX_RUNNER_ENABLED", "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.legacyVar, func(t *testing.T) {
+			t.Setenv(tc.legacyVar, "value")
+
+			_, err := Load(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.legacyVar)
+			assert.Contains(t, err.Error(), tc.replacement)
+		})
+	}
 }

@@ -108,7 +108,7 @@ type RouterConfig struct {
 	Syncer              Syncer
 	Runner              TaskBackend          // nil when no task backend is configured
 	KnowledgeRefresher  KnowledgeRefresher   // nil when no task backend is configured
-	BackendCfg          config.BackendConfig // resolved default_backend entry; zero value when Runner is nil
+	BackendCfg          config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
 	MCPAPIKey           string
 	Port                int
 	GitHubTokenProvider githubauth.TokenGenerator
@@ -243,28 +243,26 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
-	// Backend-callback endpoints mount at the configured callback_path so
-	// the HMAC key is selected by path at registration time — each handler
-	// set closes over exactly one backend's key + replay cache, resolved
-	// before any card lookup. /api/agent/* and /api/chat/* are reserved
-	// for future backends (validated in config); only the runner backend's
-	// set exists today.
+	// Backend-callback endpoints mount at /api/<name> derived from the
+	// backend entry name. The HMAC key is selected by path at registration
+	// time — each handler set closes over exactly one backend's key + replay
+	// cache, resolved before any card lookup.
 	//
 	// GET /api/runner/logs and /api/runner/health are BROWSER-facing (the
 	// web UI's EventSource and capacity meter), not backend callbacks —
-	// they stay at literal paths regardless of callback_path. So does the
-	// runner-called GET /api/v1/cards/.../autonomous.
+	// they stay at literal paths. So does the runner-called
+	// GET /api/v1/cards/.../autonomous.
 	if cfg.Runner != nil {
-		// Fail fast at startup: an empty callback path would silently mount
-		// the backend callbacks at the server root. Real configs can't get
-		// here (validation enforces the reserved set); this guards sloppy
-		// test fixtures and future wiring bugs. Same panic-at-registration
-		// posture as validateOverrideLimit.
-		if cfg.BackendCfg.CallbackPath == "" {
-			panic("api: RouterConfig.BackendCfg.CallbackPath must be set when Runner is non-nil")
+		// Fail fast at startup: an empty Name would silently mount the
+		// backend callbacks at /api/ (derived path would be "/api/"). Real
+		// configs can't get here (applyBackendDefaults always sets Name);
+		// this guards sloppy test fixtures and future wiring bugs. Same
+		// panic-at-registration posture as validateOverrideLimit.
+		if cfg.BackendCfg.Name == "" {
+			panic("api: RouterConfig.BackendCfg.Name must be set when Runner is non-nil")
 		}
 
-		cb := cfg.BackendCfg.CallbackPath
+		cb := cfg.BackendCfg.CallbackPath()
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("POST "+cb+"/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)

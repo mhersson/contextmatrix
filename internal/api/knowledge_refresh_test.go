@@ -198,7 +198,7 @@ func TestKnowledgeRefreshAPI_Trigger_HappyPath(t *testing.T) {
 		Bus:                bus,
 		Runner:             runnerClient,
 		KnowledgeRefresher: runnerClient,
-		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
+		BackendCfg:         config.BackendConfig{Name: "runner"},
 		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
@@ -247,7 +247,7 @@ func TestKnowledgeRefreshAPI_Trigger_409OnDuplicate(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
-		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
+		BackendCfg:         config.BackendConfig{Name: "runner"},
 		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
@@ -282,7 +282,7 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsInvalidOverwriteDoc(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
-		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
+		BackendCfg:         config.BackendConfig{Name: "runner"},
 		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
@@ -320,7 +320,7 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsTooManyOverwriteDocs(t *testing.T) {
 		Bus:                bus,
 		Runner:             rc,
 		KnowledgeRefresher: rc,
-		BackendCfg:         config.BackendConfig{CallbackPath: "/api/runner"},
+		BackendCfg:         config.BackendConfig{Name: "runner"},
 		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
@@ -428,7 +428,7 @@ func TestRunnerKnowledgeStatus_AcceptsValidSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -462,7 +462,7 @@ func TestRunnerKnowledgeStatus_FailedWithoutCommitMarksFailed(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -492,7 +492,7 @@ func TestRunnerKnowledgeStatus_RejectsMissingSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		BackendCfg:      config.BackendConfig{APIKey: apiKey, CallbackPath: "/api/runner"},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()

@@ -295,7 +295,7 @@ func main() {
 		knowledgeRefresher = runnerSys.Client
 	}
 
-	// BackendCfg is the resolved default_backend entry; zero value when no
+	// BackendCfg is the resolved task-backend entry; zero value when no
 	// task backend is configured (handlers behind the Runner-nil gate never
 	// read it then).
 	taskBackendCfg, _ := cfg.TaskBackendConfig()
