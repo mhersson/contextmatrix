@@ -556,7 +556,7 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	})
 }
 
-// chatRunnerDisabled is a no-op RunnerClient used when the runner integration
+// chatRunnerDisabled is a no-op chat.Backend used when the runner integration
 // is disabled. Every operation returns an error so callers receive a clear
 // "runner not enabled" message rather than a nil-pointer panic.
 type chatRunnerDisabled struct{}

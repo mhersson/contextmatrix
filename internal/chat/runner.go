@@ -37,7 +37,7 @@ type RunnerClientConfig struct {
 	HTTPClient *http.Client // optional; defaults to a 30s-timeout client
 }
 
-// runnerClient implements RunnerClient by talking HMAC-signed HTTP to the
+// runnerClient implements Backend by talking HMAC-signed HTTP to the
 // runner's /chat/* and /message endpoints.
 type runnerClient struct {
 	baseURL   string
@@ -46,9 +46,9 @@ type runnerClient struct {
 	httpc     *http.Client
 }
 
-// NewRunnerClient constructs a RunnerClient. If cfg.HTTPClient is nil, a
-// 30-second-timeout default client is used.
-func NewRunnerClient(cfg RunnerClientConfig) RunnerClient {
+// NewRunnerClient constructs the runner-backed Backend implementation. If
+// cfg.HTTPClient is nil, a 30-second-timeout default client is used.
+func NewRunnerClient(cfg RunnerClientConfig) Backend {
 	c := cfg.HTTPClient
 	if c == nil {
 		c = &http.Client{Timeout: 30 * time.Second}

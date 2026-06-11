@@ -31,17 +31,17 @@ func wireChat(
 
 	slog.Info("chat store opened", "path", cfg.Chat.DBPath)
 
-	var chatRunner chat.RunnerClient
+	var chatBackend chat.Backend
 	if cfg.Runner.Enabled {
-		chatRunner = chat.NewRunnerClient(chat.RunnerClientConfig{
+		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{
 			BaseURL:   cfg.Runner.URL,
 			HMACKey:   cfg.Runner.APIKey,
 			MCPAPIKey: cfg.MCPAPIKey,
 		})
 	} else {
-		// Nil runner causes nil-pointer panics at call sites. Use a no-op stub
+		// Nil backend causes nil-pointer panics at call sites. Use a no-op stub
 		// that returns an error on every operation — chat features require runner.
-		chatRunner = chatRunnerDisabled{}
+		chatBackend = chatRunnerDisabled{}
 	}
 
 	chatHub := chat.NewSSEHub(128)
@@ -53,7 +53,7 @@ func wireChat(
 
 	chatMgr := chat.NewManager(chat.Config{
 		Store:              chatStore,
-		Runner:             chatRunner,
+		Backend:            chatBackend,
 		Clock:              clock.Real(),
 		IdleTTL:            cfg.Chat.IdleTTL,
 		MaxConcurrent:      cfg.Chat.MaxConcurrent,

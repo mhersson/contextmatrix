@@ -9,7 +9,7 @@
 //   - store.go       — Store interface used by Manager.
 //   - sqlite/        — SQLite implementation of Store.
 //   - manager.go     — Manager: session lifecycle orchestration.
-//   - runner.go      — RunnerClient: wraps chat-mode runner webhooks.
+//   - runner.go      — Backend (runner-backed): wraps chat-mode runner webhooks.
 //   - reaper.go      — IdleReaper: TTL goroutine.
 //   - sse.go         — Per-session SSE buffer and fan-out hub.
 package chat
