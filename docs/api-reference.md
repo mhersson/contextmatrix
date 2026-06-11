@@ -41,12 +41,13 @@ POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
-POST   /api/runner/status                              # runner status callback (HMAC-signed; runner-enabled only)
-POST   /api/runner/knowledge-status                    # runner KB-refresh terminal callback (HMAC-signed; runner-enabled only)
-POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; runner-enabled only)
-GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached)
-GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; runner-enabled only)
-GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; runner-enabled only)
+POST   /api/runner/status                              # backend callback; per-backend HMAC key
+POST   /api/runner/knowledge-status                    # runner KB-refresh terminal callback (HMAC-signed; task-backend required)
+POST   /api/runner/skill-engaged                       # runner skill-engaged callback (HMAC-signed; task-backend required)
+GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached; fixed path)
+GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
+GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; task-backend required)
+# /api/agent/* and /api/chat/* are reserved callback paths for future backends
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
@@ -116,7 +117,8 @@ therefore a strong cross-origin signal and the request is rejected with 403
 `BAD_REQUEST`. Exempt paths:
 
 - `GET` / `HEAD` / `OPTIONS` on any route (read-only).
-- `/api/runner/*` — authenticated via HMAC, no browser path.
+- `/api/runner/*`, `/api/agent/*`, `/api/chat/*` — backend callback paths,
+  authenticated via per-backend HMAC; not browser paths.
 - `/mcp` — Bearer-authed MCP endpoint.
 - `/healthz`, `/readyz` — probe endpoints.
 
@@ -165,7 +167,7 @@ otherwise the server generates a UUID. The same id is emitted as the
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
 - 429: concurrent chat cap reached (`TOO_MANY_CHATS`)
 - 502: runner host unreachable (`RUNNER_UNAVAILABLE`)
-- 503: runner not configured (`RUNNER_DISABLED`), sync disabled
+- 503: no task backend configured (`RUNNER_DISABLED`), sync disabled
   (`SYNC_DISABLED`), or `/readyz` dependency check failed
 
 **Error code / HTTP status mapping (selected):**
@@ -181,7 +183,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
 | `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist                   |
 | `RUNNER_CONFLICT`         | 409     | card already queued/running, KB refresh already in flight     |
-| `RUNNER_DISABLED`         | 503/403 | runner not configured globally (503) or for the project (403) |
+| `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
 | `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
 | `RUNNER_NOT_RUNNING`      | 409     | card is not currently running                                 |
 | `REVIEW_ATTEMPTS_CAPPED`  | 409     | review attempts limit reached                                 |
@@ -865,8 +867,8 @@ the UI to preview the refresh impact before triggering one.
 ### POST /api/projects/{project}/knowledge/{repo}/refresh
 
 Trigger a runner-driven knowledge-base refresh for one repo. Human-only
-(`X-Agent-ID` must start with `human:`). Returns 503 `RUNNER_DISABLED` when the
-runner is not configured, 409 `RUNNER_CONFLICT` when a refresh is already in
+(`X-Agent-ID` must start with `human:`). Returns 503 `RUNNER_DISABLED` when no
+task backend is configured, 409 `RUNNER_CONFLICT` when a refresh is already in
 flight for the same `(project, repo)`, and 502 `RUNNER_UNAVAILABLE` when the
 runner webhook fails.
 
@@ -914,8 +916,9 @@ protocol, HMAC signing details, and runner configuration.
 ### POST /api/projects/{project}/cards/{id}/run
 
 Trigger remote execution for a card. Human-only (rejects `X-Agent-ID` without
-`human:` prefix). Requires card to be in `todo` state and runner enabled
-globally + per-project. The `autonomous` flag is **not** required.
+`human:` prefix). Requires card to be in `todo` state and a task backend
+configured globally + per-project remote execution enabled. The `autonomous`
+flag is **not** required.
 
 Accepts an optional JSON body:
 
@@ -1003,9 +1006,11 @@ Stop all running remote executions in a project. Human-only. Returns
 
 ### GET /api/runner/health
 
-Proxies a `GET /health` to the configured runner and returns the parsed
-shape. Used by the board's NowRail to render the capacity meter
-(`max_concurrent` is the runner-global cap, not a per-project value).
+Browser-facing fixed path — always at `/api/runner/health` regardless of the
+configured `callback_path`. Proxies a `GET /health` to the configured task
+backend and returns the parsed shape. Used by the board's NowRail to render the
+capacity meter (`max_concurrent` is the runner-global cap, not a per-project
+value).
 
 Returns:
 
@@ -1017,8 +1022,8 @@ Returns:
 }
 ```
 
-- 503 `RUNNER_DISABLED` when the runner is not configured.
-- 502 `RUNNER_UNAVAILABLE` when the runner is configured but the probe
+- 503 `RUNNER_DISABLED` when no task backend is configured.
+- 502 `RUNNER_UNAVAILABLE` when a task backend is configured but the probe
   fails (timeout, transport error, non-2xx response). Upstream error
   details are not surfaced in the response body — the underlying error
   is logged server-side. Callers should fail soft (hide capacity).
@@ -1030,9 +1035,11 @@ endpoint responsive during a runner outage.
 
 ### GET /api/runner/logs
 
-SSE log stream. Only available when runner is enabled (`runner.enabled: true` in
-config). Not authenticated — the browser connects directly; HMAC signing is
-performed server-side toward the runner.
+SSE log stream. Browser-facing fixed path — always at `/api/runner/logs`
+regardless of the configured `callback_path`. Only available when a task backend
+is configured (`default_backend` names a `backends` entry). Not authenticated —
+the browser connects directly; HMAC signing is performed server-side toward the
+runner.
 
 **Query parameters:**
 
@@ -1100,11 +1107,12 @@ architecture, `LogEntry` type details, and session manager configuration.
 
 ### POST /api/runner/status
 
-Runner callback endpoint. Requires **both** an `X-Signature-256` header
-(HMAC-SHA256, prefixed with `sha256=`) and an `X-Webhook-Timestamp` header (used
-for clock-skew rejection). Missing either header, a malformed signature, or an
-expired timestamp returns 403 `INVALID_SIGNATURE`. Only registered when the
-runner is enabled in config.
+Runner callback endpoint. Mounts at the configured backend `callback_path`
+(default `/api/runner`). Requires **both** an `X-Signature-256` header
+(HMAC-SHA256, prefixed with `sha256=`, signed with the matching backend's
+`api_key`) and an `X-Webhook-Timestamp` header (used for clock-skew rejection).
+Missing either header, a malformed signature, or an expired timestamp returns
+403 `INVALID_SIGNATURE`. Only registered when a task backend is configured.
 
 Accepts `runner_status` updates (`"running"`, `"failed"`, `"completed"`). The
 server-only statuses `"queued"` and `"killed"` are rejected with 422
@@ -1123,15 +1131,16 @@ server-only statuses `"queued"` and `"killed"` are rejected with 422
 
 Runner callback endpoint reporting that the in-container Claude session engaged
 a workflow skill. Same HMAC authentication as `/api/runner/status`
-(`X-Signature-256` + `X-Webhook-Timestamp`). Only registered when the runner is
-enabled. Used for runner-side telemetry; the response body is `{"ok": true}`.
+(`X-Signature-256` + `X-Webhook-Timestamp`, signed with the backend's `api_key`).
+Only registered when a task backend is configured. Used for runner-side
+telemetry; the response body is `{"ok": true}`.
 
 ### POST /api/runner/knowledge-status
 
 Runner terminal callback for a KB refresh job. Same HMAC authentication as
-`/api/runner/status`. Only registered when the runner is enabled. The body
-carries the project, repo, runner-reported terminal state, and an optional error
-message:
+`/api/runner/status` (per-backend `api_key`). Only registered when a task
+backend is configured. The body carries the project, repo, runner-reported
+terminal state, and an optional error message:
 
 ```json
 {
@@ -1155,12 +1164,13 @@ callback is acknowledged but not acted on.
 
 ### GET /api/v1/cards/{project}/{id}/autonomous
 
-Runner-only read endpoint. Authenticated with HMAC-SHA256 over an empty body
-(`X-Signature-256` + `X-Webhook-Timestamp`). Returns the minimal shape
-`{"autonomous": <bool>}` so the runner can fail-closed verify a card's
-autonomous flag during `/promote` before writing the canned stdin message. Only
-registered when the runner is enabled. No other card fields are exposed on this
-path.
+Runner-only read endpoint (fixed path, independent of `callback_path`).
+Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
+`X-Webhook-Timestamp`, signed with the task backend's `api_key`). Returns the
+minimal shape `{"autonomous": <bool>}` so the runner can fail-closed verify a
+card's autonomous flag during `/promote` before writing the canned stdin message.
+Only registered when a task backend is configured. No other card fields are
+exposed on this path.
 
 ## Chat Endpoints
 

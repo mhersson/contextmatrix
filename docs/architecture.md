@@ -210,8 +210,9 @@ and commit completion. The service layer closes that gap on failure:
   long-lived containers instead of card-scoped one-shots). Owns session
   lifecycle (`cold` → `active` → `warm-idle` → `ending`), persists the
   transcript through `chat.Store`, delegates container management to a
-  `RunnerClient` (HMAC-signed calls to the runner's `/chat/start` and
-  `/chat/end`), and bridges the runner's `/logs?session_id=` SSE feed back into
+  `chat.Backend` (HMAC-signed calls to the runner's `/chat/start` and
+  `/chat/end`; the sole implementation is `NewRunnerClient`), and bridges the
+  runner's `/logs?session_id=` SSE feed back into
   the transcript by appending each entry through `AppendMessage`. Holds `m.mu`
   across the seq-assignment + store insert so disk insertion order matches seq
   order regardless of writer concurrency. On cold-reopen,
