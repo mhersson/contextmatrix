@@ -251,6 +251,60 @@ func TestUpdateCard(t *testing.T) {
 	assert.Equal(t, "low", updated.Priority)
 }
 
+func TestUpdateCard_Phase(t *testing.T) {
+	env := setupMCP(t)
+
+	createTestCard(t, env, "Phase test", "task", "low")
+
+	// Set phase to "execute"
+	phase := "execute"
+	result := callTool(t, env, "update_card", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+		"phase":   phase,
+	})
+	require.False(t, result.IsError)
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+	assert.Equal(t, "execute", updated.Phase)
+
+	// Update to a different phase value; verify round-trip
+	result = callTool(t, env, "update_card", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+		"phase":   "review",
+	})
+	require.False(t, result.IsError)
+
+	var reviewed board.Card
+	unmarshalResult(t, result, &reviewed)
+	assert.Equal(t, "review", reviewed.Phase)
+
+	// Invalid phase value must produce an error result
+	invalidResult, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "update_card",
+		Arguments: map[string]any{
+			"project": "test-project",
+			"card_id": "TEST-001",
+			"phase":   "shipping",
+		},
+	})
+	// The SDK wraps tool handler errors as IsError results for regular errors,
+	// or returns an rpc error. Either way we should detect the failure.
+	if err != nil {
+		// Protocol-level error is also acceptable
+		assert.Contains(t, err.Error(), "phase")
+
+		return
+	}
+
+	require.True(t, invalidResult.IsError, "invalid phase should produce an error result")
+	textContent, ok := invalidResult.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "invalid phase")
+}
+
 func TestTransitionCard(t *testing.T) {
 	env := setupMCP(t)
 

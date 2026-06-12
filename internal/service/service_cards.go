@@ -61,6 +61,7 @@ type UpdateCardInput struct {
 	CreatePR            bool
 	Vetted              bool
 	Skills              *[]string
+	Phase               *string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -84,6 +85,7 @@ type PatchCardInput struct {
 	// "skills: null" (Go decodes both as nil pointer); without this the
 	// UI cannot move a card back to "use project default" via PATCH.
 	SkillsClear bool
+	Phase       *string
 	BaseBranch  *string
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
@@ -699,6 +701,19 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
 		enforceVettingInvariant(card)
 
+		if input.Phase != nil {
+			if !board.ValidPhase(*input.Phase) {
+				return fmt.Errorf("validate card: %w", &board.ValidationError{
+					Err:     board.ErrInvalidPhase,
+					Field:   "phase",
+					Value:   *input.Phase,
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, review, integrate, done, or empty", *input.Phase),
+				})
+			}
+
+			card.Phase = *input.Phase
+		}
+
 		// BranchName is immutable after first generation — only set when empty.
 		if card.FeatureBranch && card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
@@ -885,6 +900,19 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BaseBranch != nil {
 			card.BaseBranch = *input.BaseBranch
+		}
+
+		if input.Phase != nil {
+			if !board.ValidPhase(*input.Phase) {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidPhase,
+					Field:   "phase",
+					Value:   *input.Phase,
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, review, integrate, done, or empty", *input.Phase),
+				}
+			}
+
+			card.Phase = *input.Phase
 		}
 
 		return nil

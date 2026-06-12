@@ -438,6 +438,29 @@ func TestPatchCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode) // in_progress -> done is valid
 	})
+
+	t.Run("invalid phase returns 422", func(t *testing.T) {
+		badPhase := "shipping"
+		body := patchCardRequest{
+			Phase: &badPhase,
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "invalid phase")
+	})
 }
 
 func TestUpdateCard(t *testing.T) {
@@ -483,6 +506,33 @@ func TestUpdateCard(t *testing.T) {
 		assert.Equal(t, "bug", card.Type)
 		assert.Equal(t, "in_progress", card.State)
 		assert.Equal(t, "high", card.Priority)
+	})
+
+	t.Run("invalid phase returns 422", func(t *testing.T) {
+		badPhase := "shipping"
+		body := updateCardRequest{
+			Title:    "Updated Title",
+			Type:     "bug",
+			State:    "in_progress",
+			Priority: "high",
+			Phase:    &badPhase,
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "invalid phase")
 	})
 }
 

@@ -76,6 +76,7 @@ type updateCardRequest struct {
 	CreatePR            bool           `json:"create_pr"`
 	Vetted              bool           `json:"vetted"`
 	Skills              *[]string      `json:"skills,omitempty"`
+	Phase               *string        `json:"phase,omitempty"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -101,6 +102,7 @@ type patchCardRequest struct {
 	BaseBranch          *string   `json:"base_branch,omitempty"`
 	Skills              *[]string `json:"skills,omitempty"`
 	SkillsClear         bool      `json:"skills_clear,omitempty"`
+	Phase               *string   `json:"phase,omitempty"`
 }
 
 // validateCardSkills validates that each skill name in `skills` exists in
@@ -443,6 +445,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
 		Skills:              req.Skills,
+		Phase:               req.Phase,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -517,6 +520,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		BaseBranch:          req.BaseBranch,
 		Skills:              req.Skills,
 		SkillsClear:         req.SkillsClear,
+		Phase:               req.Phase,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

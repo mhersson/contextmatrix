@@ -522,3 +522,32 @@ func TestTrimActivityLog_AllStateChangedOverflow(t *testing.T) {
 	assert.Equal(t, "s10 -> s11", out[0].Message)
 	assert.Equal(t, "s59 -> s60", out[len(out)-1].Message)
 }
+
+func TestPatchCard_PhaseValidation(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "phase test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	bad := "shipping"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &bad})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid phase")
+
+	good := "plan"
+	got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &good})
+	require.NoError(t, err)
+	assert.Equal(t, "plan", got.Phase)
+
+	empty := ""
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &empty})
+	require.NoError(t, err)
+	assert.Empty(t, got.Phase)
+}

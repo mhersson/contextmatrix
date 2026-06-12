@@ -43,6 +43,9 @@ var (
 	// ErrInvalidRunnerStatus indicates an invalid runner_status value.
 	ErrInvalidRunnerStatus = errors.New("invalid runner status")
 
+	// ErrInvalidPhase indicates an invalid orchestrator phase value.
+	ErrInvalidPhase = errors.New("invalid phase")
+
 	// ErrInvalidExternalURL indicates the source.external_url has an unsupported scheme.
 	ErrInvalidExternalURL = errors.New("invalid external URL")
 )

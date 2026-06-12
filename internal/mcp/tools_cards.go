@@ -57,6 +57,7 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
+	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|review|integrate|done; empty clears"`
 }
 
 type transitionCardInput struct {
@@ -263,6 +264,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			Labels:   input.Labels,
 			Skills:   input.Skills,
 			Body:     input.Body,
+			Phase:    input.Phase,
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
