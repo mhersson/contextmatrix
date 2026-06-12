@@ -37,6 +37,11 @@ type CreateCardInput struct {
 	CreatePR            bool
 	Vetted              bool
 	Skills              *[]string
+	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
+	// selector. Excluded from the MCP agent surface; human-only via REST.
+	ModelOrchestrator string
+	ModelCoder        string
+	ModelReviewer     string
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -454,6 +459,9 @@ func (s *CardService) buildNewCardFromInput(
 		CreatePR:            input.CreatePR,
 		Vetted:              input.Vetted,
 		Skills:              input.Skills,
+		ModelOrchestrator:   input.ModelOrchestrator,
+		ModelCoder:          input.ModelCoder,
+		ModelReviewer:       input.ModelReviewer,
 		Created:             now,
 		Updated:             now,
 		Body:                input.Body,

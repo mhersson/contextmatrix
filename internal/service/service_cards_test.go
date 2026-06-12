@@ -597,3 +597,30 @@ func TestPatchCard_ModelPins(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, orch, got.ModelOrchestrator, "nil = untouched")
 }
+
+func TestCreateCard_ModelPins(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:             "model pin create test",
+		Type:              "task",
+		Priority:          "low",
+		ModelOrchestrator: "anthropic/claude-opus-4",
+		ModelCoder:        "anthropic/claude-sonnet-4-5",
+		ModelReviewer:     "openai/gpt-4o",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/claude-opus-4", card.ModelOrchestrator)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", card.ModelCoder)
+	assert.Equal(t, "openai/gpt-4o", card.ModelReviewer)
+
+	// Pins persist to disk, not just the returned struct.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/claude-opus-4", reloaded.ModelOrchestrator)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", reloaded.ModelCoder)
+	assert.Equal(t, "openai/gpt-4o", reloaded.ModelReviewer)
+}

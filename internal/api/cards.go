@@ -54,6 +54,9 @@ type createCardRequest struct {
 	CreatePR            bool          `json:"create_pr"`
 	Vetted              bool          `json:"vetted"`
 	Skills              *[]string     `json:"skills,omitempty"`
+	ModelOrchestrator   string        `json:"model_orchestrator,omitempty"`
+	ModelCoder          string        `json:"model_coder,omitempty"`
+	ModelReviewer       string        `json:"model_reviewer,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
@@ -320,13 +323,13 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Autonomous fields can only be set by human users (UI), never by agents.
-	// Model pin fields (model_orchestrator, model_coder, model_reviewer) are
-	// not in createCardRequest by design — pins are excluded from create-time
-	// semantics and set afterwards via PATCH/PUT.
-	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted) {
+	// Autonomous and model-pin fields can only be set by human users (UI),
+	// never by agents — mirrors the update and patch guards. Pins set at
+	// create time flow onto the card and reach the agent via get_task_context.
+	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted ||
+		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and model pins can only be set via the UI")
 
 		return
 	}
@@ -351,6 +354,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
 		Skills:              req.Skills,
+		ModelOrchestrator:   req.ModelOrchestrator,
+		ModelCoder:          req.ModelCoder,
+		ModelReviewer:       req.ModelReviewer,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)

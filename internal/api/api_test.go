@@ -3173,6 +3173,59 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 	})
 }
 
+func TestHumanOnlyFields_ModelPins_CreateCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := `{"title":"Pinned","type":"task","priority":"medium",` +
+		`"model_orchestrator":"anthropic/claude-opus-4",` +
+		`"model_coder":"anthropic/claude-sonnet-4-5",` +
+		`"model_reviewer":"openai/gpt-4o"}`
+
+	t.Run("agent create with pins returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human create with pins persists them on the card", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var created board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+		assert.Equal(t, "anthropic/claude-opus-4", created.ModelOrchestrator)
+		assert.Equal(t, "anthropic/claude-sonnet-4-5", created.ModelCoder)
+		assert.Equal(t, "openai/gpt-4o", created.ModelReviewer)
+	})
+}
+
 func TestClaimCard_VettedGuard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
