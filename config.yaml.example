@@ -248,6 +248,11 @@ backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat).
 #    # Mutually exclusive with runner; use agent when runner is disabled.
+#    #
+#    # orchestrator_sonnet_model and orchestrator_opus_model for the agent
+#    # backend must be OpenRouter slugs (e.g. "anthropic/claude-sonnet-4-6");
+#    # the Claude-style defaults only apply to the runner backend. Unresolvable
+#    # slugs fall back to the agent's own configured default model.
 #    url: "http://localhost:9091"
 #    api_key: ""
 #    enabled: false  # flip to true and set runner: enabled: false to switch
