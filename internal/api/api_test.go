@@ -910,6 +910,21 @@ func TestClaimCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
+
+	t.Run("claim with empty body succeeds", func(t *testing.T) {
+		// Ensure the card is unclaimed before this subtest
+		_, _ = svc.ReleaseCard(context.Background(), "test-project", "TEST-001", "claude-from-header")
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
 }
 
 func TestReleaseCard(t *testing.T) {
@@ -996,6 +1011,22 @@ func TestReleaseCard(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
 	})
+
+	t.Run("release with empty body and owning agent succeeds", func(t *testing.T) {
+		// Ensure the card is claimed by claude-1
+		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
 }
 
 func TestHeartbeatCard(t *testing.T) {
@@ -1077,6 +1108,22 @@ func TestHeartbeatCard(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	})
+
+	t.Run("heartbeat with empty body succeeds", func(t *testing.T) {
+		// Re-claim the card so we can heartbeat it
+		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	})
 }
 
