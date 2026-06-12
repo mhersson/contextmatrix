@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -282,6 +283,202 @@ func TestReportUsageBreakdownActualUnknownModel(t *testing.T) {
 	assert.Equal(t, "actual", bucket.CostSource)
 	assert.InDelta(t, 1.23, bucket.CostUSD, 1e-9)
 	assert.InDelta(t, 1.23, got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+// TestReportUsageSeedsMigrationBucketForLegacyCost verifies that the first
+// bucketed report on a legacy card (cumulative cost, no buckets) seeds a
+// migration bucket carrying the pre-existing cumulative spend. This preserves
+// the bucket-sum invariant and keeps dashboard rollups complete: the legacy
+// spend stays attributed (to "unassigned" when AssignedAgent is empty) instead
+// of being dropped when the dashboard switches to the breakdown path.
+func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Legacy cost migration",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Seed a legacy card directly: cumulative $5.00 of estimated spend, an
+	// existing model, and NO usage breakdown. AssignedAgent is empty, matching
+	// a released legacy card — the migration bucket inherits it.
+	refreshed, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	refreshed.AssignedAgent = ""
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		EstimatedCostUSD: 5.0,
+	}
+	refreshed.UsageBreakdown = nil
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", refreshed))
+
+	// A new agent reports a $1.00 delta — the first bucketed report.
+	delta := 1.0
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-new",
+		Model:            "openai/gpt-5.5",
+		PromptTokens:     50,
+		CompletionTokens: 25,
+		ActualCostUSD:    &delta,
+	})
+	require.NoError(t, err)
+
+	// Two buckets: the seeded migration bucket plus the new agent's delta.
+	require.Len(t, got.UsageBreakdown, 2)
+
+	// Bucket sum equals cumulative ($6.00).
+	assert.InDelta(t, 6.0, bucketCostSum(got), 1e-9)
+	assert.InDelta(t, 6.0, got.TokenUsage.EstimatedCostUSD, 1e-9)
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// The migration bucket carries the legacy cumulative ($5) under the legacy
+	// model and an empty agent; the new bucket carries the $1 delta.
+	var migration, fresh board.UsageBucket
+
+	for _, b := range got.UsageBreakdown {
+		if b.Model == "claude-sonnet-4-6" {
+			migration = b
+		} else {
+			fresh = b
+		}
+	}
+
+	assert.Empty(t, migration.Agent, "migration bucket inherits the empty AssignedAgent")
+	assert.InDelta(t, 5.0, migration.CostUSD, 1e-9)
+	assert.Equal(t, "estimated", migration.CostSource)
+	assert.Equal(t, int64(1000), migration.PromptTokens)
+	assert.Equal(t, int64(500), migration.CompletionTokens)
+
+	assert.Equal(t, "cmx-agent-new", fresh.Agent)
+	assert.InDelta(t, 1.0, fresh.CostUSD, 1e-9)
+
+	// Dashboard rollups: $5 attributed to the legacy/unassigned agent, $1 to
+	// the reporting agent; grand total still $6.
+	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+
+	agentCosts, _, _, total := aggregateCostsByAgentModel(cards)
+	assert.InDelta(t, 6.0, total, 1e-9, "grand total preserved")
+
+	byAgent := make(map[string]float64, len(agentCosts))
+	for _, ac := range agentCosts {
+		byAgent[ac.AgentID] = ac.EstimatedCostUSD
+	}
+
+	assert.InDelta(t, 5.0, byAgent["unassigned"], 1e-9, "legacy spend attributed to unassigned")
+	assert.InDelta(t, 1.0, byAgent["cmx-agent-new"], 1e-9, "delta attributed to reporting agent")
+}
+
+// TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost verifies the seed
+// also fires for the fill-missing legacy population: tokens accrued but $0
+// cost. Without it, the legacy tokens never reach a bucket — token rollups
+// under-count and RecalculateCosts loses the chance to price them once the
+// dashboard switches to the breakdown path.
+func TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Legacy tokens zero cost migration",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Seed a legacy card: tokens but no cost (the old fill-missing
+	// population), model in the rate table, NO usage breakdown.
+	refreshed, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	refreshed.AssignedAgent = ""
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		EstimatedCostUSD: 0,
+	}
+	refreshed.UsageBreakdown = nil
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", refreshed))
+
+	// First bucketed report: $1.00 actual-cost delta from a new agent.
+	delta := 1.0
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-new",
+		Model:            "openai/gpt-5.5",
+		PromptTokens:     50,
+		CompletionTokens: 25,
+		ActualCostUSD:    &delta,
+	})
+	require.NoError(t, err)
+
+	// Two buckets: the zero-cost migration bucket plus the delta.
+	require.Len(t, got.UsageBreakdown, 2)
+
+	var migration board.UsageBucket
+
+	for _, b := range got.UsageBreakdown {
+		if b.Model == "claude-sonnet-4-6" {
+			migration = b
+		}
+	}
+
+	assert.Empty(t, migration.Agent)
+	assert.InDelta(t, 0.0, migration.CostUSD, 1e-12, "migration bucket carries the zero legacy cost")
+	assert.Equal(t, "estimated", migration.CostSource)
+	assert.Equal(t, int64(1000), migration.PromptTokens)
+	assert.Equal(t, int64(500), migration.CompletionTokens)
+
+	// Token rollups are complete: legacy tokens land under unassigned,
+	// the delta under the reporting agent.
+	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+
+	agentCosts, _, _, _ := aggregateCostsByAgentModel(cards)
+
+	byAgent := make(map[string]AgentCost, len(agentCosts))
+	for _, ac := range agentCosts {
+		byAgent[ac.AgentID] = ac
+	}
+
+	assert.Equal(t, int64(1000), byAgent["unassigned"].PromptTokens)
+	assert.Equal(t, int64(500), byAgent["unassigned"].CompletionTokens)
+	assert.Equal(t, int64(50), byAgent["cmx-agent-new"].PromptTokens)
+
+	// RecalculateCosts can now price the migrated bucket from the rate table;
+	// the actual-cost delta bucket stays untouched.
+	_, err = svc.RecalculateCosts(ctx, "test-project", "")
+	require.NoError(t, err)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	wantMigration := PriceTokens(
+		ModelRate{Prompt: 0.000003, Completion: 0.000015},
+		1000, 0, 0, 500,
+	)
+
+	for _, b := range after.UsageBreakdown {
+		switch b.Model {
+		case "claude-sonnet-4-6":
+			assert.InDelta(t, wantMigration, b.CostUSD, 1e-9, "migrated bucket re-priced from rate table")
+		case "openai/gpt-5.5":
+			assert.InDelta(t, 1.0, b.CostUSD, 1e-9, "actual bucket untouched")
+		}
+	}
+
+	assert.InDelta(t, bucketCostSum(after), after.TokenUsage.EstimatedCostUSD, 1e-9,
+		"cumulative equals bucket sum after recalculation")
+	assert.InDelta(t, 1.0+wantMigration, after.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
 // TestRecalculateCostsSkipsActualBuckets verifies that RecalculateCosts re-prices

@@ -129,6 +129,37 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		card.TokenUsage = &board.TokenUsage{}
 	}
 
+	// Migration bucket: when a legacy card (cumulative spend or tokens, no
+	// buckets) starts bucketing, seed a bucket carrying the pre-existing
+	// cumulative so the bucket sum stays equal to the cumulative cost. Without
+	// this the dashboard — which switches to the breakdown path on
+	// len(UsageBreakdown) > 0 — would attribute only the new delta and silently
+	// drop the legacy spend. Tokens-but-zero-cost cards (the old fill-missing
+	// population) are seeded too so token rollups stay complete and
+	// RecalculateCosts can later price the migrated bucket from the rate table.
+	// Seeded before the model-store and increments below so it reflects the
+	// legacy model and pre-existing totals only. Agent is the card's
+	// AssignedAgent (may be empty, mapping to the dashboard's "unassigned"
+	// rollup, matching the legacy attribution path).
+	hasLegacyUsage := card.TokenUsage.EstimatedCostUSD > 0 ||
+		card.TokenUsage.PromptTokens > 0 ||
+		card.TokenUsage.CompletionTokens > 0 ||
+		card.TokenUsage.CacheReadTokens > 0 ||
+		card.TokenUsage.CacheCreationTokens > 0
+
+	if len(card.UsageBreakdown) == 0 && hasLegacyUsage {
+		card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
+			Agent:               card.AssignedAgent,
+			Model:               card.TokenUsage.Model,
+			PromptTokens:        card.TokenUsage.PromptTokens,
+			CompletionTokens:    card.TokenUsage.CompletionTokens,
+			CacheReadTokens:     card.TokenUsage.CacheReadTokens,
+			CacheCreationTokens: card.TokenUsage.CacheCreationTokens,
+			CostUSD:             card.TokenUsage.EstimatedCostUSD,
+			CostSource:          "estimated",
+		})
+	}
+
 	// Store the model name when provided
 	if input.Model != "" {
 		card.TokenUsage.Model = input.Model
