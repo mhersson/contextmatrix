@@ -626,9 +626,11 @@ token_costs:
 The `report_usage` call must pass `model` matching one of these keys. The model
 used depends on the orchestrator and phase — see the **Model Allocation**
 section below for the full breakdown. The `recalculate_costs` tool reprices
-cards that have non-zero tokens but zero stored cost (e.g. when usage was
-reported without a model name); it only touches qualifying cards and never
-overwrites a non-zero cost.
+from the current rate table: on cards with a usage breakdown every estimated
+bucket is re-priced (stale prices corrected) while actual provider-reported
+costs are never modified; on legacy cards without a breakdown it only fills in
+costs for cards with non-zero tokens but zero stored cost and never overwrites
+an existing cost.
 
 ## Model Allocation
 

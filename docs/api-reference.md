@@ -778,6 +778,12 @@ Recalculate estimated costs for all cards in a project using current
 `token_costs` rates. Requires `default_model` for cards that have tokens but no
 model recorded.
 
+Cards with a `usage_breakdown`: every bucket with `cost_source: estimated` is
+re-priced from the current rates (stale prices are corrected); buckets with
+`cost_source: actual` are never modified. Legacy cards without a breakdown:
+fill-missing-only — cards with non-zero tokens but $0 cost get a cost; cards
+with an existing cost are not modified.
+
 ```json
 { "default_model": "claude-sonnet-4-6" }
 ```

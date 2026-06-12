@@ -2223,8 +2223,11 @@ func TestGetDashboard(t *testing.T) {
 	// Card costs: 2 cards have usage.
 	assert.Len(t, dashboard.CardCosts, 2)
 
-	// Agent costs: card1 has no assigned agent (grouped as "unassigned"), card2 has "agent-1".
-	assert.Len(t, dashboard.AgentCosts, 2)
+	// Agent costs: both cards report usage under "agent-1" (breakdown-based attribution).
+	// card1 has no assigned agent but its breakdown bucket records agent-1 — the
+	// aggregation reads breakdown rows so both cards land in one bucket.
+	assert.Len(t, dashboard.AgentCosts, 1)
+	assert.Equal(t, "agent-1", dashboard.AgentCosts[0].AgentID)
 }
 
 // setupEmptyTest creates a test environment with no projects.

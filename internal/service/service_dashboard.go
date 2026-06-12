@@ -354,6 +354,11 @@ func bucketSparkline(cards []*board.Card, now time.Time, tz *time.Location) Metr
 // and per model. Returns sorted slices (cost desc, name asc on ties) ready for
 // the wire, the per-card cost list, and the grand total.
 //
+// For cards with UsageBreakdown the per-(agent, model) rows are the source of
+// truth — this fixes post-release attribution where card.AssignedAgent is empty.
+// Legacy cards without breakdown fall back to card.AssignedAgent for the agent
+// rollup so historical data is not regressed.
+//
 // Map iteration is randomized, so the sort is a determinism guarantee at the
 // API boundary — the frontend re-sorts for display.
 func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
@@ -377,48 +382,99 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 			EstimatedCostUSD: card.TokenUsage.EstimatedCostUSD,
 		})
 
-		agent := card.AssignedAgent
-		if agent == "" {
-			agent = "unassigned"
+		if len(card.UsageBreakdown) > 0 {
+			// Breakdown path: sum each (agent, model) bucket directly.
+			// CardCount on both rollups is incremented once per card, not
+			// per bucket — two buckets on the same agent or model (e.g. two
+			// agents using one model) must not double-count the card.
+			cardAccounted := make(map[string]bool)  // agent → counted
+			modelAccounted := make(map[string]bool) // model → counted
+
+			for _, b := range card.UsageBreakdown {
+				agent := b.Agent
+				if agent == "" {
+					agent = "unassigned"
+				}
+
+				ac, ok := agentCostMap[agent]
+				if !ok {
+					ac = &AgentCost{AgentID: agent}
+					agentCostMap[agent] = ac
+				}
+
+				ac.PromptTokens += b.PromptTokens
+				ac.CompletionTokens += b.CompletionTokens
+				ac.EstimatedCostUSD += b.CostUSD
+
+				if !cardAccounted[agent] {
+					ac.CardCount++
+					cardAccounted[agent] = true
+				}
+
+				// Skip zero-usage buckets from the model rollup.
+				if b.PromptTokens == 0 && b.CompletionTokens == 0 && b.CostUSD == 0 {
+					continue
+				}
+
+				model := b.Model
+				if model == "" {
+					model = "unknown"
+				}
+
+				mc, ok := modelCostMap[model]
+				if !ok {
+					mc = &ModelCost{Model: model}
+					modelCostMap[model] = mc
+				}
+
+				mc.PromptTokens += b.PromptTokens
+				mc.CompletionTokens += b.CompletionTokens
+				mc.EstimatedCostUSD += b.CostUSD
+
+				if !modelAccounted[model] {
+					mc.CardCount++
+					modelAccounted[model] = true
+				}
+			}
+		} else {
+			// Legacy path: attribute by AssignedAgent as before.
+			agent := card.AssignedAgent
+			if agent == "" {
+				agent = "unassigned"
+			}
+
+			ac, ok := agentCostMap[agent]
+			if !ok {
+				ac = &AgentCost{AgentID: agent}
+				agentCostMap[agent] = ac
+			}
+
+			ac.PromptTokens += card.TokenUsage.PromptTokens
+			ac.CompletionTokens += card.TokenUsage.CompletionTokens
+			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			ac.CardCount++
+
+			// Skip cards with no measurable usage from the model rollup.
+			if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
+				continue
+			}
+
+			model := card.TokenUsage.Model
+			if model == "" {
+				model = "unknown"
+			}
+
+			mc, ok := modelCostMap[model]
+			if !ok {
+				mc = &ModelCost{Model: model}
+				modelCostMap[model] = mc
+			}
+
+			mc.PromptTokens += card.TokenUsage.PromptTokens
+			mc.CompletionTokens += card.TokenUsage.CompletionTokens
+			mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			mc.CardCount++
 		}
-
-		ac, ok := agentCostMap[agent]
-		if !ok {
-			ac = &AgentCost{AgentID: agent}
-			agentCostMap[agent] = ac
-		}
-
-		ac.PromptTokens += card.TokenUsage.PromptTokens
-		ac.CompletionTokens += card.TokenUsage.CompletionTokens
-		ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
-		ac.CardCount++
-
-		// Skip cards with no measurable usage. Zero-token, zero-cost
-		// entries (e.g. cards that recorded a TokenUsage struct but
-		// never accumulated anything) would otherwise inflate the
-		// "unknown" bucket's card_count without contributing real
-		// cost. The agent bucket above keeps them because agent
-		// attribution is meaningful even at zero, but the model
-		// rollup is purely a cost view.
-		if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
-			continue
-		}
-
-		model := card.TokenUsage.Model
-		if model == "" {
-			model = "unknown"
-		}
-
-		mc, ok := modelCostMap[model]
-		if !ok {
-			mc = &ModelCost{Model: model}
-			modelCostMap[model] = mc
-		}
-
-		mc.PromptTokens += card.TokenUsage.PromptTokens
-		mc.CompletionTokens += card.TokenUsage.CompletionTokens
-		mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
-		mc.CardCount++
 	}
 
 	agentCosts = make([]AgentCost, 0, len(agentCostMap))

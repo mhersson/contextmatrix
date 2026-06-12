@@ -312,6 +312,75 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 	assert.InDelta(t, 0.05, unknown.EstimatedCostUSD, 1e-9)
 }
 
+// TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce verifies that a
+// card with two breakdown buckets on the SAME model (different agents) counts
+// once in ModelCost.CardCount — matching the legacy once-per-card semantics —
+// while tokens and cost still sum across both buckets.
+func TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	card, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "two agents one model", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, project, card.ID)
+	require.NoError(t, err)
+
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     300,
+		CompletionTokens: 150,
+		EstimatedCostUSD: 0.30,
+	}
+	refreshed.UsageBreakdown = []board.UsageBucket{
+		{
+			Agent:            "cmx-agent-a",
+			Model:            "claude-sonnet-4-6",
+			PromptTokens:     100,
+			CompletionTokens: 50,
+			CostUSD:          0.10,
+			CostSource:       "estimated",
+		},
+		{
+			Agent:            "cmx-agent-b",
+			Model:            "claude-sonnet-4-6",
+			PromptTokens:     200,
+			CompletionTokens: 100,
+			CostUSD:          0.20,
+			CostSource:       "estimated",
+		},
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	byModel := map[string]ModelCost{}
+	for _, mc := range data.ModelCosts {
+		byModel[mc.Model] = mc
+	}
+
+	sonnet, ok := byModel["claude-sonnet-4-6"]
+	require.True(t, ok, "expected sonnet row")
+	assert.Equal(t, 1, sonnet.CardCount, "one card must count once even with two buckets on the model")
+	assert.Equal(t, int64(300), sonnet.PromptTokens)
+	assert.Equal(t, int64(150), sonnet.CompletionTokens)
+	assert.InDelta(t, 0.30, sonnet.EstimatedCostUSD, 1e-9)
+
+	// Each agent still gets its own row with CardCount 1.
+	byAgent := map[string]AgentCost{}
+	for _, ac := range data.AgentCosts {
+		byAgent[ac.AgentID] = ac
+	}
+
+	assert.Equal(t, 1, byAgent["cmx-agent-a"].CardCount)
+	assert.Equal(t, 1, byAgent["cmx-agent-b"].CardCount)
+}
+
 func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)

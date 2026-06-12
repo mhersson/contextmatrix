@@ -564,7 +564,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 func registerRecalculateCosts(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "recalculate_costs",
-		Description: "Recompute estimated costs for cards that have non-zero token counts but $0 cost (e.g. because model was not specified when usage was reported). Only updates cards that qualify; cards with an existing cost are not modified.",
+		Description: "Recompute estimated costs from the current rate table. Cards with a usage breakdown: every estimated bucket is re-priced (stale prices corrected); actual provider-reported costs are never modified. Legacy cards without a breakdown: fill-missing-only — cards with non-zero tokens but $0 cost get a cost, cards with an existing cost are not modified.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input recalculateCostsInput) (*mcp.CallToolResult, recalculateCostsOutput, error) {
 		result, err := svc.RecalculateCosts(ctx, input.Project, input.DefaultModel)
 		if err != nil {
