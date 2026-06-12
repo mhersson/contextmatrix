@@ -55,6 +55,11 @@ type ReportUsageInput struct {
 	CompletionTokens    int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
+	// ActualCostUSD is the authoritative provider-reported cost for this delta.
+	// When set it bypasses the rate-table estimate for this call. The bucket
+	// records cost_source "actual"; EstimatedCostUSD is incremented by this
+	// value rather than the rate-table result.
+	ActualCostUSD *float64
 }
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
@@ -130,11 +135,19 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	card.TokenUsage.CacheCreationTokens += input.CacheCreationTokens
 
 	// Calculate cost delta for this report and add to running total.
-	// Warn when a model name is provided but not found in the cost map.
-	if input.Model != "" {
+	// When ActualCostUSD is set it takes precedence over the rate-table estimate.
+	// Warn when a model name is provided, no actual cost is given, and the model
+	// is not in the rate table.
+	var deltaCost float64
+
+	costSource := "estimated"
+
+	if input.ActualCostUSD != nil {
+		deltaCost = *input.ActualCostUSD
+		costSource = "actual"
+	} else if input.Model != "" {
 		if rate, ok := s.tokenCosts[input.Model]; ok {
-			deltaCost := PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
-			card.TokenUsage.EstimatedCostUSD += deltaCost
+			deltaCost = PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
 				"model", input.Model,
@@ -145,6 +158,10 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 			metrics.ReportUsageUnknownModelTotal.WithLabelValues(input.Model).Inc()
 		}
 	}
+
+	card.TokenUsage.EstimatedCostUSD += deltaCost
+
+	upsertUsageBucket(card, input, deltaCost, costSource)
 
 	card.Updated = s.clk.Now()
 
@@ -346,4 +363,38 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	}
 
 	return result, nil
+}
+
+// upsertUsageBucket merges one report into the card's (agent, model) bucket.
+// A bucket that has ever received an actual-cost report stays "actual" —
+// mixed-source sums are still real spend, and the flag's job is to protect
+// the bucket from rate-table recalculation.
+func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, source string) {
+	for i := range card.UsageBreakdown {
+		b := &card.UsageBreakdown[i]
+		if b.Agent == in.AgentID && b.Model == in.Model {
+			b.PromptTokens += in.PromptTokens
+			b.CompletionTokens += in.CompletionTokens
+			b.CacheReadTokens += in.CacheReadTokens
+			b.CacheCreationTokens += in.CacheCreationTokens
+			b.CostUSD += cost
+
+			if source == "actual" {
+				b.CostSource = "actual"
+			}
+
+			return
+		}
+	}
+
+	card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
+		Agent:               in.AgentID,
+		Model:               in.Model,
+		PromptTokens:        in.PromptTokens,
+		CompletionTokens:    in.CompletionTokens,
+		CacheReadTokens:     in.CacheReadTokens,
+		CacheCreationTokens: in.CacheCreationTokens,
+		CostUSD:             cost,
+		CostSource:          source,
+	})
 }

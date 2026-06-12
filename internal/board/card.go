@@ -43,12 +43,13 @@ type Card struct {
 	// (plan|execute|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
 	// driven by the agent backend.
-	Phase       string          `yaml:"phase,omitempty"           json:"phase,omitempty"`
-	TokenUsage  *TokenUsage     `yaml:"token_usage,omitempty"     json:"token_usage,omitempty"`
-	Created     time.Time       `yaml:"created"                   json:"created"`
-	Updated     time.Time       `yaml:"updated"                   json:"updated"`
-	ActivityLog []ActivityEntry `yaml:"activity_log,omitempty"    json:"activity_log,omitempty"`
-	Body        string          `yaml:"-"                         json:"body"`
+	Phase          string          `yaml:"phase,omitempty"            json:"phase,omitempty"`
+	TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"      json:"token_usage,omitempty"`
+	UsageBreakdown []UsageBucket   `yaml:"usage_breakdown,omitempty"  json:"usage_breakdown,omitempty"`
+	Created        time.Time       `yaml:"created"                    json:"created"`
+	Updated        time.Time       `yaml:"updated"                    json:"updated"`
+	ActivityLog    []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
+	Body           string          `yaml:"-"                          json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.
@@ -75,6 +76,20 @@ type TokenUsage struct {
 	CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"    json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
 	EstimatedCostUSD    float64 `yaml:"estimated_cost_usd"             json:"estimated_cost_usd"`
+}
+
+// UsageBucket is one merged (agent, model) row of token/cost attribution.
+// CostSource records whether CostUSD came from the provider (actual) or the
+// local rate table (estimated); recalculation must never overwrite actual.
+type UsageBucket struct {
+	Agent               string  `yaml:"agent"                           json:"agent"`
+	Model               string  `yaml:"model"                           json:"model"`
+	PromptTokens        int64   `yaml:"prompt_tokens"                   json:"prompt_tokens"`
+	CompletionTokens    int64   `yaml:"completion_tokens"               json:"completion_tokens"`
+	CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+	CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
+	CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
 }
 
 var (

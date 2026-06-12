@@ -1850,6 +1850,54 @@ func TestReportUsageCacheFields_NegativeRejected(t *testing.T) {
 		"cache_creation_tokens": int64(-1),
 	})
 	require.True(t, result.IsError, "negative cache_creation_tokens should be rejected")
+
+	// Negative actual_cost_usd must be rejected.
+	result = callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-1",
+		"prompt_tokens":     int64(100),
+		"completion_tokens": int64(50),
+		"actual_cost_usd":   -0.01,
+	})
+	require.True(t, result.IsError, "negative actual_cost_usd should be rejected")
+}
+
+func TestReportUsageActualCost_MCP(t *testing.T) {
+	// Verify that actual_cost_usd round-trips into the usage_breakdown bucket
+	// with cost_source "actual" and that the cumulative total matches.
+	env := setupMCPWithCosts(t)
+
+	card := createTestCard(t, env, "Actual cost test", "task", "medium")
+
+	claimResult := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  card.ID,
+		"agent_id": "agent-actual",
+	})
+	require.False(t, claimResult.IsError)
+
+	// Report with actual_cost_usd for a model not in the cost map.
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "agent-actual",
+		"model":             "openai/gpt-5.5",
+		"prompt_tokens":     int64(100),
+		"completion_tokens": int64(50),
+		"actual_cost_usd":   0.77,
+	})
+	require.False(t, result.IsError, "report_usage with actual_cost_usd should not error")
+
+	var updated board.Card
+	unmarshalResult(t, result, &updated)
+
+	require.Len(t, updated.UsageBreakdown, 1)
+	bucket := updated.UsageBreakdown[0]
+	assert.Equal(t, "openai/gpt-5.5", bucket.Model)
+	assert.Equal(t, "actual", bucket.CostSource)
+	assert.InDelta(t, 0.77, bucket.CostUSD, 1e-9)
+	assert.InDelta(t, 0.77, updated.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
 func TestCreateProject_MCP(t *testing.T) {

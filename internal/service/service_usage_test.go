@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"testing"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,4 +103,182 @@ func TestCardServicePriceTokens(t *testing.T) {
 		assert.False(t, ok)
 		assert.InDelta(t, 0.0, cost, 1e-12)
 	})
+}
+
+// byModelOf returns a map from model name to UsageBucket for easy lookup in
+// tests. It assumes all buckets belong to a single agent — with multiple
+// agents reporting the same model, later buckets would overwrite earlier ones.
+func byModelOf(card *board.Card) map[string]board.UsageBucket {
+	m := make(map[string]board.UsageBucket, len(card.UsageBreakdown))
+	for _, b := range card.UsageBreakdown {
+		m[b.Model] = b
+	}
+
+	return m
+}
+
+// bucketCostSum returns the sum of CostUSD across all UsageBreakdown buckets.
+func bucketCostSum(card *board.Card) float64 {
+	var total float64
+	for _, b := range card.UsageBreakdown {
+		total += b.CostUSD
+	}
+
+	return total
+}
+
+// TestReportUsageBreakdown verifies that report_usage accumulates per-(agent, model)
+// buckets, respects actual_cost_usd when provided, and keeps EstimatedCostUSD
+// equal to the bucket sum.
+func TestReportUsageBreakdown(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Breakdown test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// First call: estimated (model in cost map, no actual cost).
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-x",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+
+	// Second call: actual cost provided, model also in cost map — actual wins.
+	cost := 0.42
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-x",
+		Model:            "openai/gpt-5.5",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		ActualCostUSD:    &cost,
+	})
+	require.NoError(t, err)
+
+	// Two distinct models → two buckets.
+	require.Len(t, got.UsageBreakdown, 2)
+
+	byModel := byModelOf(got)
+	assert.Equal(t, "estimated", byModel["claude-sonnet-4-6"].CostSource)
+	assert.Equal(t, "actual", byModel["openai/gpt-5.5"].CostSource)
+	assert.InDelta(t, 0.42, byModel["openai/gpt-5.5"].CostUSD, 1e-9)
+	assert.Equal(t, "cmx-agent-x", byModel["openai/gpt-5.5"].Agent)
+
+	// Cumulative cost equals bucket sum.
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// Same (agent, model) again: merged into existing bucket, not appended.
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-x",
+		Model:            "openai/gpt-5.5",
+		PromptTokens:     1,
+		CompletionTokens: 1,
+		ActualCostUSD:    &cost,
+	})
+	require.NoError(t, err)
+
+	got, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 2, "same (agent, model) must merge, not append")
+	assert.Equal(t, int64(11), byModelOf(got)["openai/gpt-5.5"].PromptTokens)
+
+	// Cumulative TokenUsage cost still equals bucket sum after merge.
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+// TestReportUsageBreakdownStickyActual verifies that a bucket which starts as
+// "estimated" flips to "actual" on an actual-cost report and stays "actual"
+// on a subsequent estimated report — protecting real spend from rate-table
+// recalculation.
+func TestReportUsageBreakdownStickyActual(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Sticky actual test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Estimated report first: bucket starts as "estimated".
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-z",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "estimated", got.UsageBreakdown[0].CostSource)
+
+	// Actual-cost report on the same (agent, model): flips to "actual".
+	cost := 0.10
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-z",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		ActualCostUSD:    &cost,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "actual", got.UsageBreakdown[0].CostSource)
+
+	// Subsequent estimated report: stays "actual", tokens and cost still merge.
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-z",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     20,
+		CompletionTokens: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "actual", got.UsageBreakdown[0].CostSource,
+		"bucket must stay actual once any actual-cost report has landed")
+	assert.Equal(t, int64(130), got.UsageBreakdown[0].PromptTokens)
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+// TestReportUsageBreakdownActualUnknownModel verifies that an actual-cost report
+// for a model absent from tokenCosts still records the cost in the bucket.
+func TestReportUsageBreakdownActualUnknownModel(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Unknown model actual cost",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	cost := 1.23
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-y",
+		Model:            "some/brand-new-model",
+		PromptTokens:     500,
+		CompletionTokens: 200,
+		ActualCostUSD:    &cost,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 1)
+	bucket := got.UsageBreakdown[0]
+	assert.Equal(t, "actual", bucket.CostSource)
+	assert.InDelta(t, 1.23, bucket.CostUSD, 1e-9)
+	assert.InDelta(t, 1.23, got.TokenUsage.EstimatedCostUSD, 1e-9)
 }
