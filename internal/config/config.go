@@ -46,6 +46,7 @@ var backendEnvSuffixes = []string{
 	"_ORCHESTRATOR_SONNET_MODEL",
 	"_ORCHESTRATOR_OPUS_MODEL",
 	"_RECONCILE_INTERVAL",
+	"_DEFAULT_MODEL",
 }
 
 // BackendConfig is one entry in the backends map: an execution backend CM
@@ -60,10 +61,15 @@ type BackendConfig struct {
 	// Never parsed from YAML.
 	Name string `yaml:"-"`
 
-	// Task-backend-only knobs; chat entries must leave these empty.
+	// Runner-only task knobs; agent and chat entries must leave these empty.
 	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"`
 	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
 	ReconcileInterval       string `yaml:"reconcile_interval"`
+
+	// DefaultModel is the default OpenRouter model slug for the agent backend.
+	// Per-card pins override it. Agent-only — runner and chat entries must
+	// leave this empty (Validate rejects misuse).
+	DefaultModel string `yaml:"default_model"`
 }
 
 // IsEnabled reports whether this entry is active. nil Enabled defaults to true
@@ -412,7 +418,30 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
 			}
 
+			if b.DefaultModel != "" {
+				return fmt.Errorf("backends[%q].default_model must not be set on the chat backend", name)
+			}
+
 			continue
+		}
+
+		// agent is a task-execution-only backend; runner-only steering-wheel
+		// fields (sonnet/opus model selection) are not applicable. agent uses
+		// default_model instead. runner entries must not have default_model.
+		if name == BackendNameAgent {
+			if b.OrchestratorSonnetModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set on the agent backend: agent backend uses default_model; orchestrator_*_model fields are runner-only", name)
+			}
+
+			if b.OrchestratorOpusModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set on the agent backend: agent backend uses default_model; orchestrator_*_model fields are runner-only", name)
+			}
+		}
+
+		if name == BackendNameRunner {
+			if b.DefaultModel != "" {
+				return fmt.Errorf("backends[%q].default_model must not be set on the runner backend: default_model is agent-only", name)
+			}
 		}
 
 		if b.ReconcileInterval != "" {
@@ -744,9 +773,10 @@ func applyBackendDefaults(cfg *Config) {
 		// disabled placeholders.
 		b.Name = name
 
-		// Task-execution defaults apply only to enabled task backends (runner
-		// and agent). The chat backend must not have these fields set at all.
-		if b.IsEnabled() && name != BackendNameChat {
+		// Runner-specific defaults: sonnet/opus model selection and reconcile
+		// interval apply only to the runner backend. Agent and chat entries must
+		// leave these fields empty (Validate rejects misuse).
+		if b.IsEnabled() && name == BackendNameRunner {
 			if b.OrchestratorSonnetModel == "" {
 				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
 			}
@@ -1011,6 +1041,10 @@ func applyEnvOverrides(cfg *Config) error {
 
 		if v := os.Getenv(prefix + "_RECONCILE_INTERVAL"); v != "" {
 			b.ReconcileInterval = v
+		}
+
+		if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
+			b.DefaultModel = v
 		}
 
 		if cfg.Backends == nil {

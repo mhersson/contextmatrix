@@ -200,9 +200,10 @@ task_skills:
 # the config block as an inert placeholder. Switch backends by toggling
 # enabled flags — do not delete blocks.
 #
-# TASK-ONLY FIELDS: orchestrator_sonnet_model, orchestrator_opus_model, and
-# reconcile_interval are valid on runner and agent entries. They are rejected
-# on the chat entry (validation error at startup).
+# TASK-ONLY FIELDS:
+#   orchestrator_sonnet_model, orchestrator_opus_model, reconcile_interval —
+#     runner entry only; rejected on agent and chat entries.
+#   default_model — agent entry only; rejected on runner and chat entries.
 #
 # RESTART REQUIRED: backends are read once at startup. Any change requires
 # a CM restart.
@@ -214,9 +215,10 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_URL
 #   CONTEXTMATRIX_BACKEND_<NAME>_API_KEY
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
-#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL
-#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL
-#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL
+#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL  (runner only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL    (runner only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (runner only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent only)
 backends: {}
 #  runner:
 #    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
@@ -248,14 +250,15 @@ backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat).
 #    # Mutually exclusive with runner; use agent when runner is disabled.
-#    #
-#    # orchestrator_sonnet_model and orchestrator_opus_model for the agent
-#    # backend must be OpenRouter slugs (e.g. "anthropic/claude-sonnet-4-6");
-#    # the Claude-style defaults only apply to the runner backend. Unresolvable
-#    # slugs fall back to the agent's own configured default model.
-#    url: "http://localhost:9092"
+#    url: "http://localhost:9091"
 #    api_key: ""
 #    enabled: false  # flip to true and set runner: enabled: false to switch
+#
+#    # Default orchestrator model for the agent backend — any OpenRouter slug.
+#    # Per-card pins override it. The complexity selector picks coder/reviewer
+#    # models per task; this default drives planning, review synthesis and docs.
+#    # Env: CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL
+#    default_model: "deepseek/deepseek-v4-flash"
 #
 #  chat:
 #    # contextmatrix-chat: global chat only (no card execution). Project not
