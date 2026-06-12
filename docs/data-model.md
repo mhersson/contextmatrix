@@ -285,6 +285,9 @@ type Card struct {
     Custom              map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
     Autonomous          bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
     UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
+    ModelOrchestrator   string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
+    ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
+    ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
     FeatureBranch       bool            `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
     CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
@@ -293,7 +296,9 @@ type Card struct {
     PRUrl               string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
     ReviewAttempts      int             `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
     RunnerStatus        string          `yaml:"runner_status,omitempty"         json:"runner_status,omitempty"`
+    Phase               string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
     TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
+    UsageBreakdown      []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
     Created             time.Time       `yaml:"created"                         json:"created"`
     Updated             time.Time       `yaml:"updated"                         json:"updated"`
     ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
@@ -328,6 +333,17 @@ type TokenUsage struct {
     CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
     EstimatedCostUSD    float64 `yaml:"estimated_cost_usd"              json:"estimated_cost_usd"`
 }
+
+type UsageBucket struct {
+    Agent               string  `yaml:"agent"                           json:"agent"`
+    Model               string  `yaml:"model"                           json:"model"`
+    PromptTokens        int64   `yaml:"prompt_tokens"                   json:"prompt_tokens"`
+    CompletionTokens    int64   `yaml:"completion_tokens"               json:"completion_tokens"`
+    CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
+    CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+    CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
+    CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
+}
 ```
 
 `CacheReadTokens` and `CacheCreationTokens` are optional (`omitempty`); they are
@@ -350,6 +366,26 @@ estimated_cost_usd +=
 and 1-hour cache-write tiers. Claude Code uses the 5-minute tier by default.
 Agents should pass the `cache_creation_input_tokens` field from Claude's
 stream-json `usage` frame directly — no tier distinction is required.
+
+### Usage breakdown
+
+`UsageBreakdown` holds one `UsageBucket` per `(agent, model)` pair, merging every
+`report_usage` call for that pair into a single row. It exists to attribute cost
+after a card is released (when `assigned_agent` is cleared) and across multiple
+agents or models on one card. Empty-agent buckets roll up to the dashboard's
+`unassigned` label.
+
+`cost_source` is `actual` when the bucket's cost came from the provider (passed
+on `report_usage` as `actual_cost_usd`) or `estimated` when it was priced from
+the local rate table. **Actual is authoritative and is never re-priced** —
+`RecalculateCosts` re-prices only `estimated` buckets from the current rate
+table and leaves `actual` buckets untouched. A bucket that has ever received an
+actual-cost report stays `actual`.
+
+The cumulative `TokenUsage` (counters and `estimated_cost_usd`) is kept equal to
+the bucket sum for breakdown cards: each report increments both the matching
+bucket and the cumulative total. Legacy cards reported before this feature have
+no buckets; the dashboard falls back to `assigned_agent` for their agent rollup.
 
 ```go
 // internal/board/project.go
@@ -406,17 +442,24 @@ generation.
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
 `runner_status`, `review_attempts`, `branch_name`, `token_usage`,
-`dependencies_met`.
+`usage_breakdown`, `dependencies_met`.
+
+**Agent-managed field** — `phase`: the agent-orchestrator's progress within a run
+(`plan` | `execute` | `review` | `integrate` | `done`), orthogonal to `state`.
+Enum-validated; the empty string clears it and means "not agent-driven". Settable
+via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `autonomous`, `use_opus_orchestrator`, `feature_branch`,
-`create_pr`, and `base_branch`. POST `/api/projects/{project}/cards`
+`create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
+`model_reviewer`), and `base_branch`. POST `/api/projects/{project}/cards`
 (`createCardRequest`) and PUT `/api/projects/{project}/cards/{id}`
-(`updateCardRequest`) gate the first five fields; `base_branch` is **only
-exposed via PATCH** (`patchCardRequest`) — there is no `base_branch` field on
-the create or full-update request bodies, so the human-only check for it applies
-only on PATCH. Agents that attempt to set these fields receive 403
-`HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them.
+(`updateCardRequest`) gate the first five fields plus the model pins;
+`base_branch` is **only exposed via PATCH** (`patchCardRequest`) — there is no
+`base_branch` field on the create or full-update request bodies, so the
+human-only check for it applies only on PATCH. The model pins are gated on
+create, full-update, and PATCH. Agents that attempt to set any of these fields
+receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them.
 
 ## Reserved labels
 
