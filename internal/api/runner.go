@@ -195,9 +195,17 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build trigger payload.
-	model := h.backendCfg.OrchestratorSonnetModel
-	if card.UseOpusOrchestrator {
-		model = h.backendCfg.OrchestratorOpusModel
+	// Agent backend: model is always default_model (pin overrides are agent-side;
+	// use_opus_orchestrator is a runner-only steering wheel and is ignored here).
+	// Runner backend: sonnet/opus is selected by the per-card flag.
+	var model string
+	if h.backendCfg.Name == config.BackendNameAgent {
+		model = h.backendCfg.DefaultModel
+	} else {
+		model = h.backendCfg.OrchestratorSonnetModel
+		if card.UseOpusOrchestrator {
+			model = h.backendCfg.OrchestratorOpusModel
+		}
 	}
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).

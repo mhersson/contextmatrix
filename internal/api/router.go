@@ -149,7 +149,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
-	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version}
+	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version, taskBackend: cfg.BackendCfg.Name}
 	bh := &branchHandlers{
 		svc:              cfg.Service,
 		provider:         cfg.GitHubTokenProvider,

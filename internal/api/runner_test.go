@@ -2119,101 +2119,109 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 }
 
 // TestRunCard_ModelInPayload verifies that the model field in TriggerPayload is
-// populated from the backend entry (config.BackendConfig): OrchestratorOpusModel when
-// use_opus_orchestrator is true, OrchestratorSonnetModel otherwise. Non-default values
-// are used so the test proves that the config is threaded through rather than matching
-// defaults by accident.
+// resolved per backend entry (config.BackendConfig). Runner backend:
+// OrchestratorOpusModel when use_opus_orchestrator is true,
+// OrchestratorSonnetModel otherwise. Agent backend: always DefaultModel —
+// use_opus_orchestrator is a runner-only field and is ignored (pin overrides
+// are agent-side). Non-default values are used so the test proves that the
+// config is threaded through rather than matching defaults by accident.
 func TestRunCard_ModelInPayload(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("sonnet model sent for default card", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-		defer cleanup()
-
-		var capturedPayload runner.TriggerPayload
-
-		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-		}))
-		defer mockRunner.Close()
-
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service: svc, Bus: bus, Runner: runnerClient,
-			BackendCfg: config.BackendConfig{
+	tests := []struct {
+		name       string
+		useOpus    bool
+		backendCfg config.BackendConfig
+		wantModel  string
+		wantMsg    string
+	}{
+		{
+			name: "runner backend sends sonnet model for default card",
+			backendCfg: config.BackendConfig{
 				Name:                    "runner",
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},
-		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Sonnet card", Type: "task", Priority: "medium",
-		})
-		require.NoError(t, err)
-
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-		assert.Equal(t, "test-sonnet-9", capturedPayload.Model, "default card must use OrchestratorSonnetModel")
-	})
-
-	t.Run("opus model sent for use_opus_orchestrator card", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-		defer cleanup()
-
-		var capturedPayload runner.TriggerPayload
-
-		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-		}))
-		defer mockRunner.Close()
-
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service: svc, Bus: bus, Runner: runnerClient,
-			BackendCfg: config.BackendConfig{
+			wantModel: "test-sonnet-9",
+			wantMsg:   "default card must use OrchestratorSonnetModel",
+		},
+		{
+			name:    "runner backend sends opus model for use_opus_orchestrator card",
+			useOpus: true,
+			backendCfg: config.BackendConfig{
 				Name:                    "runner",
 				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
 				OrchestratorSonnetModel: "test-sonnet-9",
 				OrchestratorOpusModel:   "test-opus-9",
 			},
+			wantModel: "test-opus-9",
+			wantMsg:   "use_opus_orchestrator card must use OrchestratorOpusModel",
+		},
+		{
+			name: "agent backend sends default_model for default card",
+			backendCfg: config.BackendConfig{
+				Name:         config.BackendNameAgent,
+				APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				DefaultModel: "deepseek/deepseek-v4-flash",
+			},
+			wantModel: "deepseek/deepseek-v4-flash",
+			wantMsg:   "agent backend must use default_model for default card",
+		},
+		{
+			name:    "agent backend sends default_model for use_opus_orchestrator card",
+			useOpus: true,
+			backendCfg: config.BackendConfig{
+				Name:         config.BackendNameAgent,
+				APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				DefaultModel: "deepseek/deepseek-v4-flash",
+			},
+			wantModel: "deepseek/deepseek-v4-flash",
+			wantMsg:   "agent backend must ignore use_opus_orchestrator and use default_model",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+			defer cleanup()
+
+			var capturedPayload runner.TriggerPayload
+
+			mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+				writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+			}))
+			defer mockRunner.Close()
+
+			runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+			router := NewRouter(RouterConfig{
+				Service: svc, Bus: bus, Runner: runnerClient,
+				BackendCfg: tc.backendCfg,
+			})
+
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+				Title: "Model card", Type: "task", Priority: "medium",
+				UseOpusOrchestrator: tc.useOpus,
+			})
+			require.NoError(t, err)
+
+			req, _ := http.NewRequest("POST",
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+			resp, err := http.DefaultClient.Do(req)
+
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+			assert.Equal(t, tc.wantModel, capturedPayload.Model, tc.wantMsg)
 		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Opus card", Type: "task", Priority: "medium",
-			UseOpusOrchestrator: true,
-		})
-		require.NoError(t, err)
-
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-		assert.Equal(t, "test-opus-9", capturedPayload.Model, "use_opus_orchestrator card must use OrchestratorOpusModel")
-	})
+	}
 }
 
 // --- GET /api/v1/cards/{project}/{id}/autonomous ---
