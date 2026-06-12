@@ -46,8 +46,11 @@ type createCardInput struct {
 	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
 }
 
-// NOTE: vetted, autonomous, feature_branch, create_pr are intentionally
-// excluded — they are human-only fields.
+// NOTE: vetted, autonomous, feature_branch, create_pr, and model pin fields
+// (model_orchestrator, model_coder, model_reviewer) are intentionally excluded
+// — they are human-only fields. Model pins are excluded for the same reason:
+// they express human intent about which model to use and must not be overridden
+// by the agent that is itself subject to the pin.
 type updateCardInput struct {
 	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string    `json:"card_id" jsonschema:"required,card ID"`

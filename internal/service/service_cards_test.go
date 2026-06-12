@@ -551,3 +551,49 @@ func TestPatchCard_PhaseValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Phase)
 }
+
+func TestPatchCard_ModelPins(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "model pin test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	// Set all three pins.
+	orch := "anthropic/claude-opus-4"
+	coder := "anthropic/claude-sonnet-4-5"
+	reviewer := "openai/gpt-4o"
+
+	got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelOrchestrator: &orch,
+		ModelCoder:        &coder,
+		ModelReviewer:     &reviewer,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator)
+	assert.Equal(t, coder, got.ModelCoder)
+	assert.Equal(t, reviewer, got.ModelReviewer)
+
+	// Clear one pin with empty string (*string semantics: "" = clear, nil = untouched).
+	clearCoder := ""
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelCoder: &clearCoder,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator, "orchestrator pin untouched")
+	assert.Empty(t, got.ModelCoder, "coder pin cleared")
+	assert.Equal(t, reviewer, got.ModelReviewer, "reviewer pin untouched")
+
+	// nil leaves existing value alone.
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelOrchestrator: nil,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator, "nil = untouched")
+}

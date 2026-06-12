@@ -31,14 +31,20 @@ type Card struct {
 	Custom              map[string]any `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous          bool           `yaml:"autonomous,omitempty"           json:"autonomous"`
 	UseOpusOrchestrator bool           `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
-	Vetted              bool           `yaml:"vetted,omitempty"               json:"vetted"`
-	FeatureBranch       bool           `yaml:"feature_branch,omitempty"  json:"feature_branch,omitempty"`
-	CreatePR            bool           `yaml:"create_pr,omitempty"       json:"create_pr,omitempty"`
-	BranchName          string         `yaml:"branch_name,omitempty"     json:"branch_name,omitempty"`
-	BaseBranch          string         `yaml:"base_branch,omitempty"     json:"base_branch,omitempty"`
-	PRUrl               string         `yaml:"pr_url,omitempty"          json:"pr_url,omitempty"`
-	ReviewAttempts      int            `yaml:"review_attempts,omitempty" json:"review_attempts,omitempty"`
-	RunnerStatus        string         `yaml:"runner_status,omitempty"   json:"runner_status,omitempty"`
+	// Model pins (agent backend): explicit per-card OpenRouter slugs overriding
+	// the complexity selector. Human-set only — never writable via the MCP
+	// agent surface. Empty = selector/default applies.
+	ModelOrchestrator string `yaml:"model_orchestrator,omitempty" json:"model_orchestrator,omitempty"`
+	ModelCoder        string `yaml:"model_coder,omitempty"        json:"model_coder,omitempty"`
+	ModelReviewer     string `yaml:"model_reviewer,omitempty"     json:"model_reviewer,omitempty"`
+	Vetted            bool   `yaml:"vetted,omitempty"             json:"vetted"`
+	FeatureBranch     bool   `yaml:"feature_branch,omitempty"     json:"feature_branch,omitempty"`
+	CreatePR          bool   `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
+	BranchName        string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
+	BaseBranch        string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
+	PRUrl             string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
+	ReviewAttempts    int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
+	RunnerStatus      string `yaml:"runner_status,omitempty"      json:"runner_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
 	// (plan|execute|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
