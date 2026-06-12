@@ -2359,16 +2359,57 @@ func TestBackendEnvOverrides(t *testing.T) {
 
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_URL", "http://override:9999")
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_API_KEY", strings.Repeat("x", 32))
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-9-9")
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL", "claude-opus-9-9")
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL", "90s")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://override:9999", cfg.Backends["runner"].URL)
 	assert.Equal(t, strings.Repeat("x", 32), cfg.Backends["runner"].APIKey)
+	assert.Equal(t, "claude-sonnet-9-9", cfg.Backends["runner"].OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-9-9", cfg.Backends["runner"].OrchestratorOpusModel)
+	assert.Equal(t, "90s", cfg.Backends["runner"].ReconcileInterval)
 
 	tb, ok := cfg.TaskBackendConfig()
 	require.True(t, ok, "TaskBackendConfig must resolve after env URL override")
 	assert.Equal(t, "http://override:9999", tb.URL)
+}
+
+func TestBackendEnvReconcileIntervalInvalid(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+validBackendsBlock)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL", "soon")
+
+	// The env layer just sets the field; Validate's duration parse rejects it
+	// with the entry-scoped error.
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reconcile_interval")
+}
+
+func TestBackendEnvTaskOnlyFieldOnChatErrors(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-9-9")
+
+	// Task-only fields are rejected on the enabled chat entry regardless of
+	// whether they arrive via YAML or env.
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be set")
 }
 
 func TestBackendEnvEnabled(t *testing.T) {
@@ -2546,7 +2587,7 @@ func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
 	boardsDir := t.TempDir()
 	path := writeConfigFile(t, dir, minValidBase(boardsDir))
 
-	// URL and API key have specific replacement names in the error.
+	// Every legacy var has a direct replacement name in the error.
 	cases := []struct {
 		legacyVar   string
 		replacement string
@@ -2554,6 +2595,9 @@ func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
 		{"CONTEXTMATRIX_RUNNER_URL", "CONTEXTMATRIX_BACKEND_RUNNER_URL"},
 		{"CONTEXTMATRIX_RUNNER_API_KEY", "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY"},
 		{"CONTEXTMATRIX_RUNNER_ENABLED", "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED"},
+		{"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL", "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL"},
+		{"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL", "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL"},
+		{"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL", "CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL"},
 	}
 
 	for _, tc := range cases {
