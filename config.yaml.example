@@ -253,14 +253,14 @@ backends: {}
 #    # backend must be OpenRouter slugs (e.g. "anthropic/claude-sonnet-4-6");
 #    # the Claude-style defaults only apply to the runner backend. Unresolvable
 #    # slugs fall back to the agent's own configured default model.
-#    url: "http://localhost:9091"
+#    url: "http://localhost:9092"
 #    api_key: ""
 #    enabled: false  # flip to true and set runner: enabled: false to switch
 #
 #  chat:
 #    # contextmatrix-chat: global chat only (no card execution). Project not
 #    # yet released. Paired with agent when card execution is also needed.
-#    url: "http://localhost:9092"
+#    url: "http://localhost:9093"
 #    api_key: ""
 #    enabled: false
 
