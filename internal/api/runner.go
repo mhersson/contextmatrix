@@ -40,8 +40,8 @@ const (
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
 	svc               *service.CardService
-	runner            *runner.Client // nil when runner is disabled
-	runnerCfg         config.RunnerConfig
+	runner            TaskBackend          // nil when no task backend is configured
+	backendCfg        config.BackendConfig // resolved task-backend entry (Name set); zero value when no task backend is configured
 	mcpAPIKey         string
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
@@ -195,9 +195,9 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build trigger payload.
-	model := h.runnerCfg.OrchestratorSonnetModel
+	model := h.backendCfg.OrchestratorSonnetModel
 	if card.UseOpusOrchestrator {
-		model = h.runnerCfg.OrchestratorOpusModel
+		model = h.backendCfg.OrchestratorOpusModel
 	}
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
@@ -600,13 +600,12 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, stopAllResponse{AffectedCards: affected, FailedToUpdate: failed})
 }
 
-// runnerStatusRequest is the JSON body for runner status callbacks.
-type runnerStatusRequest struct {
-	CardID       string `json:"card_id"`
-	Project      string `json:"project"`
-	RunnerStatus string `json:"runner_status"`
-	Message      string `json:"message,omitempty"`
-}
+// Callback request bodies are protocol-owned; aliased so handlers keep their local names.
+type (
+	runnerStatusRequest    = protocol.StatusCallbackPayload
+	knowledgeStatusRequest = protocol.KnowledgeStatusPayload
+	skillEngagedRequest    = protocol.SkillEngagedPayload
+)
 
 // runnerStatusUpdate handles POST /api/runner/status — runner callback.
 func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Request) {
@@ -639,15 +638,6 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, card)
-}
-
-// knowledgeStatusRequest is the JSON body the runner posts to
-// POST /api/runner/knowledge-status when a refresh container exits.
-type knowledgeStatusRequest struct {
-	Project string `json:"project"`
-	Repo    string `json:"repo"`
-	State   string `json:"state"` // "succeeded" or "failed" as reported by runner
-	Error   string `json:"error,omitempty"`
 }
 
 // runnerKnowledgeStatus handles POST /api/runner/knowledge-status — the
@@ -747,7 +737,7 @@ func (h *runnerHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Reques
 // GET (no body) and POST (body in the signed payload) handlers can share
 // this prefix without duplicating the differing tails.
 func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.Request) (sig, ts string, ok bool) {
-	if h.runnerCfg.APIKey == "" {
+	if h.backendCfg.APIKey == "" {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
 
 		return "", "", false
@@ -785,21 +775,13 @@ func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Re
 		return false
 	}
 
-	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.backendCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
 	}
 
 	return true
-}
-
-// skillEngagedRequest is the JSON body sent by the runner when the agent
-// invokes the Skill tool.
-type skillEngagedRequest struct {
-	CardID    string `json:"card_id"`
-	Project   string `json:"project"`
-	SkillName string `json:"skill_name"`
 }
 
 // handleRunnerSkillEngaged handles POST /api/runner/skill-engaged — runner
@@ -848,7 +830,7 @@ func (h *runnerHandlers) authenticateRunnerPost(w http.ResponseWriter, r *http.R
 		return nil, false
 	}
 
-	if !protocol.VerifySignatureWithTimestamp(h.runnerCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(h.backendCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, h.replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return nil, false
@@ -867,7 +849,7 @@ type runnerHealthResponse struct {
 // getRunnerHealth handles GET /api/runner/health by proxying to the runner's
 // /health endpoint and returning the parsed shape. The UI reads max_concurrent
 // from here to render the NowRail capacity meter — it's the runner-global cap,
-// not a per-project value. Returns 503 when the runner is disabled and 502
+// not a per-project value. Returns 503 when no task backend is configured and 502
 // when the runner is unreachable; callers should fail soft (hide capacity).
 //
 // Probe results are cached for runnerHealthCacheTTL so concurrent tabs and
@@ -912,7 +894,7 @@ func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request)
 // `ctx` is only consulted to abandon the wait when the caller goes
 // away; the in-flight probe continues so the result still lands in
 // the cache for the next caller.
-func (c *healthProbeCache) get(ctx context.Context, client *runner.Client) (runner.HealthInfo, error) {
+func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.HealthInfo, error) {
 	c.mu.Lock()
 	if time.Now().Before(c.expires) {
 		info, err := c.info, c.err
@@ -950,16 +932,16 @@ func (c *healthProbeCache) get(ctx context.Context, client *runner.Client) (runn
 }
 
 // isRemoteExecutionEnabled checks if remote execution is enabled for the given project,
-// falling back to the global runner config if not set per-project.
+// falling back to whether a task backend is configured when not set per-project.
 func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {
 	projectCfg, err := h.svc.GetProject(r.Context(), project)
 	if err != nil {
-		return h.runnerCfg.Enabled
+		return h.runner != nil
 	}
 
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.Enabled != nil {
 		return *projectCfg.RemoteExecution.Enabled
 	}
 
-	return h.runnerCfg.Enabled
+	return h.runner != nil
 }

@@ -13,22 +13,22 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// runnerSubsystems groups the optional runner client, the session-log manager,
-// and any related coordinators so they can be wired in one place.
+// runnerSubsystems groups the optional task-backend client, the session-log
+// manager, and any related coordinators so they can be wired in one place.
 type runnerSubsystems struct {
-	// Client is nil when cfg.Runner.Enabled is false.
+	// Client is nil when no task backend is configured (no enabled runner/agent entry).
 	Client     *runner.Client
 	SessionLog *sessionlog.Manager
 }
 
-// wireRunnerSubsystems constructs the runner client, starts the end-session
-// subscriber, creates the session-log manager, starts its idle sweeper,
-// and (when enabled) launches the Docker-authoritative reconciliation sweep.
-// Returns the aggregate and a cleanup closure the caller must defer.
+// wireRunnerSubsystems constructs the task-backend client, starts the
+// end-session subscriber, creates the session-log manager, starts its idle
+// sweeper, and (when enabled) launches the Docker-authoritative reconciliation
+// sweep. Returns the aggregate and a cleanup closure the caller must defer.
 //
 // chatMgr is required for the reconciliation sweep (adapts *chat.Manager to
 // the runner.ChatReconciler surface). It may be nil if chat is not configured,
-// in which case the sweep is skipped even when the runner is enabled.
+// in which case the sweep is skipped even when the task backend is enabled.
 func wireRunnerSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
@@ -38,18 +38,20 @@ func wireRunnerSubsystems(
 ) (*runnerSubsystems, func()) {
 	sys := &runnerSubsystems{}
 
-	// --- runner client (optional) ---
-	if cfg.Runner.Enabled {
-		sys.Client = runner.NewClient(cfg.Runner.URL, cfg.Runner.APIKey)
-		slog.Info("runner integration enabled", "url", cfg.Runner.URL)
+	taskCfg, taskEnabled := cfg.TaskBackendConfig()
+
+	// --- task backend client (optional) ---
+	if taskEnabled {
+		sys.Client = runner.NewClient(taskCfg.URL, taskCfg.APIKey)
+		slog.Info("task backend enabled", "name", taskCfg.Name, "url", taskCfg.URL)
 
 		runner.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
 		slog.Info("end-session subscriber started")
 	}
 
-	// --- reconciliation sweep (runner + chat both required) ---
-	if cfg.Runner.Enabled && chatMgr != nil {
-		reconcileInterval := cfg.Runner.ReconcileIntervalDuration()
+	// --- reconciliation sweep (task backend + chat both required) ---
+	if taskEnabled && chatMgr != nil {
+		reconcileInterval := taskCfg.ReconcileIntervalDuration()
 		runner.StartReconciliationSweep(
 			ctx, svc,
 			chatReconcilerAdapter{mgr: chatMgr},
@@ -59,13 +61,14 @@ func wireRunnerSubsystems(
 		)
 
 		if reconcileInterval > 0 {
-			slog.Info("runner reconciliation sweep started", "interval", reconcileInterval)
+			slog.Info("reconciliation sweep started", "interval", reconcileInterval)
 		}
 	}
 
 	// --- session-log manager (always constructed; Subscribe is a no-op when disabled) ---
+	// taskCfg is the zero value when disabled — same as the empty legacy URL.
 	sys.SessionLog = sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(cfg.Runner.URL, cfg.Runner.APIKey),
+		sessionlog.WithRunnerConfig(taskCfg.URL, taskCfg.APIKey),
 		sessionlog.WithMaxSessions(64),
 		sessionlog.WithSessionTTL(2*time.Hour),
 	)

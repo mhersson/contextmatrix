@@ -19,7 +19,7 @@ import (
 type knowledgeRefreshHandlers struct {
 	svc       *service.CardService
 	registry  *refresh.Registry
-	runner    *runner.Client // nil when runner is disabled
+	runner    KnowledgeRefresher // nil when no task backend is configured
 	mcpAPIKey string
 }
 

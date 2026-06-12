@@ -23,7 +23,7 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   fakeClock,
 		IdleTTL: 30 * time.Minute,
 	})
@@ -62,7 +62,7 @@ func TestIdleReaper_SweepStaleRehydration_FlipsTimeoutSessions(t *testing.T) {
 	fakeClock := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 	mgr := chat.NewManager(chat.Config{
 		Store:              store,
-		Runner:             &stubRunner{},
+		Backend:            &stubRunner{},
 		Clock:              fakeClock,
 		IdleTTL:            1 * time.Hour,
 		RehydrationTimeout: 10 * time.Minute,
@@ -100,7 +100,7 @@ func TestIdleReaper_SweepStaleRehydration_LeavesRecentAlone(t *testing.T) {
 	fakeClock := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 	mgr := chat.NewManager(chat.Config{
 		Store:              store,
-		Runner:             &stubRunner{},
+		Backend:            &stubRunner{},
 		Clock:              fakeClock,
 		IdleTTL:            1 * time.Hour,
 		RehydrationTimeout: 10 * time.Minute,
@@ -138,7 +138,7 @@ func TestIdleReaper_SweepStaleRehydration_SkipsIfDisabled(t *testing.T) {
 	// RehydrationTimeout: 0 disables the sweep.
 	mgr := chat.NewManager(chat.Config{
 		Store:              store,
-		Runner:             &stubRunner{},
+		Backend:            &stubRunner{},
 		Clock:              fakeClock,
 		IdleTTL:            1 * time.Hour,
 		RehydrationTimeout: 0,
@@ -173,7 +173,7 @@ func TestIdleReaper_SweepStaleRehydration_MultipleStale(t *testing.T) {
 	fakeClock := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 	mgr := chat.NewManager(chat.Config{
 		Store:              store,
-		Runner:             &stubRunner{},
+		Backend:            &stubRunner{},
 		Clock:              fakeClock,
 		IdleTTL:            1 * time.Hour,
 		RehydrationTimeout: 5 * time.Minute,

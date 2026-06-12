@@ -105,7 +105,7 @@ func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPat
 	runner := &chatStubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: chatCfg.DefaultModel,
@@ -690,7 +690,7 @@ func TestListModels_NilConfig(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       &chatStubRunner{},
+		Backend:      &chatStubRunner{},
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: "claude-sonnet-4-6",

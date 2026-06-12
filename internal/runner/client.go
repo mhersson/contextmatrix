@@ -62,16 +62,6 @@ type ContainerInfo struct {
 	Tracked     bool
 }
 
-// WebhookResponse is the expected response from the runner.
-// TODO(A2): decode protocol.ErrorResponse.Code — the runner sends a stable
-// `code` field this type ignores, and never sends `error`; rerouting response
-// handling through the backend interface is A2 scope.
-type WebhookResponse struct {
-	OK      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
 // Client sends signed webhooks to the contextmatrix-runner.
 type Client struct {
 	httpClient *http.Client
@@ -356,11 +346,16 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	if resp.StatusCode >= 400 {
 		return &webhookError{
 			statusCode: resp.StatusCode,
-			body:       string(respBody),
+			body:       rejectionDetail(respBody),
 		}
 	}
 
-	var parsed WebhookResponse
+	// Only reached on <400, where the runner contract says
+	// protocol.SuccessResponse — so ok:false here is the off-contract /
+	// logical-rejection case. Decode as ErrorResponse, a field superset of
+	// what we branch on; on-contract non-2xx rejections are decoded in the
+	// >=400 branch above.
+	var parsed protocol.ErrorResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
@@ -369,7 +364,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 		// Runner explicitly rejected — do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
-			body:       parsed.Error,
+			body:       rejectionDetail(respBody),
 			clientErr:  true,
 		}
 	}
@@ -377,6 +372,28 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	result = "success"
 
 	return nil
+}
+
+// rejectionDetail extracts a human-readable detail from a runner rejection
+// body: the stable `code: message` pair from protocol.ErrorResponse when
+// present, falling back to the raw body when it doesn't decode or carries
+// neither field (e.g. stop-all's 207 StopAllResponse shape).
+func rejectionDetail(respBody []byte) string {
+	var parsed protocol.ErrorResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return string(respBody)
+	}
+
+	switch {
+	case parsed.Code != "" && parsed.Message != "":
+		return parsed.Code + ": " + parsed.Message
+	case parsed.Code != "":
+		return parsed.Code
+	case parsed.Message != "":
+		return parsed.Message
+	default:
+		return string(respBody)
+	}
 }
 
 // webhookError represents an HTTP error response from the runner.

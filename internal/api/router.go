@@ -106,8 +106,9 @@ type RouterConfig struct {
 	Bus                 *events.Bus
 	CORSOrigin          string
 	Syncer              Syncer
-	Runner              *runner.Client
-	RunnerCfg           config.RunnerConfig
+	Runner              TaskBackend          // nil when no task backend is configured
+	KnowledgeRefresher  KnowledgeRefresher   // nil when no task backend is configured
+	BackendCfg          config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
 	MCPAPIKey           string
 	Port                int
 	GitHubTokenProvider githubauth.TokenGenerator
@@ -206,7 +207,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	krh := &knowledgeRefreshHandlers{
 		svc:       cfg.Service,
 		registry:  cfg.RefreshRegistry,
-		runner:    cfg.Runner,
+		runner:    cfg.KnowledgeRefresher,
 		mcpAPIKey: cfg.MCPAPIKey,
 	}
 	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/refresh-plan", krh.getPlan)
@@ -230,7 +231,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	rh := &runnerHandlers{
 		svc:             cfg.Service,
 		runner:          cfg.Runner,
-		runnerCfg:       cfg.RunnerCfg,
+		backendCfg:      cfg.BackendCfg,
 		mcpAPIKey:       cfg.MCPAPIKey,
 		port:            cfg.Port,
 		sessionManager:  cfg.SessionManager,
@@ -242,11 +243,29 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
-	// Only register runner-side endpoints when the runner is enabled.
+	// Backend-callback endpoints mount at /api/<name> derived from the
+	// backend entry name. The HMAC key is selected by path at registration
+	// time — each handler set closes over exactly one backend's key + replay
+	// cache, resolved before any card lookup.
+	//
+	// GET /api/runner/logs and /api/runner/health are BROWSER-facing (the
+	// web UI's EventSource and capacity meter), not backend callbacks —
+	// they stay at literal paths. So does the runner-called
+	// GET /api/v1/cards/.../autonomous.
 	if cfg.Runner != nil {
-		mux.HandleFunc("POST /api/runner/status", rh.runnerStatusUpdate)
-		mux.HandleFunc("POST /api/runner/knowledge-status", rh.runnerKnowledgeStatus)
-		mux.HandleFunc("POST /api/runner/skill-engaged", rh.handleRunnerSkillEngaged)
+		// Fail fast at startup: an empty Name would silently mount the
+		// backend callbacks at /api/ (derived path would be "/api/"). Real
+		// configs can't get here (applyBackendDefaults always sets Name);
+		// this guards sloppy test fixtures and future wiring bugs. Same
+		// panic-at-registration posture as validateOverrideLimit.
+		if cfg.BackendCfg.Name == "" {
+			panic("api: RouterConfig.BackendCfg.Name must be set when Runner is non-nil")
+		}
+
+		cb := cfg.BackendCfg.CallbackPath()
+		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("POST "+cb+"/knowledge-status", rh.runnerKnowledgeStatus)
+		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
@@ -336,7 +355,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 //
 // Exempt paths:
 //   - GET / HEAD / OPTIONS (read-only)
-//   - /api/runner/*  — HMAC-signed runner callbacks; no browser path here
+//   - /api/runner/*, /api/agent/*, /api/chat/* — HMAC-signed backend-callback space; no browser path here
 //   - /mcp           — Bearer-authed MCP endpoint
 //   - /healthz, /readyz — probe endpoints, no body
 //
@@ -374,7 +393,9 @@ func csrfExempt(r *http.Request) bool {
 	switch {
 	case path == "/healthz" || path == "/readyz":
 		return true
-	case strings.HasPrefix(path, "/api/runner/"):
+	case strings.HasPrefix(path, "/api/runner/"),
+		strings.HasPrefix(path, "/api/agent/"),
+		strings.HasPrefix(path, "/api/chat/"):
 		return true
 	case path == "/mcp":
 		return true

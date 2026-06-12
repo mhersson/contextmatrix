@@ -25,7 +25,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 )
 
-// stubRunner is a fake chat.Runner used by manager tests. Counters are atomic
+// stubRunner is a fake chat.Backend used by manager tests. Counters are atomic
 // because Manager.startConsumer spawns a goroutine that calls StreamLogs
 // independently of the test goroutine — plain ints would race under -race.
 type stubRunner struct {
@@ -110,7 +110,7 @@ func newManagerWithStubs(t *testing.T) (*chat.Manager, *stubRunner, chat.Store) 
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -141,7 +141,7 @@ func TestManager_OpenSession_ColdStartsContainer(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		ResolveRepoURL: func(_ context.Context, _ string) (string, error) {
@@ -391,7 +391,7 @@ func TestManager_EndSession_NeverPersistsEndingStatus(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   ts,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -531,7 +531,7 @@ func newManagerWithHub(t *testing.T) (*chat.Manager, *stubRunner, chat.Store, *c
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clk,
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -769,7 +769,7 @@ func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 	runner := &slowStartRunner{delay: 10 * time.Millisecond}
 
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Runner: runner, Clock: clock.Real(),
+		Store: store, Backend: runner, Clock: clock.Real(),
 		IdleTTL: time.Hour, MaxConcurrent: 2,
 	})
 
@@ -831,7 +831,7 @@ func TestManager_AppendMessage_SeqMonotonicUnderConcurrency(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Runner: &stubRunner{}, Clock: clock.Real(), IdleTTL: time.Hour,
+		Store: store, Backend: &stubRunner{}, Clock: clock.Real(), IdleTTL: time.Hour,
 	})
 
 	ctx := context.Background()
@@ -920,7 +920,7 @@ func TestManager_OpenSession_RespectsMaxConcurrent(t *testing.T) {
 
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Runner: runner, Clock: clock.Real(),
+		Store: store, Backend: runner, Clock: clock.Real(),
 		IdleTTL: time.Hour, MaxConcurrent: 2,
 		ResolveRepoURL: func(ctx context.Context, project string) (string, error) {
 			return "", nil
@@ -1101,7 +1101,7 @@ func TestManager_OpenSession_BridgesRunnerLogs(t *testing.T) {
 	hub := chat.NewSSEHub(128)
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -1185,7 +1185,7 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1486,7 +1486,7 @@ func TestManager_OpenSession_RollbackOnRehydrationPersistFailure(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   fstore,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1547,7 +1547,7 @@ func TestSetRehydrationActive_StoreAndCacheStayInSync(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1629,7 +1629,7 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -1689,7 +1689,7 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 	t.Fatalf("session.context_tokens never reached 5200")
 }
 
-// usageStreamingRunner is a stub RunnerClient that delivers a canned list
+// usageStreamingRunner is a stub Backend that delivers a canned list
 // of LogEntry values through StreamLogs (in order, with a small delay so
 // the consumer reliably observes them).
 type usageStreamingRunner struct {
@@ -1735,7 +1735,7 @@ func newManagerWithStubsAndConfig(t *testing.T, base chat.Config) (*chat.Manager
 	runner := &stubRunner{}
 
 	base.Store = store
-	base.Runner = runner
+	base.Backend = runner
 
 	if base.Clock == nil {
 		base.Clock = clock.Real()
@@ -1833,7 +1833,7 @@ func TestManager_Close_StopsAllConsumers(t *testing.T) {
 	require.Equal(t, int32(0), runner.activeStreams.Load(), "Close must stop all log streams")
 }
 
-// countingRunner is a fake RunnerClient whose StartChat behaviour is fully
+// countingRunner is a fake Backend whose StartChat behaviour is fully
 // controlled by the test via the startChat func field. Used to gate cold-open
 // progress on a per-test signal so we can assert that two distinct sessions
 // reach the runner concurrently.
@@ -1860,10 +1860,10 @@ func (r *countingRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.L
 }
 
 // newTestManagerWithRunner constructs a chat.Manager wired to the supplied
-// RunnerClient and a fresh sqlite store, with MaxConcurrent explicitly set
+// Backend and a fresh sqlite store, with MaxConcurrent explicitly set
 // to 0 (unlimited) so the limit-bounded serialisation path does not gate
 // the cold-open singleflight test.
-func newTestManagerWithRunner(t *testing.T, runner chat.RunnerClient) (*chat.Manager, chat.Store, func()) {
+func newTestManagerWithRunner(t *testing.T, runner chat.Backend) (*chat.Manager, chat.Store, func()) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -1871,7 +1871,7 @@ func newTestManagerWithRunner(t *testing.T, runner chat.RunnerClient) (*chat.Man
 
 	mgr := chat.NewManager(chat.Config{
 		Store:         store,
-		Runner:        runner,
+		Backend:       runner,
 		Clock:         clock.Real(),
 		IdleTTL:       time.Hour,
 		MaxConcurrent: 0,
@@ -1896,7 +1896,7 @@ func newTestManagerWithStore(t *testing.T, store chat.Store) (*chat.Manager, *st
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:         store,
-		Runner:        runner,
+		Backend:       runner,
 		Clock:         clock.Real(),
 		IdleTTL:       time.Hour,
 		MaxConcurrent: 0,
@@ -2023,7 +2023,7 @@ func newManagerWithPrimerPath(t *testing.T, primerPath string) (*chat.Manager, *
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:      store,
-		Runner:     runner,
+		Backend:    runner,
 		Clock:      clock.Real(),
 		IdleTTL:    time.Hour,
 		PrimerPath: primerPath,
@@ -2384,7 +2384,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:      store,
-		Runner:     runner,
+		Backend:    runner,
 		Clock:      clock.Real(),
 		IdleTTL:    time.Hour,
 		PrimerPath: primerPath,
@@ -2505,7 +2505,7 @@ func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   fstore,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -2650,7 +2650,7 @@ func TestMarkActive_OnSubscribe_NoDeadlock(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2738,7 +2738,7 @@ func TestOpenSession_WarmIdle_PublishesActive(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2788,7 +2788,7 @@ func TestOpenSession_Cold_PublishesActive(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2844,7 +2844,7 @@ func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 	runner := &stubRunner{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  runner,
+		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -3007,7 +3007,7 @@ func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3094,7 +3094,7 @@ func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3165,7 +3165,7 @@ func TestHandleUsageEntry_EndSessionReopenAccumulates(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3244,7 +3244,7 @@ waitPhase2:
 	t.Fatal("DB prompt_tokens never reached 150 after EndSession+reopen")
 }
 
-// twoPhaseUsageRunner is a stub RunnerClient that delivers phase1 entries on the
+// twoPhaseUsageRunner is a stub Backend that delivers phase1 entries on the
 // first StartChat, and phase2 entries on the second (simulating EndSession + reopen).
 type twoPhaseUsageRunner struct {
 	mu     sync.Mutex
@@ -3309,7 +3309,7 @@ func TestHandleUsageEntry_NilPricer(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3361,7 +3361,7 @@ func TestHandleUsageEntry_UnknownModel(t *testing.T) {
 	pricer := newStubPricer(map[string]float64{}) // empty — all models unknown
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3413,7 +3413,7 @@ func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
 	mgr := chat.NewManager(chat.Config{
 		Store:        fStore,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3480,7 +3480,7 @@ func TestHandleUsageEntry_PreservesContextTokens(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Runner:       runner,
+		Backend:      runner,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3559,7 +3559,7 @@ func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Runner:  &stubRunner{},
+		Backend: &stubRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3607,7 +3607,7 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   countingStore,
-		Runner:  &stubRunner{},
+		Backend: &stubRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3650,7 +3650,7 @@ func TestGetChatCostSummary_ErrorNotCached(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   failStore,
-		Runner:  &stubRunner{},
+		Backend: &stubRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3687,7 +3687,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Runner:  &stubRunner{},
+		Backend: &stubRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})

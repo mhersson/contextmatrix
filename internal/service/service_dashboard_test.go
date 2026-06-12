@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// noopChatRunner is a minimal chat.RunnerClient for tests that do not exercise
+// noopChatRunner is a minimal chat.Backend for tests that do not exercise
 // the runner path (cold opens, message sends, log streaming).
 type noopChatRunner struct{}
 
@@ -922,7 +922,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	// Build the first manager — used to capture the baseline and delete the session.
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Runner:  noopChatRunner{},
+		Backend: noopChatRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -954,7 +954,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	// A zero costCache on the new manager forces a re-query from the store.
 	mgr2 := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Runner:  noopChatRunner{},
+		Backend: noopChatRunner{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})

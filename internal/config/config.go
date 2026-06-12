@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,28 +22,61 @@ type ModelRate struct {
 	Completion float64 `yaml:"completion"`
 }
 
-// MinRunnerAPIKeyLength is the minimum required length for runner.api_key.
-const MinRunnerAPIKeyLength = 32
+// MinBackendAPIKeyLength is the minimum required length for a backend
+// entry's api_key.
+const MinBackendAPIKeyLength = 32
 
-// RunnerConfig holds configuration for the remote execution runner.
-type RunnerConfig struct {
-	Enabled                 bool   `yaml:"enabled"`
-	URL                     string `yaml:"url"`                       // base URL, e.g. http://localhost:9090
-	APIKey                  string `yaml:"api_key"`                   // shared secret for HMAC signing
-	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"` // model ID for Sonnet orchestrator
-	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`   // model ID for Opus orchestrator
-	ReconcileInterval       string `yaml:"reconcile_interval"`        // how often the backstop sweep scans for leaked containers; "0s" disables
+// Backend name constants — the closed set of valid backends map keys.
+// Callback paths are derived as /api/<name>.
+const (
+	BackendNameRunner = "runner"
+	BackendNameAgent  = "agent"
+	BackendNameChat   = "chat"
+)
+
+// allowedBackendNames is the closed set used for name validation and env-key
+// allowlisting. Order is stable (runner, agent, chat) for error messages.
+var allowedBackendNames = []string{BackendNameRunner, BackendNameAgent, BackendNameChat}
+
+// BackendConfig is one entry in the backends map: an execution backend CM
+// can drive over the contextmatrix-protocol webhook contract. Read once at
+// startup — changing backends requires a CM restart.
+type BackendConfig struct {
+	URL     string `yaml:"url"`     // base URL, e.g. http://localhost:9090
+	APIKey  string `yaml:"api_key"` // shared HMAC secret for this backend
+	Enabled *bool  `yaml:"enabled"` // nil means enabled (omitting = active)
+
+	// Name is the map key, set programmatically by applyBackendDefaults.
+	// Never parsed from YAML.
+	Name string `yaml:"-"`
+
+	// Task-backend-only knobs; chat entries must leave these empty.
+	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"`
+	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
+	ReconcileInterval       string `yaml:"reconcile_interval"`
 }
 
-// ReconcileIntervalDuration parses ReconcileInterval as a time.Duration. A
-// zero or unset value returns 0, which disables the sweep in
-// StartReconciliationSweep.
-func (r *RunnerConfig) ReconcileIntervalDuration() time.Duration {
-	if r.ReconcileInterval == "" {
+// IsEnabled reports whether this entry is active. nil Enabled defaults to true
+// (presence in the map = active; disabled entries are inert placeholders).
+func (b BackendConfig) IsEnabled() bool {
+	return b.Enabled == nil || *b.Enabled
+}
+
+// CallbackPath returns the webhook callback prefix derived from the entry name:
+// /api/<name>. Name must be set (by applyBackendDefaults or the constructor
+// helpers) before calling this.
+func (b BackendConfig) CallbackPath() string {
+	return "/api/" + b.Name
+}
+
+// ReconcileIntervalDuration parses ReconcileInterval. Zero/unset/invalid
+// returns 0, which disables the reconcile sweep.
+func (b *BackendConfig) ReconcileIntervalDuration() time.Duration {
+	if b.ReconcileInterval == "" {
 		return 0
 	}
 
-	d, err := time.ParseDuration(r.ReconcileInterval)
+	d, err := time.ParseDuration(b.ReconcileInterval)
 	if err != nil {
 		return 0
 	}
@@ -198,14 +233,16 @@ type Config struct {
 	Theme                string               `yaml:"theme"`
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
-	Runner               RunnerConfig         `yaml:"runner"`
-	GitHub               GitHubConfig         `yaml:"github"`
-	LogFormat            string               `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel             string               `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort            int                  `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr        string               `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
-	Chat                 ChatConfig           `yaml:"chat"`
-	Images               ImagesConfig         `yaml:"images"`
+	// Backends maps a backend name (runner, agent, chat) to its connection
+	// config. Roles and callback paths are derived from the entry name.
+	Backends      map[string]BackendConfig `yaml:"backends"`
+	GitHub        GitHubConfig             `yaml:"github"`
+	LogFormat     string                   `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel      string                   `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort     int                      `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr string                   `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat          ChatConfig               `yaml:"chat"`
+	Images        ImagesConfig             `yaml:"images"`
 }
 
 // defaults returns a Config with default values.
@@ -225,15 +262,10 @@ func defaults() *Config {
 		WorkflowSkillsDir:    "",
 		TaskSkills:           TaskSkillsConfig{},
 		Theme:                "everforest",
-		Runner: RunnerConfig{
-			OrchestratorSonnetModel: "claude-sonnet-4-6",
-			OrchestratorOpusModel:   "claude-opus-4-8",
-			ReconcileInterval:       "60s",
-		},
-		LogFormat:     "text",
-		LogLevel:      "info",
-		AdminPort:     0,
-		AdminBindAddr: "127.0.0.1",
+		LogFormat:            "text",
+		LogLevel:             "info",
+		AdminPort:            0,
+		AdminBindAddr:        "127.0.0.1",
 	}
 }
 
@@ -325,24 +357,82 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Runner.Enabled {
-		if c.Runner.URL == "" {
-			return fmt.Errorf("runner.url is required when runner is enabled")
+	// applyBackendDefaults fills per-entry knob defaults for backends that
+	// omit them. Idempotent; mirrors the applyChatDefaults pattern so
+	// callers that bypass Load still get defaults applied.
+	applyBackendDefaults(c)
+
+	allowedSet := map[string]bool{}
+	for _, n := range allowedBackendNames {
+		allowedSet[n] = true
+	}
+
+	for name, b := range c.Backends {
+		// Name check applies to ALL entries, enabled or not (typo guard).
+		if !allowedSet[name] {
+			return fmt.Errorf("invalid backend name %q: must be one of \"runner\", \"agent\", \"chat\"", name)
 		}
 
-		if c.Runner.APIKey == "" {
-			return fmt.Errorf("runner.api_key is required when runner is enabled")
+		// Disabled entries are inert placeholders — skip all further checks.
+		if !b.IsEnabled() {
+			continue
 		}
 
-		if len(c.Runner.APIKey) < MinRunnerAPIKeyLength {
-			return fmt.Errorf("runner.api_key must be at least %d characters", MinRunnerAPIKeyLength)
+		if b.URL == "" {
+			return fmt.Errorf("backends[%q].url is required", name)
 		}
 
-		if c.Runner.ReconcileInterval != "" {
-			if _, err := time.ParseDuration(c.Runner.ReconcileInterval); err != nil {
-				return fmt.Errorf("invalid runner.reconcile_interval %q: %w", c.Runner.ReconcileInterval, err)
+		if len(b.APIKey) < MinBackendAPIKeyLength {
+			return fmt.Errorf("backends[%q].api_key must be at least %d characters", name, MinBackendAPIKeyLength)
+		}
+
+		// chat is a pure chat-serving backend; task-execution knobs don't
+		// apply. Checked before the duration-format check so the operator
+		// sees "must not be set" rather than a misleading format error.
+		if name == BackendNameChat {
+			if b.OrchestratorSonnetModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set on the chat backend", name)
+			}
+
+			if b.OrchestratorOpusModel != "" {
+				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set on the chat backend", name)
+			}
+
+			if b.ReconcileInterval != "" {
+				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
+			}
+
+			continue
+		}
+
+		if b.ReconcileInterval != "" {
+			if _, err := time.ParseDuration(b.ReconcileInterval); err != nil {
+				return fmt.Errorf("invalid backends[%q].reconcile_interval %q: %w", name, b.ReconcileInterval, err)
 			}
 		}
+	}
+
+	// runner is mutually exclusive with agent and chat: runner already serves
+	// both task execution and chat, so mixing the roles creates ambiguity.
+	runnerEnabled := c.Backends[BackendNameRunner].IsEnabled() && c.Backends[BackendNameRunner].URL != ""
+	agentEnabled := c.Backends[BackendNameAgent].IsEnabled() && c.Backends[BackendNameAgent].URL != ""
+	chatEnabled := c.Backends[BackendNameChat].IsEnabled() && c.Backends[BackendNameChat].URL != ""
+
+	// Only treat an entry as "present+enabled" when it was actually declared
+	// in the map (a missing key returns a zero BackendConfig with Enabled==nil,
+	// which IsEnabled() would report true — so we must check map presence too).
+	_, hasRunner := c.Backends[BackendNameRunner]
+	_, hasAgent := c.Backends[BackendNameAgent]
+	_, hasChat := c.Backends[BackendNameChat]
+
+	runnerActive := hasRunner && runnerEnabled
+	agentActive := hasAgent && agentEnabled
+	chatActive := hasChat && chatEnabled
+
+	if runnerActive && (agentActive || chatActive) {
+		return fmt.Errorf("backends: runner is mutually exclusive with agent and chat " +
+			"(runner already serves both task execution and chat); " +
+			"set enabled: false on the entries you are not using")
 	}
 
 	if c.Theme == "" {
@@ -476,12 +566,24 @@ func FindConfigPath() string {
 func Load(path string) (*Config, error) {
 	cfg := defaults()
 
+	if err := checkLegacyEnv(); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
-			applyEnvOverrides(cfg)
+			applyBackendDefaults(cfg)
+
+			if err := applyEnvOverrides(cfg); err != nil {
+				return nil, err
+			}
+
+			if err := checkBackendEnvKeys(cfg); err != nil {
+				return nil, err
+			}
 
 			if err := resolvePaths(cfg, path); err != nil {
 				return nil, err
@@ -501,12 +603,24 @@ func Load(path string) (*Config, error) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(cfg); err != nil {
+		if strings.Contains(err.Error(), "field runner not found") {
+			return nil, fmt.Errorf("parse config: %w — the runner block was replaced by the backends map: move url/api_key into backends.runner (enabled defaults to true; nothing else required)", err)
+		}
+
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
-	applyEnvOverrides(cfg)
+	applyBackendDefaults(cfg)
+
+	if err := applyEnvOverrides(cfg); err != nil {
+		return nil, err
+	}
+
+	if err := checkBackendEnvKeys(cfg); err != nil {
+		return nil, err
+	}
 
 	if err := resolvePaths(cfg, path); err != nil {
 		return nil, err
@@ -575,6 +689,71 @@ func applyImagesDefaults(cfg *Config) {
 	}
 }
 
+// TaskBackendConfig returns the backend responsible for task execution.
+// Precedence: runner (if present+enabled) → agent (if present+enabled) → not found.
+// The returned copy has Name set defensively so callers that bypass Load still
+// get a usable value.
+func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
+	for _, name := range []string{BackendNameRunner, BackendNameAgent} {
+		b, ok := c.Backends[name]
+		if ok && b.IsEnabled() {
+			b.Name = name
+
+			return b, true
+		}
+	}
+
+	return BackendConfig{}, false
+}
+
+// ChatBackendConfig returns the backend responsible for chat containers.
+// Precedence: runner (if present+enabled) → chat (if present+enabled) → not found.
+// The returned copy has Name set defensively so callers that bypass Load still
+// get a usable value.
+func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
+	for _, name := range []string{BackendNameRunner, BackendNameChat} {
+		b, ok := c.Backends[name]
+		if ok && b.IsEnabled() {
+			b.Name = name
+
+			return b, true
+		}
+	}
+
+	return BackendConfig{}, false
+}
+
+// applyBackendDefaults fills per-entry defaults for fields not supplied by
+// YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
+// flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
+// only from the second run inside Validate — keep that re-run if the Load
+// sequence is ever reordered (pinned by TestBackendEnvEnableGetsDefaults).
+func applyBackendDefaults(cfg *Config) {
+	for name, b := range cfg.Backends {
+		// Name is always set from the map key — cheap and correct even on
+		// disabled placeholders.
+		b.Name = name
+
+		// Task-execution defaults apply only to enabled task backends (runner
+		// and agent). The chat backend must not have these fields set at all.
+		if b.IsEnabled() && name != BackendNameChat {
+			if b.OrchestratorSonnetModel == "" {
+				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
+			}
+
+			if b.OrchestratorOpusModel == "" {
+				b.OrchestratorOpusModel = "claude-opus-4-8"
+			}
+
+			if b.ReconcileInterval == "" {
+				b.ReconcileInterval = "60s"
+			}
+		}
+
+		cfg.Backends[name] = b
+	}
+}
+
 // applyChatDefaults sets Chat fields that were not supplied by YAML.
 func applyChatDefaults(cfg *Config) {
 	if cfg.Chat.IdleTTL == 0 {
@@ -627,7 +806,7 @@ func parseBoolEnv(name string, current bool) bool {
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
-func applyEnvOverrides(cfg *Config) {
+func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("CONTEXTMATRIX_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil {
 			cfg.Port = port
@@ -713,28 +892,6 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.MCPAPIKey = v
 	}
 
-	cfg.Runner.Enabled = parseBoolEnv("CONTEXTMATRIX_RUNNER_ENABLED", cfg.Runner.Enabled)
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_URL"); v != "" {
-		cfg.Runner.URL = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_API_KEY"); v != "" {
-		cfg.Runner.APIKey = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL"); v != "" {
-		cfg.Runner.OrchestratorSonnetModel = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL"); v != "" {
-		cfg.Runner.OrchestratorOpusModel = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL"); v != "" {
-		cfg.Runner.ReconcileInterval = v
-	}
-
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_HOST"); v != "" {
 		cfg.GitHub.Host = v
 	}
@@ -792,6 +949,102 @@ func applyEnvOverrides(cfg *Config) {
 			slog.Warn("ignoring invalid CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "value", v, "error", err)
 		}
 	}
+
+	for name, b := range cfg.Backends {
+		prefix := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+
+		if v := os.Getenv(prefix + "_URL"); v != "" {
+			b.URL = v
+		}
+
+		if v := os.Getenv(prefix + "_API_KEY"); v != "" {
+			b.APIKey = v
+		}
+
+		if v := os.Getenv(prefix + "_ENABLED"); v != "" {
+			enabled, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid %s_ENABLED %q: must be true/false/1/0: %w", prefix, v, err)
+			}
+
+			b.Enabled = &enabled
+		}
+
+		cfg.Backends[name] = b
+	}
+
+	return nil
+}
+
+// checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
+// do not map to a known (name, suffix) pair. The backend name must be in the
+// closed set (runner, agent, chat) AND be declared in cfg.Backends; the suffix
+// must be _URL, _API_KEY, or _ENABLED. A typo'd or stale variable must fail
+// loudly, not silently configure nothing. NOTE: when adding a new per-backend
+// env field to applyEnvOverrides, add it to the known set here too.
+func checkBackendEnvKeys(cfg *Config) error {
+	known := map[string]bool{}
+
+	for name := range cfg.Backends {
+		pfx := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+		known[pfx+"_URL"] = true
+		known[pfx+"_API_KEY"] = true
+		known[pfx+"_ENABLED"] = true
+	}
+
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(key, "CONTEXTMATRIX_BACKEND_") {
+			continue
+		}
+
+		if !known[key] {
+			return fmt.Errorf("%s references no configured backend "+
+				"(allowed names: %s; declared: %v) — fix the variable name or add the backends entry",
+				key,
+				strings.Join(allowedBackendNames, ", "),
+				slices.Sorted(maps.Keys(cfg.Backends)))
+		}
+	}
+
+	return nil
+}
+
+// legacyRunnerEnvVars are the pre-backends env overrides. They configure
+// nothing anymore; failing loudly beats a silently half-configured deploy.
+var legacyRunnerEnvVars = []string{
+	"CONTEXTMATRIX_RUNNER_ENABLED",
+	"CONTEXTMATRIX_RUNNER_URL",
+	"CONTEXTMATRIX_RUNNER_API_KEY",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL",
+	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL",
+}
+
+// legacyRunnerEnvMigration maps each retired var to its replacement name.
+var legacyRunnerEnvMigration = map[string]string{
+	"CONTEXTMATRIX_RUNNER_URL":     "CONTEXTMATRIX_BACKEND_RUNNER_URL",
+	"CONTEXTMATRIX_RUNNER_API_KEY": "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY",
+	"CONTEXTMATRIX_RUNNER_ENABLED": "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED",
+}
+
+// checkLegacyEnv rejects retired CONTEXTMATRIX_RUNNER_* variables with a
+// migration pointer.
+func checkLegacyEnv() error {
+	for _, name := range legacyRunnerEnvVars {
+		if os.Getenv(name) != "" {
+			msg := fmt.Sprintf("%s is no longer supported: runner config moved to the backends map", name)
+			if replacement, ok := legacyRunnerEnvMigration[name]; ok {
+				msg += fmt.Sprintf(" — rename to %s", replacement)
+			} else {
+				msg += " (see config.yaml.example)"
+			}
+
+			return fmt.Errorf("%s", msg) //nolint:err113
+		}
+	}
+
+	return nil
 }
 
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.

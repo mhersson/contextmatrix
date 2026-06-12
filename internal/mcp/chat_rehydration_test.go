@@ -40,7 +40,7 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Runner:  &chatStubRunner{},
+		Backend: &chatStubRunner{},
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -48,8 +48,8 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 	return mgr, &chatTestDeps{store: store}
 }
 
-// chatStubRunner is the minimal RunnerClient stub needed for chat manager tests
-// in the mcp package. It satisfies the chat.RunnerClient interface without any
+// chatStubRunner is the minimal Backend stub needed for chat manager tests
+// in the mcp package. It satisfies the chat.Backend interface without any
 // real behaviour — we never actually start containers in these tests.
 type chatStubRunner struct{}
 

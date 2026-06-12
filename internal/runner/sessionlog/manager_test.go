@@ -89,9 +89,8 @@ func sseServer(t *testing.T, events []Event, readyCh chan struct{}) *httptest.Se
 		once.Do(func() { close(readyCh) })
 
 		for _, evt := range events {
-			payload, err := json.Marshal(sseJSONPayload{
-				Seq:       evt.Seq,
-				Timestamp: evt.Timestamp.Format(time.RFC3339Nano),
+			payload, err := json.Marshal(protocol.LogEntry{
+				Timestamp: evt.Timestamp,
 				Type:      evt.Type,
 				Content:   string(evt.Payload),
 			})
@@ -201,7 +200,9 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	require.Len(t, got, len(events), "expected all events via live channel")
 
 	for i, evt := range got {
-		assert.Equal(t, events[i].Seq, evt.Seq)
+		// Seq is not a wire field; events decoded from protocol.LogEntry frames
+		// always arrive with Seq==0. Payload content is the correctness signal.
+		assert.Equal(t, uint64(0), evt.Seq, "wire events have Seq==0 (not a wire field)")
 		assert.Equal(t, string(events[i].Payload), string(evt.Payload))
 	}
 
@@ -239,8 +240,7 @@ func TestMultipleConcurrentSubscribers(t *testing.T) {
 		<-gate // wait until test signals
 
 		for _, evt := range events {
-			payload, _ := json.Marshal(sseJSONPayload{
-				Seq:     evt.Seq,
+			payload, _ := json.Marshal(protocol.LogEntry{
 				Type:    evt.Type,
 				Content: string(evt.Payload),
 			})
@@ -469,24 +469,37 @@ func TestSubscribeBeforeStart(t *testing.T) {
 	assert.Len(t, got, len(events))
 }
 
-// TestSubscribeSnapshotLiveOrdering reproduces the interleave/duplicate race in
+// TestSubscribeSnapshotLiveOrdering reproduces the snapshot/live race in
 // Subscribe. The bug: Subscribe releases m.mu after registering the subscriber
 // but before the snapshot goroutine writes to the channel. The pump goroutine
-// can immediately acquire m.mu and fan out live events, so a live event arrives
-// on the channel before the snapshot events.
+// can immediately acquire m.mu and fan out live events, so a live event can be
+// sent directly to ch while the snapshot goroutine is still delivering —
+// producing a duplicate (event in both snapshot and direct fan-out) or an
+// out-of-order delivery (newer event before older snapshot events).
 //
 // Setup:
-//   - A high-frequency SSE server streams events with Seq >= snapshotSize+1.
-//   - The buffer is pre-populated with snapshotSize events (Seq 1..snapshotSize)
-//     via direct m.Append calls, so a non-empty snapshot exists before Subscribe.
+//   - A high-frequency SSE server streams unique monotonic events
+//     (content "live-N", N strictly increasing).
+//   - The session is started and the pump begins buffering live events.
 //   - Subscribe is called while the pump is actively fanning out live events.
 //   - The channel is drained for a bounded duration.
 //
-// The test runs the scenario in a loop to make the race reproducible. It fails
-// on the current implementation and must pass after the fix (subtask 2).
+// Assertions (the manager's documented subscriber guarantee is both):
+//  1. Ordering: N is strictly increasing across the channel (ignoring
+//     markers). Snapshot events stable-sort to insertion order (all live
+//     events have Seq==0), sub.pending preserves arrival order, and primed
+//     live delivery continues it — so any pump write that bypasses the
+//     primed check shows up as a non-increasing N even when delivered once.
+//  2. No duplicates: each "live-N" content appears at most once. A duplicate
+//     means an event was delivered both via the snapshot goroutine AND
+//     directly by the pump.
+//
+// Seq is NOT a wire field; all live events arrive with Seq==0 from the decoder.
+// The test uses the monotonic content counter for both identity and order.
+//
+// The test runs the scenario in a loop to make the race reproducible.
 func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 	const (
-		snapshotSize = 200
 		iterations   = 25
 		drainTimeout = 200 * time.Millisecond
 	)
@@ -495,14 +508,13 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 		t.Run(fmt.Sprintf("iter%d", iter), func(t *testing.T) {
 			const cardID = "ORDER-001"
 
-			// liveSeq tracks the next Seq to send from the SSE server.
-			// Starts above snapshotSize so snapshot events are distinguishable.
-			var liveSeq atomic.Uint64
-			liveSeq.Store(uint64(snapshotSize + 1))
+			// counter provides unique content per frame so we can detect duplicate
+			// delivery. Seq is not a wire field; content is the identity signal.
+			var counter atomic.Uint64
 
 			// Build an SSE server that streams events continuously at full speed
-			// until the client disconnects. Each event gets a monotonically
-			// increasing Seq value above snapshotSize.
+			// until the client disconnects. Frames are true protocol.LogEntry wire
+			// shape; each frame carries a unique content string "live-N".
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				flusher, ok := w.(http.Flusher)
 				if !ok {
@@ -516,11 +528,11 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				flusher.Flush()
 
 				for r.Context().Err() == nil {
-					seq := liveSeq.Add(1)
+					n := counter.Add(1)
 
-					payload, err := json.Marshal(sseJSONPayload{
-						Seq:  seq,
-						Type: "log",
+					payload, err := json.Marshal(protocol.LogEntry{
+						Type:    "log",
+						Content: fmt.Sprintf("live-%d", n),
 					})
 					if err != nil {
 						return
@@ -541,26 +553,16 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 			// fanning out live events from the SSE server.
 			require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-			// Wait for the pump to connect and begin fanning out (evidenced by at
-			// least one live event being processed — liveSeq advances beyond its
-			// initial value once the server starts sending).
+			// Wait for the pump to connect and begin buffering live events.
 			require.Eventually(t, func() bool {
-				return liveSeq.Load() > uint64(snapshotSize+2)
+				return counter.Load() > 2
 			}, 2*time.Second, time.Millisecond)
 
-			// Pre-populate the buffer with snapshotSize events (Seq 1..snapshotSize).
-			// These represent events that arrived before the current Subscribe call.
-			for i := range snapshotSize {
-				m.Append(cardID, Event{
-					Seq:       uint64(i + 1),
-					Timestamp: time.Now(),
-					Type:      "log",
-					Payload:   fmt.Appendf(nil, "snap-%d", i+1),
-				})
-			}
-
-			// Subscribe while the pump is actively sending live events (Seq > snapshotSize).
-			// This is the window where the race can occur.
+			// Subscribe while the pump is actively sending live events.
+			// This is the window where the snapshot/live duplicate-delivery race
+			// can occur: events already in the buffer go through the snapshot
+			// goroutine; concurrent pump events must go to sub.pending and not
+			// also be direct-fanned to ch.
 			ch, unsub := m.Subscribe(cardID)
 			defer unsub()
 
@@ -583,59 +585,53 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				}
 			}
 
-			// Skip marker / terminal events for ordering checks.
-			isMarker := func(e Event) bool {
-				return e.Type == EventTypeDropped || e.Type == EventTypeTerminal
-			}
+			require.NotEmpty(t, received, "subscriber received no events — test is vacuous")
 
-			// Assertion 1: Seq values must be strictly non-decreasing (ignoring markers).
-			// Any violation means a live event arrived before snapshot events.
-			var (
-				prevSeq  uint64
-				seenLive bool
-			)
+			// Assertion 1: N must be strictly increasing across the channel
+			// (ignoring markers). Snapshot stable-sorts to insertion order (all
+			// Seq==0), pending preserves arrival order, primed live continues
+			// it. A pump write that bypasses the primed check mid-snapshot
+			// delivers a newer event before older snapshot events — caught here
+			// as a non-increasing N even when the event arrives exactly once.
+			//
+			// Assertion 2: no duplicate content. A duplicate means an event was
+			// delivered both via the snapshot goroutine AND directly — the
+			// primed-flag race. Seq is not a wire field (always 0 for live
+			// events) so the content counter is identity and order signal here.
+			var prevN uint64
 
-			for _, evt := range received {
-				if isMarker(evt) {
-					continue
-				}
-
-				isLive := evt.Seq > snapshotSize
-				if isLive {
-					seenLive = true
-				}
-				// Once we have seen a live event, no snapshot event should appear.
-				if seenLive && !isLive {
-					t.Errorf("iter %d: snapshot event (Seq=%d) arrived after live event on subscriber channel — ordering violated",
-						iter, evt.Seq)
-
-					break
-				}
-				// Seq must be non-decreasing within each segment.
-				if evt.Seq < prevSeq {
-					t.Errorf("iter %d: Seq decreased: got %d after %d",
-						iter, evt.Seq, prevSeq)
-
-					break
-				}
-
-				prevSeq = evt.Seq
-			}
-
-			// Assertion 2: No duplicate Seq values on the channel (ignoring markers).
-			seen := make(map[uint64]int)
+			seen := make(map[string]int)
 
 			for i, evt := range received {
-				if isMarker(evt) {
+				if evt.Type == EventTypeDropped || evt.Type == EventTypeTerminal {
 					continue
 				}
 
-				if first, dup := seen[evt.Seq]; dup {
-					t.Errorf("iter %d: duplicate Seq=%d at positions %d and %d",
-						iter, evt.Seq, first, i)
+				content := string(evt.Payload)
+
+				numStr, ok := strings.CutPrefix(content, "live-")
+				require.True(t, ok, "iter %d: unexpected payload %q at position %d", iter, content, i)
+
+				n, err := strconv.ParseUint(numStr, 10, 64)
+				require.NoError(t, err, "iter %d: unparsable payload %q at position %d", iter, content, i)
+
+				if n <= prevN {
+					// Fail once per iteration — a real regression would otherwise
+					// spew an error line for every subsequent event.
+					t.Errorf("iter %d: out-of-order delivery: live-%d at position %d after live-%d — primed-flag bypass",
+						iter, n, i, prevN)
+
+					break
 				}
 
-				seen[evt.Seq] = i
+				prevN = n
+
+				if first, dup := seen[content]; dup {
+					t.Errorf("iter %d: duplicate content %q at positions %d and %d — primed-flag race",
+						iter, content, first, i)
+				}
+
+				seen[content] = i
 			}
 		})
 	}
@@ -1255,12 +1251,8 @@ func TestAttemptResetOnSuccessfulFrame(t *testing.T) {
 		connIdx int
 	)
 
-	// Event to send on each connection.
-	evt := sseJSONPayload{
-		Seq:  1,
-		Type: "log",
-	}
-	payload, err := json.Marshal(evt)
+	// Event to send on each connection. Seq is not a wire field; only Type matters.
+	payload, err := json.Marshal(protocol.LogEntry{Type: "log"})
 	require.NoError(t, err)
 
 	// holdOpen is closed to let the final connection stay open after all cycles.
@@ -1350,7 +1342,7 @@ func TestBackoffDuration(t *testing.T) {
 // sseServerWithCardIDs builds an httptest.Server that streams events with
 // explicit card_id fields in the SSE JSON payload.  Used to test project-scoped
 // sessions that must accept all cards under a project.
-func sseServerWithCardIDs(t *testing.T, events []sseJSONPayload, readyCh chan struct{}) *httptest.Server {
+func sseServerWithCardIDs(t *testing.T, events []protocol.LogEntry, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
 
 	var once sync.Once
@@ -1452,11 +1444,12 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	readyCh := make(chan struct{})
 
 	// Build events for two different cards under the same project.
-	payloads := []sseJSONPayload{
-		{Seq: 1, Timestamp: time.Now().Format(time.RFC3339Nano), Type: "log", Content: "card-X-1", CardID: "PROJ-X"},
-		{Seq: 2, Timestamp: time.Now().Format(time.RFC3339Nano), Type: "log", Content: "card-Y-1", CardID: "PROJ-Y"},
-		{Seq: 3, Timestamp: time.Now().Format(time.RFC3339Nano), Type: "log", Content: "card-X-2", CardID: "PROJ-X"},
-		{Seq: 4, Timestamp: time.Now().Format(time.RFC3339Nano), Type: "log", Content: "card-Y-2", CardID: "PROJ-Y"},
+	// Seq is not a wire field — protocol.LogEntry frames carry ts/type/content/card_id.
+	payloads := []protocol.LogEntry{
+		{Timestamp: time.Now(), Type: "log", Content: "card-X-1", CardID: "PROJ-X"},
+		{Timestamp: time.Now(), Type: "log", Content: "card-Y-1", CardID: "PROJ-Y"},
+		{Timestamp: time.Now(), Type: "log", Content: "card-X-2", CardID: "PROJ-X"},
+		{Timestamp: time.Now(), Type: "log", Content: "card-Y-2", CardID: "PROJ-Y"},
 	}
 	srv := sseServerWithCardIDs(t, payloads, readyCh)
 
@@ -1477,19 +1470,20 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	got := drainN(ch, len(payloads), 5*time.Second)
 	require.Len(t, got, len(payloads), "expected all events from both cards")
 
-	// Verify they arrived in Seq order.
-	var prevSeq uint64
+	// Verify all 4 content values arrived (both cards' events buffered and delivered).
+	// Seq is not a wire field so all events have Seq==0; verify by content instead.
+	gotContents := make([]string, 0, len(got))
 
 	for _, evt := range got {
 		if evt.Type == EventTypeDropped || evt.Type == EventTypeTerminal {
 			continue
 		}
 
-		assert.GreaterOrEqual(t, evt.Seq, prevSeq, "Seq must be non-decreasing")
-		prevSeq = evt.Seq
+		gotContents = append(gotContents, string(evt.Payload))
 	}
 
-	assert.Equal(t, uint64(4), prevSeq, "all 4 events should have arrived")
+	assert.ElementsMatch(t, []string{"card-X-1", "card-Y-1", "card-X-2", "card-Y-2"}, gotContents,
+		"all events from both cards must be delivered")
 }
 
 // TestStartProject_Idempotent verifies that calling StartProject twice returns
@@ -2259,6 +2253,29 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 	assert.Contains(t, uri, "/logs", "URI should hit /logs endpoint")
 	assert.Contains(t, uri, "project=harness-project",
 		"URI must carry the project query — that's the bytes the signature binds")
+}
+
+// TestParseSSEPayloadReadsWireTimestamp verifies that parseSSEPayload honors
+// the ts field from a real protocol.LogEntry wire frame instead of falling
+// back to time.Now(). This is the correctness invariant for the decoder: the
+// runner marshals protocol.LogEntry; the decoder must read that exact shape.
+func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	raw, err := json.Marshal(protocol.LogEntry{
+		Timestamp: ts,
+		CardID:    "CM-001",
+		Type:      "text",
+		Content:   "hello",
+	})
+	require.NoError(t, err)
+
+	evt, cardID, ok := parseSSEPayload(string(raw))
+	require.True(t, ok)
+	assert.Equal(t, "CM-001", cardID)
+	assert.Equal(t, "text", evt.Type)
+	assert.Equal(t, []byte("hello"), evt.Payload)
+	// The wire timestamp must be honored — not replaced with time.Now().
+	assert.True(t, evt.Timestamp.Equal(ts), "got %v want %v", evt.Timestamp, ts)
 }
 
 // TestSignSSERequestMatchesProtocolSigner is the drift canary between

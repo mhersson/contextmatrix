@@ -194,10 +194,12 @@ func TestKnowledgeRefreshAPI_Trigger_HappyPath(t *testing.T) {
 	reg := refresh.NewRegistry()
 
 	server := httptest.NewServer(NewRouter(RouterConfig{
-		Service:         svc,
-		Bus:             bus,
-		Runner:          runnerClient,
-		RefreshRegistry: reg,
+		Service:            svc,
+		Bus:                bus,
+		Runner:             runnerClient,
+		KnowledgeRefresher: runnerClient,
+		BackendCfg:         config.BackendConfig{Name: "runner"},
+		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
 
@@ -238,11 +240,15 @@ func TestKnowledgeRefreshAPI_Trigger_409OnDuplicate(t *testing.T) {
 	_, err := reg.Acquire("test-project", "core", "human:other")
 	require.NoError(t, err)
 
+	rc := runner.NewClient(stubRunner.URL, "test-key")
+
 	server := httptest.NewServer(NewRouter(RouterConfig{
-		Service:         svc,
-		Bus:             bus,
-		Runner:          runner.NewClient(stubRunner.URL, "test-key"),
-		RefreshRegistry: reg,
+		Service:            svc,
+		Bus:                bus,
+		Runner:             rc,
+		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{Name: "runner"},
+		RefreshRegistry:    reg,
 	}))
 	defer server.Close()
 
@@ -269,11 +275,15 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsInvalidOverwriteDoc(t *testing.T) {
 	}))
 	defer stubRunner.Close()
 
+	rc := runner.NewClient(stubRunner.URL, "test-key")
+
 	server := httptest.NewServer(NewRouter(RouterConfig{
-		Service:         svc,
-		Bus:             bus,
-		Runner:          runner.NewClient(stubRunner.URL, "test-key"),
-		RefreshRegistry: refresh.NewRegistry(),
+		Service:            svc,
+		Bus:                bus,
+		Runner:             rc,
+		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{Name: "runner"},
+		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
 
@@ -303,11 +313,15 @@ func TestKnowledgeRefreshAPI_Trigger_RejectsTooManyOverwriteDocs(t *testing.T) {
 	}))
 	defer stubRunner.Close()
 
+	rc := runner.NewClient(stubRunner.URL, "test-key")
+
 	server := httptest.NewServer(NewRouter(RouterConfig{
-		Service:         svc,
-		Bus:             bus,
-		Runner:          runner.NewClient(stubRunner.URL, "test-key"),
-		RefreshRegistry: refresh.NewRegistry(),
+		Service:            svc,
+		Bus:                bus,
+		Runner:             rc,
+		KnowledgeRefresher: rc,
+		BackendCfg:         config.BackendConfig{Name: "runner"},
+		RefreshRegistry:    refresh.NewRegistry(),
 	}))
 	defer server.Close()
 
@@ -414,7 +428,7 @@ func TestRunnerKnowledgeStatus_AcceptsValidSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -448,7 +462,7 @@ func TestRunnerKnowledgeStatus_FailedWithoutCommitMarksFailed(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()
@@ -478,7 +492,7 @@ func TestRunnerKnowledgeStatus_RejectsMissingSignature(t *testing.T) {
 		Service:         svc,
 		Bus:             bus,
 		Runner:          runner.NewClient("http://unused", apiKey),
-		RunnerCfg:       config.RunnerConfig{APIKey: apiKey},
+		BackendCfg:      config.BackendConfig{APIKey: apiKey, Name: "runner"},
 		RefreshRegistry: reg,
 	}))
 	defer server.Close()

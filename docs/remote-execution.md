@@ -64,6 +64,15 @@ Code.
 **ContextMatrix** is the coordination layer. It stores cards, manages state, and
 sends webhooks to the runner. It never touches code repositories.
 
+**CM-side interface seams:** `api.TaskBackend` covers the task lifecycle
+(trigger, kill, stop-all, message, promote, end-session, health, containers) and
+`chat.Backend` covers the chat lifecycle plus the `/logs` SSE bridge.
+contextmatrix-runner's clients are today's sole implementations:
+`runner.Client` (constructed via `runner.NewClient`) implements
+`api.TaskBackend`, and `chat.NewRunnerClient` constructs the `chat.Backend`
+implementation. Card progress and usage reporting flows through MCP tools
+(`complete_task`, `report_usage`) — those paths bypass the backend interface.
+
 **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** is
 a separate binary that:
 
@@ -77,13 +86,13 @@ a separate binary that:
 ### Authentication: HMAC-SHA256 Signing
 
 All webhooks are signed using a shared secret configured in both ContextMatrix
-(`runner.api_key`) and the runner (`api_key`). The secret is never transmitted
-over the wire. The scheme binds the signature to the HTTP method, request path,
-timestamp, and body — so a valid signature for one endpoint cannot be replayed
-against a different endpoint with an identical body (e.g. `/kill` and
-`/end-session`, which both carry `{card_id, project}`). Applies uniformly to
-every signed request: POST webhooks, GET `/logs` / `/containers` / `/autonomous`
-/ `/metrics`, and the runner's status callbacks to CM.
+(`backends.<name>.api_key`) and the runner (`api_key`). The secret is never
+transmitted over the wire. The scheme binds the signature to the HTTP method,
+request path, timestamp, and body — so a valid signature for one endpoint
+cannot be replayed against a different endpoint with an identical body (e.g.
+`/kill` and `/end-session`, which both carry `{card_id, project}`). Applies
+uniformly to every signed request: POST webhooks, GET `/logs` / `/containers`
+/ `/autonomous` / `/metrics`, and the runner's status callbacks to CM.
 
 **Signed content:**
 
@@ -139,9 +148,9 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
 ```
 
 `model` is always populated by CM from config. When the card's
-`use_opus_orchestrator` flag is `true`, CM sends
-`runner.orchestrator_opus_model`; otherwise it sends
-`runner.orchestrator_sonnet_model`. The runner passes this value to the
+`use_opus_orchestrator` flag is `true`, CM sends the backend's
+`orchestrator_opus_model`; otherwise it sends `orchestrator_sonnet_model`. The
+runner passes this value to the
 container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the
 entrypoint uses as the `--model` argument to Claude Code.
 
@@ -410,9 +419,9 @@ The runner performs a two-step operation in strict order:
    that the response body `{"autonomous": bool}` is `true`. CM already flipped
    the flag before sending this webhook, so the GET is a read-only confirmation.
    The request is HMAC-SHA256-signed under the standard method/path/timestamp
-   scheme (empty body) using `runner.api_key`. If the call fails (network error,
-   non-2xx) or `autonomous` is not `true`, the runner returns 502 and does
-   **not** write to stdin — the card remains in interactive mode.
+   scheme (empty body) using the backend's `api_key`. If the call fails
+   (network error, non-2xx) or `autonomous` is not `true`, the runner returns
+   502 and does **not** write to stdin — the card remains in interactive mode.
 2. **Inject the canned stdin message:** Emits a `system` `LogEntry` with content
    `"promoted to autonomous mode"`, then writes a stream-json user message to
    the container's stdin:
@@ -697,11 +706,13 @@ replaced with `[REDACTED]`.
 ### Runner → ContextMatrix Callbacks
 
 All runner → CM POST callbacks are HMAC-signed (`X-Signature-256` +
-`X-Webhook-Timestamp` over `METHOD\nURI\nTIMESTAMP.BODY`) using the shared
-`runner.api_key`. CM rejects missing / invalid signatures with 403
-(`INVALID_SIGNATURE`). The runner-only endpoints below are registered only when
-`runner.enabled: true` on the CM side and are exempt from the CSRF guard
-(`/api/runner/*` prefix).
+`X-Webhook-Timestamp` over `METHOD\nURI\nTIMESTAMP.BODY`) using the backend's
+own `api_key` (resolved at route-mount time from the backends map entry whose
+name matches). CM rejects missing / invalid signatures with 403
+(`INVALID_SIGNATURE`). Each backend's callback endpoints are registered at the
+path `/api/<name>` derived from its entry name and are exempt from the CSRF
+guard. Reserved paths: `/api/runner` (contextmatrix-runner), `/api/agent`
+(contextmatrix-agent), `/api/chat` (contextmatrix-chat).
 
 #### POST /api/runner/status
 
@@ -784,9 +795,8 @@ Headers:
 - `X-Signature-256: sha256=<hex>`
 - `X-Webhook-Timestamp: <unix-seconds>`
 
-Only registered when the runner is enabled on the CM side
-(`runner.enabled: true`). Missing / invalid HMAC returns 403; unknown card
-returns 404.
+Only registered when a task backend is configured (runner or agent entry enabled
+in the backends map). Missing / invalid HMAC returns 403; unknown card returns 404.
 
 ### ContextMatrix Operator Endpoints
 
@@ -809,7 +819,7 @@ human; see CLAUDE.md trust model).
 
 | Code                 | Status | Meaning                                                                |
 | -------------------- | ------ | ---------------------------------------------------------------------- |
-| `RUNNER_DISABLED`    | 503    | `runner` is not configured on the server, or disabled for the project. |
+| `RUNNER_DISABLED`    | 503    | No task backend is configured, or disabled for the project.            |
 | `RUNNER_CONFLICT`    | 409    | Card is already `queued` or `running` on the runner.                   |
 | `RUNNER_NOT_RUNNING` | 409    | Card is not currently being executed by the runner.                    |
 | `RUNNER_UNAVAILABLE` | 502    | Outbound webhook to the runner failed.                                 |
@@ -1037,8 +1047,8 @@ stopped gracefully on shutdown.
 
 ### Webhook Signing (HMAC)
 
-A single shared secret (`runner.api_key` / `api_key`) authenticates all
-directions:
+A shared secret per backend (`backends.<name>.api_key` on the CM side, `api_key`
+on the runner side) authenticates all directions:
 
 - ContextMatrix signs outbound webhooks to the runner (trigger, kill, stop-all)
 - ContextMatrix signs the SSE log proxy request to the runner (`GET /logs`)
@@ -1081,7 +1091,7 @@ remote_execution:
 Resolution order:
 
 1. Project's `remote_execution.enabled` (if set)
-2. Global `runner.enabled` (fallback)
+2. Global: whether a task backend (runner or agent) is enabled in the backends map
 
 **API responses reflect the effective state.** `GET /api/projects` and
 `GET /api/projects/{project}` always return `remote_execution.enabled` as the
@@ -1091,9 +1101,9 @@ authoritative for whether the run button should be enabled.
 
 ### Global Kill Switch
 
-Set `runner.enabled: false` in `config.yaml` to disable remote execution
-entirely. The run button will not appear in the UI, and trigger endpoints
-return 503.
+Remove or disable all task backends (runner and agent) from the backends map to
+disable task execution entirely. The run button will not appear in the UI, and
+trigger endpoints return 503. This is a restart-required change.
 
 ## Interactive Mode
 
@@ -1219,7 +1229,7 @@ Marker frames:
 5. On `terminal` event or channel close, ends the response.
 6. On browser disconnect (`r.Context().Done()`), calls the unsubscribe func.
 
-If the session manager is not initialised (runner disabled), returns 204.
+If the session manager is not initialised (no task backend configured), returns 204.
 
 **Project-scoped path** (`?project=P`, no `card_id`):
 
@@ -1234,11 +1244,11 @@ the first connect. The session key is namespaced as `"project:<name>"` in the
 shared Manager maps so it cannot collide with card IDs. Cleanup is handled by
 the idle TTL sweeper (2 h default); no explicit stop is needed.
 
-If the session manager is not initialised (runner disabled), returns 204.
+If the session manager is not initialised (no task backend configured), returns 204.
 
 Both paths clear the write deadline via `http.ResponseController` before
 entering the streaming loop (see `docs/gotchas.md` § SSE and WriteTimeout). The
-endpoint is only registered when `runner != nil`.
+endpoint is only registered when a task backend is configured.
 
 ### Session Log Manager
 
@@ -1336,14 +1346,34 @@ still applies on top of the server snapshot.
 # MCP endpoint authentication (optional)
 mcp_api_key: "your-bearer-token"
 
-# Runner integration
-runner:
-  enabled: false
-  url: "http://localhost:9090" # Runner base URL
-  api_key: "shared-hmac-secret" # HMAC signing key (min 32 chars)
-  orchestrator_sonnet_model: "claude-sonnet-4-6" # Model sent when use_opus_orchestrator is false
-  orchestrator_opus_model: "claude-opus-4-8" # Model sent when use_opus_orchestrator is true
-  reconcile_interval: "60s" # Backstop sweep tick; "0s" disables
+# Execution backends.
+# Names form a closed set: runner, agent, chat. Roles and callback paths are
+# derived from the entry name — there are no selector fields.
+#   runner  → contextmatrix-runner: executes cards AND serves chat.
+#             Mutually exclusive with agent and chat.
+#   agent   → contextmatrix-agent: executes cards only.
+#   chat    → contextmatrix-chat: serves chat only.
+# Callback paths: /api/<name> (e.g. /api/runner for the runner entry).
+# Backends are read once at startup; any change requires a CM restart.
+#
+# enabled defaults to true; set enabled: false to keep a block without
+# activating it. Switch backends by toggling enabled flags.
+#
+# Task-only fields (orchestrator_sonnet_model, orchestrator_opus_model,
+# reconcile_interval) are valid on runner/agent; rejected on chat.
+
+backends:
+  runner:
+    # Base URL of the backend.
+    url: "http://localhost:9090"
+    # Shared HMAC secret; must match the backend's api_key. Min 32 chars.
+    api_key: "shared-hmac-secret"
+    # enabled: true  # default; omit to activate
+    # Model IDs sent in the trigger payload. Defaults shown.
+    orchestrator_sonnet_model: "claude-sonnet-4-6"
+    orchestrator_opus_model: "claude-opus-4-8"
+    # Backstop sweep tick; "0s" disables. Default: 60s.
+    reconcile_interval: "60s"
 
 # Chat (global chat panel)
 chat:
@@ -1369,23 +1399,43 @@ chat:
       max_tokens: 200000
 ```
 
-Validation: when `runner.enabled: true`, `runner.url` and `runner.api_key` are
-required and `runner.api_key` must be at least 32 characters
-(`MinRunnerAPIKeyLength`). `reconcile_interval` accepts any `time.Duration`
-string; `"0s"` or empty disables the sweep entirely.
+Validation: each enabled backends entry requires `url` and an `api_key` of at
+least 32 characters (`MinBackendAPIKeyLength`). Disabled entries
+(`enabled: false`) are inert placeholders — they skip all further validation.
+`reconcile_interval` accepts any `time.Duration` string; `"0s"` or empty
+disables the sweep. `runner` is mutually exclusive with `agent` and `chat`
+(validation error if more than one is simultaneously enabled).
 
 Environment variable overrides:
 
 - `CONTEXTMATRIX_MCP_API_KEY`
-- `CONTEXTMATRIX_RUNNER_ENABLED`
-- `CONTEXTMATRIX_RUNNER_URL`
-- `CONTEXTMATRIX_RUNNER_API_KEY`
-- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
-- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
-- `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL`
+- `CONTEXTMATRIX_BACKEND_RUNNER_URL` — override `backends.runner.url`
+- `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY` — override `backends.runner.api_key`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED` — override `backends.runner.enabled`
 - `CONTEXTMATRIX_CHAT_DB_PATH`
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
+
+The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any declared backend:
+replace `RUNNER` with the uppercased entry name (`AGENT`, `CHAT`). Supported
+suffixes are `_URL`, `_API_KEY`, and `_ENABLED`. The entry must be declared in
+YAML; unrecognised names or suffixes fail loudly at startup.
+
+**Migration from pre-A2 configs:** the top-level `runner:` block and
+`CONTEXTMATRIX_RUNNER_*` env vars are gone. Move `url`/`api_key` into
+`backends.runner` (`enabled` defaults to true; nothing else required). Rename
+env vars:
+
+- `CONTEXTMATRIX_RUNNER_URL` → `CONTEXTMATRIX_BACKEND_RUNNER_URL`
+- `CONTEXTMATRIX_RUNNER_API_KEY` → `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY`
+- `CONTEXTMATRIX_RUNNER_ENABLED` → `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`,
+  `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`,
+  `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL` → (YAML-only now — set the field
+  on the `backends.runner` entry; no replacement env var)
+
+The server hard-fails if any legacy `CONTEXTMATRIX_RUNNER_*` vars are still
+set, with a migration pointer to `config.yaml.example`.
 
 ### Runner (`config.yaml` — reference for runner implementor)
 
@@ -1393,7 +1443,7 @@ Environment variable overrides:
 # ContextMatrix connection
 contextmatrix_url: "http://contextmatrix:8080"
 # container_contextmatrix_url: "http://host.docker.internal:8080"  # Override when containers need a different address
-api_key: "shared-hmac-secret" # Must match CM's runner.api_key
+api_key: "shared-hmac-secret" # Must match CM's backends.runner.api_key
 
 # HTTP ports
 # The main port serves public endpoints (/trigger, /readyz, /logs, etc.)
@@ -1544,7 +1594,7 @@ immediately.
 | ---------------------------- | -------------------- | ------------------------------------------------------ |
 | Stop (card)                  | Single card          | Kills specific container, sets `runner_status: killed` |
 | Stop All                     | All cards in project | Kills all containers for the project                   |
-| `runner.enabled: false`      | Global               | Disables all runner features (requires restart)        |
+| No task backend enabled      | Global               | Disables all task execution (requires restart)         |
 | Per-project `enabled: false` | Single project       | Hides run button for that project                      |
 
 ## Graceful Shutdown

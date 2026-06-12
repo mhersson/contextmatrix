@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,9 +22,9 @@ import (
 func makeRunnerHandlers(runnerURL, apiKey string) *runnerHandlers {
 	return &runnerHandlers{
 		runner: runner.NewClient(runnerURL, apiKey),
-		runnerCfg: config.RunnerConfig{
-			URL:    runnerURL,
+		backendCfg: config.BackendConfig{
 			APIKey: apiKey,
+			Name:   "runner",
 		},
 	}
 }
@@ -220,17 +221,19 @@ func TestStreamProjectSession_Keepalive(t *testing.T) {
 	cancel()
 }
 
-// --- Seq passthrough tests ---
+// --- Seq payload-shape tests ---
 
-// TestStreamCardSession_SeqInPayload asserts that the JSON payload emitted by
-// the card-scoped handler includes the "seq" field from sessionlog.Event.Seq.
-func TestStreamCardSession_SeqInPayload(t *testing.T) {
+// TestStreamCardSession_WireFramesCarryNoSeq asserts that the JSON payload
+// emitted by the card-scoped handler includes a "seq" field and that it is 0
+// for wire-sourced live events: the runner's frames carry no seq, and
+// nothing assigns a nonzero Seq today.
+func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	const (
 		cardID  = "SEQ-001"
 		project = "seqtest"
 	)
 
-	upstreamCh := make(chan sseTestEvent, 8)
+	upstreamCh := make(chan protocol.LogEntry, 8)
 	readyCh := make(chan struct{})
 
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
@@ -242,8 +245,8 @@ func TestStreamCardSession_SeqInPayload(t *testing.T) {
 	require.NoError(t, mgr.Start(context.Background(), cardID, project))
 	<-readyCh
 
-	// Emit an event with a known Seq.
-	upstreamCh <- sseTestEvent{Seq: 42, Type: "text", Content: "hello", CardID: cardID}
+	// Emit a true wire frame — no seq field exists on the wire.
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "hello", CardID: cardID}
 
 	// Wait until buffered.
 	require.Eventually(t, func() bool {
@@ -279,19 +282,25 @@ func TestStreamCardSession_SeqInPayload(t *testing.T) {
 	seqVal, ok := m["seq"]
 	require.True(t, ok, "payload must contain 'seq' field")
 
+	// The wire carries no seq; Event.Seq stays 0 for live events.
 	// JSON numbers unmarshal as float64 by default.
-	assert.EqualValues(t, 42, seqVal, "seq must match the emitted event's Seq")
+	assert.EqualValues(t, 0, seqVal, "wire-sourced events must have seq 0")
+
+	// The content must pass through intact.
+	assert.Equal(t, "hello", m["content"])
 }
 
-// TestStreamProjectSession_SeqInPayload asserts that the JSON payload emitted
-// by the project-scoped handler includes the "seq" field.
-func TestStreamProjectSession_SeqInPayload(t *testing.T) {
+// TestStreamProjectSession_WireFramesCarryNoSeq asserts that the JSON payload
+// emitted by the project-scoped handler includes a "seq" field and that it is
+// 0 for wire-sourced live events — same reality as the card-scoped path: the
+// runner's frames carry no seq.
+func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	const (
 		cardID  = "SEQ-PROJ-001"
 		project = "seqprojtest"
 	)
 
-	upstreamCh := make(chan sseTestEvent, 8)
+	upstreamCh := make(chan protocol.LogEntry, 8)
 	readyCh := make(chan struct{})
 
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
@@ -303,7 +312,7 @@ func TestStreamProjectSession_SeqInPayload(t *testing.T) {
 	require.NoError(t, mgr.StartProject(context.Background(), project))
 	<-readyCh
 
-	upstreamCh <- sseTestEvent{Seq: 7, Type: "text", Content: "world", CardID: cardID}
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "world", CardID: cardID}
 
 	require.Eventually(t, func() bool {
 		return len(mgr.SnapshotProject(project)) == 1
@@ -337,5 +346,10 @@ func TestStreamProjectSession_SeqInPayload(t *testing.T) {
 	seqVal, ok := m["seq"]
 	require.True(t, ok, "payload must contain 'seq' field")
 
-	assert.EqualValues(t, 7, seqVal, "seq must match the emitted event's Seq")
+	// The wire carries no seq; Event.Seq stays 0 for live events.
+	assert.EqualValues(t, 0, seqVal, "wire-sourced events must have seq 0")
+
+	// The content and card_id must pass through intact.
+	assert.Equal(t, "world", m["content"])
+	assert.Equal(t, cardID, m["card_id"])
 }

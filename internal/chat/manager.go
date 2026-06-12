@@ -53,20 +53,21 @@ const ContextClearedMarker = "Context cleared"
 // Clear Context sentinel). Empty kind means "regular message".
 const EventKindDivider = "divider"
 
-// RunnerClient is the subset of the runner webhook surface that
-// chat.Manager uses. The real implementation lives in internal/chat/runner.go;
-// tests inject stubs.
-type RunnerClient interface {
+// Backend is the chat-execution surface chat.Manager drives (the roadmap's
+// ChatBackend): container start/end, message delivery, and the /logs SSE
+// bridge. The contextmatrix-runner-backed implementation lives in
+// internal/chat/runner.go; tests inject stubs.
+type Backend interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
 	SendChatMessage(ctx context.Context, sessionID, content, messageID string) error
-	// StreamLogs opens a long-lived SSE subscription to the runner's
+	// StreamLogs opens a long-lived SSE subscription to the backend's
 	// /logs?session_id=<id> endpoint and invokes onEntry for each parsed
 	// LogEntry. Returns when ctx is cancelled or the stream closes.
 	StreamLogs(ctx context.Context, sessionID string, onEntry func(LogEntry)) error
 }
 
-// StartChatOpts carries every input to RunnerClient.StartChat. Bundling the
+// StartChatOpts carries every input to Backend.StartChat. Bundling the
 // arguments lets us add fields (Model, Resume) without breaking the wire
 // for tests with bespoke fakes.
 type StartChatOpts struct {
@@ -85,7 +86,7 @@ type StartChatOpts struct {
 // Config carries Manager dependencies.
 type Config struct {
 	Store   Store
-	Runner  RunnerClient
+	Backend Backend
 	Clock   clock.Clock
 	IdleTTL time.Duration
 	Logger  *slog.Logger
@@ -133,7 +134,7 @@ type Config struct {
 // and runner-client coordination.
 type Manager struct {
 	store              Store
-	runner             RunnerClient
+	backend            Backend
 	clk                clock.Clock
 	idleTTL            time.Duration
 	maxConcurrent      int
@@ -205,7 +206,7 @@ type Manager struct {
 	costCache chatCostCache
 }
 
-// NewManager constructs a Manager. Required: Store, Runner.
+// NewManager constructs a Manager. Required: Store, Backend.
 func NewManager(cfg Config) *Manager {
 	if cfg.Clock == nil {
 		cfg.Clock = clock.Real()
@@ -217,7 +218,7 @@ func NewManager(cfg Config) *Manager {
 
 	return &Manager{
 		store:              cfg.Store,
-		runner:             cfg.Runner,
+		backend:            cfg.Backend,
 		clk:                cfg.Clock,
 		idleTTL:            cfg.IdleTTL,
 		maxConcurrent:      cfg.MaxConcurrent,
@@ -510,7 +511,7 @@ func (m *Manager) startConsumer(sessionID string) {
 				return
 			}
 
-			err := m.runner.StreamLogs(ctx, sessionID, onEntry)
+			err := m.backend.StreamLogs(ctx, sessionID, onEntry)
 			if err == nil || errors.Is(err, context.Canceled) {
 				// Clean stream close or external cancellation. The
 				// runner has explicitly signalled "no more events"
@@ -837,7 +838,7 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // clearGroup, so this function can assume the session is active or warm-idle.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	clearMsgID := NewID()
-	if err := m.runner.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+	if err := m.backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
 	}
 
@@ -847,7 +848,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 		primerPresent = true
 		primerMsgID := NewID()
 
-		if err := m.runner.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
+		if err := m.backend.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
 			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
 				"session_id", sessionID, "error", err)
 
@@ -1106,7 +1107,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		return Session{}, err
 	}
 
-	containerID, err := m.runner.StartChat(ctx, opts)
+	containerID, err := m.backend.StartChat(ctx, opts)
 	if err != nil {
 		return Session{}, fmt.Errorf("chat: start container: %w", err)
 	}
@@ -1276,7 +1277,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 // logs the rollback reason. Should be called when openCold fails after the
 // container has been provisioned.
 func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, containerID string, opErr error) {
-	if rbErr := m.runner.EndChat(context.Background(), sessID); rbErr != nil {
+	if rbErr := m.backend.EndChat(context.Background(), sessID); rbErr != nil {
 		m.logger.Warn("chat: rollback EndChat failed",
 			"reason", reason,
 			"session_id", sessID,
@@ -1606,7 +1607,7 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 		// status=ending row is safe. Held under statusLock so no racing
 		// OpenSession can re-read sess.Status=active/warm-idle and
 		// reattach to the now-dead container.
-		if err := m.runner.EndChat(ctx, sess.ID); err != nil {
+		if err := m.backend.EndChat(ctx, sess.ID); err != nil {
 			m.logger.Warn("chat: runner end failed, marking cold anyway",
 				"session_id", sess.ID, "error", err)
 		}
@@ -1771,7 +1772,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	m.logger.Info("chat: forwarding user message to runner",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
 
-	if err := m.runner.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
+	if err := m.backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
 		return "", err
 	}
 

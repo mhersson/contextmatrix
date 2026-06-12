@@ -283,7 +283,23 @@ func main() {
 	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus, chatMgr)
 	defer runnerCleanup()
 
-	runnerClient := runnerSys.Client
+	// Interface fields must stay untyped-nil when the backend is disabled —
+	// a nil *runner.Client wrapped in the interface would defeat every
+	// `!= nil` enablement check in the router.
+	var taskBackend api.TaskBackend
+
+	var knowledgeRefresher api.KnowledgeRefresher
+
+	if runnerSys.Client != nil {
+		taskBackend = runnerSys.Client
+		knowledgeRefresher = runnerSys.Client
+	}
+
+	// BackendCfg is the resolved task-backend entry; zero value when no
+	// task backend is configured (handlers behind the Runner-nil gate never
+	// read it then).
+	taskBackendCfg, _ := cfg.TaskBackendConfig()
+
 	sessionMgr := runnerSys.SessionLog
 
 	// Create MCP server
@@ -312,8 +328,9 @@ func main() {
 		Bus:                 bus,
 		CORSOrigin:          cfg.CORSOrigin,
 		Syncer:              apiSyncer,
-		Runner:              runnerClient,
-		RunnerCfg:           cfg.Runner,
+		Runner:              taskBackend,
+		KnowledgeRefresher:  knowledgeRefresher,
+		BackendCfg:          taskBackendCfg,
 		RefreshRegistry:     refreshRegistry,
 		MCPAPIKey:           cfg.MCPAPIKey,
 		Port:                cfg.Port,
@@ -544,21 +561,21 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	})
 }
 
-// chatRunnerDisabled is a no-op RunnerClient used when the runner integration
-// is disabled. Every operation returns an error so callers receive a clear
-// "runner not enabled" message rather than a nil-pointer panic.
+// chatRunnerDisabled is a no-op chat.Backend used when no chat backend is
+// configured. Every operation returns an error so callers fail fast instead
+// of nil-panicking.
 type chatRunnerDisabled struct{}
 
 func (chatRunnerDisabled) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
-	return "", fmt.Errorf("chat: runner not enabled")
+	return "", fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) EndChat(_ context.Context, _ string) error {
-	return fmt.Errorf("chat: runner not enabled")
+	return fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
-	return fmt.Errorf("chat: runner not enabled")
+	return fmt.Errorf("chat: no chat backend configured")
 }
 
 func (chatRunnerDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {

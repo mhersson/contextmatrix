@@ -175,55 +175,97 @@ task_skills:
   # Env: CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL
   git_remote_url: ""
 
-# Remote execution runner configuration.
-# The runner is a separate binary (contextmatrix-runner) that executes
-# autonomous tasks in disposable Docker containers. See docs/remote-execution.md.
-runner:
-  # Enable remote execution integration.
-  # Default: false
-  # Env: CONTEXTMATRIX_RUNNER_ENABLED
-  enabled: false
+# Execution backends.
+#
+# A backend is a sister project that CM drives over HMAC-signed
+# contextmatrix-protocol webhooks. The backends map has a closed set of entry
+# names; each name implies a distinct role:
+#
+#   runner — contextmatrix-runner: executes cards AND serves global chat.
+#            Mutually exclusive with agent and chat — runner already covers both
+#            roles, so mixing them is an error.
+#   agent  — contextmatrix-agent: executes cards only (no chat).
+#   chat   — contextmatrix-chat: serves global chat only (not yet released).
+#
+# Roles and callback paths are derived from the entry name — there are no
+# selector fields (default_backend / chat_backend are gone). CM picks:
+#   task backend  → runner (if enabled) else agent (if enabled)
+#   chat backend  → runner (if enabled) else chat (if enabled)
+#
+# Callback paths are derived as /api/<name> (e.g. /api/runner, /api/agent).
+# The browser-facing /api/runner/logs and /api/runner/health endpoints are
+# hard-wired whenever a task backend is configured; they do not move.
+#
+# ENABLED FLAG: each entry has an optional `enabled` field (default: true).
+# Omitting `enabled` means the entry is active. Set `enabled: false` to keep
+# the config block as an inert placeholder. Switch backends by toggling
+# enabled flags — do not delete blocks.
+#
+# TASK-ONLY FIELDS: orchestrator_sonnet_model, orchestrator_opus_model, and
+# reconcile_interval are valid on runner and agent entries. They are rejected
+# on the chat entry (validation error at startup).
+#
+# RESTART REQUIRED: backends are read once at startup. Any change requires
+# a CM restart.
+#
+# MIGRATION (pre-A2 configs): the old top-level `runner:` block is gone.
+# Move url/api_key into backends.runner (enabled defaults to true).
+# Rename env vars:
+#   CONTEXTMATRIX_RUNNER_URL     → CONTEXTMATRIX_BACKEND_RUNNER_URL
+#   CONTEXTMATRIX_RUNNER_API_KEY → CONTEXTMATRIX_BACKEND_RUNNER_API_KEY
+#   CONTEXTMATRIX_RUNNER_ENABLED → CONTEXTMATRIX_BACKEND_RUNNER_ENABLED
+#   CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL,
+#   CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL,
+#   CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL
+#     → (YAML-only now — set the field on the backends.runner entry;
+#        no replacement env var)
+# The server hard-fails if legacy CONTEXTMATRIX_RUNNER_* vars are still set.
 
-  # Base URL of the runner. Fixed paths are appended: /trigger, /kill, /stop-all.
-  # Example: http://localhost:9090
-  # Env: CONTEXTMATRIX_RUNNER_URL
-  url: ""
-
-  # Shared secret for webhook HMAC-SHA256 signing (runner <-> CM authentication).
-  # Must match the runner's configured api_key. Never transmitted over the wire.
-  # Must be at least 32 characters when runner is enabled.
-  # Env: CONTEXTMATRIX_RUNNER_API_KEY
-  api_key: ""
-
-  # Model ID used for the Sonnet orchestrator in autonomous runs.
-  # Passed to runner containers via the trigger payload so the orchestrator
-  # selects the correct model. Update when a newer Sonnet model ships.
-  # Default: claude-sonnet-4-6
-  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL
-  orchestrator_sonnet_model: "claude-sonnet-4-6"
-
-  # Model ID used for the Opus orchestrator in autonomous runs (when the user
-  # selects the high-capability mode). Update when a newer Opus model ships.
-  # Default: claude-opus-4-8
-  # Env: CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL
-  orchestrator_opus_model: "claude-opus-4-8"
-
-  # How often the backstop sweep scans every project for cards that are in a
-  # terminal state (done / not_planned), released (no assigned agent), and
-  # still have an active runner_status ({queued, running}). For each match the
-  # sweep fires /end-session + /kill against the runner — the same protocol
-  # the event subscriber uses on CardReleased / CardStateChanged.
-  #
-  # The sweep exists because events.Bus drops events when any subscriber's
-  # buffer fills and events published during a CM restart are never delivered;
-  # either case leaves a container alive until the runner's 2h container
-  # timeout. This sweep guarantees cleanup within one interval.
-  #
-  # Set to "0s" (or empty) to disable the sweep and rely solely on the event
-  # subscriber — not recommended outside of tests.
-  # Default: 60s
-  # Env: CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL
-  reconcile_interval: "60s"
+# Backend entries. Valid names: runner, agent, chat.
+# Env per-entry (NAME = RUNNER | AGENT | CHAT):
+#   CONTEXTMATRIX_BACKEND_<NAME>_URL
+#   CONTEXTMATRIX_BACKEND_<NAME>_API_KEY
+#   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
+# The backend entry must be declared in YAML before env vars for it are read.
+backends: {}
+#  runner:
+#    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
+#    # /stop-all, /message, /promote, /end-session, /chat/*, /logs, ...
+#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_URL
+#    url: "http://localhost:9090"
+#
+#    # Shared secret for HMAC-SHA256 webhook signing (both directions).
+#    # Must match the backend's configured api_key; min 32 characters.
+#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_API_KEY
+#    api_key: ""
+#
+#    # Set to false to disable this entry without removing the config block.
+#    # Default: true (omitting = active).
+#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_ENABLED
+#    enabled: true
+#
+#    # Model IDs passed in the trigger payload. Defaults shown.
+#    # YAML-only (no env override).
+#    orchestrator_sonnet_model: "claude-sonnet-4-6"
+#    orchestrator_opus_model: "claude-opus-4-8"
+#
+#    # How often the backstop sweep reconciles containers against card state.
+#    # "0s" disables. Default: 60s. YAML-only (no env override).
+#    reconcile_interval: "60s"
+#
+#  agent:
+#    # contextmatrix-agent: card execution only (no chat).
+#    # Mutually exclusive with runner; use agent when runner is disabled.
+#    url: "http://localhost:9091"
+#    api_key: ""
+#    enabled: false  # flip to true and set runner: enabled: false to switch
+#
+#  chat:
+#    # contextmatrix-chat: global chat only (no card execution). Project not
+#    # yet released. Paired with agent when card execution is also needed.
+#    url: "http://localhost:9092"
+#    api_key: ""
+#    enabled: false
 
 # Chat (global chat panel)
 chat:
