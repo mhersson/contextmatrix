@@ -2498,6 +2498,63 @@ backends:
 	assert.Equal(t, "http://override:9993", cb.URL)
 }
 
+func TestBackendEnvOnlyConfiguration(t *testing.T) {
+	// No backends block in YAML at all: env vars for a valid name create
+	// the entry, so pure-env deployments need no YAML stub.
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_URL", "http://env-only:9090")
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_API_KEY", strings.Repeat("e", 32))
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "true")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	tb, ok := cfg.TaskBackendConfig()
+	require.True(t, ok, "env-only runner must resolve as task backend")
+	assert.Equal(t, "runner", tb.Name)
+	assert.Equal(t, "http://env-only:9090", tb.URL)
+	// The env-created entry gets the task defaults like a YAML-declared one.
+	assert.Equal(t, "claude-sonnet-4-6", tb.OrchestratorSonnetModel)
+	assert.Equal(t, "claude-opus-4-8", tb.OrchestratorOpusModel)
+	assert.Equal(t, "60s", tb.ReconcileInterval)
+}
+
+func TestBackendEnvOnlyChatConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_URL", "http://env-only:9092")
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_API_KEY", strings.Repeat("e", 32))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	cb, ok := cfg.ChatBackendConfig()
+	require.True(t, ok, "env-only chat must resolve as chat backend")
+	assert.Equal(t, "chat", cb.Name)
+
+	_, ok = cfg.TaskBackendConfig()
+	assert.False(t, ok, "chat-only config must not resolve a task backend")
+}
+
+func TestBackendEnvOnlyIncompleteErrors(t *testing.T) {
+	// An env-created entry goes through full validation: enabling a backend
+	// via env without a URL fails loudly instead of half-configuring.
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "true")
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "url")
+}
+
 func TestBackendEnvUnknownNameErrors(t *testing.T) {
 	cases := []struct {
 		name   string

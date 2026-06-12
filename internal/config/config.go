@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +35,18 @@ const (
 // allowedBackendNames is the closed set used for name validation and env-key
 // allowlisting. Order is stable (runner, agent, chat) for error messages.
 var allowedBackendNames = []string{BackendNameRunner, BackendNameAgent, BackendNameChat}
+
+// backendEnvSuffixes are the per-entry CONTEXTMATRIX_BACKEND_<NAME>_* env
+// var suffixes. applyEnvOverrides reads each one; checkBackendEnvKeys
+// allowlists the same set — keep the two in sync via this list.
+var backendEnvSuffixes = []string{
+	"_URL",
+	"_API_KEY",
+	"_ENABLED",
+	"_ORCHESTRATOR_SONNET_MODEL",
+	"_ORCHESTRATOR_OPUS_MODEL",
+	"_RECONCILE_INTERVAL",
+}
 
 // BackendConfig is one entry in the backends map: an execution backend CM
 // can drive over the contextmatrix-protocol webhook contract. Read once at
@@ -581,7 +591,7 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 
-			if err := checkBackendEnvKeys(cfg); err != nil {
+			if err := checkBackendEnvKeys(); err != nil {
 				return nil, err
 			}
 
@@ -618,7 +628,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := checkBackendEnvKeys(cfg); err != nil {
+	if err := checkBackendEnvKeys(); err != nil {
 		return nil, err
 	}
 
@@ -950,8 +960,26 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 	}
 
-	for name, b := range cfg.Backends {
+	// Backend entries can be configured entirely via env: a variable for one
+	// of the allowed names creates the entry when YAML does not declare it,
+	// so pure-env deployments need no backends stub in the config file.
+	for _, name := range allowedBackendNames {
 		prefix := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+
+		anySet := false
+
+		for _, suffix := range backendEnvSuffixes {
+			if os.Getenv(prefix+suffix) != "" {
+				anySet = true
+
+				break
+			}
+		}
+
+		b, declared := cfg.Backends[name]
+		if !declared && !anySet {
+			continue
+		}
 
 		if v := os.Getenv(prefix + "_URL"); v != "" {
 			b.URL = v
@@ -985,6 +1013,10 @@ func applyEnvOverrides(cfg *Config) error {
 			b.ReconcileInterval = v
 		}
 
+		if cfg.Backends == nil {
+			cfg.Backends = map[string]BackendConfig{}
+		}
+
 		cfg.Backends[name] = b
 	}
 
@@ -992,22 +1024,18 @@ func applyEnvOverrides(cfg *Config) error {
 }
 
 // checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
-// do not map to a known (name, suffix) pair. The backend name must be in the
-// closed set (runner, agent, chat) AND be declared in cfg.Backends; the suffix
-// must be one of the per-entry fields below. A typo'd or stale variable must
-// fail loudly, not silently configure nothing. NOTE: when adding a new
-// per-backend env field to applyEnvOverrides, add it to the known set here too.
-func checkBackendEnvKeys(cfg *Config) error {
+// do not map to a known (name, suffix) pair: the name must be in the closed
+// set (runner, agent, chat) and the suffix in backendEnvSuffixes. A typo'd
+// or stale variable must fail loudly, not silently configure nothing. The
+// entry does not need to be declared in YAML — applyEnvOverrides creates it.
+func checkBackendEnvKeys() error {
 	known := map[string]bool{}
 
-	for name := range cfg.Backends {
+	for _, name := range allowedBackendNames {
 		pfx := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
-		known[pfx+"_URL"] = true
-		known[pfx+"_API_KEY"] = true
-		known[pfx+"_ENABLED"] = true
-		known[pfx+"_ORCHESTRATOR_SONNET_MODEL"] = true
-		known[pfx+"_ORCHESTRATOR_OPUS_MODEL"] = true
-		known[pfx+"_RECONCILE_INTERVAL"] = true
+		for _, suffix := range backendEnvSuffixes {
+			known[pfx+suffix] = true
+		}
 	}
 
 	for _, kv := range os.Environ() {
@@ -1017,11 +1045,11 @@ func checkBackendEnvKeys(cfg *Config) error {
 		}
 
 		if !known[key] {
-			return fmt.Errorf("%s references no configured backend "+
-				"(allowed names: %s; declared: %v) — fix the variable name or add the backends entry",
+			return fmt.Errorf("%s is not a recognised backend env var "+
+				"(names: %s; suffixes: %s) — fix the variable name",
 				key,
 				strings.Join(allowedBackendNames, ", "),
-				slices.Sorted(maps.Keys(cfg.Backends)))
+				strings.Join(backendEnvSuffixes, ", "))
 		}
 	}
 

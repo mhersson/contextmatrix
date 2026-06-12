@@ -187,8 +187,7 @@ task_skills:
 #   agent  — contextmatrix-agent: executes cards only (no chat).
 #   chat   — contextmatrix-chat: serves global chat only (not yet released).
 #
-# Roles and callback paths are derived from the entry name — there are no
-# selector fields (default_backend / chat_backend are gone). CM picks:
+# Roles and callback paths are derived from the entry name. CM picks:
 #   task backend  → runner (if enabled) else agent (if enabled)
 #   chat backend  → runner (if enabled) else chat (if enabled)
 #
@@ -207,27 +206,17 @@ task_skills:
 #
 # RESTART REQUIRED: backends are read once at startup. Any change requires
 # a CM restart.
-#
-# MIGRATION (older configs): the old top-level `runner:` block is gone.
-# Move url/api_key into backends.runner (enabled defaults to true).
-# Rename env vars (CONTEXTMATRIX_RUNNER_* → CONTEXTMATRIX_BACKEND_RUNNER_*):
-#   CONTEXTMATRIX_RUNNER_URL                       → ..._BACKEND_RUNNER_URL
-#   CONTEXTMATRIX_RUNNER_API_KEY                   → ..._BACKEND_RUNNER_API_KEY
-#   CONTEXTMATRIX_RUNNER_ENABLED                   → ..._BACKEND_RUNNER_ENABLED
-#   CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL → ..._BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL
-#   CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL   → ..._BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL
-#   CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL        → ..._BACKEND_RUNNER_RECONCILE_INTERVAL
-# The server hard-fails if legacy CONTEXTMATRIX_RUNNER_* vars are still set.
 
 # Backend entries. Valid names: runner, agent, chat.
-# Env per-entry (NAME = RUNNER | AGENT | CHAT):
+# Every field has an env override (NAME = RUNNER | AGENT | CHAT). Env values
+# take precedence over this file, and a backend can be configured through
+# env vars alone:
 #   CONTEXTMATRIX_BACKEND_<NAME>_URL
 #   CONTEXTMATRIX_BACKEND_<NAME>_API_KEY
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL
 #   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL
-# The backend entry must be declared in YAML before env vars for it are read.
 backends: {}
 #  runner:
 #    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
