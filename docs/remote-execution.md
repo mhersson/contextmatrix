@@ -1422,13 +1422,14 @@ Environment variable overrides:
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 
-The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any declared backend:
+The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any backend:
 replace `RUNNER` with the uppercased entry name (`AGENT`, `CHAT`). Supported
 suffixes are `_URL`, `_API_KEY`, `_ENABLED`, `_ORCHESTRATOR_SONNET_MODEL`,
-`_ORCHESTRATOR_OPUS_MODEL`, and `_RECONCILE_INTERVAL`. The entry must be
-declared in YAML; unrecognised names or suffixes fail loudly at startup, and
-the task-only fields are still rejected on the `chat` entry whichever channel
-sets them.
+`_ORCHESTRATOR_OPUS_MODEL`, and `_RECONCILE_INTERVAL`. Env values take
+precedence over the config file, and a backend can be configured through env
+vars alone. Unrecognised names or suffixes fail loudly at startup, and
+validation is identical whichever channel sets a field (URL required,
+≥32-char key, task-only fields rejected on the `chat` entry).
 
 **Migration from older configs:** the top-level `runner:` block and
 `CONTEXTMATRIX_RUNNER_*` env vars are gone. Move `url`/`api_key` into
