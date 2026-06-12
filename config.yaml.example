@@ -250,13 +250,16 @@ backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat).
 #    # Mutually exclusive with runner; use agent when runner is disabled.
-#    url: "http://localhost:9091"
+#    url: "http://localhost:9092"
 #    api_key: ""
 #    enabled: false  # flip to true and set runner: enabled: false to switch
 #
 #    # Default orchestrator model for the agent backend — any OpenRouter slug.
 #    # Per-card pins override it. The complexity selector picks coder/reviewer
 #    # models per task; this default drives planning, review synthesis and docs.
+#    # OPTIONAL: when unset, triggers carry an empty model and the agent service
+#    # falls back to its own serve-config default. Resolution precedence is
+#    # card pin → CM default_model → agent serve default.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL
 #    default_model: "deepseek/deepseek-v4-flash"
 #
