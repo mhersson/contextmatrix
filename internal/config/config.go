@@ -970,6 +970,21 @@ func applyEnvOverrides(cfg *Config) error {
 			b.Enabled = &enabled
 		}
 
+		// Task-only fields: the env layer just sets them; Validate rejects
+		// them on the chat entry and parses the interval, so misuse fails
+		// loudly with the entry-scoped error.
+		if v := os.Getenv(prefix + "_ORCHESTRATOR_SONNET_MODEL"); v != "" {
+			b.OrchestratorSonnetModel = v
+		}
+
+		if v := os.Getenv(prefix + "_ORCHESTRATOR_OPUS_MODEL"); v != "" {
+			b.OrchestratorOpusModel = v
+		}
+
+		if v := os.Getenv(prefix + "_RECONCILE_INTERVAL"); v != "" {
+			b.ReconcileInterval = v
+		}
+
 		cfg.Backends[name] = b
 	}
 
@@ -979,9 +994,9 @@ func applyEnvOverrides(cfg *Config) error {
 // checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
 // do not map to a known (name, suffix) pair. The backend name must be in the
 // closed set (runner, agent, chat) AND be declared in cfg.Backends; the suffix
-// must be _URL, _API_KEY, or _ENABLED. A typo'd or stale variable must fail
-// loudly, not silently configure nothing. NOTE: when adding a new per-backend
-// env field to applyEnvOverrides, add it to the known set here too.
+// must be one of the per-entry fields below. A typo'd or stale variable must
+// fail loudly, not silently configure nothing. NOTE: when adding a new
+// per-backend env field to applyEnvOverrides, add it to the known set here too.
 func checkBackendEnvKeys(cfg *Config) error {
 	known := map[string]bool{}
 
@@ -990,6 +1005,9 @@ func checkBackendEnvKeys(cfg *Config) error {
 		known[pfx+"_URL"] = true
 		known[pfx+"_API_KEY"] = true
 		known[pfx+"_ENABLED"] = true
+		known[pfx+"_ORCHESTRATOR_SONNET_MODEL"] = true
+		known[pfx+"_ORCHESTRATOR_OPUS_MODEL"] = true
+		known[pfx+"_RECONCILE_INTERVAL"] = true
 	}
 
 	for _, kv := range os.Environ() {
@@ -1023,9 +1041,12 @@ var legacyRunnerEnvVars = []string{
 
 // legacyRunnerEnvMigration maps each retired var to its replacement name.
 var legacyRunnerEnvMigration = map[string]string{
-	"CONTEXTMATRIX_RUNNER_URL":     "CONTEXTMATRIX_BACKEND_RUNNER_URL",
-	"CONTEXTMATRIX_RUNNER_API_KEY": "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY",
-	"CONTEXTMATRIX_RUNNER_ENABLED": "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED",
+	"CONTEXTMATRIX_RUNNER_URL":                       "CONTEXTMATRIX_BACKEND_RUNNER_URL",
+	"CONTEXTMATRIX_RUNNER_API_KEY":                   "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY",
+	"CONTEXTMATRIX_RUNNER_ENABLED":                   "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL": "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL",
+	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL":   "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL",
+	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL":        "CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL",
 }
 
 // checkLegacyEnv rejects retired CONTEXTMATRIX_RUNNER_* variables with a

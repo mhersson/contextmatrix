@@ -1412,27 +1412,38 @@ Environment variable overrides:
 - `CONTEXTMATRIX_BACKEND_RUNNER_URL` — override `backends.runner.url`
 - `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY` — override `backends.runner.api_key`
 - `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED` — override `backends.runner.enabled`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL` — override
+  `backends.runner.orchestrator_sonnet_model`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL` — override
+  `backends.runner.orchestrator_opus_model`
+- `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL` — override
+  `backends.runner.reconcile_interval`
 - `CONTEXTMATRIX_CHAT_DB_PATH`
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 
 The `CONTEXTMATRIX_BACKEND_<NAME>_*` scheme generalises to any declared backend:
 replace `RUNNER` with the uppercased entry name (`AGENT`, `CHAT`). Supported
-suffixes are `_URL`, `_API_KEY`, and `_ENABLED`. The entry must be declared in
-YAML; unrecognised names or suffixes fail loudly at startup.
+suffixes are `_URL`, `_API_KEY`, `_ENABLED`, `_ORCHESTRATOR_SONNET_MODEL`,
+`_ORCHESTRATOR_OPUS_MODEL`, and `_RECONCILE_INTERVAL`. The entry must be
+declared in YAML; unrecognised names or suffixes fail loudly at startup, and
+the task-only fields are still rejected on the `chat` entry whichever channel
+sets them.
 
-**Migration from pre-A2 configs:** the top-level `runner:` block and
+**Migration from older configs:** the top-level `runner:` block and
 `CONTEXTMATRIX_RUNNER_*` env vars are gone. Move `url`/`api_key` into
 `backends.runner` (`enabled` defaults to true; nothing else required). Rename
-env vars:
+env vars (`CONTEXTMATRIX_RUNNER_*` → `CONTEXTMATRIX_BACKEND_RUNNER_*`):
 
 - `CONTEXTMATRIX_RUNNER_URL` → `CONTEXTMATRIX_BACKEND_RUNNER_URL`
 - `CONTEXTMATRIX_RUNNER_API_KEY` → `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY`
 - `CONTEXTMATRIX_RUNNER_ENABLED` → `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED`
-- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`,
-  `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`,
-  `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL` → (YAML-only now — set the field
-  on the `backends.runner` entry; no replacement env var)
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL` →
+  `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL`
+- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL` →
+  `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL`
+- `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL` →
+  `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL`
 
 The server hard-fails if any legacy `CONTEXTMATRIX_RUNNER_*` vars are still
 set, with a migration pointer to `config.yaml.example`.
