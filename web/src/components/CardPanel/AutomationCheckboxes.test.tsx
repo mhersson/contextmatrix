@@ -11,6 +11,7 @@ const baseProps = {
   onUseOpusOrchestratorChange: vi.fn(),
   onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
+  onModelPinChange: vi.fn(),
   onBaseBranchChange: vi.fn(),
   branches: ['main', 'develop'],
 };

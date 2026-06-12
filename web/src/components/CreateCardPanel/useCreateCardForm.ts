@@ -17,6 +17,9 @@ export interface CreateCardForm {
   bodyDirty: boolean;
   autonomous: boolean;
   useOpusOrchestrator: boolean;
+  modelOrchestrator: string;
+  modelCoder: string;
+  modelReviewer: string;
   featureBranch: boolean;
   createPR: boolean;
   baseBranch: string;
@@ -30,6 +33,9 @@ export interface CreateCardForm {
   setLabels: (v: string[]) => void;
   setAutonomous: (v: boolean) => void;
   setUseOpusOrchestrator: (v: boolean) => void;
+  setModelOrchestrator: (v: string) => void;
+  setModelCoder: (v: string) => void;
+  setModelReviewer: (v: string) => void;
   setFeatureBranch: (v: boolean) => void;
   setCreatePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
@@ -69,6 +75,9 @@ export function useCreateCardForm(
   const [bodyDirty, setBodyDirty] = useState(false);
   const [autonomous, setAutonomous] = useState(false);
   const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
+  const [modelOrchestrator, setModelOrchestrator] = useState('');
+  const [modelCoder, setModelCoder] = useState('');
+  const [modelReviewer, setModelReviewer] = useState('');
   const [featureBranch, setFeatureBranch] = useState(true);
   const [createPR, setCreatePR] = useState(true);
   const [baseBranch, setBaseBranch] = useState('');
@@ -130,6 +139,11 @@ export function useCreateCardForm(
       body: body || undefined,
       autonomous: autonomous || undefined,
       use_opus_orchestrator: useOpusOrchestrator || undefined,
+      // Per-role model pins for the agent backend. Empty = "selector decides";
+      // only forward a non-empty override.
+      model_orchestrator: modelOrchestrator || undefined,
+      model_coder: modelCoder || undefined,
+      model_reviewer: modelReviewer || undefined,
       // Server force-enables both on Run; mirror that here so the persisted
       // record matches what the user sees in the form.
       feature_branch: forRun ? true : featureBranch || undefined,
@@ -138,7 +152,7 @@ export function useCreateCardForm(
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
     }),
-    [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, featureBranch, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, modelOrchestrator, modelCoder, modelReviewer, featureBranch, createPR, baseBranch, skills],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -184,6 +198,9 @@ export function useCreateCardForm(
       bodyDirty,
       autonomous,
       useOpusOrchestrator,
+      modelOrchestrator,
+      modelCoder,
+      modelReviewer,
       featureBranch,
       createPR,
       baseBranch,
@@ -195,6 +212,9 @@ export function useCreateCardForm(
       setLabels,
       setAutonomous,
       setUseOpusOrchestrator,
+      setModelOrchestrator,
+      setModelCoder,
+      setModelReviewer,
       setFeatureBranch,
       setCreatePR,
       setBaseBranch,

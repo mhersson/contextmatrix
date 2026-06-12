@@ -31,6 +31,10 @@ export interface Card {
   custom?: Record<string, unknown>;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
+  phase?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
@@ -162,6 +166,9 @@ export interface CreateCardInput {
   source?: Source;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -192,6 +199,9 @@ export interface PatchCardInput {
   body?: string;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -351,6 +361,11 @@ export interface LogEntry {
 export interface AppConfig {
   theme: 'everforest' | 'radix' | 'catppuccin';
   version: string;
+  /**
+   * Active task-execution backend: "runner" or "agent" (may be "" when no
+   * task backend is configured). Drives which automation controls render.
+   */
+  task_backend?: string;
 }
 
 export interface KnowledgeDocSummary {

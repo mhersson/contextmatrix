@@ -113,6 +113,19 @@ export function CardPanelHeaderChips({
         {card.state.replace(/_/g, ' ')}
       </span>
 
+      {/* Phase chip — surfaces the agent orchestrator's progress
+          (plan/execute/review/integrate/done). Plain text chip, only
+          rendered when the orchestrator has set a phase. */}
+      {card.phase && (
+        <span
+          className="chip-pill"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--purple) 22%, transparent)', color: 'var(--purple)' }}
+          title="Agent orchestrator phase"
+        >
+          {card.phase.replace(/_/g, ' ')}
+        </span>
+      )}
+
       {/* Priority picker-chip. */}
       <label htmlFor={priorityId} className="sr-only">Priority</label>
       <ChipPicker

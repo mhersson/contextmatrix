@@ -66,6 +66,13 @@ interface ThemeContextValue {
   theme: Theme;
   palette: Palette;
   version: string;
+  /**
+   * Active task-execution backend from `/api/app/config`: "runner" | "agent"
+   * | "" (when no task backend is configured). Surfaced here because
+   * ThemeProvider is the single fetcher of the app config; consumers read it
+   * via `useTheme()` rather than opening a parallel fetch.
+   */
+  taskBackend: string;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -89,6 +96,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return 'everforest';
   });
   const [version, setVersion] = useState('');
+  const [taskBackend, setTaskBackend] = useState('');
 
   useEffect(() => {
     safeSet(STORAGE_KEY, theme);
@@ -108,6 +116,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.version) {
         setVersion(config.version);
       }
+      if (config.task_backend) {
+        setTaskBackend(config.task_backend);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -124,8 +135,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, palette, version, toggleTheme, setPalette }),
-    [theme, palette, version, toggleTheme, setPalette],
+    () => ({ theme, palette, version, taskBackend, toggleTheme, setPalette }),
+    [theme, palette, version, taskBackend, toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);
