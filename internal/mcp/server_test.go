@@ -225,6 +225,31 @@ func TestCreateAndGetCard(t *testing.T) {
 	assert.Equal(t, created.Priority, fetched.Priority)
 }
 
+// The agent MCP client injects agent_id into every call (universal
+// attribution). create_card must accept it like the other card tools, or the
+// orchestrator's subtask creation is rejected at schema validation with
+// "unexpected additional properties [agent_id]".
+func TestCreateCardAcceptsAgentID(t *testing.T) {
+	env := setupMCP(t)
+
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_card",
+		Arguments: map[string]any{
+			"project":  "test-project",
+			"title":    "Subtask from agent",
+			"type":     "task",
+			"priority": "medium",
+			"agent_id": "cmx-agent-test-001",
+		},
+	})
+	require.NoError(t, err, "create_card must accept agent_id (the agent injects it on every call)")
+	require.False(t, result.IsError, "create_card with agent_id should not error")
+
+	var card board.Card
+	unmarshalResult(t, result, &card)
+	assert.Equal(t, "Subtask from agent", card.Title)
+}
+
 func TestUpdateCard(t *testing.T) {
 	env := setupMCP(t)
 

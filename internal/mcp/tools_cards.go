@@ -44,6 +44,12 @@ type createCardInput struct {
 	Body      string    `json:"body,omitempty" jsonschema:"optional markdown body"`
 	Parent    string    `json:"parent,omitempty" jsonschema:"parent card ID for subtasks"`
 	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
+	// AgentID is accepted for parity with the other card tools: the agent MCP
+	// client injects agent_id into every call, so create_card must declare it or
+	// the strict (additionalProperties:false) schema rejects the orchestrator's
+	// subtask creation. Not threaded to attribution today (the service has no
+	// author param); present so the call validates.
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
 // NOTE: vetted, autonomous, feature_branch, create_pr, and model pin fields
