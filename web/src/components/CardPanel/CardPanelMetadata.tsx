@@ -4,6 +4,7 @@ import { MetadataAgent } from './metadata/MetadataAgent';
 import { MetadataRelated } from './metadata/MetadataRelated';
 import { MetadataSource } from './metadata/MetadataSource';
 import { MetadataSkills } from './metadata/MetadataSkills';
+import { MetadataUsage } from './metadata/MetadataUsage';
 
 interface CardPanelMetadataProps {
   card: Card;
@@ -90,6 +91,8 @@ export function CardPanelMetadata({
         editedVetted={editedVetted}
         onVettedChange={onVettedChange}
       />
+
+      <MetadataUsage card={card} />
 
       {/* Metadata footer */}
       <section className="bf-aside-section">

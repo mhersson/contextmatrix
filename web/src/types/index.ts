@@ -46,6 +46,7 @@ export interface Card {
   updated: string;
   activity_log?: ActivityEntry[];
   token_usage?: TokenUsage;
+  usage_breakdown?: UsageBucket[];
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null — use project default (or full set if project default is null)
@@ -65,6 +66,17 @@ export interface TokenUsage {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   estimated_cost_usd: number;
+}
+
+export interface UsageBucket {
+  agent: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  cost_usd: number;
+  cost_source: 'actual' | 'estimated';
 }
 
 export interface GitHubImportConfig {
