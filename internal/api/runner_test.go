@@ -1826,6 +1826,53 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	assert.True(t, foundRevert, "promote-webhook-failed activity entry must be present after revert")
 }
 
+// An autonomous card must run the FSM, never the linear HITL path, even when
+// the run request body explicitly asks for interactive. CM forces it off.
+func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Auto task", Type: "task", Priority: "medium", Autonomous: true,
+	})
+	require.NoError(t, err)
+
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "agent"},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Body explicitly requests interactive=true; the autonomous flag must win.
+	body := strings.NewReader(`{"interactive":true}`)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", body)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.False(t, receivedPayload.Interactive,
+		"autonomous card must trigger non-interactive (FSM) regardless of request body")
+}
+
 // --- runCard interactive extensions ---
 
 func TestRunCard_Interactive(t *testing.T) {
@@ -1961,7 +2008,10 @@ func TestRunCard_Interactive(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
+		// CM forces interactive off for autonomous cards: they must run the
+		// backend autonomous path, never HITL, regardless of the request body.
+		assert.False(t, receivedPayload.Interactive,
+			"autonomous card must trigger non-interactive regardless of request body")
 		// Autonomous+interactive should auto-enable feature_branch/create_pr like all Run now triggers.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)

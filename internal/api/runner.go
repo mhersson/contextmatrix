@@ -218,13 +218,20 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		taskSkills = projectCfg.DefaultSkills
 	}
 
+	// Autonomous cards always run the backend's autonomous path (the agent
+	// FSM; the runner's autonomous workflow). interactive is a HITL-only mode,
+	// so force it off for autonomous cards — CM owns this invariant server-side
+	// rather than trusting the client flag (defense in depth: a stray trigger
+	// can no longer push an autonomous card down the HITL path).
+	interactive := runBody.Interactive && !card.Autonomous
+
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
-		Interactive: runBody.Interactive,
+		Interactive: interactive,
 		Model:       model,
 		TaskSkills:  taskSkills,
 	}
