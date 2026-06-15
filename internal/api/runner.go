@@ -195,9 +195,17 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build trigger payload.
-	model := h.backendCfg.OrchestratorSonnetModel
-	if card.UseOpusOrchestrator {
-		model = h.backendCfg.OrchestratorOpusModel
+	// Agent backend: model is always default_model (pin overrides are agent-side;
+	// use_opus_orchestrator is a runner-only steering wheel and is ignored here).
+	// Runner backend: sonnet/opus is selected by the per-card flag.
+	var model string
+	if h.backendCfg.Name == config.BackendNameAgent {
+		model = h.backendCfg.DefaultModel
+	} else {
+		model = h.backendCfg.OrchestratorSonnetModel
+		if card.UseOpusOrchestrator {
+			model = h.backendCfg.OrchestratorOpusModel
+		}
 	}
 
 	// Resolve task skills: card.Skills > project.DefaultSkills > nil (mount full set).
@@ -210,13 +218,20 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		taskSkills = projectCfg.DefaultSkills
 	}
 
+	// Autonomous cards always run the backend's autonomous path (the agent
+	// FSM; the runner's autonomous workflow). interactive is a HITL-only mode,
+	// so force it off for autonomous cards — CM owns this invariant server-side
+	// rather than trusting the client flag (defense in depth: a stray trigger
+	// can no longer push an autonomous card down the HITL path).
+	interactive := runBody.Interactive && !card.Autonomous
+
 	payload := runner.TriggerPayload{
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
 		MCPAPIKey:   h.mcpAPIKey,
 		BaseBranch:  card.BaseBranch,
-		Interactive: runBody.Interactive,
+		Interactive: interactive,
 		Model:       model,
 		TaskSkills:  taskSkills,
 	}

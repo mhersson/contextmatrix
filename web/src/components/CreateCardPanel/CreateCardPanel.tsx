@@ -3,8 +3,11 @@ import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { useTheme } from '../../hooks/useTheme';
+import { useOpenRouterModels } from '../../hooks/useOpenRouterModels';
 import { CardPanelBody, type RailTabKey } from '../CardPanel/CardPanelBody';
 import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
+import type { ModelPinField } from '../CardPanel/ModelPinsSection';
 import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
 import { LabelsSection } from '../CardPanel/CardPanelLabels';
 import { MetadataSkills } from '../CardPanel/metadata/MetadataSkills';
@@ -51,6 +54,18 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const priorityId = useId();
 
   const { form, titleInputRef } = useCreateCardForm(config, onCreate);
+
+  const { taskBackend } = useTheme();
+  const models = useOpenRouterModels(taskBackend === 'agent');
+
+  // Field-keyed dispatch — a future ModelPinField union extension fails the
+  // Record exhaustiveness check at compile time instead of silently routing
+  // to the wrong setter.
+  const pinSetters: Record<ModelPinField, (v: string) => void> = {
+    model_orchestrator: form.setModelOrchestrator,
+    model_coder: form.setModelCoder,
+    model_reviewer: form.setModelReviewer,
+  };
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activeTab, setActiveTab] = useState<RailTabKey>(isMobile ? 'card' : 'automation');
@@ -105,6 +120,12 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             useOpusOrchestrator={form.useOpusOrchestrator}
             featureBranch={form.featureBranch}
             createPR={form.createPR}
+            taskBackend={taskBackend}
+            modelOrchestrator={form.modelOrchestrator}
+            modelCoder={form.modelCoder}
+            modelReviewer={form.modelReviewer}
+            onModelPinChange={(field, value) => pinSetters[field](value)}
+            models={models}
             onAutonomousChange={form.setAutonomous}
             onUseOpusOrchestratorChange={form.setUseOpusOrchestrator}
             onFeatureBranchChange={(v) => {

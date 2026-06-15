@@ -1,4 +1,5 @@
 import { isSafeHttpUrl } from './utils';
+import { ModelPinsSection, type ModelPinField } from './ModelPinsSection';
 
 const REVIEW_ATTEMPTS_WARN_THRESHOLD = 4;
 const REVIEW_ATTEMPTS_HALT = 5;
@@ -12,6 +13,25 @@ interface AutomationCheckboxesProps {
   onUseOpusOrchestratorChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
+  /**
+   * Active task backend ("runner" | "agent" | ""). When `'agent'`, the
+   * "Opus as orchestrator" row (a runner-only steering wheel) is replaced
+   * by the three model-pin inputs. Runner / unset keeps the opus row.
+   */
+  taskBackend?: string;
+  /** Model pin values — only rendered when `taskBackend === 'agent'`. */
+  modelOrchestrator?: string;
+  modelCoder?: string;
+  modelReviewer?: string;
+  /**
+   * Pin-change handler. Required even though it is only invoked on the
+   * agent path: it is effectively mandatory whenever the pins render, and
+   * a required prop turns forgotten wiring into a compile error instead of
+   * silently dead inputs.
+   */
+  onModelPinChange: (field: ModelPinField, value: string) => void;
+  /** OpenRouter catalog slugs for pin autocomplete; [] = free-text only. */
+  models?: string[];
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
@@ -60,6 +80,9 @@ interface AutomationCheckboxesProps {
 export function AutomationCheckboxes({
   autonomous, useOpusOrchestrator, featureBranch, createPR,
   onAutonomousChange, onUseOpusOrchestratorChange, onFeatureBranchChange, onCreatePRChange,
+  taskBackend,
+  modelOrchestrator = '', modelCoder = '', modelReviewer = '',
+  onModelPinChange, models = [],
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -70,6 +93,7 @@ export function AutomationCheckboxes({
 }: AutomationCheckboxesProps) {
   const creating = mode === 'create';
   const prDisplay = formatPrLink(prUrl);
+  const agentBackend = taskBackend === 'agent';
 
   return (
     <div className={`bf-auto-stack ${disabled ? 'opacity-60' : ''}`}>
@@ -90,22 +114,34 @@ export function AutomationCheckboxes({
         </span>
       </div>
 
-      {/* Opus orchestrator */}
-      <div className="bf-spread">
-        <label className="bf-switch">
-          <input
-            type="checkbox"
-            aria-label="Opus as orchestrator"
-            checked={useOpusOrchestrator}
-            disabled={disabled}
-            onChange={(e) => onUseOpusOrchestratorChange(e.target.checked)}
-          />
-          <span>Opus as orchestrator</span>
-        </label>
-        <span className="bf-hint" style={{ color: useOpusOrchestrator ? 'var(--yellow)' : 'var(--grey1)' }}>
-          {useOpusOrchestrator ? '→ Opus — deeper planning, higher cost' : '→ Sonnet (default)'}
-        </span>
-      </div>
+      {/* Orchestrator steering wheel — the agent backend uses per-role model
+          pins; the runner backend (or unset) uses the Opus toggle. */}
+      {agentBackend ? (
+        <ModelPinsSection
+          orchestrator={modelOrchestrator}
+          coder={modelCoder}
+          reviewer={modelReviewer}
+          onChange={onModelPinChange}
+          disabled={disabled}
+          models={models}
+        />
+      ) : (
+        <div className="bf-spread">
+          <label className="bf-switch">
+            <input
+              type="checkbox"
+              aria-label="Opus as orchestrator"
+              checked={useOpusOrchestrator}
+              disabled={disabled}
+              onChange={(e) => onUseOpusOrchestratorChange(e.target.checked)}
+            />
+            <span>Opus as orchestrator</span>
+          </label>
+          <span className="bf-hint" style={{ color: useOpusOrchestrator ? 'var(--yellow)' : 'var(--grey1)' }}>
+            {useOpusOrchestrator ? '→ Opus — deeper planning, higher cost' : '→ Sonnet (default)'}
+          </span>
+        </div>
+      )}
 
       {/* Feature branch */}
       <div className="bf-spread">

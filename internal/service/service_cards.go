@@ -37,6 +37,11 @@ type CreateCardInput struct {
 	CreatePR            bool
 	Vetted              bool
 	Skills              *[]string
+	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
+	// selector. Excluded from the MCP agent surface; human-only via REST.
+	ModelOrchestrator string
+	ModelCoder        string
+	ModelReviewer     string
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -61,6 +66,12 @@ type UpdateCardInput struct {
 	CreatePR            bool
 	Vetted              bool
 	Skills              *[]string
+	Phase               *string
+	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
+	// selector. Excluded from the MCP agent surface; human-only via REST.
+	ModelOrchestrator string
+	ModelCoder        string
+	ModelReviewer     string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -84,7 +95,14 @@ type PatchCardInput struct {
 	// "skills: null" (Go decodes both as nil pointer); without this the
 	// UI cannot move a card back to "use project default" via PATCH.
 	SkillsClear bool
+	Phase       *string
 	BaseBranch  *string
+	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
+	// selector. Excluded from the MCP agent surface; human-only via REST.
+	// nil = untouched, pointer-to-empty-string = clear.
+	ModelOrchestrator *string
+	ModelCoder        *string
+	ModelReviewer     *string
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -441,6 +459,9 @@ func (s *CardService) buildNewCardFromInput(
 		CreatePR:            input.CreatePR,
 		Vetted:              input.Vetted,
 		Skills:              input.Skills,
+		ModelOrchestrator:   input.ModelOrchestrator,
+		ModelCoder:          input.ModelCoder,
+		ModelReviewer:       input.ModelReviewer,
 		Created:             now,
 		Updated:             now,
 		Body:                input.Body,
@@ -697,7 +718,23 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
+		card.ModelOrchestrator = input.ModelOrchestrator
+		card.ModelCoder = input.ModelCoder
+		card.ModelReviewer = input.ModelReviewer
 		enforceVettingInvariant(card)
+
+		if input.Phase != nil {
+			if !board.ValidPhase(*input.Phase) {
+				return fmt.Errorf("validate card: %w", &board.ValidationError{
+					Err:     board.ErrInvalidPhase,
+					Field:   "phase",
+					Value:   *input.Phase,
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, review, integrate, done, or empty", *input.Phase),
+				})
+			}
+
+			card.Phase = *input.Phase
+		}
 
 		// BranchName is immutable after first generation — only set when empty.
 		if card.FeatureBranch && card.BranchName == "" {
@@ -885,6 +922,31 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BaseBranch != nil {
 			card.BaseBranch = *input.BaseBranch
+		}
+
+		if input.ModelOrchestrator != nil {
+			card.ModelOrchestrator = *input.ModelOrchestrator
+		}
+
+		if input.ModelCoder != nil {
+			card.ModelCoder = *input.ModelCoder
+		}
+
+		if input.ModelReviewer != nil {
+			card.ModelReviewer = *input.ModelReviewer
+		}
+
+		if input.Phase != nil {
+			if !board.ValidPhase(*input.Phase) {
+				return &board.ValidationError{
+					Err:     board.ErrInvalidPhase,
+					Field:   "phase",
+					Value:   *input.Phase,
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, review, integrate, done, or empty", *input.Phase),
+				}
+			}
+
+			card.Phase = *input.Phase
 		}
 
 		return nil

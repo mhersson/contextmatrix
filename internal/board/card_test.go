@@ -671,6 +671,131 @@ body
 	})
 }
 
+func TestRoundTrip_PhaseField(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	original := &Card{
+		ID:       "TEST-001",
+		Title:    "Phase test",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Phase:    "execute",
+		Created:  created,
+		Updated:  created,
+	}
+
+	data, err := SerializeCard(original)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "phase: execute")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.Equal(t, "execute", parsed.Phase)
+}
+
+func TestSerializeCard_OmitsPhaseWhenEmpty(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	card := &Card{
+		ID:       "TEST-001",
+		Title:    "Empty orchestrator field",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "phase:")
+}
+
+func TestValidPhase(t *testing.T) {
+	tests := []struct {
+		phase string
+		valid bool
+	}{
+		{"", true},
+		{"plan", true},
+		{"execute", true},
+		{"review", true},
+		{"integrate", true},
+		{"done", true},
+		{"shipping", false},
+		{"PLAN", false},
+		{"Plan", false},
+		{"unknown", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.phase, func(t *testing.T) {
+			assert.Equal(t, tt.valid, ValidPhase(tt.phase))
+		})
+	}
+}
+
+func TestRoundTrip_ModelPinFields(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	original := &Card{
+		ID:                "TEST-001",
+		Title:             "Model pin test",
+		Project:           "test-project",
+		Type:              "task",
+		State:             "todo",
+		Priority:          "medium",
+		Created:           created,
+		Updated:           created,
+		ModelOrchestrator: "anthropic/claude-opus-4",
+		ModelCoder:        "anthropic/claude-sonnet-4-5",
+		ModelReviewer:     "openai/gpt-4o",
+	}
+
+	data, err := SerializeCard(original)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "model_orchestrator: anthropic/claude-opus-4")
+	assert.Contains(t, str, "model_coder: anthropic/claude-sonnet-4-5")
+	assert.Contains(t, str, "model_reviewer: openai/gpt-4o")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.ModelOrchestrator, parsed.ModelOrchestrator)
+	assert.Equal(t, original.ModelCoder, parsed.ModelCoder)
+	assert.Equal(t, original.ModelReviewer, parsed.ModelReviewer)
+}
+
+func TestSerializeCard_OmitsModelPinsWhenEmpty(t *testing.T) {
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	card := &Card{
+		ID:       "TEST-001",
+		Title:    "No pins",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.NotContains(t, str, "model_orchestrator")
+	assert.NotContains(t, str, "model_coder")
+	assert.NotContains(t, str, "model_reviewer")
+}
+
 func TestActivityEntry_SkillField(t *testing.T) {
 	t.Run("skill field omitted when empty", func(t *testing.T) {
 		input := `---

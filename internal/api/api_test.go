@@ -438,6 +438,29 @@ func TestPatchCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode) // in_progress -> done is valid
 	})
+
+	t.Run("invalid phase returns 422", func(t *testing.T) {
+		badPhase := "shipping"
+		body := patchCardRequest{
+			Phase: &badPhase,
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "invalid phase")
+	})
 }
 
 func TestUpdateCard(t *testing.T) {
@@ -483,6 +506,33 @@ func TestUpdateCard(t *testing.T) {
 		assert.Equal(t, "bug", card.Type)
 		assert.Equal(t, "in_progress", card.State)
 		assert.Equal(t, "high", card.Priority)
+	})
+
+	t.Run("invalid phase returns 422", func(t *testing.T) {
+		badPhase := "shipping"
+		body := updateCardRequest{
+			Title:    "Updated Title",
+			Type:     "bug",
+			State:    "in_progress",
+			Priority: "high",
+			Phase:    &badPhase,
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "invalid phase")
 	})
 }
 
@@ -910,6 +960,21 @@ func TestClaimCard(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
+
+	t.Run("claim with empty body succeeds", func(t *testing.T) {
+		// Ensure the card is unclaimed before this subtest
+		_, _ = svc.ReleaseCard(context.Background(), "test-project", "TEST-001", "claude-from-header")
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/claim", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
 }
 
 func TestReleaseCard(t *testing.T) {
@@ -996,6 +1061,22 @@ func TestReleaseCard(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
 	})
+
+	t.Run("release with empty body and owning agent succeeds", func(t *testing.T) {
+		// Ensure the card is claimed by claude-1
+		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/release", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
 }
 
 func TestHeartbeatCard(t *testing.T) {
@@ -1077,6 +1158,22 @@ func TestHeartbeatCard(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	})
+
+	t.Run("heartbeat with empty body succeeds", func(t *testing.T) {
+		// Re-claim the card so we can heartbeat it
+		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", http.NoBody)
+		req.Header.Set("X-Agent-ID", "claude-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	})
 }
 
@@ -2940,6 +3037,192 @@ func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.False(t, reloaded.Vetted, "vetted should still be false")
+	})
+}
+
+func TestHumanOnlyFields_ModelPins_PatchCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Model pin patch test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	patchBody := `{"model_orchestrator": "anthropic/claude-opus-4"}`
+
+	t.Run("agent PATCH with model_orchestrator returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human PATCH with model_orchestrator returns 200", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Equal(t, "anthropic/claude-opus-4", updated.ModelOrchestrator)
+	})
+}
+
+func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Created without pins — all three model pin fields default to "".
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Model pin PUT test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, card.ModelOrchestrator)
+
+	t.Run("agent PUT changing model_orchestrator returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		// Card has model_orchestrator=""; agent PUTs a slug — must be rejected.
+		// vetted:true echoes the card's auto-vetted state (no source) so the
+		// pin is the only field the guard sees changing.
+		putBody := fmt.Sprintf(
+			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"model_orchestrator":"anthropic/claude-opus-4"}`,
+			card.Title)
+		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+		// Verify the card was NOT modified
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Empty(t, reloaded.ModelOrchestrator, "model_orchestrator should still be empty")
+	})
+
+	t.Run("agent PUT with pin values equal to disk passes through", func(t *testing.T) {
+		// Pin the card as a human first.
+		patchBody := `{"model_orchestrator": "anthropic/claude-opus-4"}`
+		patchReq, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(patchBody))
+		patchReq.Header.Set("Content-Type", "application/json")
+		patchReq.Header.Set("X-Agent-ID", "human:alice")
+
+		patchResp, err := http.DefaultClient.Do(patchReq)
+		require.NoError(t, err)
+		closeBody(t, patchResp.Body)
+		require.Equal(t, http.StatusOK, patchResp.StatusCode)
+
+		// Agent PUT echoing the same pin value — should pass through.
+		// vetted:true echoes the card's auto-vetted state (no source).
+		putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","vetted":true,"model_orchestrator":"anthropic/claude-opus-4"}`
+		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Equal(t, "anthropic/claude-opus-4", updated.ModelOrchestrator)
+		assert.Equal(t, "Updated title", updated.Title)
+	})
+}
+
+func TestHumanOnlyFields_ModelPins_CreateCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	body := `{"title":"Pinned","type":"task","priority":"medium",` +
+		`"model_orchestrator":"anthropic/claude-opus-4",` +
+		`"model_coder":"anthropic/claude-sonnet-4-5",` +
+		`"model_reviewer":"openai/gpt-4o"}`
+
+	t.Run("agent create with pins returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human create with pins persists them on the card", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var created board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+		assert.Equal(t, "anthropic/claude-opus-4", created.ModelOrchestrator)
+		assert.Equal(t, "anthropic/claude-sonnet-4-5", created.ModelCoder)
+		assert.Equal(t, "openai/gpt-4o", created.ModelReviewer)
 	})
 }
 

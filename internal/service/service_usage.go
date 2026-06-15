@@ -55,6 +55,11 @@ type ReportUsageInput struct {
 	CompletionTokens    int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
+	// ActualCostUSD is the authoritative provider-reported cost for this delta.
+	// When set it bypasses the rate-table estimate for this call. The bucket
+	// records cost_source "actual"; EstimatedCostUSD is incremented by this
+	// value rather than the rate-table result.
+	ActualCostUSD *float64
 }
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
@@ -68,6 +73,11 @@ type ProjectUsage struct {
 }
 
 // RecalculateCostsResult summarises the outcome of a cost recalculation pass.
+//
+// TotalCostRecalculated accumulates each updated card's full new cost: for
+// breakdown cards that is the complete bucket sum (including untouched actual
+// buckets), not the re-pricing delta — consistent with the legacy whole-card
+// semantics. Cards that were not written contribute nothing.
 type RecalculateCostsResult struct {
 	CardsUpdated          int     `json:"cards_updated"`
 	TotalCostRecalculated float64 `json:"total_cost_recalculated"`
@@ -119,6 +129,37 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		card.TokenUsage = &board.TokenUsage{}
 	}
 
+	// Migration bucket: when a legacy card (cumulative spend or tokens, no
+	// buckets) starts bucketing, seed a bucket carrying the pre-existing
+	// cumulative so the bucket sum stays equal to the cumulative cost. Without
+	// this the dashboard — which switches to the breakdown path on
+	// len(UsageBreakdown) > 0 — would attribute only the new delta and silently
+	// drop the legacy spend. Tokens-but-zero-cost cards (the old fill-missing
+	// population) are seeded too so token rollups stay complete and
+	// RecalculateCosts can later price the migrated bucket from the rate table.
+	// Seeded before the model-store and increments below so it reflects the
+	// legacy model and pre-existing totals only. Agent is the card's
+	// AssignedAgent (may be empty, mapping to the dashboard's "unassigned"
+	// rollup, matching the legacy attribution path).
+	hasLegacyUsage := card.TokenUsage.EstimatedCostUSD > 0 ||
+		card.TokenUsage.PromptTokens > 0 ||
+		card.TokenUsage.CompletionTokens > 0 ||
+		card.TokenUsage.CacheReadTokens > 0 ||
+		card.TokenUsage.CacheCreationTokens > 0
+
+	if len(card.UsageBreakdown) == 0 && hasLegacyUsage {
+		card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
+			Agent:               card.AssignedAgent,
+			Model:               card.TokenUsage.Model,
+			PromptTokens:        card.TokenUsage.PromptTokens,
+			CompletionTokens:    card.TokenUsage.CompletionTokens,
+			CacheReadTokens:     card.TokenUsage.CacheReadTokens,
+			CacheCreationTokens: card.TokenUsage.CacheCreationTokens,
+			CostUSD:             card.TokenUsage.EstimatedCostUSD,
+			CostSource:          "estimated",
+		})
+	}
+
 	// Store the model name when provided
 	if input.Model != "" {
 		card.TokenUsage.Model = input.Model
@@ -130,11 +171,19 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	card.TokenUsage.CacheCreationTokens += input.CacheCreationTokens
 
 	// Calculate cost delta for this report and add to running total.
-	// Warn when a model name is provided but not found in the cost map.
-	if input.Model != "" {
+	// When ActualCostUSD is set it takes precedence over the rate-table estimate.
+	// Warn when a model name is provided, no actual cost is given, and the model
+	// is not in the rate table.
+	var deltaCost float64
+
+	costSource := "estimated"
+
+	if input.ActualCostUSD != nil {
+		deltaCost = *input.ActualCostUSD
+		costSource = "actual"
+	} else if input.Model != "" {
 		if rate, ok := s.tokenCosts[input.Model]; ok {
-			deltaCost := PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
-			card.TokenUsage.EstimatedCostUSD += deltaCost
+			deltaCost = PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
 				"model", input.Model,
@@ -145,6 +194,10 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 			metrics.ReportUsageUnknownModelTotal.WithLabelValues(input.Model).Inc()
 		}
 	}
+
+	card.TokenUsage.EstimatedCostUSD += deltaCost
+
+	upsertUsageBucket(card, input, deltaCost, costSource)
 
 	card.Updated = s.clk.Now()
 
@@ -226,13 +279,20 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 	return usage, nil
 }
 
-// RecalculateCosts recomputes estimated costs for cards that have non-zero token
-// counts but a zero estimated cost (e.g. because the model was not provided when
-// usage was first reported). Only cards that match this condition are updated;
-// cards that already have a non-zero estimated cost are left untouched.
+// RecalculateCosts recomputes estimated costs for cards.
 //
-// defaultModel is used when card.TokenUsage.Model is empty.  If neither the
-// card's stored model nor defaultModel is in the cost map the card is skipped.
+// Cards with UsageBreakdown: every bucket with CostSource "estimated" is
+// re-priced from the current rate table — including buckets that already have
+// a non-zero cost (stale prices are corrected). Actual-cost buckets are never
+// modified; that is what the cost_source flag exists for. The model fallback
+// chain per bucket is bucket model → card's stored model → defaultModel; a
+// bucket whose model resolves to no rate is left unchanged. EstimatedCostUSD
+// is set to the bucket sum. The card is written only when at least one bucket
+// price actually changed.
+//
+// Legacy cards (no breakdown): fill-missing-only, verbatim pre-breakdown
+// behavior — only cards with non-zero tokens and a zero EstimatedCostUSD are
+// updated; cards that already have a cost are not modified.
 func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultModel string) (*RecalculateCostsResult, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -256,30 +316,95 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			continue
 		}
 
-		if card.TokenUsage.PromptTokens == 0 &&
-			card.TokenUsage.CompletionTokens == 0 &&
-			card.TokenUsage.CacheReadTokens == 0 &&
-			card.TokenUsage.CacheCreationTokens == 0 {
-			continue
+		var (
+			cost    float64
+			changed bool
+		)
+
+		if len(card.UsageBreakdown) > 0 {
+			// Breakdown path: re-price every estimated bucket from the
+			// current rate table; never touch actual buckets.
+			var bucketSum float64
+
+			for i := range card.UsageBreakdown {
+				b := &card.UsageBreakdown[i]
+				bucketSum += b.CostUSD
+
+				if b.CostSource != "estimated" {
+					continue
+				}
+
+				// Fallback chain mirrors the legacy path: bucket model →
+				// card's stored model → defaultModel parameter.
+				model := b.Model
+				if model == "" {
+					model = card.TokenUsage.Model
+				}
+
+				if model == "" {
+					model = defaultModel
+				}
+
+				rate, ok := s.tokenCosts[model]
+				if !ok {
+					ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping bucket",
+						"model", model,
+						"card_id", card.ID,
+					)
+
+					continue
+				}
+
+				repriced := PriceTokens(rate, b.PromptTokens, b.CacheReadTokens, b.CacheCreationTokens, b.CompletionTokens)
+				if repriced != b.CostUSD {
+					bucketSum += repriced - b.CostUSD
+					b.CostUSD = repriced
+					changed = true
+				}
+			}
+
+			if !changed {
+				continue
+			}
+
+			cost = bucketSum
+			card.TokenUsage.EstimatedCostUSD = cost
+		} else {
+			// Legacy path: only process cards with tokens but no cost yet.
+			if card.TokenUsage.PromptTokens == 0 &&
+				card.TokenUsage.CompletionTokens == 0 &&
+				card.TokenUsage.CacheReadTokens == 0 &&
+				card.TokenUsage.CacheCreationTokens == 0 {
+				continue
+			}
+
+			if card.TokenUsage.EstimatedCostUSD != 0 {
+				continue // already has a cost — don't double-count
+			}
+
+			model := card.TokenUsage.Model
+			if model == "" {
+				model = defaultModel
+			}
+
+			rate, ok := s.tokenCosts[model]
+			if !ok {
+				ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping card",
+					"model", model,
+					"card_id", card.ID,
+				)
+
+				continue
+			}
+
+			cost = PriceTokens(rate, card.TokenUsage.PromptTokens, card.TokenUsage.CacheReadTokens, card.TokenUsage.CacheCreationTokens, card.TokenUsage.CompletionTokens)
+			card.TokenUsage.EstimatedCostUSD = cost
+			changed = true
 		}
 
-		if card.TokenUsage.EstimatedCostUSD != 0 {
-			continue // already has a cost — don't double-count
-		}
-
-		model := card.TokenUsage.Model
-		if model == "" {
-			model = defaultModel
-		}
-
-		rate, ok := s.tokenCosts[model]
-		if !ok {
-			ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping card",
-				"model", model,
-				"card_id", card.ID,
-			)
-
-			continue
+		// Persist the effective model name so future recalculations are idempotent.
+		if card.TokenUsage.Model == "" && defaultModel != "" {
+			card.TokenUsage.Model = defaultModel
 		}
 
 		// Snapshot before mutating. store.GetCard returns a deep copy
@@ -287,14 +412,6 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 		snapshot, err := s.store.GetCard(ctx, project, card.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get card snapshot %s: %w", card.ID, err)
-		}
-
-		cost := PriceTokens(rate, card.TokenUsage.PromptTokens, card.TokenUsage.CacheReadTokens, card.TokenUsage.CacheCreationTokens, card.TokenUsage.CompletionTokens)
-
-		card.TokenUsage.EstimatedCostUSD = cost
-		// Persist the effective model name so future recalculations are idempotent.
-		if card.TokenUsage.Model == "" && model != "" {
-			card.TokenUsage.Model = model
 		}
 
 		card.Updated = s.clk.Now()
@@ -346,4 +463,38 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	}
 
 	return result, nil
+}
+
+// upsertUsageBucket merges one report into the card's (agent, model) bucket.
+// A bucket that has ever received an actual-cost report stays "actual" —
+// mixed-source sums are still real spend, and the flag's job is to protect
+// the bucket from rate-table recalculation.
+func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, source string) {
+	for i := range card.UsageBreakdown {
+		b := &card.UsageBreakdown[i]
+		if b.Agent == in.AgentID && b.Model == in.Model {
+			b.PromptTokens += in.PromptTokens
+			b.CompletionTokens += in.CompletionTokens
+			b.CacheReadTokens += in.CacheReadTokens
+			b.CacheCreationTokens += in.CacheCreationTokens
+			b.CostUSD += cost
+
+			if source == "actual" {
+				b.CostSource = "actual"
+			}
+
+			return
+		}
+	}
+
+	card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
+		Agent:               in.AgentID,
+		Model:               in.Model,
+		PromptTokens:        in.PromptTokens,
+		CompletionTokens:    in.CompletionTokens,
+		CacheReadTokens:     in.CacheReadTokens,
+		CacheCreationTokens: in.CacheCreationTokens,
+		CostUSD:             cost,
+		CostSource:          source,
+	})
 }

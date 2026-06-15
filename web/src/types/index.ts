@@ -31,6 +31,10 @@ export interface Card {
   custom?: Record<string, unknown>;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
+  phase?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
@@ -42,6 +46,7 @@ export interface Card {
   updated: string;
   activity_log?: ActivityEntry[];
   token_usage?: TokenUsage;
+  usage_breakdown?: UsageBucket[];
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null — use project default (or full set if project default is null)
@@ -61,6 +66,17 @@ export interface TokenUsage {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   estimated_cost_usd: number;
+}
+
+export interface UsageBucket {
+  agent: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  cost_usd: number;
+  cost_source: 'actual' | 'estimated';
 }
 
 export interface GitHubImportConfig {
@@ -162,6 +178,9 @@ export interface CreateCardInput {
   source?: Source;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -192,6 +211,9 @@ export interface PatchCardInput {
   body?: string;
   autonomous?: boolean;
   use_opus_orchestrator?: boolean;
+  model_orchestrator?: string;
+  model_coder?: string;
+  model_reviewer?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -351,6 +373,11 @@ export interface LogEntry {
 export interface AppConfig {
   theme: 'everforest' | 'radix' | 'catppuccin';
   version: string;
+  /**
+   * Active task-execution backend: "runner" or "agent" (may be "" when no
+   * task backend is configured). Drives which automation controls render.
+   */
+  task_backend?: string;
 }
 
 export interface KnowledgeDocSummary {

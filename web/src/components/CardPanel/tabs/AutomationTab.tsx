@@ -1,5 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { Card } from '../../../types';
+import { useTheme } from '../../../hooks/useTheme';
+import { useOpenRouterModels } from '../../../hooks/useOpenRouterModels';
 import { AutomationCheckboxes } from '../AutomationCheckboxes';
 import { CardPanelActivity } from '../CardPanelActivity';
 
@@ -40,6 +42,8 @@ export function AutomationTab({
   clearForcedFeatureBranch,
   clearForcedCreatePR,
 }: AutomationTabProps) {
+  const { taskBackend } = useTheme();
+  const models = useOpenRouterModels(taskBackend === 'agent');
   return (
     <div className="bf-auto-wrap">
       <div className="bf-auto-top">
@@ -48,6 +52,14 @@ export function AutomationTab({
           useOpusOrchestrator={editedCard.use_opus_orchestrator ?? false}
           featureBranch={editedCard.feature_branch ?? false}
           createPR={editedCard.create_pr ?? false}
+          taskBackend={taskBackend}
+          modelOrchestrator={editedCard.model_orchestrator ?? ''}
+          modelCoder={editedCard.model_coder ?? ''}
+          modelReviewer={editedCard.model_reviewer ?? ''}
+          onModelPinChange={(field, value) =>
+            setEditedCard((prev) => ({ ...prev, [field]: value }))
+          }
+          models={models}
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
           }

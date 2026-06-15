@@ -25,6 +25,7 @@ describe('PaletteSelector', () => {
       theme: 'dark',
       palette: 'everforest',
       version: '',
+      taskBackend: '',
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });
@@ -58,6 +59,7 @@ describe('PaletteSelector', () => {
       theme: 'dark',
       palette: 'radix',
       version: '',
+      taskBackend: '',
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });

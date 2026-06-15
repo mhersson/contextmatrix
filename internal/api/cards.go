@@ -54,6 +54,9 @@ type createCardRequest struct {
 	CreatePR            bool          `json:"create_pr"`
 	Vetted              bool          `json:"vetted"`
 	Skills              *[]string     `json:"skills,omitempty"`
+	ModelOrchestrator   string        `json:"model_orchestrator,omitempty"`
+	ModelCoder          string        `json:"model_coder,omitempty"`
+	ModelReviewer       string        `json:"model_reviewer,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
@@ -76,6 +79,10 @@ type updateCardRequest struct {
 	CreatePR            bool           `json:"create_pr"`
 	Vetted              bool           `json:"vetted"`
 	Skills              *[]string      `json:"skills,omitempty"`
+	Phase               *string        `json:"phase,omitempty"`
+	ModelOrchestrator   string         `json:"model_orchestrator,omitempty"`
+	ModelCoder          string         `json:"model_coder,omitempty"`
+	ModelReviewer       string         `json:"model_reviewer,omitempty"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -101,6 +108,10 @@ type patchCardRequest struct {
 	BaseBranch          *string   `json:"base_branch,omitempty"`
 	Skills              *[]string `json:"skills,omitempty"`
 	SkillsClear         bool      `json:"skills_clear,omitempty"`
+	Phase               *string   `json:"phase,omitempty"`
+	ModelOrchestrator   *string   `json:"model_orchestrator,omitempty"`
+	ModelCoder          *string   `json:"model_coder,omitempty"`
+	ModelReviewer       *string   `json:"model_reviewer,omitempty"`
 }
 
 // validateCardSkills validates that each skill name in `skills` exists in
@@ -312,10 +323,13 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted) {
+	// Autonomous and model-pin fields can only be set by human users (UI),
+	// never by agents — mirrors the update and patch guards. Pins set at
+	// create time flow onto the card and reach the agent via get_task_context.
+	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted ||
+		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and model pins can only be set via the UI")
 
 		return
 	}
@@ -340,6 +354,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
 		Skills:              req.Skills,
+		ModelOrchestrator:   req.ModelOrchestrator,
+		ModelCoder:          req.ModelCoder,
+		ModelReviewer:       req.ModelReviewer,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -405,15 +422,18 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Autonomous fields can only be changed by human users (UI), never by agents.
+	// Autonomous and model-pin fields can only be changed by human users (UI), never by agents.
 	// For PUT semantics, compare against existing values to catch both setting AND clearing.
 	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
 		req.UseOpusOrchestrator != existingCard.UseOpusOrchestrator ||
 		req.FeatureBranch != existingCard.FeatureBranch ||
 		req.CreatePR != existingCard.CreatePR ||
-		req.Vetted != existingCard.Vetted) {
+		req.Vetted != existingCard.Vetted ||
+		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
+		req.ModelCoder != existingCard.ModelCoder ||
+		req.ModelReviewer != existingCard.ModelReviewer) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, and vetted can only be changed via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and model pins can only be changed via the UI")
 
 		return
 	}
@@ -443,6 +463,10 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:            req.CreatePR,
 		Vetted:              req.Vetted,
 		Skills:              req.Skills,
+		Phase:               req.Phase,
+		ModelOrchestrator:   req.ModelOrchestrator,
+		ModelCoder:          req.ModelCoder,
+		ModelReviewer:       req.ModelReviewer,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -473,10 +497,18 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Autonomous fields can only be set by human users (UI), never by agents.
-	if isNonHumanAgent(r) && (req.Autonomous != nil || req.UseOpusOrchestrator != nil || req.FeatureBranch != nil || req.CreatePR != nil || req.Vetted != nil || req.BaseBranch != nil) {
+	// Autonomous and model-pin fields can only be set by human users (UI), never by agents.
+	if isNonHumanAgent(r) && (req.Autonomous != nil ||
+		req.UseOpusOrchestrator != nil ||
+		req.FeatureBranch != nil ||
+		req.CreatePR != nil ||
+		req.Vetted != nil ||
+		req.BaseBranch != nil ||
+		req.ModelOrchestrator != nil ||
+		req.ModelCoder != nil ||
+		req.ModelReviewer != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and base_branch can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, base_branch, and model pins can only be set via the UI")
 
 		return
 	}
@@ -517,6 +549,10 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		BaseBranch:          req.BaseBranch,
 		Skills:              req.Skills,
 		SkillsClear:         req.SkillsClear,
+		Phase:               req.Phase,
+		ModelOrchestrator:   req.ModelOrchestrator,
+		ModelCoder:          req.ModelCoder,
+		ModelReviewer:       req.ModelReviewer,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

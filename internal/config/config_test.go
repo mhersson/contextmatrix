@@ -2183,6 +2183,81 @@ backends:
 `,
 			wantErr: "orchestrator_sonnet_model",
 		},
+		{
+			// default_model is agent-only; parses cleanly on an agent entry.
+			name: "default_model parses on agent entry",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "deepseek/deepseek-v4-flash"
+`,
+			wantErr: "",
+		},
+		{
+			// default_model is agent-only; rejected on runner entry.
+			name: "default_model on runner entry",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "deepseek/deepseek-v4-flash"
+`,
+			wantErr: "default_model",
+		},
+		{
+			// default_model is agent-only; rejected on chat entry.
+			name: "default_model on chat entry",
+			yaml: `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "deepseek/deepseek-v4-flash"
+`,
+			wantErr: "default_model",
+		},
+		{
+			// orchestrator_sonnet_model is runner-only (clean retirement from
+			// former agent use); rejected on agent entry.
+			name: "orchestrator_sonnet_model on agent entry (runner-only, retired)",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+    orchestrator_sonnet_model: "anthropic/claude-sonnet-4-6"
+`,
+			wantErr: "orchestrator_sonnet_model",
+		},
+		{
+			// orchestrator_opus_model is runner-only (clean retirement from
+			// former agent use); rejected on agent entry.
+			name: "orchestrator_opus_model on agent entry (runner-only, retired)",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "0123456789abcdef0123456789abcdef"
+    orchestrator_opus_model: "anthropic/claude-opus-4-8"
+`,
+			wantErr: "orchestrator_opus_model",
+		},
+		{
+			// runner entry with sonnet/opus fields stays valid (unchanged).
+			name: "runner entry with sonnet and opus models is still valid",
+			yaml: `
+backends:
+  runner:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+    orchestrator_sonnet_model: "claude-sonnet-4-6"
+    orchestrator_opus_model: "claude-opus-4-8"
+`,
+			wantErr: "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -2410,6 +2485,28 @@ backends:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not be set")
+}
+
+func TestBackendEnvAgentDefaultModel(t *testing.T) {
+	// CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL sets default_model on the
+	// agent entry; Validate accepts it and the value is visible on the entry.
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL", "deepseek/deepseek-v4-flash")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "deepseek/deepseek-v4-flash", cfg.Backends["agent"].DefaultModel)
 }
 
 func TestBackendEnvEnabled(t *testing.T) {

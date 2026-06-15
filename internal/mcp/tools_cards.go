@@ -44,10 +44,19 @@ type createCardInput struct {
 	Body      string    `json:"body,omitempty" jsonschema:"optional markdown body"`
 	Parent    string    `json:"parent,omitempty" jsonschema:"parent card ID for subtasks"`
 	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`
+	// AgentID is accepted for parity with the other card tools: the agent MCP
+	// client injects agent_id into every call, so create_card must declare it or
+	// the strict (additionalProperties:false) schema rejects the orchestrator's
+	// subtask creation. Not threaded to attribution today (the service has no
+	// author param); present so the call validates.
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
-// NOTE: vetted, autonomous, feature_branch, create_pr are intentionally
-// excluded — they are human-only fields.
+// NOTE: vetted, autonomous, feature_branch, create_pr, and model pin fields
+// (model_orchestrator, model_coder, model_reviewer) are intentionally excluded
+// — they are human-only fields. Model pins are excluded for the same reason:
+// they express human intent about which model to use and must not be overridden
+// by the agent that is itself subject to the pin.
 type updateCardInput struct {
 	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
@@ -57,6 +66,7 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
+	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|review|integrate|done; empty clears"`
 }
 
 type transitionCardInput struct {
@@ -122,14 +132,15 @@ type getReadyTasksOutput struct {
 }
 
 type reportUsageInput struct {
-	Project             string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID              string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID             string `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
-	Model               string `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
-	PromptTokens        int64  `json:"prompt_tokens" jsonschema:"required,number of prompt tokens used"`
-	CompletionTokens    int64  `json:"completion_tokens" jsonschema:"required,number of completion tokens used"`
-	CacheReadTokens     int64  `json:"cache_read_tokens,omitempty" jsonschema:"number of cache-read tokens (billed at 0.10× base input rate)"`
-	CacheCreationTokens int64  `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
+	Project             string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID              string   `json:"card_id" jsonschema:"required,card ID"`
+	AgentID             string   `json:"agent_id" jsonschema:"required,agent ID reporting usage"`
+	Model               string   `json:"model,omitempty" jsonschema:"model name for cost calculation (e.g. claude-sonnet-4)"`
+	PromptTokens        int64    `json:"prompt_tokens" jsonschema:"required,number of prompt tokens used"`
+	CompletionTokens    int64    `json:"completion_tokens" jsonschema:"required,number of completion tokens used"`
+	CacheReadTokens     int64    `json:"cache_read_tokens,omitempty" jsonschema:"number of cache-read tokens (billed at 0.10× base input rate)"`
+	CacheCreationTokens int64    `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
+	ActualCostUSD       *float64 `json:"actual_cost_usd,omitempty" jsonschema:"authoritative provider-reported cost in USD for this delta; omit to use the server rate table"`
 }
 
 type recalculateCostsInput struct {
@@ -263,6 +274,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			Labels:   input.Labels,
 			Skills:   input.Skills,
 			Body:     input.Body,
+			Phase:    input.Phase,
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
@@ -531,6 +543,11 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 				input.CardID, input.CacheReadTokens, input.CacheCreationTokens)
 		}
 
+		if input.ActualCostUSD != nil && *input.ActualCostUSD < 0 {
+			return nil, nil, fmt.Errorf("report usage for %s: actual cost must be non-negative (actual_cost_usd=%v)",
+				input.CardID, *input.ActualCostUSD)
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -543,6 +560,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			CompletionTokens:    input.CompletionTokens,
 			CacheReadTokens:     input.CacheReadTokens,
 			CacheCreationTokens: input.CacheCreationTokens,
+			ActualCostUSD:       input.ActualCostUSD,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
@@ -555,7 +573,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 func registerRecalculateCosts(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "recalculate_costs",
-		Description: "Recompute estimated costs for cards that have non-zero token counts but $0 cost (e.g. because model was not specified when usage was reported). Only updates cards that qualify; cards with an existing cost are not modified.",
+		Description: "Recompute estimated costs from the current rate table. Cards with a usage breakdown: every estimated bucket is re-priced (stale prices corrected); actual provider-reported costs are never modified. Legacy cards without a breakdown: fill-missing-only — cards with non-zero tokens but $0 cost get a cost, cards with an existing cost are not modified.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input recalculateCostsInput) (*mcp.CallToolResult, recalculateCostsOutput, error) {
 		result, err := svc.RecalculateCosts(ctx, input.Project, input.DefaultModel)
 		if err != nil {

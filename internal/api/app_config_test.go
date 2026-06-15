@@ -12,11 +12,13 @@ import (
 
 func TestGetAppConfig(t *testing.T) {
 	tests := []struct {
-		name         string
-		theme        string
-		wantTheme    string
-		wantStatus   int
-		wantCTHeader string
+		name            string
+		theme           string
+		taskBackend     string
+		wantTheme       string
+		wantTaskBackend string
+		wantStatus      int
+		wantCTHeader    string
 	}{
 		{
 			name:         "everforest theme",
@@ -32,11 +34,29 @@ func TestGetAppConfig(t *testing.T) {
 			wantStatus:   http.StatusOK,
 			wantCTHeader: "application/json",
 		},
+		{
+			name:            "agent backend reported",
+			theme:           "everforest",
+			taskBackend:     "agent",
+			wantTheme:       "everforest",
+			wantTaskBackend: "agent",
+			wantStatus:      http.StatusOK,
+			wantCTHeader:    "application/json",
+		},
+		{
+			name:            "runner backend reported",
+			theme:           "everforest",
+			taskBackend:     "runner",
+			wantTheme:       "everforest",
+			wantTaskBackend: "runner",
+			wantStatus:      http.StatusOK,
+			wantCTHeader:    "application/json",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h := &appConfigHandlers{theme: tc.theme}
+			h := &appConfigHandlers{theme: tc.theme, taskBackend: tc.taskBackend}
 
 			req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
 			w := httptest.NewRecorder()
@@ -52,6 +72,7 @@ func TestGetAppConfig(t *testing.T) {
 			var got appConfigResponse
 			require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
 			assert.Equal(t, tc.wantTheme, got.Theme)
+			assert.Equal(t, tc.wantTaskBackend, got.TaskBackend)
 		})
 	}
 }

@@ -522,3 +522,105 @@ func TestTrimActivityLog_AllStateChangedOverflow(t *testing.T) {
 	assert.Equal(t, "s10 -> s11", out[0].Message)
 	assert.Equal(t, "s59 -> s60", out[len(out)-1].Message)
 }
+
+func TestPatchCard_PhaseValidation(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "phase test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	bad := "shipping"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &bad})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid phase")
+
+	good := "plan"
+	got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &good})
+	require.NoError(t, err)
+	assert.Equal(t, "plan", got.Phase)
+
+	empty := ""
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &empty})
+	require.NoError(t, err)
+	assert.Empty(t, got.Phase)
+}
+
+func TestPatchCard_ModelPins(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "model pin test",
+		Type:     "task",
+		Priority: "low",
+	})
+	require.NoError(t, err)
+
+	// Set all three pins.
+	orch := "anthropic/claude-opus-4"
+	coder := "anthropic/claude-sonnet-4-5"
+	reviewer := "openai/gpt-4o"
+
+	got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelOrchestrator: &orch,
+		ModelCoder:        &coder,
+		ModelReviewer:     &reviewer,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator)
+	assert.Equal(t, coder, got.ModelCoder)
+	assert.Equal(t, reviewer, got.ModelReviewer)
+
+	// Clear one pin with empty string (*string semantics: "" = clear, nil = untouched).
+	clearCoder := ""
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelCoder: &clearCoder,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator, "orchestrator pin untouched")
+	assert.Empty(t, got.ModelCoder, "coder pin cleared")
+	assert.Equal(t, reviewer, got.ModelReviewer, "reviewer pin untouched")
+
+	// nil leaves existing value alone.
+	got, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		ModelOrchestrator: nil,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, orch, got.ModelOrchestrator, "nil = untouched")
+}
+
+func TestCreateCard_ModelPins(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:             "model pin create test",
+		Type:              "task",
+		Priority:          "low",
+		ModelOrchestrator: "anthropic/claude-opus-4",
+		ModelCoder:        "anthropic/claude-sonnet-4-5",
+		ModelReviewer:     "openai/gpt-4o",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/claude-opus-4", card.ModelOrchestrator)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", card.ModelCoder)
+	assert.Equal(t, "openai/gpt-4o", card.ModelReviewer)
+
+	// Pins persist to disk, not just the returned struct.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/claude-opus-4", reloaded.ModelOrchestrator)
+	assert.Equal(t, "anthropic/claude-sonnet-4-5", reloaded.ModelCoder)
+	assert.Equal(t, "openai/gpt-4o", reloaded.ModelReviewer)
+}
