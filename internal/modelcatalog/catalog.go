@@ -28,9 +28,11 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 	if floor <= 0 {
 		floor = 0.65
 	}
+
 	if ttl <= 0 {
 		ttl = 6 * time.Hour
 	}
+
 	return &Builder{
 		aaEndpoint: AADefaultEndpoint, orEndpoint: ORDefaultEndpoint,
 		aaKey: aaKey, floor: floor, allowlist: allowlist, ttl: ttl,
@@ -43,15 +45,20 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
 		return b.cached
 	}
+
 	fresh, err := b.refresh(ctx)
 	if err != nil {
 		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+
 		return b.cached
 	}
+
 	b.cached, b.cachedAt = fresh, time.Now()
+
 	return fresh
 }
 
@@ -59,14 +66,17 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	if b.aaKey == "" {
 		return nil, fmt.Errorf("no AA API key configured")
 	}
+
 	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
 	if err != nil {
 		return nil, err
 	}
+
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
 	if err != nil {
 		return nil, err
 	}
+
 	return build(aa, or, b.floor, b.allowlist), nil
 }
 
@@ -80,33 +90,42 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
 			maxCoding = *m.CodingIndex
 		}
+
 		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
 			maxIntel = *m.IntelIndex
 		}
 	}
+
 	if maxCoding <= 0 || maxIntel <= 0 {
 		return nil
 	}
 
 	byOR := map[string]protocol.CandidateModel{}
+
 	for _, m := range aa {
 		if !isTrusted(m.Creator, allow) {
 			continue
 		}
+
 		coder := norm(m.CodingIndex, maxCoding)
+
 		rev := norm(m.IntelIndex, maxIntel)
 		if coder < floor && rev < floor { // below floor for every role
 			continue
 		}
+
 		orSlug, ok := mapAASlug(m.Slug, m.Creator)
 		if !ok {
 			slog.Debug("unmapped AA model skipped", "slug", m.Slug, "creator", m.Creator)
+
 			continue
 		}
+
 		e, ok := or[orSlug]
 		if !ok || !e.Tools {
 			continue // not on OR, or not tool-capable
 		}
+
 		cand := protocol.CandidateModel{
 			Slug:                  orSlug,
 			PromptPricePerTok:     e.PromptPrice,
@@ -126,19 +145,23 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 	for _, c := range byOR {
 		out = append(out, c)
 	}
+
 	return out
 }
 
-func norm(idx *float64, max float64) float64 {
-	if idx == nil || max <= 0 {
+func norm(idx *float64, maxVal float64) float64 {
+	if idx == nil || maxVal <= 0 {
 		return 0
 	}
-	n := *idx / max
+
+	n := *idx / maxVal
 	if n < 0 {
 		return 0
 	}
+
 	if n > 1 {
 		return 1
 	}
+
 	return n
 }

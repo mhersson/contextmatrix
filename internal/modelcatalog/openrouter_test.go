@@ -24,13 +24,16 @@ func TestFetchORCatalogParsesPriceWindowTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	e, ok := cat["z-ai/glm-5.2"]
 	if !ok {
 		t.Fatal("glm-5.2 missing")
 	}
+
 	if !e.Tools || e.ContextWindow != 1048576 || e.PromptPrice != 0.0000012 || e.CompletionPrice != 0.0000041 {
 		t.Errorf("bad OR parse: %+v", e)
 	}
+
 	if cat["some/no-tools"].Tools {
 		t.Error("no-tools model marked tools-capable")
 	}

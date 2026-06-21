@@ -25,12 +25,15 @@ func fetchORCatalog(ctx context.Context, endpoint string) (map[string]orEntry, e
 	if err != nil {
 		return nil, fmt.Errorf("build OR request: %w", err)
 	}
+
 	client := &http.Client{Timeout: 30 * time.Second}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("OR request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OR unexpected status %d", resp.StatusCode)
 	}
@@ -49,18 +52,23 @@ func fetchORCatalog(ctx context.Context, endpoint string) (map[string]orEntry, e
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode OR response: %w", err)
 	}
+
 	out := make(map[string]orEntry, len(raw.Data))
 	for _, d := range raw.Data {
 		pp, _ := strconv.ParseFloat(d.Pricing.Prompt, 64)
 		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
 		tools := false
+
 		for _, p := range d.SupportedParameters {
 			if p == "tools" {
 				tools = true
+
 				break
 			}
 		}
+
 		out[d.ID] = orEntry{PromptPrice: pp, CompletionPrice: cp, ContextWindow: d.ContextLength, Tools: tools}
 	}
+
 	return out, nil
 }

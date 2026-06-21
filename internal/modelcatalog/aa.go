@@ -15,7 +15,6 @@ const AADefaultEndpoint = "https://artificialanalysis.ai/api/v2/data/llms/models
 type aaModel struct {
 	Slug        string
 	Creator     string
-	ReleaseDate string
 	CodingIndex *float64
 	IntelIndex  *float64
 }
@@ -40,15 +39,18 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 	if err != nil {
 		return nil, fmt.Errorf("build AA request: %w", err)
 	}
+
 	req.Header.Set("x-api-key", key)
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("AA request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AA unexpected status %d", resp.StatusCode)
 	}
@@ -57,15 +59,16 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode AA response: %w", err)
 	}
+
 	out := make([]aaModel, 0, len(raw.Data))
 	for _, d := range raw.Data {
 		out = append(out, aaModel{
 			Slug:        d.Slug,
 			Creator:     d.ModelCreator.Slug,
-			ReleaseDate: d.ReleaseDate,
 			CodingIndex: d.Evaluations.CodingIndex,
 			IntelIndex:  d.Evaluations.IntelIndex,
 		})
 	}
+
 	return out, nil
 }

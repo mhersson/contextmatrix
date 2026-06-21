@@ -14,10 +14,12 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 		"z-ai/glm-5.2":  {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
 		"openai/weak-1": {PromptPrice: 1e-7, CompletionPrice: 2e-7, ContextWindow: 8192, Tools: true},
 	}
+
 	got := build(aa, or, 0.65, nil)
 	if len(got) != 1 {
 		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got), got)
 	}
+
 	c := got[0]
 	if c.Slug != "z-ai/glm-5.2" || c.CoderPrior != 1.0 || c.ReviewerPrior != 1.0 || c.ContextWindow != 1048576 {
 		t.Errorf("bad candidate: %+v", c)

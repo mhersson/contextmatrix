@@ -12,6 +12,7 @@ func TestMapAASlug(t *testing.T) {
 		"deepseek-v4-flash": "deepseek/deepseek-v4-flash",
 		"minimax-m3":        "minimax/minimax-m3",
 	}
+
 	for aa, creator := range map[string]string{
 		"glm-5-2": "zai", "gpt-5-5": "openai", "claude-opus-4-8": "anthropic",
 		"qwen3-7-max": "alibaba", "kimi-k2-7-code": "kimi",
