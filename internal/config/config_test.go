@@ -2784,6 +2784,7 @@ func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
 
 func TestBackendFavoritesAndAAKey(t *testing.T) {
 	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY", "aa-env")
+	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST", "a, b")
 
 	cfg, err := loadFromYAML(t, `
 boards:
@@ -2810,6 +2811,10 @@ backends:
 
 	if b.AAAPIKey != "aa-env" {
 		t.Errorf("AA key env override failed: %q", b.AAAPIKey)
+	}
+
+	if got := b.ModelAllowlist; len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("allowlist env override failed (want [a b], no leading space): %v", got)
 	}
 
 	if got := b.Favorites["complex"].All; len(got) != 1 || got[0] != "anthropic/claude-opus-4.8" {

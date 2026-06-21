@@ -1061,7 +1061,15 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 
 		if v := os.Getenv(prefix + "_MODEL_ALLOWLIST"); v != "" {
-			b.ModelAllowlist = strings.Split(v, ",")
+			var allow []string
+
+			for _, s := range strings.Split(v, ",") {
+				if s = strings.TrimSpace(s); s != "" {
+					allow = append(allow, s)
+				}
+			}
+
+			b.ModelAllowlist = allow
 		}
 
 		if cfg.Backends == nil {
