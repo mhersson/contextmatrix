@@ -34,6 +34,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
+	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -269,6 +271,25 @@ func main() {
 
 	slog.Info("image store opened", "path", cfg.Images.DBPath)
 
+	// Op store: shared operational SQLite DB (model blacklist, etc.).
+	opStore, err := opsqlite.Open(cfg.OpStore.DBPath)
+	if err != nil {
+		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+	defer opStore.Close()
+
+	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
+
+	// Model catalog builder: constructed only when the agent backend has an AA key.
+	var catalogBuilder *modelcatalog.Builder
+	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
+		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0)
+
+		slog.Info("model catalog builder initialized")
+	}
+
 	// Chat: SQLite store + manager + SSE hub + idle reaper + warm-idle grace timer.
 	chatMgr, chatHub, chatCleanup, err := wireChat(ctx, cfg, svc)
 	if err != nil {
@@ -308,6 +329,7 @@ func main() {
 		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
 		ChatManager:       chatMgr,
 		ImageStore:        imageStore,
+		Blacklist:         opStore,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
@@ -347,6 +369,8 @@ func main() {
 		ChatHub:             chatHub,
 		ChatConfig:          &cfg.Chat,
 		ImageStore:          imageStore,
+		Catalog:             catalogBuilder,
+		Blacklist:           opStore,
 	})
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")

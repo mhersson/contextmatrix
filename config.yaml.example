@@ -341,6 +341,12 @@ images:
   # Default: $XDG_STATE_HOME/contextmatrix/images.db
   # db_path: /var/lib/contextmatrix/images.db
 
+# Operational SQLite database (model blacklist, etc.).
+# op_store:
+#   # CONTEXTMATRIX_OP_STORE_DB_PATH overrides this.
+#   # Default: $XDG_STATE_HOME/contextmatrix/ops.db
+#   db_path: ""
+
 # GitHub authentication and integration.
 # Used for boards git, task-skills git, issue importing, and branch listing.
 github:

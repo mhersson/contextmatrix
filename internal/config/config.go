@@ -194,6 +194,14 @@ type ImagesConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
+// OpStoreConfig configures the operational SQLite database (blacklist, etc.).
+type OpStoreConfig struct {
+	// DBPath is the SQLite file path for the op store.
+	// Defaults to <XDG_STATE_HOME>/contextmatrix/ops.db, falling back to
+	// ~/.local/state/contextmatrix/ops.db.
+	DBPath string `yaml:"db_path"`
+}
+
 // ChatConfig configures the global chat panel feature.
 type ChatConfig struct {
 	// DBPath is the SQLite file path for chat sessions and transcripts.
@@ -268,6 +276,7 @@ type Config struct {
 	AdminBindAddr string                   `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 	Chat          ChatConfig               `yaml:"chat"`
 	Images        ImagesConfig             `yaml:"images"`
+	OpStore       OpStoreConfig            `yaml:"op_store"`
 }
 
 // defaults returns a Config with default values.
@@ -540,6 +549,7 @@ func (c *Config) Validate() error {
 	// open.
 	applyChatDefaults(c)
 	applyImagesDefaults(c)
+	applyOpStoreDefaults(c)
 
 	if c.Chat.IdleTTL <= 0 {
 		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
@@ -623,6 +633,7 @@ func Load(path string) (*Config, error) {
 		if os.IsNotExist(err) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
+			applyOpStoreDefaults(cfg)
 			applyBackendDefaults(cfg)
 
 			if err := applyEnvOverrides(cfg); err != nil {
@@ -660,6 +671,7 @@ func Load(path string) (*Config, error) {
 
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
+	applyOpStoreDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -734,6 +746,13 @@ func defaultSQLiteDBPath(filename string) string {
 func applyImagesDefaults(cfg *Config) {
 	if cfg.Images.DBPath == "" {
 		cfg.Images.DBPath = defaultSQLiteDBPath("images.db")
+	}
+}
+
+// applyOpStoreDefaults sets OpStore fields that were not supplied by YAML.
+func applyOpStoreDefaults(cfg *Config) {
+	if cfg.OpStore.DBPath == "" {
+		cfg.OpStore.DBPath = defaultSQLiteDBPath("ops.db")
 	}
 }
 
@@ -981,6 +1000,10 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_IMAGES_DB_PATH"); v != "" {
 		cfg.Images.DBPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_OP_STORE_DB_PATH"); v != "" {
+		cfg.OpStore.DBPath = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CHAT_IDLE_TTL"); v != "" {
