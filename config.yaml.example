@@ -263,6 +263,21 @@ backends: {}
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL
 #    default_model: "deepseek/deepseek-v4-flash"
 #
+#    # Artificial Analysis API key for live model catalog lookups.
+#    # Env: CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY
+#    aa_api_key: ""
+#
+#    # Trusted AA creator slugs; empty = built-in default allowlist.
+#    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
+#    model_allowlist: []
+#
+#    # Optional per-tier model preferences, considered before cost-optimal selection.
+#    # Each tier accepts either a bare list (applies to all roles) or a role map.
+#    # favorites:
+#    #   complex: ["anthropic/claude-opus-4.8"]
+#    #   critical:
+#    #     reviewer: ["openai/gpt-5.5"]
+#
 #  chat:
 #    # contextmatrix-chat: global chat only (no card execution). Project not
 #    # yet released. Paired with agent when card execution is also needed.

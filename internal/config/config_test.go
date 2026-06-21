@@ -14,6 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// loadFromYAML writes yamlContent to a temp config file and loads it.
+func loadFromYAML(t *testing.T, yamlContent string) (*Config, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return Load(path)
+}
+
 func writeConfigFile(t *testing.T, dir, content string) string {
 	t.Helper()
 
@@ -2763,5 +2777,46 @@ func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.legacyVar)
 			assert.Contains(t, err.Error(), tc.replacement)
 		})
+	}
+}
+
+// ---------- Favorites + AA key config tests ----------
+
+func TestBackendFavoritesAndAAKey(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY", "aa-env")
+
+	cfg, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+    default_model: "deepseek/deepseek-v4-flash"
+    favorites:
+      complex: ["anthropic/claude-opus-4.8"]
+      critical:
+        reviewer: ["openai/gpt-5.5"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := cfg.Backends["agent"]
+
+	if b.AAAPIKey != "aa-env" {
+		t.Errorf("AA key env override failed: %q", b.AAAPIKey)
+	}
+
+	if got := b.Favorites["complex"].All; len(got) != 1 || got[0] != "anthropic/claude-opus-4.8" {
+		t.Errorf("complex favorites: %v", got)
+	}
+
+	if got := b.Favorites["critical"].ByRole["reviewer"]; len(got) != 1 || got[0] != "openai/gpt-5.5" {
+		t.Errorf("critical reviewer favorites: %v", got)
 	}
 }

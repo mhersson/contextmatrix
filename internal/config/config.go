@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // ModelRate defines per-token cost rates for a model.
@@ -47,6 +49,8 @@ var backendEnvSuffixes = []string{
 	"_ORCHESTRATOR_OPUS_MODEL",
 	"_RECONCILE_INTERVAL",
 	"_DEFAULT_MODEL",
+	"_AA_API_KEY",
+	"_MODEL_ALLOWLIST",
 }
 
 // BackendConfig is one entry in the backends map: an execution backend CM
@@ -70,6 +74,11 @@ type BackendConfig struct {
 	// Per-card pins override it. Agent-only — runner and chat entries must
 	// leave this empty (Validate rejects misuse).
 	DefaultModel string `yaml:"default_model"`
+
+	// Agent-only: catalog and selection inputs.
+	AAAPIKey       string                         `yaml:"aa_api_key"`
+	ModelAllowlist []string                       `yaml:"model_allowlist"`
+	Favorites      map[string]board.TierFavorites `yaml:"favorites"`
 }
 
 // IsEnabled reports whether this entry is active. nil Enabled defaults to true
@@ -1045,6 +1054,14 @@ func applyEnvOverrides(cfg *Config) error {
 
 		if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
 			b.DefaultModel = v
+		}
+
+		if v := os.Getenv(prefix + "_AA_API_KEY"); v != "" {
+			b.AAAPIKey = v
+		}
+
+		if v := os.Getenv(prefix + "_MODEL_ALLOWLIST"); v != "" {
+			b.ModelAllowlist = strings.Split(v, ",")
 		}
 
 		if cfg.Backends == nil {
