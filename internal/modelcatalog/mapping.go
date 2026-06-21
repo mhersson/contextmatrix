@@ -1,0 +1,76 @@
+package modelcatalog
+
+import (
+	"regexp"
+	"strings"
+)
+
+// aaCreatorToOR maps an AA model_creator.slug to the OpenRouter namespace
+// prefix. Creators absent here are used verbatim.
+var aaCreatorToOR = map[string]string{
+	"zai":       "z-ai",
+	"alibaba":   "qwen",
+	"kimi":      "moonshotai",
+	"openai":    "openai",
+	"anthropic": "anthropic",
+	"google":    "google",
+	"deepseek":  "deepseek",
+	"xiaomi":    "xiaomi",
+	"minimax":   "minimax",
+	"mistral":   "mistralai",
+	"x-ai":      "x-ai",
+}
+
+// aaSlugOverrides handles version-ambiguous AA slugs the heuristic cannot
+// reconstruct. AA slug -> full OR slug.
+var aaSlugOverrides = map[string]string{
+	"mistral-large-2512": "mistralai/mistral-large-2512",
+}
+
+// versionDash matches a digit-dash-digit run so "5-2" -> "5.2", "k2-7" -> "k2.7".
+var versionDash = regexp.MustCompile(`(\d)-(\d)`)
+
+// mapAASlug converts an AA (slug, creator) to a full OpenRouter slug. Returns
+// ok=false when the creator is unknown (caller logs + skips).
+func mapAASlug(aaSlug, aaCreator string) (string, bool) {
+	if full, ok := aaSlugOverrides[aaSlug]; ok {
+		return full, true
+	}
+
+	prefix, ok := aaCreatorToOR[aaCreator]
+	if !ok {
+		return "", false
+	}
+
+	name := aaSlug
+	for versionDash.MatchString(name) {
+		name = versionDash.ReplaceAllString(name, "$1.$2")
+	}
+
+	return prefix + "/" + name, true
+}
+
+// trustedCreators is the allowlist of AA creator slugs eligible for
+// auto-selection. Overridable via config (see Builder.Allowlist).
+var trustedCreators = []string{
+	"openai", "anthropic", "google", "deepseek", "alibaba",
+	"zai", "kimi", "xiaomi", "minimax", "mistral", "x-ai",
+}
+
+func isTrusted(creator string, allow []string) bool {
+	if len(allow) == 0 {
+		allow = trustedCreators
+	}
+
+	return strings.TrimSpace(creator) != "" && contains(allow, creator)
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+
+	return false
+}
