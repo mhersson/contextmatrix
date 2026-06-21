@@ -261,8 +261,16 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	if h.backendCfg.Name == config.BackendNameAgent && h.catalog != nil {
 		var bl []string
+
 		if h.blacklist != nil {
-			bl, _ = h.blacklist.BlacklistedSlugs(r.Context()) // best-effort; errors ignored
+			// Best-effort: a blacklist read failure must not block the trigger,
+			// but it is logged — a silent miss would let the agent re-select a
+			// known-incapable model with no trace.
+			var blErr error
+			if bl, blErr = h.blacklist.BlacklistedSlugs(r.Context()); blErr != nil {
+				ctxlog.Logger(r.Context()).Warn("failed to read model blacklist; proceeding without it",
+					"card_id", id, "project", project, "error", blErr)
+			}
 		}
 
 		payload.Selection = &protocol.SelectionContext{

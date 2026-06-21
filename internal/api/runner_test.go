@@ -2743,7 +2743,37 @@ func (s *stubBlacklist) BlacklistedSlugs(_ context.Context) ([]string, error) {
 }
 
 func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	const (
+		candidateSlug   = "z-ai/glm-5.2"
+		projectFavSlug  = "anthropic/claude-opus-4.8"
+		blacklistedSlug = "bad/model"
+	)
+
+	// Board config carries a project-level favorites block so the
+	// project-override merge runs end-to-end through runCard (the handler reads
+	// ProjectConfig.Favorites via GetProject at trigger time).
+	const boardConfigWithProjectFavorites = `name: test-project
+prefix: TEST
+next_id: 1
+repo: https://github.com/example/project.git
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: my-runner:latest
+favorites:
+  critical:
+    reviewer: ["anthropic/claude-opus-4.8"]
+`
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithProjectFavorites)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2753,11 +2783,6 @@ func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	const (
-		candidateSlug   = "z-ai/glm-5.2"
-		blacklistedSlug = "bad/model"
-	)
-
 	cat := &stubCatalog{
 		candidates: []protocol.CandidateModel{
 			{Slug: candidateSlug, CoderPrior: 0.9, ReviewerPrior: 0.8},
@@ -2765,11 +2790,11 @@ func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
 	}
 	bl := &stubBlacklist{slugs: []string{blacklistedSlug}}
 
+	// Global favorites live on the backend config; the "critical" tier is
+	// supplied only by the project config above, so a project-originated rule
+	// in the captured payload proves the merge ran both sources.
 	globalFavs := map[string]board.TierFavorites{
 		"complex": {All: []string{candidateSlug}},
-	}
-	projectFavs := map[string]board.TierFavorites{
-		"critical": {ByRole: map[string][]string{"reviewer": {candidateSlug}}},
 	}
 
 	var capturedPayload runner.TriggerPayload
@@ -2792,16 +2817,7 @@ func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
 		},
 		Catalog:   cat,
 		Blacklist: bl,
-		// Also wire project-level favorites via the board config (via project favorites
-		// field); we verify merge by injecting them into the per-project board. The
-		// projectFavs are verified by their presence in merged FavoriteRules below.
 	})
-
-	// Inject project favorites by patching the project config through the service.
-	// Since board.ProjectConfig.Favorites is read at trigger time via GetProject,
-	// we set them on the board's .board.yaml indirectly. Instead we can just verify
-	// that the global favorites are present, and test mergeFavorites separately.
-	_ = projectFavs // used in direct mergeFavorites test below
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -2826,18 +2842,26 @@ func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
 	// Blacklist must contain the stub slug.
 	assert.Contains(t, capturedPayload.Selection.Blacklist, blacklistedSlug)
 
-	// Favorites from global config must be present.
-	var foundComplexAll bool
+	// The merged favorites must include both the global (complex/all) rule and
+	// the project-originated (critical/reviewer) rule, proving runCard merges
+	// backend + project config end-to-end.
+	var foundGlobalComplexAll, foundProjectCriticalReviewer bool
 
 	for _, fr := range capturedPayload.Selection.Favorites {
-		if fr.Tier == "complex" && fr.Role == "" {
+		switch {
+		case fr.Tier == "complex" && fr.Role == "":
 			assert.Contains(t, fr.Models, candidateSlug)
 
-			foundComplexAll = true
+			foundGlobalComplexAll = true
+		case fr.Tier == "critical" && fr.Role == "reviewer":
+			assert.Contains(t, fr.Models, projectFavSlug)
+
+			foundProjectCriticalReviewer = true
 		}
 	}
 
-	assert.True(t, foundComplexAll, "global complex/all favorite rule must be present")
+	assert.True(t, foundGlobalComplexAll, "global complex/all favorite rule must be present")
+	assert.True(t, foundProjectCriticalReviewer, "project critical/reviewer favorite rule must be present")
 }
 
 func TestRunCardSelectionNilForRunnerBackend(t *testing.T) {
