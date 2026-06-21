@@ -42,8 +42,16 @@ export function AutomationTab({
   clearForcedFeatureBranch,
   clearForcedCreatePR,
 }: AutomationTabProps) {
-  const { taskBackend } = useTheme();
+  const { taskBackend, favorites: favsByTier } = useTheme();
   const models = useOpenRouterModels(taskBackend === 'agent');
+
+  // Flatten all per-tier All slugs into a single de-duplicated list for the
+  // chip row. Only relevant when taskBackend === 'agent'; the prop is ignored
+  // by AutomationCheckboxes on the runner path.
+  const favorites = favsByTier
+    ? [...new Set(Object.values(favsByTier).flat())]
+    : undefined;
+
   return (
     <div className="bf-auto-wrap">
       <div className="bf-auto-top">
@@ -60,6 +68,7 @@ export function AutomationTab({
             setEditedCard((prev) => ({ ...prev, [field]: value }))
           }
           models={models}
+          favorites={favorites}
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
           }

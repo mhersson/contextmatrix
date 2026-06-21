@@ -32,6 +32,12 @@ interface AutomationCheckboxesProps {
   onModelPinChange: (field: ModelPinField, value: string) => void;
   /** OpenRouter catalog slugs for pin autocomplete; [] = free-text only. */
   models?: string[];
+  /**
+   * Operator-configured favorite slugs (flattened across tiers, de-duped).
+   * Passed through to ModelPinsSection which renders them as preset chips.
+   * Only relevant when taskBackend === 'agent'.
+   */
+  favorites?: string[];
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
@@ -82,7 +88,7 @@ export function AutomationCheckboxes({
   onAutonomousChange, onUseOpusOrchestratorChange, onFeatureBranchChange, onCreatePRChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
-  onModelPinChange, models = [],
+  onModelPinChange, models = [], favorites,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -124,6 +130,7 @@ export function AutomationCheckboxes({
           onChange={onModelPinChange}
           disabled={disabled}
           models={models}
+          favorites={favorites}
         />
       ) : (
         <div className="bf-spread">
