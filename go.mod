@@ -6,7 +6,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/uuid v1.6.0
 	github.com/mhersson/contextmatrix-githubauth v0.1.0
-	github.com/mhersson/contextmatrix-protocol v0.2.0
+	github.com/mhersson/contextmatrix-protocol v0.3.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
@@ -65,5 +65,3 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.11.1
 )
-
-replace github.com/mhersson/contextmatrix-protocol => ../contextmatrix-protocol
