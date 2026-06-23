@@ -23,6 +23,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -2911,6 +2912,66 @@ func TestRunCardSelectionNilForRunnerBackend(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	assert.Nil(t, capturedPayload.Selection, "Selection must be nil for runner backend")
+}
+
+// TestRunCardTypedNilCatalogDoesNotPanic reproduces the typed-nil-interface
+// footgun: a nil *modelcatalog.Builder assigned to RouterConfig.Catalog
+// produces a non-nil catalogProvider interface value, so the h.catalog != nil
+// guard in runCard is TRUE and Candidates is called on a nil receiver →
+// mutex lock on nil → panic. The test boxes the typed-nil exactly as main.go
+// used to, then drives runCard and asserts no panic + 202 Accepted.
+func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Agent task typed-nil", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var capturedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	// Box a typed nil exactly as main.go did: var catalogBuilder *modelcatalog.Builder
+	// is left nil when no AA key is configured, then passed to RouterConfig.Catalog.
+	// This creates a non-nil interface wrapping a nil pointer — the h.catalog != nil
+	// guard passes, and Builder.Candidates panics on b.mu.Lock() without the fix.
+	var nilBuilder *modelcatalog.Builder
+
+	var typedNilCatalog catalogProvider = nilBuilder // boxes the typed nil
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{
+			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			Name:   config.BackendNameAgent,
+		},
+		Catalog: typedNilCatalog,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	// Must not panic; must complete successfully.
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"typed-nil catalog must not panic and run must succeed")
 }
 
 func TestMergeFavorites(t *testing.T) {

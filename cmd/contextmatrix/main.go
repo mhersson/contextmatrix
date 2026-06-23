@@ -345,7 +345,12 @@ func main() {
 		apiSyncer = syncer
 	}
 
-	mux := api.NewRouter(api.RouterConfig{
+	// Build RouterConfig with fields that are always present. Catalog is set
+	// conditionally below to avoid boxing a nil *modelcatalog.Builder into the
+	// catalogProvider interface — a typed nil defeats the h.catalog != nil guard
+	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
+	// Blacklist (opStore) is always non-nil so it is set unconditionally.
+	routerCfg := api.RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
 		CORSOrigin:          cfg.CORSOrigin,
@@ -369,9 +374,13 @@ func main() {
 		ChatHub:             chatHub,
 		ChatConfig:          &cfg.Chat,
 		ImageStore:          imageStore,
-		Catalog:             catalogBuilder,
 		Blacklist:           opStore,
-	})
+	}
+	if catalogBuilder != nil {
+		routerCfg.Catalog = catalogBuilder
+	}
+
+	mux := api.NewRouter(routerCfg)
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")
 

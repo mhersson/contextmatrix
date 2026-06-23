@@ -42,7 +42,15 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 // Candidates returns the current candidate set, refreshing if the cache is
 // stale. On refresh failure it logs and returns the last-good snapshot (nil
 // only if no successful build has ever happened).
+//
+// A nil receiver yields nil (no candidates) without panicking — this handles
+// the typed-nil-interface case where a nil *Builder is boxed into a
+// catalogProvider interface value before the caller's nil check runs.
 func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
+	if b == nil {
+		return nil
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
