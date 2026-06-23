@@ -8,29 +8,22 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
-	chatsqlite "github.com/mhersson/contextmatrix/internal/chat/sqlite"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// wireChat builds the chat subsystem: SQLite store, runner client, SSE hub,
-// manager, idle reaper, warm-idle grace timers, and the startup reattach loop.
-// Returns the manager, the hub, and a cleanup function the caller must defer.
+// wireChat builds the chat subsystem: runner client, SSE hub, manager, idle
+// reaper, warm-idle grace timers, and the startup reattach loop. The chat
+// store is the shared operational store (ops.db), opened and owned by the
+// caller — wireChat does not open or close it. Returns the manager, the hub,
+// and a cleanup function the caller must defer.
 func wireChat(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
-) (*chat.Manager, *chat.SSEHub, func(), error) {
-	chatStore, err := chatsqlite.Open(cfg.Chat.DBPath)
-	if err != nil {
-		slog.Error("failed to open chat store", "path", cfg.Chat.DBPath, "error", err)
-
-		return nil, nil, nil, err
-	}
-
-	slog.Info("chat store opened", "path", cfg.Chat.DBPath)
-
+	chatStore chat.Store,
+) (*chat.Manager, *chat.SSEHub, func()) {
 	var chatBackend chat.Backend
 
 	if entry, ok := cfg.ChatBackendConfig(); ok {
@@ -170,6 +163,8 @@ func wireChat(
 		}
 	}()
 
+	// The chat store is the shared operational store, owned and closed by the
+	// caller (defer opStore.Close() in main). Only the manager is torn down here.
 	cleanup := func() {
 		chatCloseCtx, chatCloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := chatMgr.Close(chatCloseCtx); err != nil {
@@ -177,11 +172,7 @@ func wireChat(
 		}
 
 		chatCloseCancel()
-
-		if err := chatStore.Close(); err != nil {
-			slog.Warn("chat store close failed", "error", err)
-		}
 	}
 
-	return chatMgr, chatHub, cleanup, nil
+	return chatMgr, chatHub, cleanup
 }

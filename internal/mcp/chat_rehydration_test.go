@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
-	"github.com/mhersson/contextmatrix/internal/chat/sqlite"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
+	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
 // chatTestDeps holds the store so tests can manipulate rehydration_active

@@ -194,7 +194,8 @@ type ImagesConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
-// OpStoreConfig configures the operational SQLite database (blacklist, etc.).
+// OpStoreConfig configures the operational SQLite database. This single store
+// holds chat sessions/transcripts and the model blacklist (ops.db).
 type OpStoreConfig struct {
 	// DBPath is the SQLite file path for the op store.
 	// Defaults to <XDG_STATE_HOME>/contextmatrix/ops.db, falling back to
@@ -202,13 +203,9 @@ type OpStoreConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
-// ChatConfig configures the global chat panel feature.
+// ChatConfig configures the global chat panel feature. Chat data is persisted
+// in the shared operational store (op_store.db_path), not a separate DB.
 type ChatConfig struct {
-	// DBPath is the SQLite file path for chat sessions and transcripts.
-	// Defaults to <XDG_STATE_HOME>/contextmatrix/chats.db, falling back to
-	// ~/.local/state/contextmatrix/chats.db.
-	DBPath string `yaml:"db_path"`
-
 	// IdleTTL is how long a chat container survives after the browser
 	// disconnects. Default: 1h.
 	IdleTTL time.Duration `yaml:"idle_ttl"`
@@ -828,10 +825,6 @@ func applyChatDefaults(cfg *Config) {
 		cfg.Chat.IdleTTL = time.Hour
 	}
 
-	if cfg.Chat.DBPath == "" {
-		cfg.Chat.DBPath = defaultSQLiteDBPath("chats.db")
-	}
-
 	if cfg.Chat.ResumeBudgetTokens == 0 {
 		cfg.Chat.ResumeBudgetTokens = 40000
 	}
@@ -992,10 +985,6 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_ADMIN_BIND_ADDR"); v != "" {
 		cfg.AdminBindAddr = v
-	}
-
-	if v := os.Getenv("CONTEXTMATRIX_CHAT_DB_PATH"); v != "" {
-		cfg.Chat.DBPath = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_IMAGES_DB_PATH"); v != "" {

@@ -1917,7 +1917,8 @@ func TestLoadConfig_ChatDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL, "default idle TTL should be 1h")
 	assert.Equal(t, 0, cfg.Chat.MaxConcurrent, "unset max_concurrent should be 0 (unlimited)")
-	assert.NotEmpty(t, cfg.Chat.DBPath, "default db path should be derived")
+	// Chat data lives in the operational store; its DB path is derived there.
+	assert.NotEmpty(t, cfg.OpStore.DBPath, "default op-store db path should be derived")
 }
 
 func TestLoadConfig_ChatEnvOverrides(t *testing.T) {
@@ -1928,14 +1929,12 @@ boards: {dir: `+boardsDir+`}
 github: {auth_mode: "pat", pat: {token: "x"}}
 `)
 
-	t.Setenv("CONTEXTMATRIX_CHAT_DB_PATH", "/var/lib/contextmatrix/chats.db")
 	t.Setenv("CONTEXTMATRIX_CHAT_IDLE_TTL", "30m")
 	t.Setenv("CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "10")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "/var/lib/contextmatrix/chats.db", cfg.Chat.DBPath)
 	assert.Equal(t, 30*time.Minute, cfg.Chat.IdleTTL)
 	assert.Equal(t, 10, cfg.Chat.MaxConcurrent)
 }
@@ -1980,7 +1979,6 @@ func TestLoadConfig_ChatYAML(t *testing.T) {
 boards: {dir: `+boardsDir+`}
 github: {auth_mode: "pat", pat: {token: "x"}}
 chat:
-  db_path: /custom/chats.db
   idle_ttl: 2h
   max_concurrent: 3
 `)
@@ -1988,12 +1986,49 @@ chat:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "/custom/chats.db", cfg.Chat.DBPath)
 	assert.Equal(t, 2*time.Hour, cfg.Chat.IdleTTL)
 	assert.Equal(t, 3, cfg.Chat.MaxConcurrent)
 }
 
-func TestLoadConfig_ChatDBPath_XDGStateHome(t *testing.T) {
+// ---------- Operational store (ops.db) config tests ----------
+//
+// The operational store holds both the chat schema and the model blacklist in
+// a single ops.db. These tests cover the default-derived path, the env
+// override, the YAML field, and the XDG-state-home default.
+
+func TestLoadConfig_OpStoreEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	t.Setenv("CONTEXTMATRIX_OP_STORE_DB_PATH", "/var/lib/contextmatrix/ops.db")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/var/lib/contextmatrix/ops.db", cfg.OpStore.DBPath)
+}
+
+func TestLoadConfig_OpStoreYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+op_store:
+  db_path: /custom/ops.db
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/custom/ops.db", cfg.OpStore.DBPath)
+}
+
+func TestLoadConfig_OpStoreDBPath_XDGStateHome(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
 	path := writeConfigFile(t, dir, `
@@ -2007,7 +2042,7 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "chats.db"), cfg.Chat.DBPath)
+	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "ops.db"), cfg.OpStore.DBPath)
 }
 
 // ---------- Backends config tests ----------

@@ -271,7 +271,10 @@ func main() {
 
 	slog.Info("image store opened", "path", cfg.Images.DBPath)
 
-	// Op store: shared operational SQLite DB (model blacklist, etc.).
+	// Op store: shared operational SQLite DB. Holds the chat schema (sessions,
+	// messages, cost archive) and the model blacklist in one ops.db — the chat
+	// manager, MCP report_incapable_model, and the runCard blacklist reader all
+	// use this single store.
 	opStore, err := opsqlite.Open(cfg.OpStore.DBPath)
 	if err != nil {
 		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
@@ -290,12 +293,9 @@ func main() {
 		slog.Info("model catalog builder initialized")
 	}
 
-	// Chat: SQLite store + manager + SSE hub + idle reaper + warm-idle grace timer.
-	chatMgr, chatHub, chatCleanup, err := wireChat(ctx, cfg, svc)
-	if err != nil {
-		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
-	}
+	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
+	// store is the shared operational store (opStore) opened above.
+	chatMgr, chatHub, chatCleanup := wireChat(ctx, cfg, svc, opStore)
 	defer chatCleanup()
 
 	// Wire runner subsystems: client, end-session subscriber, reconcile sweep,

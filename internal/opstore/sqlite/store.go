@@ -19,7 +19,8 @@ type Store struct{ db *sql.DB }
 // (rather than via url.URL) because url.URL.String() places a relative path
 // in the authority component, which modernc/sqlite rejects as an invalid URI
 // authority. synchronous=NORMAL is the recommended pairing for WAL — durable
-// across process crashes, acceptable for operational metadata.
+// across process crashes, acceptable for operational metadata and cached chat
+// data. Mirrors internal/images/sqlite.go:sqliteDSN; keep the two in sync.
 func sqliteDSN(path string) string {
 	return "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
 }
@@ -36,7 +37,11 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("opstore: open sqlite: %w", err)
 	}
 
-	// SQLite is single-writer; WAL lets concurrent readers avoid queueing.
+	// SQLite is single-writer regardless of pool size; serialisation across
+	// chat writers happens at the manager level (chat.Manager.mu held across
+	// AppendMessage). MaxOpenConns > 1 lets concurrent readers (ListMessages,
+	// MaxSeq, GetSession, blacklist reads) avoid queueing behind a writer
+	// when WAL is on.
 	db.SetMaxOpenConns(5)
 
 	if err := ensureSchema(context.Background(), db); err != nil {

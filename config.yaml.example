@@ -286,12 +286,9 @@ backends: {}
 #    enabled: false
 
 # Chat (global chat panel)
+# Chat sessions and transcripts are stored in the shared operational store
+# (op_store.db_path / ops.db) — there is no separate chat database.
 chat:
-  # SQLite database for chat sessions and transcripts.
-  # CONTEXTMATRIX_CHAT_DB_PATH overrides this.
-  # Default: $XDG_STATE_HOME/contextmatrix/chats.db
-  # db_path: /var/lib/contextmatrix/chats.db
-
   # How long a chat container survives after browser disconnects.
   # CONTEXTMATRIX_CHAT_IDLE_TTL overrides this.
   idle_ttl: 1h
@@ -341,7 +338,13 @@ images:
   # Default: $XDG_STATE_HOME/contextmatrix/images.db
   # db_path: /var/lib/contextmatrix/images.db
 
-# Operational SQLite database (model blacklist, etc.).
+# Operational SQLite database. Holds chat sessions/transcripts AND the model
+# blacklist in a single file (ops.db). This is one of exactly two SQLite stores
+# (the other is images.db).
+#
+# NOTE: earlier versions used a separate chats.db for chat data. That file is
+# no longer used and can be deleted — chat history does not migrate (the chat
+# transcript resets on first start with this layout).
 # op_store:
 #   # CONTEXTMATRIX_OP_STORE_DB_PATH overrides this.
 #   # Default: $XDG_STATE_HOME/contextmatrix/ops.db
