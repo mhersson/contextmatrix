@@ -46,7 +46,7 @@ type Card struct {
 	ReviewAttempts    int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
 	RunnerStatus      string `yaml:"runner_status,omitempty"      json:"runner_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
-	// (plan|execute|review|integrate|done). Orthogonal to State: State is the
+	// (plan|execute|document|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
 	// driven by the agent backend.
 	Phase          string          `yaml:"phase,omitempty"            json:"phase,omitempty"`
@@ -113,7 +113,7 @@ const maxCardSize = 2 * 1024 * 1024
 // clears the field and is always valid.
 func ValidPhase(p string) bool {
 	switch p {
-	case "", "plan", "execute", "review", "integrate", "done":
+	case "", "plan", "execute", "document", "review", "integrate", "done":
 		return true
 	}
 
