@@ -959,7 +959,7 @@ truths so a bug in either cannot silently hide a live container:
    of milliseconds. `runner_status` is intentionally not consulted — see the
    end-session section above for why.
 2. **Reconcile sweep (Docker-authoritative backstop).**
-   `internal/runner/reconcile.go` runs every `runner.reconcile_interval`
+   `internal/runner/reconcile.go` runs every `backends.runner.reconcile_interval`
    (default **60s**). Every tick it calls `GET /containers` on the runner and,
    for each container Docker is actually running, looks up the card and kills
    the container when:
@@ -1375,10 +1375,9 @@ backends:
     # Backstop sweep tick; "0s" disables. Default: 60s.
     reconcile_interval: "60s"
 
-# Chat (global chat panel)
+# Chat (global chat panel). Chat data is persisted in the shared ops.db
+# operational store (op_store.db_path), not a separate chat DB.
 chat:
-  # SQLite path defaults to $XDG_STATE_HOME/contextmatrix/chats.db
-  # db_path: "/var/lib/contextmatrix/chats.db"
   idle_ttl: 1h
   max_concurrent: 8
   default_model: "claude-sonnet-4-6"
@@ -1418,7 +1417,8 @@ Environment variable overrides:
   `backends.runner.orchestrator_opus_model`
 - `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL` — override
   `backends.runner.reconcile_interval`
-- `CONTEXTMATRIX_CHAT_DB_PATH`
+- `CONTEXTMATRIX_OP_STORE_DB_PATH` — override `op_store.db_path` (the shared
+  `ops.db` holding chat sessions/transcripts and the model blacklist)
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 

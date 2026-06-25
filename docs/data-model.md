@@ -613,11 +613,16 @@ without opening a pull request.
 
 ## `chat_sessions` SQLite schema
 
-Chat session state is persisted in a SQLite database (separate from the boards
-git repo and the images store). The schema is managed by a single `version: 1`
-migration in `internal/chat/sqlite/migrations.go` that creates all tables in
-their final shape. **Existing `chats.db` files from earlier installs are not
-forward-compatible; delete the file before upgrading.**
+Chat session state is persisted in the shared `ops.db` operational store
+(separate from the boards git repo and the images store; the same `ops.db` also
+holds the model blacklist). The schema is created by `ensureSchema` in
+`internal/opstore/sqlite/schema.go`, which runs `CREATE TABLE IF NOT EXISTS` DDL
+for every table in its final shape. This is a clean-cut create: there is **no
+migration ledger** (`schema_migrations`) and no backward-compat path — to change
+the schema, edit the `ensureSchema` DDL. **Existing `chats.db` files from
+earlier installs are not migrated; delete the obsolete file before upgrading.**
+The `chat_messages` table additionally carries a `kind TEXT NOT NULL DEFAULT ''`
+column (used for the Clear-Context divider).
 
 **`chat_sessions` table:**
 

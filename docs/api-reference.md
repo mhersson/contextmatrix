@@ -395,18 +395,27 @@ to apply.
 **Response:**
 
 ```json
-{ "theme": "everforest", "version": "v0.42.0" }
+{
+  "theme": "everforest",
+  "version": "v0.42.0",
+  "task_backend": "runner",
+  "favorites": { "complex": ["anthropic/claude-opus-4.8"] }
+}
 ```
 
 `theme` is one of `"everforest"` (default), `"radix"`, or `"catppuccin"`. The
 frontend sets `data-palette` on `<html>` to match the theme value;
 `"everforest"` removes the attribute (it is the default CSS block). `version` is
 the build version string the binary was compiled with; it is always present and
-may be empty when the binary is built without the version ldflag.
+may be empty when the binary is built without the version ldflag. `task_backend`
+is the active task-backend name (`"runner"`, `"agent"`, or `""` when none is
+configured). `favorites` maps each tier to its operator-configured preferred
+model slugs (the leaderboard "favorites as pin presets" surface); the field is
+omitted entirely when no favorites are configured.
 
 ```bash
 curl http://localhost:8080/api/app/config
-# → {"theme":"everforest","version":"v0.42.0"}
+# → {"theme":"everforest","version":"v0.42.0","task_backend":"runner"}
 ```
 
 ## Agent Endpoints
@@ -579,8 +588,10 @@ task-skill fallback:
 | `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list            |
 
 Each name in `default_skills` must exist in the configured `task_skills.dir` —
-unknown names return 400 `VALIDATION_ERROR`. A card's own `skills` field
-(including explicit empty) always overrides the project default.
+unknown names return 400 `VALIDATION_ERROR`. (This is the one place
+`VALIDATION_ERROR` is paired with a 400 status; the error table above maps it to
+422 for mutation bodies that are semantically invalid.) A card's own `skills`
+field (including explicit empty) always overrides the project default.
 
 The Project Settings UI exposes this as the **Default task skills** selector
 with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio

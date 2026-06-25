@@ -258,10 +258,13 @@ and commit completion. The service layer closes that gap on failure:
   `chat.resume_budget_tokens` (default 40k). Returns the kept rows plus a `Meta`
   describing whether the budget clipped older content. Called only on
   `/api/chats/{id}/open` when the session has prior messages.
-- **chat.Store** (`chat.Store`, default impl `chat/sqlite.Store`): SQLite-backed
-  persistence for `chat_sessions`, `chat_messages`, and `chat_cost_archive`.
-  Schema managed by a single v1 migration in `internal/chat/sqlite/migrations.go`
-  (see `docs/data-model.md` for column details). WAL mode with `MaxOpenConns=5`
+- **chat.Store** (`chat.Store`, default impl `opstore/sqlite.Store`):
+  SQLite-backed persistence for `chat_sessions`, `chat_messages`, and
+  `chat_cost_archive`. Schema created by `ensureSchema` in
+  `internal/opstore/sqlite/schema.go` — a clean-cut `CREATE TABLE IF NOT EXISTS`
+  create with no migration ledger (see `docs/data-model.md` for column details).
+  The store lives in the shared `ops.db`, which also holds the model blacklist.
+  WAL mode with `MaxOpenConns=5`
   so concurrent readers (`ListMessages`, `MaxSeq`, `GetSession`) bypass the
   single-writer gate that `chat.Manager.mu` enforces above the pool. Unique index
   on `(session_id, seq)` is the safety net behind the in-memory seq cache.
@@ -429,8 +432,9 @@ internal/
   runner/            # webhook client + replay cache + reconciler (HMAC via contextmatrix-protocol)
     sessionlog/      # per-card SSE buffer + fan-out hub
   chat/              # chat.Manager + Store + SSEHub + IdleReaper + runner bridge
-    sqlite/          # SQLite-backed chat persistence + versioned migrations
     transcript/      # pure transcript-shaping for cold-reopen resume payloads
+  opstore/           # shared operational SQLite store (chat + model blacklist)
+    sqlite/          # ensureSchema + Store impl (ops.db)
   images/            # content-hashed image blob store + processor (resize/EXIF strip)
   refresh/           # in-flight knowledge-base refresh registry + janitor
   github/            # GitHub client + issue parser + import syncer
