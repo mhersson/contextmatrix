@@ -14,10 +14,48 @@ import (
 	"sync"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
 	"gopkg.in/yaml.v3"
 
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
+
+// taskSkillsSourceResponse is the pointer the agent backend fetches to clone the
+// task-skills repo itself — CM stays the single source of truth.
+type taskSkillsSourceResponse struct {
+	GitRemoteURL string `json:"git_remote_url"`
+	Ref          string `json:"ref"`
+}
+
+// taskSkillsSource derives the task-skills pointer from CM's configured dir: the
+// origin remote URL + HEAD SHA when dir is a git checkout, else the configured
+// fallback remote (no ref). Returns empty strings when neither is available.
+func taskSkillsSource(dir, fallbackRemote string) (gitRemoteURL, ref string) {
+	if dir != "" {
+		if repo, err := git.PlainOpen(dir); err == nil {
+			if remotes, rerr := repo.Remotes(); rerr == nil {
+				for _, rm := range remotes {
+					if rm.Config().Name == "origin" && len(rm.Config().URLs) > 0 {
+						gitRemoteURL = rm.Config().URLs[0]
+
+						break
+					}
+				}
+			}
+
+			if head, herr := repo.Head(); herr == nil {
+				ref = head.Hash().String()
+			}
+		}
+	}
+
+	if gitRemoteURL == "" {
+		gitRemoteURL = fallbackRemote
+		ref = ""
+	}
+
+	return gitRemoteURL, ref
+}
 
 // TaskSkillSummary is the API representation of an available task-skill,
 // returned by GET /api/task-skills for use by the project-default and

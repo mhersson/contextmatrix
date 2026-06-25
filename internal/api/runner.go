@@ -62,6 +62,9 @@ type runnerHandlers struct {
 	keepaliveInterval time.Duration       // zero → use default (30s)
 	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
 
+	taskSkillsDir          string
+	taskSkillsGitRemoteURL string
+
 	// catalog and blacklist supply model-selection inputs for agent-backend
 	// triggers. Both are nil until T8 wires the real implementations in main.go;
 	// runCard guards on catalog != nil before attaching Selection.
@@ -781,6 +784,19 @@ func (h *runnerHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, cardAutonomousResponse{Autonomous: card.Autonomous})
+}
+
+// getTaskSkillsSource serves GET /api/<backend>/task-skills-source — the agent
+// backend fetches this {git_remote_url, ref} pointer and clones the task-skills
+// repo itself. Signed-GET like getCardAutonomous.
+func (h *runnerHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Request) {
+	if !h.authenticateRunnerGet(w, r) {
+		return
+	}
+
+	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
 }
 
 // extractRunnerSignature performs the shared header validation for runner
