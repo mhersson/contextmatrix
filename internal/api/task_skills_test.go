@@ -7,12 +7,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/runner"
 )
 
 // writeSkillFile creates dir/<name>/SKILL.md with a frontmatter
@@ -505,4 +510,109 @@ func TestUpdateCard_SkillsValidation(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
+}
+
+// --- taskSkillsSource derivation ---
+
+func TestTaskSkillsSourceFromCheckout(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "remote", "add", "origin", "https://example.test/skills.git")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644))
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+
+	url, ref := taskSkillsSource(dir, "")
+	assert.Equal(t, "https://example.test/skills.git", url, "remote derived from origin")
+	assert.NotEmpty(t, ref, "ref derived from HEAD")
+}
+
+func TestTaskSkillsSourceFallbackForNonGitDir(t *testing.T) {
+	url, ref := taskSkillsSource(t.TempDir(), "https://configured.test/s.git")
+	assert.Equal(t, "https://configured.test/s.git", url, "non-git dir falls back to configured remote")
+	assert.Empty(t, ref, "no ref when not a checkout")
+}
+
+func TestTaskSkillsSourceEmptyWhenNothing(t *testing.T) {
+	url, ref := taskSkillsSource(t.TempDir(), "")
+	assert.Empty(t, url)
+	assert.Empty(t, ref)
+}
+
+// runGit runs a git command in dir, failing the test on error.
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+}
+
+// --- GET /api/agent/task-skills-source handler auth gate ---
+
+// setupTaskSkillsSourceEndpoint creates a test server with the task-skills-source
+// route mounted, mirroring setupAutonomousEndpoint.
+func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+
+	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	router := NewRouter(RouterConfig{
+		Service:    svc,
+		Bus:        bus,
+		Runner:     runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+	})
+
+	server := httptest.NewServer(router)
+
+	return server, func() {
+		server.Close()
+		cleanup()
+	}
+}
+
+func TestGetTaskSkillsSource_HMAC_Valid(t *testing.T) {
+	server, cleanup := setupTaskSkillsSourceEndpoint(t)
+	defer cleanup()
+
+	path := "/api/runner/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body taskSkillsSourceResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	// dir and fallback are both empty in this test fixture — both fields are empty strings.
+	assert.Empty(t, body.GitRemoteURL)
+	assert.Empty(t, body.Ref)
+}
+
+func TestGetTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
+	server, cleanup := setupTaskSkillsSourceEndpoint(t)
+	defer cleanup()
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/runner/task-skills-source", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
 }

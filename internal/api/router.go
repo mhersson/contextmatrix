@@ -102,28 +102,29 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service             *service.CardService
-	Bus                 *events.Bus
-	CORSOrigin          string
-	Syncer              Syncer
-	Runner              TaskBackend          // nil when no task backend is configured
-	KnowledgeRefresher  KnowledgeRefresher   // nil when no task backend is configured
-	BackendCfg          config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
-	MCPAPIKey           string
-	Port                int
-	GitHubTokenProvider githubauth.TokenGenerator
-	TaskSkillsGit       *gitops.Manager // reserved for git-pull refresh of task-skills (future)
-	TaskSkillsDir       string          // absolute path to the task-skills directory; empty disables the skills selector
-	GitHubAPIBaseURL    string
-	GitHubAllowedHosts  []string
-	SessionManager      *sessionlog.Manager // optional; enables card-scoped SSE log path
-	Theme               string              // active color palette ("everforest" or "radix")
-	Version             string              // build version string for display
-	MCPHandler          http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
-	RefreshRegistry     *refresh.Registry   // optional; tracks in-flight KB refresh jobs
-	ChatManager         *chat.Manager       // optional; enables /api/chats routes
-	ChatHub             *chat.SSEHub        // optional; required when ChatManager is set
-	ChatConfig          *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
+	Service                *service.CardService
+	Bus                    *events.Bus
+	CORSOrigin             string
+	Syncer                 Syncer
+	Runner                 TaskBackend          // nil when no task backend is configured
+	KnowledgeRefresher     KnowledgeRefresher   // nil when no task backend is configured
+	BackendCfg             config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
+	MCPAPIKey              string
+	Port                   int
+	GitHubTokenProvider    githubauth.TokenGenerator
+	TaskSkillsGit          *gitops.Manager // reserved for git-pull refresh of task-skills (future)
+	TaskSkillsDir          string          // absolute path to the task-skills directory; empty disables the skills selector
+	TaskSkillsGitRemoteURL string          // configured git remote URL for the task-skills repo; fallback when dir is not a checkout
+	GitHubAPIBaseURL       string
+	GitHubAllowedHosts     []string
+	SessionManager         *sessionlog.Manager // optional; enables card-scoped SSE log path
+	Theme                  string              // active color palette ("everforest" or "radix")
+	Version                string              // build version string for display
+	MCPHandler             http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
+	RefreshRegistry        *refresh.Registry   // optional; tracks in-flight KB refresh jobs
+	ChatManager            *chat.Manager       // optional; enables /api/chats routes
+	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
+	ChatConfig             *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
 	// ImageStore is required in production — main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
 	// not exercise /api/images may omit it; the routes are then unregistered
@@ -241,16 +242,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Runner routes
 	rh := &runnerHandlers{
-		svc:             cfg.Service,
-		runner:          cfg.Runner,
-		backendCfg:      cfg.BackendCfg,
-		mcpAPIKey:       cfg.MCPAPIKey,
-		port:            cfg.Port,
-		sessionManager:  cfg.SessionManager,
-		refreshRegistry: cfg.RefreshRegistry,
-		replayCache:     runner.NewSignatureCache(),
-		catalog:         cfg.Catalog,
-		blacklist:       cfg.Blacklist,
+		svc:                    cfg.Service,
+		runner:                 cfg.Runner,
+		backendCfg:             cfg.BackendCfg,
+		mcpAPIKey:              cfg.MCPAPIKey,
+		port:                   cfg.Port,
+		sessionManager:         cfg.SessionManager,
+		refreshRegistry:        cfg.RefreshRegistry,
+		replayCache:            runner.NewSignatureCache(),
+		catalog:                cfg.Catalog,
+		blacklist:              cfg.Blacklist,
+		taskSkillsDir:          cfg.TaskSkillsDir,
+		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -280,6 +283,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("POST "+cb+"/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
+		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
