@@ -171,6 +171,20 @@ only — no palette-specific code in components.
 - Every sentence should be actionable — if it doesn't tell the agent what to do,
   remove it.
 
+**Two skill systems — don't conflate them:**
+
+- **Workflow skills** (`workflow-skills/`) — lifecycle scaffolding served via
+  MCP prompts. Drive what the agent does.
+- **Task skills** (`task-skills/`, `task_skills.dir`) — curated Claude Code
+  skills (`SKILL.md`) that tell the agent how to do implementation work well.
+  Both the runner and the agent backend are consumers: the runner bind-mounts
+  the resolved subset into the worker container; the agent fetches a
+  `{git_remote_url, ref}` pointer from `GET /api/agent/task-skills-source` and
+  mounts it read-only. Both report first engagement via `RecordSkillEngaged`
+  (runner: `POST /api/runner/skill-engaged`; agent: MCP `add_log
+  action=skill_engaged`). See `docs/agent-workflow.md` § Task skills for full
+  details.
+
 ## Key domain rules (summary)
 
 Full details with examples: `docs/data-model.md`.

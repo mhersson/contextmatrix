@@ -205,6 +205,23 @@ guidance, not a one-line marker. Engagement stays scoped to the right phase:
 - `create-task`, `init-project`: no `## Specialist skills` section
   (interview/bootstrap, no implementation work).
 
+### Backends
+
+Both task-skill backends consume the per-card `task_skills` subset through the
+same selection logic above.
+
+**Runner:** mounts the resolved skills directory as a bind-mount at
+`~/.claude/skills/` in the worker container. Claude Code's native Skill tool
+engages matching skills. Engagement is reported via
+`POST /api/runner/skill-engaged`.
+
+**Agent:** fetches a `{git_remote_url, ref}` pointer from
+`GET /api/agent/task-skills-source`, clones the repo server-side, and
+read-only-mounts the resolved subset. A model-driven Skill tool engages
+matching skills. Engagement is reported via MCP `add_log action=skill_engaged`
+(Path A — the same `RecordSkillEngaged` recording and dedup that the runner's
+callback feeds).
+
 ### Description-writing convention
 
 Skills are engaged by description match. Authors should anchor descriptions in
