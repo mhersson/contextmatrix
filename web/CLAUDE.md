@@ -43,6 +43,8 @@ The server config (`theme` in `config.yaml`, env: `CONTEXTMATRIX_THEME`) sets
 the **default** palette. On startup `ThemeProvider` fetches
 `GET /api/app/config` and applies `data-palette="<theme>"` on `<html>` for
 every palette except Everforest, which is the default CSS block (no attribute).
+The same endpoint also returns `task_backend` and `favorites` (the latter feeds
+the leaderboard pin presets); only the `theme` value is consumed here.
 
 Users can override the palette via the **PaletteSelector** dropdown in
 `AppHeader` (next to the dark/light toggle). Selecting a palette calls

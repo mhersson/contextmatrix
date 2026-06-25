@@ -88,8 +88,8 @@ start otherwise):
   populated (App: `app_id` + `installation_id` + `private_key_path`; PAT:
   `pat.token`).
 
-The other commonly-set fields (`mcp_api_key`, `runner.*`, `chat.*`) are optional
-but typical for a real deployment.
+The other commonly-set fields (`mcp_api_key`, `backends.*`, `chat.*`) are
+optional but typical for a real deployment.
 
 ```bash
 # Initialize the boards repo
@@ -111,17 +111,18 @@ docker run -d \
 For runner integration, add:
 
 ```bash
-  -e CONTEXTMATRIX_RUNNER_ENABLED=true \
-  -e CONTEXTMATRIX_RUNNER_URL=http://runner-host:9090 \
-  -e CONTEXTMATRIX_RUNNER_API_KEY=your-shared-secret-must-be-at-least-32-chars-long \
+  -e CONTEXTMATRIX_BACKEND_RUNNER_ENABLED=true \
+  -e CONTEXTMATRIX_BACKEND_RUNNER_URL=http://runner-host:9090 \
+  -e CONTEXTMATRIX_BACKEND_RUNNER_API_KEY=your-shared-secret-must-be-at-least-32-chars-long \
 ```
 
-### Chat persistence
+### Operational store persistence
 
-The global chat panel persists sessions and transcripts in SQLite. The default
-path is `$XDG_STATE_HOME/contextmatrix/chats.db`; override with
-`CONTEXTMATRIX_CHAT_DB_PATH` (or `chat.db_path`) and mount that directory on a
-volume if you want chat history to survive container restarts. Other tunables —
+ContextMatrix persists chat sessions/transcripts **and** the model blacklist in a
+single SQLite operational store (`ops.db`). The default path is
+`$XDG_STATE_HOME/contextmatrix/ops.db`; override with
+`CONTEXTMATRIX_OP_STORE_DB_PATH` (or `op_store.db_path`) and mount that directory
+on a volume if you want this state to survive container restarts. Chat tunables —
 `chat.idle_ttl`, `chat.max_concurrent`, `chat.default_model`,
 `chat.resume_budget_tokens`, `chat.rehydration_timeout`, and the `chat.models`
 allowlist — all have working defaults; see `config.yaml.example` for the full

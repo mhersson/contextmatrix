@@ -31,7 +31,7 @@ own repos, and report progress back through the board.
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 33 MCP tools and 4 slash commands give Claude Code
+- **MCP-first interface** — 34 MCP tools and 4 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
@@ -95,7 +95,7 @@ Open `http://localhost:8080` for the web UI.
   sessions in a resizable tile layout, persisted across reloads. Sidebar
   drag-and-drop tiles a chat into a pane; the 5th open triggers LRU eviction
   with an Undo toast.
-- **Runner Console** — when `runner.enabled` is true, a toggleable console (`>_`
+- **Runner Console** — when the runner backend is enabled (`backends.runner`), a toggleable console (`>_`
   button in the header, keyboard `c`) streams live logs from runner containers
   below the board with a resizable divider.
 - **Theme toggle** — sun/moon icon in the header toggles between dark and light
@@ -262,6 +262,7 @@ block if `mcp_api_key` is empty.
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
 | `refresh_knowledge_base`    | Build a refresh plan for a project's KB docs (human-only)               |
 | `release_card`              | Release a claim                                                         |
+| `report_incapable_model`   | Record that a model could not drive the tool loop so it is never auto-selected again |
 | `report_push`               | Report a git push for a card                                            |
 | `report_usage`              | Report token usage and estimated cost                                   |
 | `start_review`              | Atomically transition a card to review and return the review-task skill |
@@ -455,10 +456,11 @@ sequenceDiagram
 
 ```yaml
 # config.yaml
-runner:
-  enabled: true
-  url: "http://localhost:9090" # runner base URL
-  api_key: "your-secret-key-min-32ch" # shared HMAC secret
+backends:
+  runner:
+    url: "http://localhost:9090" # runner base URL
+    api_key: "your-secret-key-min-32ch" # shared HMAC secret (min 32 chars)
+    enabled: true
 mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
 ```
 
@@ -688,8 +690,8 @@ Events: `card.created`, `card.updated`, `card.deleted`, `card.state_changed`,
 
 These endpoints are human-only. Requests are rejected when the `X-Agent-ID`
 header is set to a non-human value (i.e. anything not prefixed with `human:`);
-omit the header or use a `human:<name>` ID. Requires `runner.enabled: true` in
-config.
+omit the header or use a `human:<name>` ID. Requires a runner backend enabled
+(`backends.runner.enabled: true`) in config.
 
 ```bash
 # Trigger remote execution (autonomous mode — no body required)
@@ -764,13 +766,20 @@ format.
 | `boards.git_pull_interval`             | `"60s"`                               | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
 | `boards.git_remote_url`                | `""`                                  | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
 | `boards.git_clone_on_empty`            | `false`                               | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
-| `runner.enabled`                       | `false`                               | Enable remote execution integration                                                                                                                                                  |
-| `runner.url`                           | `""`                                  | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`)                                                                                                                  |
-| `runner.api_key`                       | `""`                                  | Shared secret for HMAC-SHA256 webhook signing (min 32 chars)                                                                                                                         |
-| `runner.orchestrator_sonnet_model`     | `claude-sonnet-4-6`                   | Model ID used for the Sonnet orchestrator in autonomous runs                                                                                                                         |
-| `runner.orchestrator_opus_model`       | `claude-opus-4-8`                     | Model ID used for the Opus orchestrator (high-capability mode)                                                                                                                       |
-| `runner.reconcile_interval`            | `"60s"`                               | Backstop sweep interval that ends/kills runner sessions for terminal cards                                                                                                           |
-| `chat.db_path`                         | `<XDG_STATE>/contextmatrix/chats.db`  | SQLite database for chat sessions and transcripts                                                                                                                                    |
+| `backends` | `{}` | Execution-backend map; valid entry names `runner`, `agent`, `chat` — sister services CM drives over HMAC-signed webhooks. Task backend = `runner` if enabled, else `agent`; chat backend = `runner` if enabled, else `chat`. The `agent` entry runs card execution only; `chat` is not yet released. Read once at startup (restart to change). |
+| `backends.runner.url` | `""` | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`) |
+| `backends.runner.api_key` | `""` | Shared secret for HMAC-SHA256 webhook signing (min 32 chars) |
+| `backends.runner.enabled` | `true` | Set `false` to keep the block as an inert placeholder (omitting it = active) |
+| `backends.runner.orchestrator_sonnet_model` | `claude-sonnet-4-6` | Model ID for the Sonnet orchestrator in autonomous runs (runner entry only) |
+| `backends.runner.orchestrator_opus_model` | `claude-opus-4-8` | Model ID for the Opus orchestrator, high-capability mode (runner entry only) |
+| `backends.runner.reconcile_interval` | `"60s"` | Backstop sweep interval that ends/kills runner sessions for terminal cards (runner entry only) |
+| `backends.agent.url` | `""` | Base URL of the contextmatrix-agent backend (e.g. `http://localhost:9092`) |
+| `backends.agent.api_key` | `""` | Shared secret for HMAC-SHA256 webhook signing (min 32 chars) |
+| `backends.agent.enabled` | `true` | Set `false` to keep the block inert; the agent runs card execution only and is mutually exclusive with `runner` |
+| `backends.agent.default_model` | `""` | Default orchestrator model (OpenRouter slug) for the agent backend; card pins override, empty falls back to the agent service's own default (agent entry only) |
+| `backends.agent.aa_api_key` | `""` | Artificial Analysis API key CM uses for live model-catalog lookups when building the agent's selection payload (agent entry only) |
+| `backends.agent.model_allowlist` | `[]` | Trusted Artificial Analysis creator slugs for the agent's catalog; empty = built-in default allowlist (agent entry only) |
+| `op_store.db_path` | `<XDG_STATE>/contextmatrix/ops.db` | SQLite database holding chat sessions/transcripts AND the model blacklist in one `ops.db`; the earlier `chats.db` is no longer used |
 | `chat.idle_ttl`                        | `"1h"`                                | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
 | `chat.max_concurrent`                  | `8`                                   | Maximum concurrent chat containers                                                                                                                                                   |
 | `chat.default_model`                   | (required)                            | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
@@ -824,13 +833,19 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL`
 - `CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY`
 - `CONTEXTMATRIX_MCP_API_KEY`
-- `CONTEXTMATRIX_RUNNER_ENABLED`
-- `CONTEXTMATRIX_RUNNER_URL`
-- `CONTEXTMATRIX_RUNNER_API_KEY`
-- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL`
-- `CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL`
-- `CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL`
-- `CONTEXTMATRIX_CHAT_DB_PATH`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED`
+- `CONTEXTMATRIX_BACKEND_RUNNER_URL`
+- `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL`
+- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL`
+- `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL`
+- `CONTEXTMATRIX_BACKEND_AGENT_ENABLED`
+- `CONTEXTMATRIX_BACKEND_AGENT_URL`
+- `CONTEXTMATRIX_BACKEND_AGENT_API_KEY`
+- `CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL`
+- `CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY`
+- `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST`
+- `CONTEXTMATRIX_OP_STORE_DB_PATH`
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`
 - `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
 - `CONTEXTMATRIX_IMAGES_DB_PATH`
@@ -843,6 +858,14 @@ All config fields can be overridden with environment variables:
 - `CONTEXTMATRIX_GITHUB_PAT_TOKEN`
 - `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED`
 - `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL`
+
+> [!IMPORTANT]
+>
+> The legacy top-level `runner:` config block and the `CONTEXTMATRIX_RUNNER_*`
+> environment variables were replaced by the `backends:` map. The server now
+> **refuses to start** if any `CONTEXTMATRIX_RUNNER_*` variable is set — migrate
+> to `backends.runner` / `CONTEXTMATRIX_BACKEND_RUNNER_*`. Chat persistence moved
+> from `chat.db_path` to the shared `op_store.db_path` (`ops.db`).
 
 ## GitHub Authentication
 

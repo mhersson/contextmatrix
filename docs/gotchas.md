@@ -188,17 +188,17 @@
   bootstrap in `useChatStream` to backfill. Session-update events
   (`session_updated`) are NOT stored in the ring; only `message` events are,
   since session metadata is meant to be re-fetched on reconnect.
-- **Chat schema is a single v1 migration — existing `chats.db` must be deleted
-  on upgrade:** `internal/chat/sqlite/migrations.go` uses a
-  `schema_migrations(version, applied_at)` table. The entire schema (all tables,
-  indexes) is created by a single `version: 1` entry that runs `CREATE TABLE IF
-  NOT EXISTS` DDL for `chat_sessions`, `chat_messages`, and `chat_cost_archive`
-  in their final shape. The stepwise v1–v6 migration history and the
-  `addColumnIfMissing` helper have been removed. A `chats.db` from a previous
-  install is not forward-compatible; operators must delete it before starting a
-  server that includes this change. When adding a new schema change, append a
-  `version: 2` entry to the slice with idempotent DDL (use `IF NOT EXISTS` /
-  `IF EXISTS`); never edit the v1 entry.
+- **Op-store schema is a clean-cut create — existing `chats.db` must be deleted
+  on upgrade:** `ensureSchema` in `internal/opstore/sqlite/schema.go` runs plain
+  `CREATE TABLE IF NOT EXISTS` DDL for every table (`model_blacklist`,
+  `chat_sessions`, `chat_messages`, `chat_cost_archive`) in the shared `ops.db`.
+  There is **no migration ledger** — no `schema_migrations(version, applied_at)`
+  table, no stepwise history, no `addColumnIfMissing` helper. The DB is not
+  migrated: an obsolete one is deleted and recreated by the operator. To change
+  the schema, edit the `ensureSchema` DDL directly — it is all idempotent
+  `CREATE ... IF NOT EXISTS`. A `chats.db` from a previous install is not
+  forward-compatible; operators must delete it before starting a server that
+  includes this change.
 - **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
   `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap via
   `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID change, the
