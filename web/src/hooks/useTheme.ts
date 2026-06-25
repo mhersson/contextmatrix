@@ -73,6 +73,12 @@ interface ThemeContextValue {
    * via `useTheme()` rather than opening a parallel fetch.
    */
   taskBackend: string;
+  /**
+   * Operator-configured favorite model slugs per tier, from `/api/app/config`.
+   * Key = tier name, value = All slugs for that tier. Null when the backend
+   * has no favorites configured.
+   */
+  favorites: Record<string, string[]> | null;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -97,6 +103,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
   const [version, setVersion] = useState('');
   const [taskBackend, setTaskBackend] = useState('');
+  const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
 
   useEffect(() => {
     safeSet(STORAGE_KEY, theme);
@@ -119,6 +126,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.task_backend) {
         setTaskBackend(config.task_backend);
       }
+      if (config.favorites) {
+        setFavorites(config.favorites);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -135,8 +145,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, palette, version, taskBackend, toggleTheme, setPalette }),
-    [theme, palette, version, taskBackend, toggleTheme, setPalette],
+    () => ({ theme, palette, version, taskBackend, favorites, toggleTheme, setPalette }),
+    [theme, palette, version, taskBackend, favorites, toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

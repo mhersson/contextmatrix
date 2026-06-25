@@ -14,6 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// loadFromYAML writes yamlContent to a temp config file and loads it.
+func loadFromYAML(t *testing.T, yamlContent string) (*Config, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return Load(path)
+}
+
 func writeConfigFile(t *testing.T, dir, content string) string {
 	t.Helper()
 
@@ -1903,7 +1917,8 @@ func TestLoadConfig_ChatDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, cfg.Chat.IdleTTL, "default idle TTL should be 1h")
 	assert.Equal(t, 0, cfg.Chat.MaxConcurrent, "unset max_concurrent should be 0 (unlimited)")
-	assert.NotEmpty(t, cfg.Chat.DBPath, "default db path should be derived")
+	// Chat data lives in the operational store; its DB path is derived there.
+	assert.NotEmpty(t, cfg.OpStore.DBPath, "default op-store db path should be derived")
 }
 
 func TestLoadConfig_ChatEnvOverrides(t *testing.T) {
@@ -1914,14 +1929,12 @@ boards: {dir: `+boardsDir+`}
 github: {auth_mode: "pat", pat: {token: "x"}}
 `)
 
-	t.Setenv("CONTEXTMATRIX_CHAT_DB_PATH", "/var/lib/contextmatrix/chats.db")
 	t.Setenv("CONTEXTMATRIX_CHAT_IDLE_TTL", "30m")
 	t.Setenv("CONTEXTMATRIX_CHAT_MAX_CONCURRENT", "10")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "/var/lib/contextmatrix/chats.db", cfg.Chat.DBPath)
 	assert.Equal(t, 30*time.Minute, cfg.Chat.IdleTTL)
 	assert.Equal(t, 10, cfg.Chat.MaxConcurrent)
 }
@@ -1966,7 +1979,6 @@ func TestLoadConfig_ChatYAML(t *testing.T) {
 boards: {dir: `+boardsDir+`}
 github: {auth_mode: "pat", pat: {token: "x"}}
 chat:
-  db_path: /custom/chats.db
   idle_ttl: 2h
   max_concurrent: 3
 `)
@@ -1974,12 +1986,49 @@ chat:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "/custom/chats.db", cfg.Chat.DBPath)
 	assert.Equal(t, 2*time.Hour, cfg.Chat.IdleTTL)
 	assert.Equal(t, 3, cfg.Chat.MaxConcurrent)
 }
 
-func TestLoadConfig_ChatDBPath_XDGStateHome(t *testing.T) {
+// ---------- Operational store (ops.db) config tests ----------
+//
+// The operational store holds both the chat schema and the model blacklist in
+// a single ops.db. These tests cover the default-derived path, the env
+// override, the YAML field, and the XDG-state-home default.
+
+func TestLoadConfig_OpStoreEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+`)
+
+	t.Setenv("CONTEXTMATRIX_OP_STORE_DB_PATH", "/var/lib/contextmatrix/ops.db")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/var/lib/contextmatrix/ops.db", cfg.OpStore.DBPath)
+}
+
+func TestLoadConfig_OpStoreYAML(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, `
+boards: {dir: `+boardsDir+`}
+github: {auth_mode: "pat", pat: {token: "x"}}
+op_store:
+  db_path: /custom/ops.db
+`)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/custom/ops.db", cfg.OpStore.DBPath)
+}
+
+func TestLoadConfig_OpStoreDBPath_XDGStateHome(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
 	path := writeConfigFile(t, dir, `
@@ -1993,7 +2042,7 @@ github: {auth_mode: "pat", pat: {token: "x"}}
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "chats.db"), cfg.Chat.DBPath)
+	assert.Equal(t, filepath.Join(stateDir, "contextmatrix", "ops.db"), cfg.OpStore.DBPath)
 }
 
 // ---------- Backends config tests ----------
@@ -2763,5 +2812,51 @@ func TestLegacyRunnerEnvMigrationPointer(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.legacyVar)
 			assert.Contains(t, err.Error(), tc.replacement)
 		})
+	}
+}
+
+// ---------- Favorites + AA key config tests ----------
+
+func TestBackendFavoritesAndAAKey(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY", "aa-env")
+	t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST", "a, b")
+
+	cfg, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+    default_model: "deepseek/deepseek-v4-flash"
+    favorites:
+      complex: ["anthropic/claude-opus-4.8"]
+      critical:
+        reviewer: ["openai/gpt-5.5"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := cfg.Backends["agent"]
+
+	if b.AAAPIKey != "aa-env" {
+		t.Errorf("AA key env override failed: %q", b.AAAPIKey)
+	}
+
+	if got := b.ModelAllowlist; len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("allowlist env override failed (want [a b], no leading space): %v", got)
+	}
+
+	if got := b.Favorites["complex"].All; len(got) != 1 || got[0] != "anthropic/claude-opus-4.8" {
+		t.Errorf("complex favorites: %v", got)
+	}
+
+	if got := b.Favorites["critical"].ByRole["reviewer"]; len(got) != 1 || got[0] != "openai/gpt-5.5" {
+		t.Errorf("critical reviewer favorites: %v", got)
 	}
 }

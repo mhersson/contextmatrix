@@ -1289,9 +1289,9 @@ func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, container
 
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
 // output (e.g. a tool_result containing a large file dump) would otherwise
-// grow chats.db linearly without bound. The user-message path is already
-// capped at the HTTP boundary (8192 bytes), so this cap mainly fires on
-// runner-emitted entries.
+// grow the transcript store linearly without bound. The user-message path is
+// already capped at the HTTP boundary (8192 bytes), so this cap mainly fires
+// on runner-emitted entries.
 const maxMessageBytes = 32 * 1024
 
 // truncationMarker is appended to messages that exceeded maxMessageBytes.

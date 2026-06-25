@@ -378,6 +378,12 @@ export interface AppConfig {
    * task backend is configured). Drives which automation controls render.
    */
   task_backend?: string;
+  /**
+   * Operator-configured favorite model slugs per tier (key = tier name,
+   * value = All slugs for that tier). Only present when the agent backend
+   * has favorites configured. Tiers with only ByRole slugs are excluded.
+   */
+  favorites?: Record<string, string[]>;
 }
 
 export interface KnowledgeDocSummary {

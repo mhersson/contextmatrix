@@ -37,6 +37,20 @@ const (
 	ErrCodeRunnerNotRunning  = "RUNNER_NOT_RUNNING"
 )
 
+// catalogProvider supplies the current auto-selectable model candidates.
+// Implemented by modelcatalog.Builder; the interface lives here so the api
+// package does not import modelcatalog.
+type catalogProvider interface {
+	Candidates(ctx context.Context) []protocol.CandidateModel
+}
+
+// blacklistReader returns the set of OpenRouter slugs that must never be
+// auto-selected. Implemented by opstore/sqlite.Store; lives here for the same
+// reason as catalogProvider.
+type blacklistReader interface {
+	BlacklistedSlugs(ctx context.Context) ([]string, error)
+}
+
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
 	svc               *service.CardService
@@ -47,6 +61,12 @@ type runnerHandlers struct {
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
 	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
+
+	// catalog and blacklist supply model-selection inputs for agent-backend
+	// triggers. Both are nil until T8 wires the real implementations in main.go;
+	// runCard guards on catalog != nil before attaching Selection.
+	catalog   catalogProvider
+	blacklist blacklistReader
 
 	// replayCache guards the runner-callback authentication path against
 	// replayed HMAC signatures. Populated at construction time; non-nil
@@ -237,6 +257,27 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
+	}
+
+	if h.backendCfg.Name == config.BackendNameAgent && h.catalog != nil {
+		var bl []string
+
+		if h.blacklist != nil {
+			// Best-effort: a blacklist read failure must not block the trigger,
+			// but it is logged — a silent miss would let the agent re-select a
+			// known-incapable model with no trace.
+			var blErr error
+			if bl, blErr = h.blacklist.BlacklistedSlugs(r.Context()); blErr != nil {
+				ctxlog.Logger(r.Context()).Warn("failed to read model blacklist; proceeding without it",
+					"card_id", id, "project", project, "error", blErr)
+			}
+		}
+
+		payload.Selection = &protocol.SelectionContext{
+			Candidates: h.catalog.Candidates(r.Context()),
+			Favorites:  mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites),
+			Blacklist:  bl,
+		}
 	}
 
 	// Send trigger webhook.
@@ -959,4 +1000,33 @@ func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project strin
 	}
 
 	return h.runner != nil
+}
+
+// mergeFavorites flattens global+project per-tier favorites into wire rules.
+// A project entry for a tier replaces the global entry for that tier.
+func mergeFavorites(global, project map[string]board.TierFavorites) []protocol.FavoriteRule {
+	merged := make(map[string]board.TierFavorites, len(global)+len(project))
+	for tier, f := range global {
+		merged[tier] = f
+	}
+
+	for tier, f := range project {
+		merged[tier] = f
+	}
+
+	var rules []protocol.FavoriteRule
+
+	for tier, f := range merged {
+		if len(f.All) > 0 {
+			rules = append(rules, protocol.FavoriteRule{Tier: tier, Models: f.All})
+		}
+
+		for role, models := range f.ByRole {
+			if len(models) > 0 {
+				rules = append(rules, protocol.FavoriteRule{Tier: tier, Role: role, Models: models})
+			}
+		}
+	}
+
+	return rules
 }

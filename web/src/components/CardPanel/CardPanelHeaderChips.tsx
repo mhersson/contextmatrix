@@ -114,7 +114,7 @@ export function CardPanelHeaderChips({
       </span>
 
       {/* Phase chip — surfaces the agent orchestrator's progress
-          (plan/execute/review/integrate/done). Plain text chip, only
+          (plan/execute/document/review/integrate/done). Plain text chip, only
           rendered when the orchestrator has set a phase. */}
       {card.phase && (
         <span

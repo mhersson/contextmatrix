@@ -23,15 +23,16 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// ServerConfig collects the dependencies for NewServer. ChatManager and
-// ImageStore are optional and default to nil; when nil, the chat- and image-
-// specific tool surfaces are not registered (or, for image attachments,
+// ServerConfig collects the dependencies for NewServer. ChatManager,
+// ImageStore, and Blacklist are optional and default to nil; when nil, the
+// corresponding tool surfaces are not registered (or, for image attachments,
 // get_card / get_task_context return text-only results).
 type ServerConfig struct {
 	Service           *service.CardService
 	WorkflowSkillsDir string
 	ChatManager       *chat.Manager
 	ImageStore        images.Store
+	Blacklist         BlacklistWriter
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -49,6 +50,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		Service:           cfg.Service,
 		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
 		ImageStore:        cfg.ImageStore,
+		Blacklist:         cfg.Blacklist,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

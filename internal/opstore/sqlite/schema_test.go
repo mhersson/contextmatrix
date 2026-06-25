@@ -9,13 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMigrate_FreshDB_AppliesV1(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "chats.db")
+func TestEnsureSchema_CreatesChatAndBlacklistTables(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ops.db")
 	s, err := Open(dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
-	assert.Equal(t, []int{1}, appliedVersions(t, s.db))
+	// model_blacklist table and columns.
+	assert.True(t, tableExists(t, s.db, "model_blacklist"))
+
+	for _, col := range []string{
+		"slug", "reason", "sample_card", "reported_by", "first_seen", "last_seen",
+	} {
+		assert.True(t, columnExists(t, s.db, "model_blacklist", col), "model_blacklist.%s missing", col)
+	}
 
 	// Unique index must exist; the old redundant non-unique one must not.
 	assert.True(t, indexExists(t, s.db, "idx_chat_messages_session_seq_unique"))
@@ -62,18 +69,20 @@ func TestMigrate_FreshDB_AppliesV1(t *testing.T) {
 	}
 }
 
-func TestMigrate_ReopenDoesNotReapplyV1(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "chats.db")
+func TestEnsureSchema_ReopenIsIdempotent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ops.db")
 
 	s1, err := Open(dbPath)
 	require.NoError(t, err)
 	require.NoError(t, s1.Close())
 
+	// Reopening an existing DB must not error: every CREATE uses IF NOT EXISTS.
 	s2, err := Open(dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s2.Close() })
 
-	assert.Equal(t, []int{1}, appliedVersions(t, s2.db))
+	assert.True(t, tableExists(t, s2.db, "chat_sessions"))
+	assert.True(t, tableExists(t, s2.db, "model_blacklist"))
 }
 
 func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
@@ -115,29 +124,6 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	require.NoError(t, err)
 
 	return n > 0
-}
-
-func appliedVersions(t *testing.T, db *sql.DB) []int {
-	t.Helper()
-
-	rows, err := db.Query(`SELECT version FROM schema_migrations ORDER BY version ASC`)
-	require.NoError(t, err)
-
-	defer rows.Close()
-
-	out := []int{}
-
-	for rows.Next() {
-		var v int
-
-		require.NoError(t, rows.Scan(&v))
-
-		out = append(out, v)
-	}
-
-	require.NoError(t, rows.Err())
-
-	return out
 }
 
 func indexExists(t *testing.T, db *sql.DB, name string) bool {

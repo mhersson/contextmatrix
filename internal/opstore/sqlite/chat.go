@@ -6,65 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
-
-	_ "modernc.org/sqlite" // register sqlite driver
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 )
 
 // compile-time assertion that *Store satisfies chat.Store.
 var _ chat.Store = (*Store)(nil)
-
-// Store is the SQLite-backed implementation of chat.Store.
-type Store struct {
-	db *sql.DB
-}
-
-// sqliteDSN builds a `file:` URI for the modernc.org/sqlite driver, passing
-// PRAGMA settings via the query string. The `file:` prefix selects the URI
-// VFS rather than the implicit filename VFS; we concatenate path directly
-// (rather than via url.URL) because url.URL.String() places a relative path
-// in the authority component (e.g. `file://chats.db`), which modernc/sqlite
-// rejects as an invalid URI authority. synchronous=NORMAL is the recommended
-// pairing for WAL — durable across process crashes, only weakens behaviour
-// under power loss, acceptable for cached chat data. Mirrors
-// internal/images/sqlite.go:sqliteDSN; keep the two in sync.
-func sqliteDSN(path string) string {
-	return "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
-}
-
-// Open opens (or creates) the SQLite database at path and applies the
-// schema migrations. Parent directories are created as needed.
-func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("chat: ensure db dir: %w", err)
-	}
-
-	db, err := sql.Open("sqlite", sqliteDSN(path))
-	if err != nil {
-		return nil, fmt.Errorf("chat: open sqlite: %w", err)
-	}
-
-	// SQLite is single-writer regardless of pool size; serialisation across
-	// writers happens at the manager level (chat.Manager.mu held across
-	// AppendMessage). MaxOpenConns > 1 lets concurrent readers (ListMessages,
-	// MaxSeq, GetSession) avoid queueing behind a writer when WAL is on.
-	db.SetMaxOpenConns(5)
-
-	if err := migrate(context.Background(), db); err != nil {
-		_ = db.Close()
-
-		return nil, err
-	}
-
-	return &Store{db: db}, nil
-}
-
-// Close releases the underlying database.
-func (s *Store) Close() error { return s.db.Close() }
 
 // sessionColumns lists every column read by scanSession in the exact order
 // the SELECT statement projects them. Kept as a single source of truth so

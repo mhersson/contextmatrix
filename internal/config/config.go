@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // ModelRate defines per-token cost rates for a model.
@@ -47,6 +49,8 @@ var backendEnvSuffixes = []string{
 	"_ORCHESTRATOR_OPUS_MODEL",
 	"_RECONCILE_INTERVAL",
 	"_DEFAULT_MODEL",
+	"_AA_API_KEY",
+	"_MODEL_ALLOWLIST",
 }
 
 // BackendConfig is one entry in the backends map: an execution backend CM
@@ -70,6 +74,11 @@ type BackendConfig struct {
 	// Per-card pins override it. Agent-only — runner and chat entries must
 	// leave this empty (Validate rejects misuse).
 	DefaultModel string `yaml:"default_model"`
+
+	// Agent-only: catalog and selection inputs.
+	AAAPIKey       string                         `yaml:"aa_api_key"`
+	ModelAllowlist []string                       `yaml:"model_allowlist"`
+	Favorites      map[string]board.TierFavorites `yaml:"favorites"`
 }
 
 // IsEnabled reports whether this entry is active. nil Enabled defaults to true
@@ -185,13 +194,18 @@ type ImagesConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
-// ChatConfig configures the global chat panel feature.
-type ChatConfig struct {
-	// DBPath is the SQLite file path for chat sessions and transcripts.
-	// Defaults to <XDG_STATE_HOME>/contextmatrix/chats.db, falling back to
-	// ~/.local/state/contextmatrix/chats.db.
+// OpStoreConfig configures the operational SQLite database. This single store
+// holds chat sessions/transcripts and the model blacklist (ops.db).
+type OpStoreConfig struct {
+	// DBPath is the SQLite file path for the op store.
+	// Defaults to <XDG_STATE_HOME>/contextmatrix/ops.db, falling back to
+	// ~/.local/state/contextmatrix/ops.db.
 	DBPath string `yaml:"db_path"`
+}
 
+// ChatConfig configures the global chat panel feature. Chat data is persisted
+// in the shared operational store (op_store.db_path), not a separate DB.
+type ChatConfig struct {
 	// IdleTTL is how long a chat container survives after the browser
 	// disconnects. Default: 1h.
 	IdleTTL time.Duration `yaml:"idle_ttl"`
@@ -259,6 +273,7 @@ type Config struct {
 	AdminBindAddr string                   `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
 	Chat          ChatConfig               `yaml:"chat"`
 	Images        ImagesConfig             `yaml:"images"`
+	OpStore       OpStoreConfig            `yaml:"op_store"`
 }
 
 // defaults returns a Config with default values.
@@ -531,6 +546,7 @@ func (c *Config) Validate() error {
 	// open.
 	applyChatDefaults(c)
 	applyImagesDefaults(c)
+	applyOpStoreDefaults(c)
 
 	if c.Chat.IdleTTL <= 0 {
 		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
@@ -614,6 +630,7 @@ func Load(path string) (*Config, error) {
 		if os.IsNotExist(err) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
+			applyOpStoreDefaults(cfg)
 			applyBackendDefaults(cfg)
 
 			if err := applyEnvOverrides(cfg); err != nil {
@@ -651,6 +668,7 @@ func Load(path string) (*Config, error) {
 
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
+	applyOpStoreDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -728,6 +746,13 @@ func applyImagesDefaults(cfg *Config) {
 	}
 }
 
+// applyOpStoreDefaults sets OpStore fields that were not supplied by YAML.
+func applyOpStoreDefaults(cfg *Config) {
+	if cfg.OpStore.DBPath == "" {
+		cfg.OpStore.DBPath = defaultSQLiteDBPath("ops.db")
+	}
+}
+
 // TaskBackendConfig returns the backend responsible for task execution.
 // Precedence: runner (if present+enabled) → agent (if present+enabled) → not found.
 // The returned copy has Name set defensively so callers that bypass Load still
@@ -798,10 +823,6 @@ func applyBackendDefaults(cfg *Config) {
 func applyChatDefaults(cfg *Config) {
 	if cfg.Chat.IdleTTL == 0 {
 		cfg.Chat.IdleTTL = time.Hour
-	}
-
-	if cfg.Chat.DBPath == "" {
-		cfg.Chat.DBPath = defaultSQLiteDBPath("chats.db")
 	}
 
 	if cfg.Chat.ResumeBudgetTokens == 0 {
@@ -966,12 +987,12 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.AdminBindAddr = v
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_CHAT_DB_PATH"); v != "" {
-		cfg.Chat.DBPath = v
-	}
-
 	if v := os.Getenv("CONTEXTMATRIX_IMAGES_DB_PATH"); v != "" {
 		cfg.Images.DBPath = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_OP_STORE_DB_PATH"); v != "" {
+		cfg.OpStore.DBPath = v
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CHAT_IDLE_TTL"); v != "" {
@@ -1045,6 +1066,22 @@ func applyEnvOverrides(cfg *Config) error {
 
 		if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
 			b.DefaultModel = v
+		}
+
+		if v := os.Getenv(prefix + "_AA_API_KEY"); v != "" {
+			b.AAAPIKey = v
+		}
+
+		if v := os.Getenv(prefix + "_MODEL_ALLOWLIST"); v != "" {
+			var allow []string
+
+			for _, s := range strings.Split(v, ",") {
+				if s = strings.TrimSpace(s); s != "" {
+					allow = append(allow, s)
+				}
+			}
+
+			b.ModelAllowlist = allow
 		}
 
 		if cfg.Backends == nil {

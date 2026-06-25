@@ -9,6 +9,8 @@ vi.mock('../../hooks/useTheme', () => ({
     theme: 'dark',
     palette: 'everforest',
     version: '',
+    taskBackend: '',
+    favorites: null,
     toggleTheme: vi.fn(),
     setPalette: mockSetPalette,
   })),
@@ -26,6 +28,7 @@ describe('PaletteSelector', () => {
       palette: 'everforest',
       version: '',
       taskBackend: '',
+      favorites: null,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });
@@ -60,6 +63,7 @@ describe('PaletteSelector', () => {
       palette: 'radix',
       version: '',
       taskBackend: '',
+      favorites: null,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });

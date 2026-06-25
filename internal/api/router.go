@@ -129,6 +129,13 @@ type RouterConfig struct {
 	// not exercise /api/images may omit it; the routes are then unregistered
 	// and the body-limit envelope still treats /api/images as a 404.
 	ImageStore images.Store
+
+	// Catalog and Blacklist supply model-selection inputs for agent-backend
+	// triggers (attached as SelectionContext on TriggerPayload). Both are nil
+	// until T8 wires the real implementations in main.go; runCard guards on
+	// Catalog != nil before attaching Selection, so omitting them is safe.
+	Catalog   catalogProvider
+	Blacklist blacklistReader
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -149,7 +156,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
-	ach := &appConfigHandlers{theme: cfg.Theme, version: cfg.Version, taskBackend: cfg.BackendCfg.Name}
+	ach := &appConfigHandlers{
+		theme:       cfg.Theme,
+		version:     cfg.Version,
+		taskBackend: cfg.BackendCfg.Name,
+		favorites:   extractFavorites(cfg.BackendCfg.Favorites),
+	}
 	bh := &branchHandlers{
 		svc:              cfg.Service,
 		provider:         cfg.GitHubTokenProvider,
@@ -237,6 +249,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		sessionManager:  cfg.SessionManager,
 		refreshRegistry: cfg.RefreshRegistry,
 		replayCache:     runner.NewSignatureCache(),
+		catalog:         cfg.Catalog,
+		blacklist:       cfg.Blacklist,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)

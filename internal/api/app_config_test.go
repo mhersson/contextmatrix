@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 func TestGetAppConfig(t *testing.T) {
@@ -75,4 +77,75 @@ func TestGetAppConfig(t *testing.T) {
 			assert.Equal(t, tc.wantTaskBackend, got.TaskBackend)
 		})
 	}
+}
+
+func TestGetAppConfig_Favorites(t *testing.T) {
+	t.Run("favorites serialized from All slugs per tier", func(t *testing.T) {
+		h := &appConfigHandlers{
+			theme:       "everforest",
+			taskBackend: "agent",
+			favorites: extractFavorites(map[string]board.TierFavorites{
+				"fast":     {All: []string{"openrouter/auto", "anthropic/claude-haiku-4"}},
+				"balanced": {All: []string{"anthropic/claude-sonnet-4-5"}},
+				"frontier": {ByRole: map[string][]string{"coder": {"anthropic/claude-opus-4"}}},
+			}),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got appConfigResponse
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+
+		// "fast" and "balanced" have All slugs — they appear in the response.
+		require.Contains(t, got.Favorites, "fast")
+		assert.Equal(t, []string{"openrouter/auto", "anthropic/claude-haiku-4"}, got.Favorites["fast"])
+		require.Contains(t, got.Favorites, "balanced")
+		assert.Equal(t, []string{"anthropic/claude-sonnet-4-5"}, got.Favorites["balanced"])
+
+		// "frontier" only has ByRole slugs, no All — excluded from the response.
+		assert.NotContains(t, got.Favorites, "frontier")
+	})
+
+	t.Run("favorites omitted when empty", func(t *testing.T) {
+		h := &appConfigHandlers{theme: "everforest", taskBackend: "agent"}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		var got appConfigResponse
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.Nil(t, got.Favorites)
+	})
+
+	t.Run("favorites omitted when all tiers have only ByRole slugs", func(t *testing.T) {
+		h := &appConfigHandlers{
+			theme:       "everforest",
+			taskBackend: "agent",
+			favorites: extractFavorites(map[string]board.TierFavorites{
+				"frontier": {ByRole: map[string][]string{"reviewer": {"anthropic/claude-opus-4"}}},
+			}),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		var got appConfigResponse
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.Nil(t, got.Favorites)
+	})
 }

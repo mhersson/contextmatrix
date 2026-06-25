@@ -20,6 +20,7 @@ type registerToolsConfig struct {
 	Service           *service.CardService
 	WorkflowSkillsDir string
 	ImageStore        images.Store
+	Blacklist         BlacklistWriter
 }
 
 // registerTools adds all MCP tools to the server.
@@ -52,6 +53,11 @@ func registerTools(cfg registerToolsConfig) {
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
+
+	if cfg.Blacklist != nil {
+		registerReportIncapableModel(server, cfg.Blacklist)
+	}
+
 	registerGetKnowledgeBase(server, svc)
 	registerReadKnowledgeDoc(server, svc)
 	registerListKnowledgeBases(server, svc)

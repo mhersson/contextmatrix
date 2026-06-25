@@ -71,8 +71,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mhersson/contextmatrix-githubauth v0.1.0 h1:wzbTo6DTPAL6BQUcFcOhafPU6m92DLt4Er4xIp7LfD8=
 github.com/mhersson/contextmatrix-githubauth v0.1.0/go.mod h1:jjMMyN9ieQgdy56N23korXlV+msG0+Wd+en+zQkuN7U=
-github.com/mhersson/contextmatrix-protocol v0.2.0 h1:iSdnl5JSUyahCtmqLVHvwcJ3O4plrDNZ73OjyXCcPZc=
-github.com/mhersson/contextmatrix-protocol v0.2.0/go.mod h1:oukqhfSUHf3sNL5x+cKhftwaBP+AKQwseGlNlc4JZqU=
+github.com/mhersson/contextmatrix-protocol v0.3.0 h1:ZGstPsgMlMiiMWstcNjQQgZpuCcIy0aNbyV75/mtss4=
+github.com/mhersson/contextmatrix-protocol v0.3.0/go.mod h1:oukqhfSUHf3sNL5x+cKhftwaBP+AKQwseGlNlc4JZqU=
 github.com/modelcontextprotocol/go-sdk v1.6.1 h1:0zOSupjKUxPKSocPT1Wtago+mUHU2/uZ4xSOY0FGReU=
 github.com/modelcontextprotocol/go-sdk v1.6.1/go.mod h1:kzm3kzFL1/+AziGOE0nUs3gvPoNxMCvkxokMkuFapXQ=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
