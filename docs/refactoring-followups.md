@@ -49,7 +49,6 @@ deferred. Highlights:
 **Deferred (out of scope for a pure refactor; needs its own brainstorm + plan
 each):**
 
-- Refresh registry opaque `JobID` (new API contract).
 - Operator-visibility log on chat-runner container drift (new emission).
 - `PaletteSelector` ARIA menu pattern (new accessibility behavior).
 - `Board.tsx` column virtualisation (perf-driven rendering change).
@@ -290,11 +289,6 @@ component is JSX-heavy / logic-light.
 
 ## Cross-cutting / process
 
-- **Refresh registry: opaque `JobID`.** Round-2 Specialist 5A suggested
-  attaching an opaque `JobID` to each `Acquire` and requiring it on every
-  subsequent mutator (`MarkRunning`, `UpdateProgress`, `MarkTerminal`). This
-  closes a class of "ghost progress" bugs where a late callback against a
-  superseded job mutates the live one.
 - **Operator visibility for chat-runner container drift.** When
   `SendChatMessage` fails right after a cold-open started a container, the
   runner container is up but the user gets a 5xx. The reaper / warm-idle TTL
