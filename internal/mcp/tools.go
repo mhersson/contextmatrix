@@ -58,12 +58,6 @@ func registerTools(cfg registerToolsConfig) {
 		registerReportIncapableModel(server, cfg.Blacklist)
 	}
 
-	registerGetKnowledgeBase(server, svc)
-	registerReadKnowledgeDoc(server, svc)
-	registerListKnowledgeBases(server, svc)
-	registerRefreshKnowledgeBase(server, svc)
-	registerCommitKnowledgeDocs(server, svc)
-	registerUpdateRefreshProgress(server, svc)
 	registerPermissionPrompt(server)
 }
 
@@ -86,9 +80,8 @@ func resolveProject(ctx context.Context, svc *service.CardService, project, card
 // requireHumanAgent fails fast when a tool is restricted to human callers and
 // the supplied agent_id does not carry the "human:" prefix. The service layer
 // also enforces this for promote_to_autonomous (defence in depth); the
-// handler-level check matches the style of refresh_knowledge_base /
-// commit_knowledge_docs / update_refresh_progress so every human-only tool
-// rejects in the same way with the same error shape.
+// handler-level check ensures every human-only tool rejects in the same way
+// with the same error shape.
 func requireHumanAgent(agentID, toolName string) error {
 	if !board.IsHumanAgentID(agentID) {
 		return fmt.Errorf("%s is human-only (agent_id must start with 'human:' and have a non-empty suffix)", toolName)
@@ -124,11 +117,10 @@ type getSkillInput struct {
 	// skillBuilders directly. assertGetSkillSchemaInSync (below) compares it
 	// to skillNameSchemaDescription at package init time and panics on drift,
 	// so adding a skill in one place but not the other fails fast in tests.
-	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, chat-mode, create-plan, create-task, document-task, execute-task, init-project, refresh-knowledge, review-task, run-autonomous, systematic-debugging"`
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, chat-mode, create-plan, create-task, document-task, execute-task, init-project, review-task, run-autonomous, systematic-debugging"`
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
-	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project, refresh-knowledge)"`
-	Repo            string `json:"repo,omitempty" jsonschema:"repo name (optional, used by refresh-knowledge for multi-repo projects)"`
+	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
