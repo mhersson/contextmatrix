@@ -449,9 +449,9 @@ sequenceDiagram
 ```
 
 > The diagram shows the runner backend. When contextmatrix-agent is the active
-> backend, CM sends webhooks to the agent process instead — no Docker containers
-> are spawned. The trigger–claim–heartbeat–done sequence is identical from the
-> UI's perspective.
+> backend, CM sends webhooks to the agent's `serve` process, which spawns a Docker
+> worker container running a custom Go harness instead of Claude Code; the
+> trigger–claim–heartbeat–done sequence is identical from the UI's perspective.
 
 ### Setup
 

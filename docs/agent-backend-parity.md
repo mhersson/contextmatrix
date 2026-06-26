@@ -64,8 +64,9 @@ Verdicts: **parity** / **intentional-divergence** / **gap**.
 | Orphan cleanup (boot, label-based) | `runner internal/container/manager.go:2062` `CleanupOrphans` (label `LabelRunner=true`) | `agent internal/executor/docker.go:477` `CleanupOrphans` (label `contextmatrix.agent=true`), boot `agent internal/cli/serve.go:143` | n/a — backend-internal | parity |
 | Metrics surface | `runner internal/metrics/metrics.go` (`cmr_*`, loopback admin, HMAC) | `agent internal/metrics/metrics.go:85` (`cm_agent_*`, loopback admin, HMAC; admin listener `agent internal/cli/serve.go:180`) | n/a — backend-internal | parity (subset; see divergences) |
 
-18 of 19 capabilities are at parity; container reconcile is the one recorded
-intentional divergence (see below). Three capabilities are met by an
+18 of 19 capabilities are at parity; one matrix row carries the
+`intentional-divergence` verdict (container reconcile); three further nuances are
+recorded below. Three capabilities are also met by an
 agent-specific mechanism that meets or exceeds the runner's bar (model selection,
 the per-card budget ledger) or reaches the same outcome by a different route
 (repo grounding).
