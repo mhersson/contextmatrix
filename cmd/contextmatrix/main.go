@@ -305,6 +305,11 @@ func main() {
 	// read it then).
 	taskBackendCfg, _ := cfg.TaskBackendConfig()
 
+	// Attribute backend-generated audit-trail entries to the active backend.
+	// taskBackendCfg.Name is "runner"/"agent"/"" (empty when none configured;
+	// the affected service paths are unreachable in that case).
+	svc.SetTaskBackendName(taskBackendCfg.Name)
+
 	sessionMgr := runnerSys.SessionLog
 
 	// Create MCP server

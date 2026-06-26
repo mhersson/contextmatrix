@@ -98,6 +98,12 @@ type CardService struct {
 	// stays in sync with actual execution state.
 	sessionManager *sessionlog.Manager
 
+	// taskBackendName is the active task backend's name ("runner"/"agent"),
+	// used to attribute backend-generated activity-log entries and boards-repo
+	// commits to the backend that actually did the work. Empty defaults to
+	// "runner" via backendAuthor() (no-backend / test-fixture case).
+	taskBackendName string
+
 	// stalledFn is called on each timeout-checker tick to process stalled cards.
 	// Defaults to s.processStalled; overridable in tests to inject panics.
 	stalledFn func(ctx context.Context) error
@@ -213,6 +219,25 @@ func NewCardService(
 // Passing nil disables lifecycle notifications.
 func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
 	s.sessionManager = m
+}
+
+// SetTaskBackendName records the active task backend's name so backend-
+// generated audit-trail entries are attributed to it. Must be called before
+// the server starts accepting requests. Empty / never-called defaults to
+// "runner" (see backendAuthor).
+func (s *CardService) SetTaskBackendName(name string) {
+	s.taskBackendName = name
+}
+
+// backendAuthor returns the author label for backend-generated activity-log
+// entries and commits: the active task backend's name, or "runner" when unset
+// (preserves runner-active behavior and the no-backend / test-fixture case).
+func (s *CardService) backendAuthor() string {
+	if s.taskBackendName == "" {
+		return "runner"
+	}
+
+	return s.taskBackendName
 }
 
 // SetCommitQueue registers a commit queue. When set, all write-path commits
