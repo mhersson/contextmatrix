@@ -26,7 +26,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
-	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -51,7 +50,6 @@ const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 const (
 	ErrCodeProjectNotFound      = "PROJECT_NOT_FOUND"
 	ErrCodeCardNotFound         = "CARD_NOT_FOUND"
-	ErrCodeKnowledgeDocNotFound = "KNOWLEDGE_DOC_NOT_FOUND"
 	ErrCodeParentNotFound       = "PARENT_NOT_FOUND"
 	ErrCodeCardExists           = "CARD_EXISTS"
 	ErrCodeInvalidTransition    = "INVALID_TRANSITION"
@@ -107,7 +105,6 @@ type RouterConfig struct {
 	CORSOrigin             string
 	Syncer                 Syncer
 	Runner                 TaskBackend          // nil when no task backend is configured
-	KnowledgeRefresher     KnowledgeRefresher   // nil when no task backend is configured
 	BackendCfg             config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
 	MCPAPIKey              string
 	Port                   int
@@ -121,7 +118,6 @@ type RouterConfig struct {
 	Theme                  string              // active color palette ("everforest" or "radix")
 	Version                string              // build version string for display
 	MCPHandler             http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
-	RefreshRegistry        *refresh.Registry   // optional; tracks in-flight KB refresh jobs
 	ChatManager            *chat.Manager       // optional; enables /api/chats routes
 	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
 	ChatConfig             *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
@@ -154,7 +150,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	acth := &activityHandlers{svc: cfg.Service}
-	kh := &knowledgeHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{
@@ -211,22 +206,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/recalculate-costs", ph.recalculateCosts)
 	mux.HandleFunc("GET /api/projects/{project}/activity", acth.getActivity)
 
-	// Knowledge base
-	mux.HandleFunc("GET /api/projects/{project}/knowledge", kh.listForProject)
-	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/{doc}", kh.getDoc)
-	mux.HandleFunc("PUT /api/projects/{project}/knowledge/{repo}/{doc}", kh.putDoc)
-
-	// Knowledge refresh (v2)
-	krh := &knowledgeRefreshHandlers{
-		svc:       cfg.Service,
-		registry:  cfg.RefreshRegistry,
-		runner:    cfg.KnowledgeRefresher,
-		mcpAPIKey: cfg.MCPAPIKey,
-	}
-	mux.HandleFunc("GET /api/projects/{project}/knowledge/{repo}/refresh-plan", krh.getPlan)
-	mux.HandleFunc("POST /api/projects/{project}/knowledge/{repo}/refresh", krh.trigger)
-	mux.HandleFunc("GET /api/projects/{project}/knowledge/refresh-status", krh.status)
-
 	// Branch listing
 	mux.HandleFunc("GET /api/projects/{project}/branches", bh.listBranches)
 
@@ -248,7 +227,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mcpAPIKey:              cfg.MCPAPIKey,
 		port:                   cfg.Port,
 		sessionManager:         cfg.SessionManager,
-		refreshRegistry:        cfg.RefreshRegistry,
 		replayCache:            runner.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
@@ -281,7 +259,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		cb := cfg.BackendCfg.CallbackPath()
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
-		mux.HandleFunc("POST "+cb+"/knowledge-status", rh.runnerKnowledgeStatus)
 		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
@@ -702,11 +679,6 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeProjectNotFound, "project not found", "")
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
-	case errors.Is(err, storage.ErrKnowledgeDocNotFound):
-		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound, "knowledge doc not found", "")
-	case errors.Is(err, storage.ErrKnowledgeDocSymlink):
-		writeError(w, http.StatusNotFound, ErrCodeKnowledgeDocNotFound,
-			"knowledge doc not found", "rejected: symlink")
 	case errors.Is(err, board.ErrParentNotFound):
 		var ve *board.ValidationError
 
@@ -766,8 +738,6 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid path", sanitizeErrorDetails(err))
-	case errors.Is(err, storage.ErrInvalidKnowledgeDoc):
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid knowledge doc name", sanitizeErrorDetails(err))
 	case errors.Is(err, storage.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 

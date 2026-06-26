@@ -29,12 +29,3 @@ type TaskBackend interface {
 // Compile-time check: the contextmatrix-runner webhook client implements
 // the contract.
 var _ TaskBackend = (*runner.Client)(nil)
-
-// KnowledgeRefresher triggers a knowledge-base refresh container. Kept off
-// TaskBackend deliberately: the KB machinery is scheduled for retirement,
-// and only the contextmatrix-runner client implements it.
-type KnowledgeRefresher interface {
-	RefreshKnowledge(ctx context.Context, p runner.RefreshKnowledgePayload) error
-}
-
-var _ KnowledgeRefresher = (*runner.Client)(nil)
