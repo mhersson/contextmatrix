@@ -1511,6 +1511,9 @@ on its own loopback admin listener, mirroring the runner's posture:
 
 Scrape both admin listeners to cover cards routed to either backend.
 
+See [agent-backend-parity.md](agent-backend-parity.md) for the full v1 parity
+audit and the enable recipe.
+
 ### Per-Project (`.board.yaml`)
 
 ```yaml

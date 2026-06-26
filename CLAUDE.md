@@ -25,6 +25,7 @@ Read these when working on the relevant area:
 | [`docs/api-reference.md`](docs/api-reference.md)       | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                          |
 | [`docs/gotchas.md`](docs/gotchas.md)                   | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                            |
 | [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, worker safety, operator endpoints, runner config reference, graceful shutdown. Read when working on runner integration or MCP auth.                  |
+| [`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) | Agent backend v1 parity matrix, intentional divergences, and the enable recipe. Read when selecting or validating the agent task backend. |
 | [`web/CLAUDE.md`](web/CLAUDE.md)                       | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                   |
 
 ## Trust model (read this before any auth/identity review)
