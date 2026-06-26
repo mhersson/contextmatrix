@@ -515,7 +515,7 @@ disconnects on `enabled=false` or component unmount.
 ### AppHeader integration
 
 When `runnerEnabled` is true, a **Console** button (`>_` icon) is rendered
-inside the VIEWS pill group between **Board** and **Knowledge**. It behaves
+inside the VIEWS pill group next to **Board** and **Settings**. It behaves
 like a toggle, not a NavLink — it calls `onToggleConsole` rather than
 navigating. Props added to `AppHeaderProps`:
 
@@ -552,7 +552,7 @@ during active drag to avoid lag).
 ```
 <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
   <div style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}>
-    {/* Board / Settings / Knowledge routes */}
+    {/* Board / Settings routes */}
   </div>
   {consoleOpen && (
     <>
@@ -743,48 +743,6 @@ modal covers the screen anyway, but this can be improved in a future pass
 - `MobileSidebarContext.tsx` exports both a component and a hook from the same
   file, which triggers the `react-refresh/only-export-components` lint warning.
   This is consistent with the pre-existing `useProjects.tsx` pattern.
-
-## Mobile Knowledge Base
-
-On viewports narrower than `768px` (Tailwind `md` breakpoint) the Knowledge
-Base tab replaces the always-visible sidebar with a slide-in sheet triggered by
-the doc-title row. Desktop layout is unchanged.
-
-### Architecture
-
-| File | Role |
-|---|---|
-| `web/src/components/KnowledgeBase/MobileDocSheet.tsx` | Backdrop overlay + right-side slide-in panel (reuses `card-panel` and `animate-panel-slide-in` CSS classes). Renders `KnowledgeBaseSidebar` inside. Accepts all sidebar props plus `onClose: () => void`. Calls `onClose` after a doc is selected (intercepts `onSelect`). |
-| `web/src/components/KnowledgeBase/MobileDocTrigger.tsx` | Shared `md:hidden` trigger row: open-book icon + doc name (or "Choose a document" in `--grey1` when undefined) + chevron-right. Props: `docName?: string; onClick: () => void`. Used by `KnowledgeBase.tsx` fallback branches and by `KnowledgeDocViewer`/`KnowledgeDocEditor`. |
-| `web/src/components/KnowledgeBase/KnowledgeBase.tsx` | Owns `isSheetOpen: boolean` state. Applies `hidden md:flex` to the sidebar wrapper. Renders `<MobileDocSheet>` when `isSheetOpen` is true. Passes `onOpenSelector={() => setIsSheetOpen(true)}` to `KnowledgeDocViewer`. Also renders `<MobileDocTrigger>` in the "No KB docs yet" and "Select a doc." fallback branches so mobile users always have a way to open the sheet. |
-| `web/src/components/KnowledgeBase/KnowledgeDocViewer.tsx` | Accepts `onOpenSelector?: () => void`. Renders `<MobileDocTrigger docName={doc}>` at the top when `onOpenSelector` is set. Forwards `onOpenSelector` to `KnowledgeDocEditor` when editing. |
-| `web/src/components/KnowledgeBase/KnowledgeDocEditor.tsx` | Accepts `onOpenSelector?: () => void`. Renders `<MobileDocTrigger docName={doc}>` at the top when `onOpenSelector` is set. |
-
-### Behaviour
-
-- **Desktop (≥ `md`):** Two-column flex layout. Sidebar always visible on the
-  left (`w-72`). Trigger row hidden (`md:hidden`).
-- **Mobile (< `md`):** Viewer/editor takes full width. Sidebar hidden
-  (`hidden md:flex`). Trigger row visible at the top showing current doc name +
-  chevron, or "Choose a document" when no doc is selected. Tapping the trigger
-  sets `isSheetOpen = true`. The trigger is also rendered in the "No KB docs
-  yet" and "Select a doc." fallback branches, so mobile users always have a way
-  to open the sheet regardless of selection state.
-
-### Closing the sheet
-
-The sheet closes on either of:
-- Tap the dark backdrop (`onClick` on the `bg-black/50` overlay)
-- Select any document (intercepted by `MobileDocSheet.handleSelect`)
-
-### CSS conventions
-
-`MobileDocSheet` uses `card-panel` and `animate-panel-slide-in` — the same
-classes used by `CardPanel` — so z-index and animation stay consistent with
-the rest of the app. No new CSS was added.
-
-The trigger button uses `style` props (CSS custom properties) rather than
-Tailwind color classes, consistent with the project-wide convention.
 
 ## Mobile NowRail drawer
 
@@ -1051,7 +1009,7 @@ Unknown URL handling therefore lives entirely in React Router, not the backend.
 | File | Scope |
 |---|---|
 | `web/src/App.tsx` | Top-level routes (`/`, `/all`, `/projects/:project/*`) |
-| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/settings`, `/knowledge`) |
+| `web/src/components/ProjectShell/ProjectShell.tsx` | Nested project routes (`/`, `/settings`) |
 
 Both levels must have the catch-all so that:
 - `/unknown-top-level` is caught by `App.tsx`

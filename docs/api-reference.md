@@ -29,20 +29,12 @@ GET    /api/projects/{project}/dashboard              # project dashboard metric
 GET    /api/projects/{project}/activity   ?limit=     # flattened activity-log feed (newest first; cap 500)
 POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
 
-GET    /api/projects/{project}/knowledge                              # KB summary (repos + docs) for the project
-GET    /api/projects/{project}/knowledge/{repo}/{doc}                 # read one KB doc + metadata
-PUT    /api/projects/{project}/knowledge/{repo}/{doc}                 # save a hand-edited KB doc
-GET    /api/projects/{project}/knowledge/{repo}/refresh-plan          # planned doc set for the next refresh
-POST   /api/projects/{project}/knowledge/{repo}/refresh               # trigger a runner-driven KB refresh (human-only)
-GET    /api/projects/{project}/knowledge/refresh-status               # in-flight refresh jobs for the project
-
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # backend callback at derived /api/<name>/status; per-backend HMAC key
-POST   /api/runner/knowledge-status                    # KB-refresh terminal callback at derived /api/<name>/... (HMAC-signed; task-backend required)
 POST   /api/runner/skill-engaged                       # skill-engaged callback at derived /api/<name>/... (HMAC-signed; task-backend required)
 GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached; fixed path)
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
@@ -93,8 +85,8 @@ identity. It is required on the agent endpoints (`/claim`, `/release`,
 `/heartbeat`, `/log`, `/usage`, `/report-push`) and on any mutation of a claimed
 card — there the header value must match `assigned_agent` (403 on mismatch). It
 is also used to gate human-only fields and human-only endpoints (`/run`,
-`/stop`, `/message`, `/promote`, `/stop-all`, KB refresh trigger): those require
-an `X-Agent-ID` value beginning with `human:`. Read endpoints, project CRUD,
+`/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
+value beginning with `human:`. Read endpoints, project CRUD,
 sync, branches, app config, task-skills, healthz, and readyz do not require the
 header. Request bodies on agent endpoints no longer carry an `agent_id` field —
 it is silently ignored if present.
@@ -102,11 +94,11 @@ it is silently ignored if present.
 **Identity is a tag, not auth.** ContextMatrix is single-tenant and has no auth
 layer below `X-Agent-ID`; spoofing it accomplishes nothing because there is no
 permission gradient to escalate into. The `human:` prefix gates workflow
-contracts (only humans promote / refresh KB), not security boundaries. The web
-UI generates a per-browser identity (`human:web-<8 hex chars>`) and never
-prompts the operator for a username. Two routes contain fall-backs that record
-`human:web` (KB PUT) or `human:api` (runner `/promote`) when no header is
-present — both are intentional, because the UI is the only legitimate caller.
+contracts (only humans promote), not security boundaries. The web UI generates
+a per-browser identity (`human:web-<8 hex chars>`) and never prompts the
+operator for a username. Routes that act on behalf of the web UI fall back to
+`human:web` or `human:api` when no header is present — intentional, because
+the UI is the only legitimate caller.
 See § Trust model in `CLAUDE.md`.
 
 **CSRF protection:** every state-changing request on the main listener must
@@ -150,7 +142,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
   `POST /api/chats`)
 - 202: accepted — async endpoint kicked off background work (`POST /run`,
-  `/stop`, `/message`, `/promote`, KB `/refresh`, chat `/messages`)
+  `/stop`, `/message`, `/promote`, chat `/messages`)
 - 204: deleted (DELETE) and `POST /heartbeat` (no body)
 - 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
   missing CSRF header) — emitted with code `BAD_REQUEST`
@@ -158,10 +150,10 @@ otherwise the server generates a UUID. The same id is emitted as the
   claim attempt (`CARD_NOT_VETTED`), agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
   runner-side endpoint (`INVALID_SIGNATURE`)
-- 404: card, project, KB doc, chat session, or referenced parent not found —
+- 404: card, project, chat session, or referenced parent not found —
   parent-not-found uses code `PARENT_NOT_FOUND`
 - 409: conflict (invalid transition, card already claimed, already-running
-  runner task → `RUNNER_CONFLICT`, KB refresh in flight → `RUNNER_CONFLICT`)
+  runner task → `RUNNER_CONFLICT`)
 - 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
 - 422: semantic validation error — mutation body references an unknown type,
   state, priority, or invalid autonomous combination. Emitted with code
@@ -178,12 +170,11 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `BAD_REQUEST`             | 400     | malformed input / unknown filter value / CSRF missing         |
 | `PROJECT_NOT_FOUND`       | 404     | project slug does not exist                                   |
 | `CARD_NOT_FOUND`          | 404     | card ID does not exist in the project                         |
-| `KNOWLEDGE_DOC_NOT_FOUND` | 404     | KB doc path unknown or rejected (symlink)                     |
 | `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
 | `CHAT_NOT_FOUND`          | 404     | chat session ID does not exist                                |
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
 | `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist                   |
-| `RUNNER_CONFLICT`         | 409     | card already queued/running, KB refresh already in flight     |
+| `RUNNER_CONFLICT`         | 409     | card already queued/running                                   |
 | `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
 | `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
 | `RUNNER_NOT_RUNNING`      | 409     | card is not currently running                                 |
@@ -832,100 +823,6 @@ Returns current sync status.
 | `syncing`         | bool               | `true` while a sync is in flight.                             |
 | `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
 
-## Knowledge Base Endpoints
-
-The KB stores per-project, per-repo markdown documents (`overview`,
-`directory-map`, `interfaces`, etc.). See `docs/data-model.md` for the full list
-of doc names. Reads are unauthenticated; writes are gated by the CSRF middleware
-(UI-origin signal) and either the `human:` prefix (refresh) or the `human:web`
-fallback (single-doc edit).
-
-### GET /api/projects/{project}/knowledge
-
-Returns the KB summary for one project — a list of repos with their docs and
-last-built timestamps. Repos configured in `.board.yaml` that have no built KB
-content yet are included as stub entries (no docs, no `built_at`) so the UI
-sidebar can render a "Refresh" button for every configured repo from the first
-visit. Repos are sorted by name.
-
-### GET /api/projects/{project}/knowledge/{repo}/{doc}
-
-Returns the markdown content and metadata for one KB doc. Symlinks under the KB
-tree are rejected (404 `KNOWLEDGE_DOC_NOT_FOUND`).
-
-```json
-{
-  "content": "# Repo overview\n\n...",
-  "meta": {
-    "human_edited": true,
-    "built_at": "2026-05-10T08:12:33Z",
-    "...": "..."
-  }
-}
-```
-
-### PUT /api/projects/{project}/knowledge/{repo}/{doc}
-
-Save a hand-edited doc. The body is `{"content": "..."}`. An empty or absent
-`content` returns 400 — to remove a doc, refresh and exclude it from the
-overwrite list (or delete via the boards repo). The handler tags the write as
-`human_edited=true` and records the agent ID (`human:web` when the header is
-absent — UI is the only legitimate caller).
-
-```json
-{ "files_written": 1 }
-```
-
-### GET /api/projects/{project}/knowledge/{repo}/refresh-plan
-
-Returns the set of docs that the next refresh job would (re)build for the given
-repo, taking the current human-edited / freshness state into account. Used by
-the UI to preview the refresh impact before triggering one.
-
-### POST /api/projects/{project}/knowledge/{repo}/refresh
-
-Trigger a runner-driven knowledge-base refresh for one repo. Human-only
-(`X-Agent-ID` must start with `human:`). Returns 503 `RUNNER_DISABLED` when no
-task backend is configured, 409 `RUNNER_CONFLICT` when a refresh is already in
-flight for the same `(project, repo)`, and 502 `RUNNER_UNAVAILABLE` when the
-runner webhook fails.
-
-Accepts an optional JSON body to override the default plan and force a re-build
-of specific docs:
-
-```json
-{ "overwrite_docs": ["overview", "directory-map"] }
-```
-
-Each name must be in the curated `board.KnowledgeDocNames` allowlist — the
-runner enforces the same set, this is defence-in-depth at the CM boundary.
-Returns 202 `Accepted` with the initial job state on success.
-
-### GET /api/projects/{project}/knowledge/refresh-status
-
-Returns a map of in-flight or recently-finished refresh jobs for the project,
-keyed by repo name. Each entry carries the job state (`running` / `succeeded` /
-`failed`), progress counters, the agent that triggered it, the commit SHA on
-success, and the optional error message on failure.
-
-```json
-{
-  "repos": {
-    "contextmatrix": {
-      "state": "running",
-      "agent_id": "human:alice",
-      "started_at": "2026-05-14T09:11:32Z",
-      "finished_at": null,
-      "docs_total": 8,
-      "docs_done": 3,
-      "current_doc": "interfaces",
-      "error": "",
-      "commit_sha": ""
-    }
-  }
-}
-```
-
 ## Runner Endpoints
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full webhook
@@ -1153,33 +1050,6 @@ a workflow skill. Same HMAC authentication as `/api/runner/status`
 (`X-Signature-256` + `X-Webhook-Timestamp`, signed with the backend's `api_key`).
 Only registered when a task backend is configured. Used for runner-side
 telemetry; the response body is `{"ok": true}`.
-
-### POST /api/runner/knowledge-status
-
-Runner terminal callback for a KB refresh job. Same HMAC authentication as
-`/api/runner/status` (per-backend `api_key`). Only registered when a task
-backend is configured. The body carries the project, repo, runner-reported
-terminal state, and an optional error message:
-
-```json
-{
-  "project": "contextmatrix",
-  "repo": "contextmatrix",
-  "state": "succeeded",
-  "error": ""
-}
-```
-
-The server reconciles the reported state against the registry's `committed` flag
-(which is set by the `commit_knowledge_docs` MCP tool side effect):
-
-- `succeeded` + committed → `StateSucceeded`
-- `succeeded` + `!committed` → `StateFailed("commit not observed")`
-- any other state → `StateFailed`
-
-Responds with `{"ok": true, "tracked": <bool>}`. `tracked` is `false` when no
-in-flight job is found for the `(project, repo)` pair, in which case the
-callback is acknowledged but not acted on.
 
 ### GET /api/v1/cards/{project}/{id}/autonomous
 

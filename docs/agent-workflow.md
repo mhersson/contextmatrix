@@ -126,7 +126,6 @@ rules:
 workflow-skills/
   create-task.md          # /contextmatrix:create-task (slash command + skill)
   init-project.md         # /contextmatrix:init-project (slash command + skill)
-  refresh-knowledge.md    # /contextmatrix:refresh-knowledge (slash command + skill, human-only)
   create-plan.md          # skill only (loaded via get_skill / start_workflow)
   execute-task.md         # skill only
   review-task.md          # skill only (loaded via start_review or get_skill)
@@ -137,8 +136,8 @@ workflow-skills/
                           # /contextmatrix:start-workflow (server-side only — no skill file)
 ```
 
-Four slash commands exist: `create-task`, `init-project`, `start-workflow`, and
-`refresh-knowledge`. Phase-specific skills (`create-plan`, `execute-task`,
+Three slash commands exist: `create-task`, `init-project`, and `start-workflow`.
+Phase-specific skills (`create-plan`, `execute-task`,
 `review-task`, `document-task`, `run-autonomous`, `brainstorming`,
 `systematic-debugging`) are loaded by the orchestrator via `get_skill` (or
 `start_review` for the review-entry transition); they are not user-facing entry
@@ -240,7 +239,6 @@ CC exposes these slash commands via the MCP `prompts` capability:
 | `/contextmatrix:create-task`       | `description`    | optional free text | Start task creation interview                                                                                                                                                                          |
 | `/contextmatrix:init-project`      | `name`           | optional           | Initialize a new project board                                                                                                                                                                         |
 | `/contextmatrix:start-workflow`    | `card_id`        | required           | Drive a card through its full lifecycle, routed by the card's `autonomous` flag                                                                                                                        |
-| `/contextmatrix:refresh-knowledge` | `project`/`repo` | `project` required | Human-only. Rebuild a project's knowledge-base docs (`architecture.md`, `code-structure.md`, `api-documentation.md`, `glossary.md`). Spawns Sonnet sub-agents and commits via `commit_knowledge_docs`. |
 
 `/contextmatrix:start-workflow` is the canonical entry point: it inspects the
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
@@ -257,10 +255,9 @@ Usage examples:
 /contextmatrix:create-task there is a bug in the login form validation
 /contextmatrix:start-workflow ALPHA-001   # routes to run-autonomous or create-plan automatically
 /contextmatrix:init-project my-new-project
-/contextmatrix:refresh-knowledge my-project
 ```
 
-The interview-style prompts (`create-task`, `init-project`, `refresh-knowledge`)
+The interview-style prompts (`create-task`, `init-project`)
 return raw skill content for inline execution by the main agent — no sub-agent
 involved. `start-workflow` returns the workflow skill (`create-plan` or
 `run-autonomous`) wrapped in the inline-execution envelope; the orchestrator
@@ -470,7 +467,7 @@ phase labels. run-autonomous starts from the correct phase based on card state:
 ```
 Step 0:  Claim the card        → claim_card called before any exploration begins
 Step 1:  Create feature branch → if feature_branch is true and branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
-Step 2:  Load context          → get_knowledge_base + get_task_context once, retained across phases
+Step 2:  Load context          → get_task_context once, retained across phases
 Phase 1: Plan Drafting         → inline, calls create-plan skill via get_skill (model-matched inline)
 Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
@@ -762,82 +759,3 @@ the target project's allowlist, the agent will report `TASK_BLOCKED` with an
 actionable error message explaining what permissions are needed. The user must
 update the project's permissions config before retrying.
 
-## Knowledge Base Tools
-
-### `get_knowledge_base`
-
-Returns all knowledge-base docs for a project in a single call. Used by
-planning, brainstorming, and debugging skills to load architectural context.
-
-**Input:**
-
-| Field     | Required | Description                             |
-| --------- | -------- | --------------------------------------- |
-| `project` | yes      | Project name                            |
-| `repo`    | no       | Repo name; defaults to the primary repo |
-
-**Response:**
-
-```json
-{
-  "project": "my-project",
-  "repo": "primary",
-  "docs": {
-    "architecture.md": "...",
-    "code-structure.md": "...",
-    "api-documentation.md": "...",
-    "glossary.md": "..."
-  },
-  "summaries": {
-    "architecture.md": "Short summary extracted from the doc's ## Summary section.",
-    "code-structure.md": "Short summary...",
-    "api-documentation.md": "",
-    "glossary.md": "Short summary..."
-  },
-  "meta": { "...": "..." }
-}
-```
-
-**`summaries` field:** a map from doc name to the text of its first `## Summary`
-section. Empty string when a doc has no `## Summary` section. Always present
-(never `null`) — an empty object `{}` means no docs have summaries yet.
-
-**Usage pattern for agents:** when `summaries` is non-empty, read each doc's
-summary to judge relevance to the current task, then retain full content from
-`docs` only for the relevant docs. When `summaries` is empty or a doc has no
-entry, load all docs as before (current fallback behaviour).
-
-### `read_knowledge_doc`
-
-Read a single KB doc by name. Use when you need only one doc and want to avoid
-loading the full payload.
-
-**Input:** `project` (required), `repo` (optional), `doc` (required — one of
-`architecture.md`, `code-structure.md`, `api-documentation.md`, `glossary.md`).
-
-### `list_knowledge_bases`
-
-Enumerate KB summaries across all projects (or a single project). Returns
-project name, repos, and per-doc human-edited flags so the refresh skill can
-warn before overwriting human edits.
-
-**Input:** `project` (optional — omit to enumerate every project).
-
-### Human-only refresh tools
-
-The `refresh-knowledge` skill orchestrates a rebuild of the four KB docs. These
-tools enforce `agent_id` starting with `human:` and reject other callers
-(`agent_id must start with 'human:' and have a non-empty suffix`). Agents cannot
-self-refresh.
-
-- **`refresh_knowledge_base`** — returns a build plan (per-doc work items,
-  human-edited flags, cost estimate). Does not run sub-agents; the skill spawns
-  those.
-- **`commit_knowledge_docs`** — atomically writes the produced docs and commits
-  them with a single message keyed by `head_commit` (the target repo HEAD SHA at
-  refresh time). Clears the `human_edited` flag on each written doc.
-- **`update_refresh_progress`** — runner-mode only. Reports per-doc progress
-  (docs_total / docs_done / current_doc) for a refresh job running inside the
-  runner container so the operator UI shows live status. Returns
-  `tracked: false` when no in-flight job matches; local mode invocations are
-  intentional no-ops.

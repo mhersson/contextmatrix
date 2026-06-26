@@ -49,9 +49,8 @@ two browsers on the same instance have distinct claim identities. We do
 with no auth, and the user has rejected that pattern explicitly.
 
 **Don't re-flag these as security issues:**
-- The `human:web` REST fallback when `X-Agent-ID` is absent on the KB PUT
-  endpoint (`internal/api/knowledge.go`). UI is the only legitimate caller;
-  fallback is honest.
+- The `human:web` REST fallback when `X-Agent-ID` is absent on write endpoints
+  where the UI is the only legitimate caller.
 - The `human:api` fallback for runner human-only endpoints
   (`internal/api/runner.go`). Same reasoning.
 - The lack of auth on read endpoints, project CRUD, sync, branches, app
@@ -60,10 +59,9 @@ with no auth, and the user has rejected that pattern explicitly.
   nothing — there is no permission gradient to escalate into.
 
 **Where identity gates DO matter:**
-- MCP tools that gate on `human:` prefix (e.g., `promote_to_autonomous`,
-  `refresh_knowledge_base`, `commit_knowledge_docs`). Reason: MCP is the
-  agent interface, so an agent caller would lack the prefix; the gate
-  enforces a workflow contract ("only humans promote / refresh KB"), not a
+- MCP tools that gate on `human:` prefix (e.g., `promote_to_autonomous`).
+  Reason: MCP is the agent interface, so an agent caller would lack the
+  prefix; the gate enforces a workflow contract ("only humans promote"), not a
   security boundary. The prefix check is intentionally weak (any
   `human:anything` passes).
 - Card-claim / heartbeat / release endpoints check that the supplied
@@ -92,7 +90,6 @@ internal/images/             → content-hashed image blob store (paste/drop scr
 internal/clock/              → injectable clock for service-layer time invariants
 internal/events/             → in-process pub/sub event bus
 internal/github/             → GitHub auth helpers shared across services
-internal/refresh/            → knowledge-base refresh orchestration
 internal/config/             → global config loading
 internal/ctxlog/             → request_id context logger (WithRequestID / Logger)
 internal/metrics/            → Prometheus metric vars + Register()
