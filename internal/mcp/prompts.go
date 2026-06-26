@@ -262,7 +262,6 @@ type skillArgs struct {
 	CardID      string
 	Description string
 	Name        string
-	Project     string
 }
 
 // skillBuilder builds a skill's raw content (without the workflow preamble).
