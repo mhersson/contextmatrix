@@ -6,6 +6,13 @@ Autonomous mode checkbox). The workflow is executed by a separate binary
 (**contextmatrix-runner**) that spawns disposable Docker containers with Claude
 Code.
 
+**contextmatrix-agent** is a co-equal, operator-selectable task backend
+(OpenRouter-backed Go harness; no Docker required). Selection is instance-wide
+— exactly one task backend is active at a time. The rest of this document
+focuses on the runner. See
+[agent-backend-parity.md](agent-backend-parity.md) for the agent parity matrix
+and the enable recipe.
+
 ## Architecture Overview
 
 ```text

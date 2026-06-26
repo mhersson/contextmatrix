@@ -248,8 +248,9 @@ backends: {}
 #    reconcile_interval: "60s"
 #
 #  agent:
-#    # contextmatrix-agent: card execution only (no chat).
-#    # Mutually exclusive with runner; use agent when runner is disabled.
+#    # contextmatrix-agent: card execution only (no chat). At v1 parity with
+#    # the runner (see docs/agent-backend-parity.md). Mutually exclusive with
+#    # runner; use agent when runner is disabled.
 #    url: "http://localhost:9092"
 #    api_key: ""
 #    enabled: false  # flip to true and set runner: enabled: false to switch
