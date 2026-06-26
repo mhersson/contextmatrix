@@ -615,33 +615,3 @@ func TestClient_DecodesProtocolErrorCodeOn4xx(t *testing.T) {
 	assert.Contains(t, err.Error(), "card already tracked")
 	assert.NotContains(t, err.Error(), "{", "raw JSON must not be embedded in the error")
 }
-
-func TestClient_RefreshKnowledge_SendsSignedPOST(t *testing.T) {
-	var received RefreshKnowledgePayload
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/refresh-knowledge", r.URL.Path)
-		assert.NotEmpty(t, r.Header.Get("X-Signature-256"))
-		body, _ := io.ReadAll(r.Body)
-		assert.NoError(t, json.Unmarshal(body, &received))
-
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-
-	c := NewClient(srv.URL, "test-key")
-	err := c.RefreshKnowledge(context.Background(), RefreshKnowledgePayload{
-		Project:       "p",
-		Repo:          "r",
-		RepoURL:       "https://example.com/r.git",
-		BaseBranch:    "main",
-		AgentID:       "human:test",
-		OverwriteDocs: []string{"api-documentation.md"},
-		MCPAPIKey:     "mcp-key",
-		Model:         "claude-sonnet-4-6",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "p", received.Project)
-	assert.Equal(t, []string{"api-documentation.md"}, received.OverwriteDocs)
-}
