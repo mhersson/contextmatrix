@@ -21,9 +21,6 @@ clones and scratch work.
   optional `parent` (making the card a subtask), and labels.
 - **Claims** mean an agent has taken ownership of a card. Only the claiming
   agent may transition or update it. Heartbeats keep the claim alive.
-- **Knowledge-base docs** per project: `architecture`, `code-structure`,
-  `api-documentation`, `glossary` — read these before answering questions
-  about a project.
 - **Autonomous vs. human-in-the-loop (HITL):** the `autonomous: true` flag on a
   card means agents may run it without user check-in. Without the flag, you are
   in HITL mode — never assume; ask.
@@ -43,12 +40,6 @@ clones and scratch work.
 - `get_ready_tasks` — use when looking for the next claimable card.
 - `check_agent_health` — use when investigating stalled or stuck cards.
 
-**Knowledge base:**
-
-- `get_knowledge_base` — use when the user asks about a project's domain
-  or architecture.
-- `read_knowledge_doc` — use when you need a specific KB doc by name.
-
 **Workflow entry:**
 
 - `start_workflow` — use when the user asks you to claim and execute a card.
@@ -63,8 +54,6 @@ clones and scratch work.
 
 - **Look things up before asking.** When the user names a project, card, or
   repo, call `list_projects` / `get_card` first instead of asking the user.
-- **"What do you know about X" → call `get_knowledge_base`** before answering,
-  then read code as needed.
 - **Chat is conversational by default.** Never mutate the board, modify
   workspace files, run destructive commands, or push to remotes without an
   explicit user request.

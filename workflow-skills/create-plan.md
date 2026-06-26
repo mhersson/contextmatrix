@@ -126,29 +126,7 @@ Hold this claim through Phase 5.
 
 ## Step 1: Understand the task
 
-1. **Load project knowledge base.** Call `get_knowledge_base` with
-   `project=<this card's project>`. Immediately after, log the outcome:
-
-   ```
-   add_log(card_id=<card_id>, agent_id=<your_agent_id>,
-           action='kb_loaded',
-           message='loaded N docs' OR 'no KB built yet')
-   ```
-
-   If docs are returned, treat them as authoritative architectural
-   context: use `code-structure.md` to choose file paths,
-   `architecture.md` to honour component boundaries,
-   `api-documentation.md` to avoid breaking public surfaces, and
-   `glossary.md` to use the project's vocabulary correctly. If empty,
-   proceed.
-
-   If `summaries` is non-empty, use each doc's summary to judge
-   relevance to the current task before loading its full content from
-   `docs`. Retain in active context only the docs whose summary
-   indicates relevance. If `summaries` is empty or a doc has no entry,
-   load all docs.
-
-2. **Review card details.** Read the card details provided above. If
+1. **Review card details.** Read the card details provided above. If
    the card body already contains a `## Plan` section, use it as a
    starting point — do not discard previous planning work. Only call
    `get_task_context` if you need to verify the absolute latest state.

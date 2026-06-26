@@ -81,43 +81,20 @@ If the body has no design section, proceed with the full process below.
 
 You MUST complete each of these in order:
 
-1. **Load project knowledge base** — call `get_knowledge_base` with
-   `project=<this card's project>`. Immediately after the call returns, log
-   the outcome:
-
-   ```
-   add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
-           action='kb_loaded',
-           message='loaded N docs' OR 'no KB built yet')
-   ```
-
-   If docs are returned, treat them as authoritative architectural
-   context: use `code-structure.md` to choose file paths,
-   `architecture.md` to honour component boundaries,
-   `api-documentation.md` to avoid breaking public surfaces, and
-   `glossary.md` to use the project's vocabulary correctly. Reference
-   them when discussing architecture, decomposition, or naming. If
-   empty, note that to the user when relevant and proceed.
-
-   If `summaries` is non-empty, use each doc's summary to judge
-   relevance to the current task before loading its full content from
-   `docs`. Retain in active context only the docs whose summary
-   indicates relevance. If `summaries` is empty or a doc has no entry,
-   load all docs.
-2. **Explore project context** — read files referenced in the card and
-   anything the KB doesn't cover (recent commits, files mentioned in
-   the body). Don't re-derive what the KB already states.
-3. **Ask clarifying questions** — one at a time, understand purpose,
+1. **Explore project context** — read files referenced in the card body,
+   recent commits, and any other relevant code. Understand the current
+   structure before proposing changes.
+2. **Ask clarifying questions** — one at a time, understand purpose,
    constraints, success criteria.
-4. **Propose 2–3 approaches** — with trade-offs and your recommendation.
-5. **Present design** — in sections scaled to their complexity, get
+3. **Propose 2–3 approaches** — with trade-offs and your recommendation.
+4. **Present design** — in sections scaled to their complexity, get
    user approval after each section.
-6. **Update card body** — via `update_card`, add or replace a
+5. **Update card body** — via `update_card`, add or replace a
    `## Design` section with the agreed design.
-7. **Description self-review** — quick inline check for placeholders,
+6. **Description self-review** — quick inline check for placeholders,
    contradictions, ambiguity, scope (see below); fix and re-update.
-8. **User confirms updated body** — last gate before returning.
-9. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
+7. **User confirms updated body** — last gate before returning.
+8. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
 
 ## The Process
 

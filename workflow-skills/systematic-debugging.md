@@ -62,44 +62,22 @@ You MUST complete each phase before proceeding to the next.
 
 ### Phase 1: Root Cause Investigation
 
-1. **Load project knowledge base.**
-   - Call `get_knowledge_base` with `project=<parent project>`.
-   - Immediately after, log the outcome:
-
-     ```
-     add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
-             action='kb_loaded',
-             message='loaded N docs' OR 'no KB built yet')
-     ```
-
-   - If docs are returned, use them to:
-     - Locate components named in the bug report (`architecture.md`).
-     - Identify the right files/directories to grep (`code-structure.md`).
-     - Translate user-facing names to internal names (`glossary.md`).
-   - If empty, proceed without — fall back to grepping for symbols and
-     reading `CLAUDE.md`.
-   - If `summaries` is non-empty, use each doc's summary to judge
-     relevance to the current bug before loading its full content from
-     `docs`. Retain in active context only the docs whose summary
-     indicates relevance. If `summaries` is empty or a doc has no
-     entry, load all docs.
-
-2. **Read the card body carefully.**
+1. **Read the card body carefully.**
    - Quote any stack traces, error messages, error codes, or log lines the
      reporter included.
    - Note the exact reproduction steps if given.
    - Note environment details (OS, browser, branch, version, CI vs local).
 
-3. **Read referenced files.**
+2. **Read referenced files.**
    - If the card mentions specific files or functions, read them in full.
    - If the card quotes a stack trace, read every file in the trace.
 
-4. **Check recent changes.**
+3. **Check recent changes.**
    - `git log --oneline -20` for recent commits on the branch.
    - `git log --oneline -20 -- <suspect-file>` for file-specific history.
    - Note any commit that touched the failing area or its dependencies.
 
-5. **Multi-component evidence (when applicable).**
+4. **Multi-component evidence (when applicable).**
    - If the failure spans multiple boundaries (CI → build → signing,
      API → service → DB, runner → container → MCP), enumerate the
      component boundaries and what data crosses each one.
