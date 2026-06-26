@@ -1496,6 +1496,21 @@ The runner exposes two categories of endpoints:
 | `GET /metrics` | HMAC-signed     | Prometheus metrics endpoint. Uses the same HMAC key as webhook signing (`api_key`). Only accessible on the loopback interface. |
 | `GET /ready`   | None (loopback) | Unauthenticated readiness probe. Identical semantics to `/readyz` but restricted to the admin port (loopback only).            |
 
+### Agent backend metrics
+
+The agent backend (`contextmatrix-agent`) exposes a parallel Prometheus surface
+on its own loopback admin listener, mirroring the runner's posture:
+
+- `GET /metrics` on `127.0.0.1:<admin_port>` (config key `admin_port`, env
+  `CMX_ADMIN_PORT`; `0` disables it, which is the default), HMAC-signed with the
+  agent backend's `api_key` exactly like the runner's admin `/metrics`.
+- Series are prefixed `cm_agent_*` (the runner uses `cmr_*`): webhook request
+  count/duration, container duration by outcome, a running-containers gauge,
+  callback retries, and SSE broadcaster drops — alongside the standard `go_*` /
+  `process_*` collectors.
+
+Scrape both admin listeners to cover cards routed to either backend.
+
 ### Per-Project (`.board.yaml`)
 
 ```yaml
