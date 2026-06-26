@@ -386,68 +386,6 @@ export interface AppConfig {
   favorites?: Record<string, string[]>;
 }
 
-export interface KnowledgeDocSummary {
-  name: string;
-  human_edited: boolean;
-}
-
-export interface KnowledgeRepoSummary {
-  name: string;
-  last_built_at?: string;
-  last_built_commit: string;
-  docs: KnowledgeDocSummary[];
-}
-
-export interface KnowledgeBaseSummary {
-  project: string;
-  repos: KnowledgeRepoSummary[];
-}
-
-export interface KnowledgeDocMeta {
-  last_built_commit: string;
-  human_edited: boolean;
-}
-
-export interface KnowledgeDocResponse {
-  content: string;
-  meta: KnowledgeDocMeta;
-}
-
-export type RefreshState =
-  | 'idle'
-  | 'planning'
-  | 'running'
-  | 'succeeded'
-  | 'failed';
-
-export interface RefreshPlanItem {
-  doc: string;
-  reason: string;
-  human_edited: boolean;
-  estimated_cost_usd: number;
-}
-
-export interface RefreshPlan {
-  items: RefreshPlanItem[];
-  head_commit: string;
-}
-
-export interface RefreshJobStatus {
-  state: RefreshState;
-  agent_id?: string;
-  started_at?: string;
-  finished_at?: string | null;
-  docs_total?: number;
-  docs_done?: number;
-  current_doc?: string;
-  error?: string | null;
-  commit_sha?: string | null;
-}
-
-export interface RefreshStatusResponse {
-  repos: Record<string, RefreshJobStatus>;
-}
-
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {

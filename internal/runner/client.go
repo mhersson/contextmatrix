@@ -33,13 +33,12 @@ var BackoffBase = time.Second
 // Wire DTOs are defined in contextmatrix-protocol; aliased here so existing
 // call sites and tests keep compiling unchanged.
 type (
-	TriggerPayload          = protocol.TriggerPayload
-	KillPayload             = protocol.KillPayload
-	MessagePayload          = protocol.MessagePayload
-	PromotePayload          = protocol.PromotePayload
-	EndSessionPayload       = protocol.EndSessionPayload
-	StopAllPayload          = protocol.StopAllPayload
-	RefreshKnowledgePayload = protocol.RefreshKnowledgePayload
+	TriggerPayload    = protocol.TriggerPayload
+	KillPayload       = protocol.KillPayload
+	MessagePayload    = protocol.MessagePayload
+	PromotePayload    = protocol.PromotePayload
+	EndSessionPayload = protocol.EndSessionPayload
+	StopAllPayload    = protocol.StopAllPayload
 )
 
 // ContainerInfo is a decoded entry from GET /containers. The runner sources
@@ -81,12 +80,6 @@ func NewClient(baseURL, apiKey string) *Client {
 // Trigger sends a trigger webhook to start a task.
 func (c *Client) Trigger(ctx context.Context, p TriggerPayload) error {
 	return c.send(ctx, c.baseURL+"/trigger", p)
-}
-
-// RefreshKnowledge sends a refresh-knowledge webhook to start a KB refresh
-// for (project, repo) on the runner.
-func (c *Client) RefreshKnowledge(ctx context.Context, p RefreshKnowledgePayload) error {
-	return c.send(ctx, c.baseURL+"/refresh-knowledge", p)
 }
 
 // Kill sends a kill webhook to stop a specific task.

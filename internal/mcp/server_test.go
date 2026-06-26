@@ -93,7 +93,6 @@ func setupMCP(t *testing.T) *testEnv {
 		"run-autonomous.md":       "claude-sonnet-4-6",
 		"brainstorming.md":        "claude-sonnet-4-6",
 		"systematic-debugging.md": "claude-sonnet-4-6",
-		"refresh-knowledge.md":    "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)

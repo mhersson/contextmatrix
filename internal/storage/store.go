@@ -31,15 +31,6 @@ var (
 	// ErrInvalidPath is returned when a path component could cause directory traversal.
 	ErrInvalidPath = errors.New("invalid path component")
 
-	// ErrKnowledgeDocNotFound is returned when a knowledge doc file does not exist.
-	ErrKnowledgeDocNotFound = errors.New("knowledge doc not found")
-
-	// ErrInvalidKnowledgeDoc is returned when a doc name is not one of the canonical KB doc names.
-	ErrInvalidKnowledgeDoc = errors.New("invalid knowledge doc name")
-
-	// ErrKnowledgeDocSymlink is returned when a doc path resolves to a symbolic link.
-	ErrKnowledgeDocSymlink = errors.New("knowledge doc is a symlink (rejected)")
-
 	// ErrInvalidInput is returned when caller-supplied parameters are structurally invalid.
 	ErrInvalidInput = errors.New("invalid input")
 )
@@ -102,37 +93,4 @@ type Store interface {
 	// Returns ErrProjectNotFound if the project does not exist.
 	// Returns ErrCardNotFound if the card does not exist.
 	DeleteCard(ctx context.Context, project, id string) error
-
-	// Knowledge base operations
-
-	// ReadKnowledgeMeta returns the .meta.yaml for a project.
-	// If the file does not exist (no KB built yet), returns an empty
-	// KnowledgeMeta with SchemaVersion=1 and an empty Repos map (not an error).
-	ReadKnowledgeMeta(ctx context.Context, project string) (*board.KnowledgeMeta, error)
-
-	// WriteKnowledgeMeta persists the .meta.yaml.
-	// Creates the knowledge directory if it does not exist.
-	WriteKnowledgeMeta(ctx context.Context, project string, meta *board.KnowledgeMeta) error
-
-	// ReadKnowledgeDoc reads a single KB doc.
-	// Returns ErrInvalidKnowledgeDoc if doc is not a canonical name.
-	// Returns ErrKnowledgeDocNotFound if the file does not exist.
-	ReadKnowledgeDoc(ctx context.Context, project, repo, doc string) ([]byte, error)
-
-	// WriteKnowledgeDoc writes a single KB doc, creating the repo subdirectory if needed.
-	// Returns ErrInvalidKnowledgeDoc if doc is not a canonical name.
-	WriteKnowledgeDoc(ctx context.Context, project, repo, doc string, content []byte) error
-
-	// DeleteKnowledgeDoc removes a doc file.
-	// Returns nil if the file does not exist.
-	// Returns ErrInvalidKnowledgeDoc if doc is not a canonical name.
-	DeleteKnowledgeDoc(ctx context.Context, project, repo, doc string) error
-
-	// ListKnowledgeRepos returns the repo subdirectory names under <project>/knowledge/.
-	// Returns nil (not an error) if the knowledge directory does not exist.
-	ListKnowledgeRepos(ctx context.Context, project string) ([]string, error)
-
-	// KnowledgeDocExists reports whether a doc file is present.
-	// Returns ErrInvalidKnowledgeDoc if doc is not a canonical name.
-	KnowledgeDocExists(ctx context.Context, project, repo, doc string) (bool, error)
 }

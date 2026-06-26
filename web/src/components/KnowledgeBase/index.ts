@@ -1,1 +1,0 @@
-export { KnowledgeBase } from './KnowledgeBase';

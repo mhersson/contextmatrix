@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +17,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
-	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -60,7 +58,6 @@ type runnerHandlers struct {
 	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
-	refreshRegistry   *refresh.Registry   // nil when KB refresh is not configured
 
 	taskSkillsDir          string
 	taskSkillsGitRemoteURL string
@@ -661,9 +658,8 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.
 type (
-	runnerStatusRequest    = protocol.StatusCallbackPayload
-	knowledgeStatusRequest = protocol.KnowledgeStatusPayload
-	skillEngagedRequest    = protocol.SkillEngagedPayload
+	runnerStatusRequest = protocol.StatusCallbackPayload
+	skillEngagedRequest = protocol.SkillEngagedPayload
 )
 
 // runnerStatusUpdate handles POST /api/runner/status — runner callback.
@@ -697,58 +693,6 @@ func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, card)
-}
-
-// runnerKnowledgeStatus handles POST /api/runner/knowledge-status — the
-// runner's terminal callback for a KB refresh job. Reconciles the reported
-// exit state against the registry's Committed flag (set by the
-// commit_knowledge_docs MCP side effect):
-//   - runner-reported "succeeded" + committed → StateSucceeded
-//   - runner-reported "succeeded" + !committed → StateFailed("commit not observed")
-//   - any other state → StateFailed
-func (h *runnerHandlers) runnerKnowledgeStatus(w http.ResponseWriter, r *http.Request) {
-	body, ok := h.authenticateRunnerPost(w, r)
-	if !ok {
-		return
-	}
-
-	var req knowledgeStatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
-
-		return
-	}
-
-	if h.refreshRegistry == nil {
-		ctxlog.Logger(r.Context()).Warn("knowledge-status callback received but registry is nil",
-			"project", req.Project, "repo", req.Repo)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": false})
-
-		return
-	}
-
-	// FinalizeRunner reads Committed and writes State under a single mutex
-	// acquisition, so a concurrent commit_knowledge_docs MarkCommitted cannot
-	// slip in between the read and the write and be lost.
-	_, err := h.refreshRegistry.FinalizeRunner(req.Project, req.Repo, req.State, req.Error)
-
-	switch {
-	case errors.Is(err, refresh.ErrJobNotFound):
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": false})
-
-		return
-	case errors.Is(err, refresh.ErrAlreadyTerminal):
-		// A previous callback (or PromoteStale) already finalised this job.
-		// Log+ignore: the first terminal outcome wins so retries cannot flip
-		// StateSucceeded → StateFailed (or vice versa).
-		ctxlog.Logger(r.Context()).Info("knowledge-status callback for already-terminal job; ignoring",
-			"project", req.Project, "repo", req.Repo, "reported_state", req.State)
-	case err != nil:
-		ctxlog.Logger(r.Context()).Error("FinalizeRunner failed",
-			"project", req.Project, "repo", req.Repo, "error", err)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tracked": true})
 }
 
 // cardAutonomousResponse is the minimal read-only shape returned to the

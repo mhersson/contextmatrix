@@ -27,8 +27,6 @@ Code.
   │              │         │  POST /api/runner/   │              │                        │
   │              │         │    status            │◄─── HMAC ────┤  reportStatus          │
   │              │         │  POST /api/runner/   │              │                        │
-  │              │         │    knowledge-status  │◄─── HMAC ────┤  reportKnowledge       │
-  │              │         │  POST /api/runner/   │              │                        │
   │              │         │    skill-engaged     │◄─── HMAC ────┤  reportSkill           │
   │              │         │  GET  /api/v1/cards/ │              │                        │
   │              │         │    .../autonomous    │◄─── HMAC ────┤  verifyAutonomous      │
@@ -313,33 +311,6 @@ Sent when a user clicks "Stop All" in the header.
   "project": "alpha"
 }
 ```
-
-#### POST {runner_url}/refresh-knowledge
-
-Sent when an operator triggers a knowledge-base refresh for a (project, repo)
-pair via `POST /api/projects/{project}/knowledge/{repo}/refresh`. Distinct from
-`/trigger` — no `card_id`, the job key is (project, repo). The runner starts a
-refresh container that runs the canned KB-refresh workflow and reports terminal
-state via `POST /api/runner/knowledge-status`.
-
-```json
-{
-  "project": "alpha",
-  "repo": "github.com/example-org/alpha-service",
-  "repo_url": "https://github.com/example-org/alpha-service.git",
-  "base_branch": "main",
-  "agent_id": "human:alice",
-  "overwrite_docs": ["architecture.md"],
-  "mcp_api_key": "...",
-  "runner_image": "...",
-  "model": "claude-opus-4-8"
-}
-```
-
-`agent_id` is forwarded so the agent's later `commit_knowledge_docs` MCP call
-attributes the boards-repo commit correctly. `overwrite_docs` is the explicit
-subset the operator approved for overwrite; an empty list means "create-only"
-(see `docs/api-reference.md` § Knowledge Refresh).
 
 #### POST {runner_url}/message
 
@@ -739,30 +710,6 @@ kill does not retroactively flip a successful run to failed.
 Task completion is **not** reported via this endpoint — the Claude Code instance
 inside the container uses the normal MCP `complete_task` tool.
 
-#### POST /api/runner/knowledge-status
-
-The runner's terminal callback for a knowledge-base refresh container. Payload:
-
-```json
-{
-  "project": "alpha",
-  "repo": "github.com/example-org/alpha-service",
-  "state": "succeeded",
-  "error": ""
-}
-```
-
-CM reconciles the reported `state` against `refresh.Registry.Committed` (set
-when the agent's `commit_knowledge_docs` MCP call returns successfully):
-
-- `state == "succeeded"` + committed → `StateSucceeded`
-- `state == "succeeded"` + not committed → `StateFailed("commit not observed")`
-- any other `state` → `StateFailed`
-
-Returns `200 {"ok": true, "tracked": true|false}` — `tracked: false` means the
-(project, repo) pair was not found in the in-process registry (callback arrived
-after CM restart).
-
 #### POST /api/runner/skill-engaged
 
 Runner-side hook fired when the worker's `Skill` tool engages a named skill. CM
@@ -877,10 +824,9 @@ Or on error:
   subsequent `/end-session` on the same card is idempotent (returns `409` or
   `410` because stdin is already closed; both are swallowed by the subscriber's
   `isExpectedEndSessionErr` classifier and do not generate a warning log).
-- **Drain short-circuit** — `/trigger`, `/message`, `/promote`, `/end-session`,
-  and `/refresh-knowledge` return `503` with code `draining` while the runner is
-  performing a graceful shutdown so the shutdown sequence is not racing new
-  long-running work. `/kill`, `/stop-all`, `/logs`, `/containers`, `/health`,
+- **Drain short-circuit** — `/trigger`, `/message`, `/promote`, and
+  `/end-session` return `503` with code `draining` while the runner is performing
+  a graceful shutdown so the shutdown sequence is not racing new long-running work. `/kill`, `/stop-all`, `/logs`, `/containers`, `/health`,
   and `/readyz` intentionally remain reachable during drain — they either
   complete quickly or surface state operators need to read while shutting down.
   Clients should not retry the short-circuited endpoints during a draining

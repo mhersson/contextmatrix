@@ -75,10 +75,11 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T) string {
 		stalledCheckLine = fmt.Sprintf("stalled_check_interval: %ds", sc.stalledCheckSeconds)
 	}
 
-	// chat.db_path and images.db_path must point into the scenario tmp dir:
+	// op_store.db_path and images.db_path must point into the scenario tmp dir:
 	// without them CM falls back to the developer's real XDG state databases,
 	// making the harness non-hermetic (and failing outright when the shared
-	// chats.db predates the current schema).
+	// ops.db predates the current schema). Chat data is persisted in the op
+	// store, so there is no separate chat db_path.
 	// backends.runner: roles and callback path (/api/runner) are derived from
 	// the entry name; no selector fields or callback_path needed.
 	body := fmt.Sprintf(`port: %d
@@ -92,7 +93,7 @@ backends:
   runner:
     url: http://127.0.0.1:%d
     api_key: %q
-chat:
+op_store:
   db_path: %s
 images:
   db_path: %s
@@ -105,7 +106,7 @@ github:
   pat:
     token: harness-not-used
 `, sc.cmPort, sc.mcpAPIKey, sc.boardsDir, sc.runnerPort, sc.apiKey,
-		filepath.Join(sc.tmpDir, "chats.db"), filepath.Join(sc.tmpDir, "images.db"),
+		filepath.Join(sc.tmpDir, "ops.db"), filepath.Join(sc.tmpDir, "images.db"),
 		heartbeatLine, stalledCheckLine)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write CM config: %v", err)

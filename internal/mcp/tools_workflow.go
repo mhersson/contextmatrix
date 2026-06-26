@@ -145,8 +145,6 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkil
 			CardID:      input.CardID,
 			Description: input.Description,
 			Name:        input.Name,
-			Project:     input.Name,
-			Repo:        input.Repo,
 		}, includePreamble)
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)

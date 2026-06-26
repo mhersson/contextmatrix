@@ -34,7 +34,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
-	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -108,16 +107,6 @@ type CardService struct {
 	// tests to inject stricter card-level invariants (e.g. assigned_agent
 	// must be empty when state==stalled).
 	validateStalledCardFn func(cfg *board.ProjectConfig, card *board.Card) error
-
-	// knowledgeCommitFn is the function called to commit knowledge doc writes.
-	// Defaults to s.git.CommitFiles; overridable in tests to inject commit failures.
-	knowledgeCommitFn func(ctx context.Context, paths []string, message string) error
-
-	// refreshRegistry, when non-nil, receives a MarkCommitted call on every
-	// successful Refresh-source WriteKnowledgeDocs. Optional: nil means no
-	// in-flight job tracking (useful for tests and CLI tools that don't run
-	// the full server).
-	refreshRegistry *refresh.Registry
 
 	// chatCostSummarizer is optional. When non-nil, GetDashboard calls
 	// GetChatCostSummary and populates the three chat-cost fields on the
@@ -215,7 +204,6 @@ func NewCardService(
 	}
 	svc.stalledFn = svc.processStalled
 	svc.validateStalledCardFn = svc.validator.ValidateCard
-	svc.knowledgeCommitFn = svc.git.CommitFiles
 
 	return svc
 }
@@ -244,19 +232,6 @@ func (s *CardService) CommitQueue() *gitops.CommitQueue {
 // SetOnCommit registers a callback invoked after each successful git commit.
 func (s *CardService) SetOnCommit(fn func()) {
 	s.onCommit = fn
-}
-
-// SetRefreshRegistry wires in the in-flight refresh-job registry. Called
-// once at server startup; nil-safe (a nil registry disables the
-// MarkCommitted side effect on Refresh writes).
-func (s *CardService) SetRefreshRegistry(r *refresh.Registry) {
-	s.refreshRegistry = r
-}
-
-// RefreshRegistry returns the in-flight refresh-job registry. Returns nil
-// if not wired (test or CLI contexts).
-func (s *CardService) RefreshRegistry() *refresh.Registry {
-	return s.refreshRegistry
 }
 
 // notifyCommit calls the onCommit callback if set.

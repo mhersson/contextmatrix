@@ -25,10 +25,9 @@ prevents two tabs/users from accidentally releasing each other's card claims;
 that is the only reason a unique-per-browser id is needed.
 
 **REST writes that require an identity but receive none fall back to a marker
-identity.** `internal/api/knowledge.go` falls back to `human:web` for KB PUT
-when `X-Agent-ID` is absent; `internal/api/runner.go` falls back to `human:api`
-for the human-only runner endpoints. These markers are honest ("this came from
-the web UI / direct API call by an unspecified human") and they preserve write
+identity.** `internal/api/runner.go` falls back to `human:api` for the
+human-only runner endpoints. These markers are honest ("this came from the web
+UI / direct API call by an unspecified human") and they preserve write
 functionality without inventing fake usernames.
 
 **Where identity gates do exist, they enforce workflow contracts, not access
@@ -38,12 +37,11 @@ control:**
   `assigned_agent`. This stops two agents from accidentally clobbering each
   other's claim — it does not stop a malicious caller (who can simply send the
   matching value).
-- **MCP human-only tools** (`promote_to_autonomous`, `refresh_knowledge_base`,
-  `commit_knowledge_docs`): the `agent_id` argument must start with `human:`.
-  The check rejects callers that follow the agent convention of using a
-  non-human identifier (e.g. `agent-foo`); a malicious caller can pass
-  `human:anything` and the gate yields. The intent is to encode "this operation
-  is part of the human workflow," not to prevent forgery.
+- **MCP human-only tools** (`promote_to_autonomous`): the `agent_id` argument
+  must start with `human:`. The check rejects callers that follow the agent
+  convention of using a non-human identifier (e.g. `agent-foo`); a malicious
+  caller can pass `human:anything` and the gate yields. The intent is to encode
+  "this operation is part of the human workflow," not to prevent forgery.
 - **Human-only operations on cards** (e.g. flipping `autonomous: true` via
   `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
   `human:` prefix check, same intent. The REST handler in
@@ -336,20 +334,12 @@ and commit completion. The service layer closes that gap on failure:
   JSON-RPC `method` and tool `name`, which the `observe` middleware then appends
   as `mcp_method` / `mcp_tool` fields on the per-request log line.
 - **Clock** (`clock`): tiny `clock.Clock` interface with `Real()` and a fake
-  implementation used by tests. `lock.Manager`, `CardService`, `chat.Manager`,
-  and `refresh.Registry` all read time through this interface so a single fake
-  drives every time-sensitive subsystem deterministically. The service layer
-  adopts the lock manager's clock so stall detection and the timeout-checker
-  ticker share one monotonic reading — wiring two different clocks across these
-  subsystems is a latent test-flake source.
-- **Refresh Registry** (`refresh.Registry`): in-memory tracker for in-flight
-  knowledge-base refresh jobs, keyed by `(project, repo)`. Holds the
-  acquire/running/terminal lifecycle plus progress fields populated by the MCP
-  `update_refresh_progress` tool. State is process-local; a restart loses
-  tracking but in-flight runner containers continue to call back through MCP.
-  `service.WriteKnowledgeDocs` calls `MarkCommitted` after a successful
-  Refresh-source commit; the registry's `Janitor` (started from `main.go`)
-  sweeps terminal entries on an interval.
+  implementation used by tests. `lock.Manager`, `CardService`, and `chat.Manager`
+  all read time through this interface so a single fake drives every
+  time-sensitive subsystem deterministically. The service layer adopts the lock
+  manager's clock so stall detection and the timeout-checker ticker share one
+  monotonic reading — wiring two different clocks across these subsystems is a
+  latent test-flake source.
 - **Event Bus** (`events.Bus`): in-process publish/subscribe. The bus has a drop
   counter (`contextmatrix_event_bus_drops_total`) — subscribers that fall behind
   the per-subscriber channel cap drop events rather than blocking the publisher.
@@ -436,7 +426,6 @@ internal/
   opstore/           # shared operational SQLite store (chat + model blacklist)
     sqlite/          # ensureSchema + Store impl (ops.db)
   images/            # content-hashed image blob store + processor (resize/EXIF strip)
-  refresh/           # in-flight knowledge-base refresh registry + janitor
   github/            # GitHub client + issue parser + import syncer
   gitsync/           # boards repo background pull/push syncer
   events/            # in-process pub/sub (events.Bus)
@@ -468,3 +457,5 @@ project-beta/
   templates/
   tasks/
 ```
+
+Existing `<project>/knowledge/` directories in boards repos are orphaned — ContextMatrix no longer reads them. Remove with `rm -r <project>/knowledge` if present.

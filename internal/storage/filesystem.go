@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -11,12 +10,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
-	"gopkg.in/yaml.v3"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a temporary
@@ -215,11 +212,6 @@ func copyCard(c *board.Card) *board.Card {
 // while the store holds s.mu. The service layer caps body at 512 KiB; 2 MiB
 // gives ample headroom for YAML frontmatter plus a generous body.
 const maxCardFileSize = 2 * 1024 * 1024 // 2 MiB
-
-// maxMetaFileSize is the upper bound on .meta.yaml files. These are small
-// YAML indexes; 1 MiB is a generous ceiling that still prevents runaway
-// YAML allocation from a corrupt or oversized file.
-const maxMetaFileSize = 1 * 1024 * 1024 // 1 MiB
 
 // loadIndex scans the boards directory and builds the in-memory cache.
 // Callers must hold s.mu.Lock unless the store is still being constructed.
@@ -715,236 +707,4 @@ func (s *FilesystemStore) DeleteCard(ctx context.Context, project, id string) er
 	s.updateCacheSizeMetric()
 
 	return nil
-}
-
-func (s *FilesystemStore) knowledgeDir(project string) string {
-	return filepath.Join(s.boardsDir, project, "knowledge")
-}
-
-func (s *FilesystemStore) knowledgeMetaPath(project string) string {
-	return filepath.Join(s.knowledgeDir(project), ".meta.yaml")
-}
-
-func (s *FilesystemStore) knowledgeDocPath(project, repo, doc string) string {
-	return filepath.Join(s.knowledgeDir(project), repo, doc)
-}
-
-func (s *FilesystemStore) ReadKnowledgeMeta(ctx context.Context, project string) (*board.KnowledgeMeta, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return nil, err
-	}
-
-	data, err := readFileCapped(s.knowledgeMetaPath(project), maxMetaFileSize)
-	if errors.Is(err, os.ErrNotExist) {
-		return &board.KnowledgeMeta{SchemaVersion: 1, Repos: map[string]board.KnowledgeRepoMeta{}}, nil
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("read knowledge meta: %w", err)
-	}
-
-	var meta board.KnowledgeMeta
-	if err := yaml.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("parse knowledge meta: %w", err)
-	}
-
-	if meta.Repos == nil {
-		meta.Repos = map[string]board.KnowledgeRepoMeta{}
-	}
-
-	return &meta, nil
-}
-
-func (s *FilesystemStore) WriteKnowledgeMeta(ctx context.Context, project string, meta *board.KnowledgeMeta) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(s.knowledgeDir(project), 0o755); err != nil {
-		return fmt.Errorf("mkdir knowledge: %w", err)
-	}
-
-	data, err := yaml.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal knowledge meta: %w", err)
-	}
-
-	return atomicWriteFile(s.knowledgeMetaPath(project), data)
-}
-
-func (s *FilesystemStore) ReadKnowledgeDoc(ctx context.Context, project, repo, doc string) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return nil, err
-	}
-
-	if err := validatePathComponent(repo); err != nil {
-		return nil, err
-	}
-
-	if !board.IsValidKnowledgeDoc(doc) {
-		return nil, ErrInvalidKnowledgeDoc
-	}
-
-	path := s.knowledgeDocPath(project, repo, doc)
-
-	// Open with O_NOFOLLOW so the kernel rejects symlinks atomically — no
-	// TOCTOU window between a stat and a subsequent open. If the path does
-	// not exist the open itself fails with ENOENT; if it is a symlink it
-	// fails with ELOOP on Linux (which os.OpenFile surfaces as a *PathError
-	// whose Unwrap is syscall.ELOOP).
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrKnowledgeDocNotFound
-	}
-
-	if err != nil {
-		// ELOOP means the kernel refused because the path is (or contains) a
-		// symlink when O_NOFOLLOW is set.
-		if errors.Is(err, syscall.ELOOP) {
-			return nil, ErrKnowledgeDocSymlink
-		}
-
-		return nil, fmt.Errorf("open knowledge doc: %w", err)
-	}
-
-	defer f.Close()
-
-	// Verify via the open fd that it is a regular file (not a fifo, device,
-	// etc. that slipped past O_NOFOLLOW).
-	fi, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat knowledge doc fd: %w", err)
-	}
-
-	if fi.Mode()&os.ModeSymlink != 0 {
-		// Should not occur after O_NOFOLLOW, but be defensive.
-		return nil, ErrKnowledgeDocSymlink
-	}
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, fmt.Errorf("read knowledge doc: %w", err)
-	}
-
-	return data, nil
-}
-
-func (s *FilesystemStore) WriteKnowledgeDoc(ctx context.Context, project, repo, doc string, content []byte) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return err
-	}
-
-	if err := validatePathComponent(repo); err != nil {
-		return err
-	}
-
-	if !board.IsValidKnowledgeDoc(doc) {
-		return ErrInvalidKnowledgeDoc
-	}
-
-	dir := filepath.Join(s.knowledgeDir(project), repo)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir knowledge repo: %w", err)
-	}
-
-	return atomicWriteFile(s.knowledgeDocPath(project, repo, doc), content)
-}
-
-func (s *FilesystemStore) DeleteKnowledgeDoc(ctx context.Context, project, repo, doc string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return err
-	}
-
-	if err := validatePathComponent(repo); err != nil {
-		return err
-	}
-
-	if !board.IsValidKnowledgeDoc(doc) {
-		return ErrInvalidKnowledgeDoc
-	}
-
-	err := os.Remove(s.knowledgeDocPath(project, repo, doc))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-
-	return err
-}
-
-func (s *FilesystemStore) ListKnowledgeRepos(ctx context.Context, project string) ([]string, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return nil, err
-	}
-
-	entries, err := os.ReadDir(s.knowledgeDir(project))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("list knowledge repos: %w", err)
-	}
-
-	var names []string
-
-	for _, e := range entries {
-		if e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-
-	return names, nil
-}
-
-func (s *FilesystemStore) KnowledgeDocExists(ctx context.Context, project, repo, doc string) (bool, error) {
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-
-	if err := validatePathComponent(project); err != nil {
-		return false, err
-	}
-
-	if err := validatePathComponent(repo); err != nil {
-		return false, err
-	}
-
-	if !board.IsValidKnowledgeDoc(doc) {
-		return false, ErrInvalidKnowledgeDoc
-	}
-
-	_, err := os.Stat(s.knowledgeDocPath(project, repo, doc))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
 }

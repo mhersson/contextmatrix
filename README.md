@@ -44,9 +44,6 @@ own repos, and report progress back through the board.
 - **Global chat surface** — a `/chat` route hosts long-lived, multi-pane chat
   sessions independent of any card. Up to 4 chats are tiled simultaneously in a
   resizable layout, persisted across reloads.
-- **Per-project knowledge base** — architecture, code-structure, API, and
-  glossary docs per repo, refreshable via a human-only `refresh-knowledge`
-  workflow that spawns Sonnet sub-agents to read the target repo.
 - **GitHub issue import** — periodically fetches open issues from GitHub and
   creates cards automatically. Imported cards show a GitHub icon badge and
   trigger a toast notification in the web UI.
@@ -89,8 +86,6 @@ Open `http://localhost:8080` for the web UI.
   persisted per-project in `localStorage`.
 - **Dashboard** — per-project or all state counts, active agents, and token cost
   breakdown.
-- **Knowledge** — per-project knowledge-base browser with viewer and editor for
-  architecture, code-structure, API documentation, and glossary docs.
 - **Chat** — global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
   sessions in a resizable tile layout, persisted across reloads. Sidebar
   drag-and-drop tiles a chat into a pane; the 5th open triggers LRU eviction
@@ -241,13 +236,11 @@ block if `mcp_api_key` is empty.
 | `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating             |
 | `check_agent_health`        | Check health of subtask agents for a parent card                        |
 | `claim_card`                | Claim exclusive ownership of a card                                     |
-| `commit_knowledge_docs`     | Commit refresh-produced knowledge-base docs atomically (human-only)     |
 | `complete_task`             | Atomically log + transition to done + release                           |
 | `create_card`               | Create a card (returns generated ID)                                    |
 | `create_project`            | Create a new project board                                              |
 | `delete_project`            | Delete a project (must have zero cards)                                 |
 | `get_card`                  | Get a single card                                                       |
-| `get_knowledge_base`        | Return all knowledge-base docs for a project/repo in one call           |
 | `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                      |
 | `get_skill`                 | Get a skill prompt with injected card/project context                   |
 | `get_subtask_summary`       | Get subtask counts by state for a parent card                           |
@@ -255,12 +248,9 @@ block if `mcp_api_key` is empty.
 | `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                          |
 | `increment_review_attempts` | Increment the review attempt counter on a card                          |
 | `list_cards`                | List cards with filters (state, type, label, agent, parent)             |
-| `list_knowledge_bases`      | Enumerate knowledge bases across all projects (or a single project)     |
 | `list_projects`             | List all projects with configs                                          |
 | `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                          |
-| `read_knowledge_doc`        | Read a single knowledge-base doc for a project/repo                     |
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
-| `refresh_knowledge_base`    | Build a refresh plan for a project's KB docs (human-only)               |
 | `release_card`              | Release a claim                                                         |
 | `report_incapable_model`   | Record that a model could not drive the tool loop so it is never auto-selected again |
 | `report_push`               | Report a git push for a card                                            |
@@ -270,7 +260,6 @@ block if `mcp_api_key` is empty.
 | `transition_card`           | Change card state (validated against state machine)                     |
 | `update_card`               | Update card fields                                                      |
 | `update_project`            | Update project configuration                                            |
-| `update_refresh_progress`   | Report per-doc progress from a running refresh-knowledge skill          |
 
 ### Slash Commands
 
@@ -282,7 +271,6 @@ Code slash commands:
 | `/contextmatrix:create-task`       | `description`                | Guided task creation with human interview                                                   |
 | `/contextmatrix:init-project`      | `name`                       | Initialize a new project board                                                              |
 | `/contextmatrix:start-workflow`    | `card_id`                    | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
-| `/contextmatrix:refresh-knowledge` | `project`, `repo` (optional) | Refresh a project's knowledge base — spawns Sonnet sub-agents to rebuild docs (human-only)  |
 
 Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
 `document-task`, `run-autonomous`, `brainstorming`, `systematic-debugging`) are
@@ -975,11 +963,6 @@ port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
 
 ## Acknowledgments
 
-- The structural prompts and output templates in
-  `workflow-skills/refresh-knowledge.md` are adapted from the
-  [AIDLC Reverse Engineering workflow](https://github.com/aws/aws-aidlc-rules)
-  by AWS, trimmed and reshaped to fit ContextMatrix's per-project knowledge base
-  (4 docs per repo, no per-stage approval ceremony).
 - `workflow-skills/brainstorming.md` and
   `workflow-skills/systematic-debugging.md` are adopted from the
   [superpowers](https://github.com/obra/superpowers) plugin for Claude Code by

@@ -25,7 +25,6 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/chat"
-	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
@@ -36,7 +35,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
-	"github.com/mhersson/contextmatrix/internal/refresh"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -213,14 +211,6 @@ func main() {
 	svc.SetCommitQueue(commitQueue)
 	slog.Info("commit queue initialized")
 
-	// Initialize the in-flight refresh registry (KB v2). Held in-memory only;
-	// CM restart loses tracking but in-flight runner containers complete via
-	// MCP regardless. The janitor goroutine started below promotes stale jobs
-	// to Failed and garbage-collects expired terminal records.
-	refreshRegistry := refresh.NewRegistry()
-	svc.SetRefreshRegistry(refreshRegistry)
-	slog.Info("refresh registry initialized")
-
 	// Create context for background tasks
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -242,9 +232,6 @@ func main() {
 	}
 
 	svc.StartTimeoutChecker(ctx, stalledTick)
-
-	// Start the refresh-registry janitor on the same shutdown context.
-	go refresh.StartJanitor(ctx, refreshRegistry, clock.Real(), refresh.JanitorConfig{}, slog.Default().With("component", "refresh-janitor"))
 
 	// Initialize git sync
 	syncer := wireGitSync(ctx, cfg, git, store, svc, bus)
@@ -309,11 +296,8 @@ func main() {
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
 
-	var knowledgeRefresher api.KnowledgeRefresher
-
 	if runnerSys.Client != nil {
 		taskBackend = runnerSys.Client
-		knowledgeRefresher = runnerSys.Client
 	}
 
 	// BackendCfg is the resolved task-backend entry; zero value when no
@@ -356,9 +340,7 @@ func main() {
 		CORSOrigin:             cfg.CORSOrigin,
 		Syncer:                 apiSyncer,
 		Runner:                 taskBackend,
-		KnowledgeRefresher:     knowledgeRefresher,
 		BackendCfg:             taskBackendCfg,
-		RefreshRegistry:        refreshRegistry,
 		MCPAPIKey:              cfg.MCPAPIKey,
 		Port:                   cfg.Port,
 		GitHubTokenProvider:    tokenProvider,

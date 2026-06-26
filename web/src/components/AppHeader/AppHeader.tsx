@@ -14,12 +14,6 @@ interface AppHeaderProps {
   onToggleConsole?: () => void;
 }
 
-const VIEWS = [
-  { label: 'Board', to: '' },
-  { label: 'Knowledge', to: '/knowledge' },
-  { label: 'Settings', to: '/settings' },
-] as const;
-
 export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
@@ -45,20 +39,18 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
           </svg>
         </button>
         <nav aria-label="Primary navigation" className="flex items-center gap-1 rounded p-0.5" style={{ backgroundColor: 'var(--bg1)' }}>
-          {VIEWS.slice(0, 1).map((v) => (
-            <NavLink
-              key={v.label}
-              to={`${base}${v.to}`}
-              end
-              className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
-              style={({ isActive }) => ({
-                backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
-                color: isActive ? 'var(--fg)' : 'var(--grey1)',
-              })}
-            >
-              {v.label}
-            </NavLink>
-          ))}
+          <NavLink
+            key="Board"
+            to={`${base}`}
+            end
+            className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
+            style={({ isActive }) => ({
+              backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
+              color: isActive ? 'var(--fg)' : 'var(--grey1)',
+            })}
+          >
+            Board
+          </NavLink>
           {runnerEnabled && (
             <button
               type="button"
@@ -75,20 +67,18 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
               Console
             </button>
           )}
-          {VIEWS.slice(1).map((v) => (
-            <NavLink
-              key={v.label}
-              to={`${base}${v.to}`}
-              end
-              className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
-              style={({ isActive }) => ({
-                backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
-                color: isActive ? 'var(--fg)' : 'var(--grey1)',
-              })}
-            >
-              {v.label}
-            </NavLink>
-          ))}
+          <NavLink
+            key="Settings"
+            to={`${base}/settings`}
+            end
+            className="px-2 py-1 sm:px-3 rounded text-sm transition-colors"
+            style={({ isActive }) => ({
+              backgroundColor: isActive ? 'var(--bg3)' : 'transparent',
+              color: isActive ? 'var(--fg)' : 'var(--grey1)',
+            })}
+          >
+            Settings
+          </NavLink>
         </nav>
       </div>
 

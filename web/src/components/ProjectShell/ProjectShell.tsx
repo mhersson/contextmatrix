@@ -28,9 +28,6 @@ import { useDeepLinkCard } from './useDeepLinkCard';
 const ProjectSettings = lazy(() =>
   import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
-const KnowledgeBase = lazy(() =>
-  import('../KnowledgeBase').then((m) => ({ default: m.KnowledgeBase }))
-);
 
 const REFRESH_INTERVAL = 30000;
 
@@ -197,7 +194,6 @@ export function ProjectShell() {
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
-        { key: 'k', handler: () => { if (!panelOpen) navigate(`/projects/${project}/knowledge`); } },
         { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) setConsoleOpen((prev) => !prev); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
@@ -273,7 +269,6 @@ export function ProjectShell() {
                   />
                 }
               />
-              <Route path="knowledge/*" element={<KnowledgeBase project={project || ''} />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

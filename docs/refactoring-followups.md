@@ -22,12 +22,11 @@ deferred. Highlights:
   `wireRunnerSubsystems`, `runShutdownSequence` extracted into sibling
   `wire_*.go` files.
 - `internal/mcp/tools.go`: 1516 → 160 LOC; split into `tools_cards.go`,
-  `tools_lifecycle.go`, `tools_workflow.go`, `tools_knowledge.go`,
-  `tools_projects.go`. `requireActiveClaim` shared between `registerAddLog`
-  and `registerCompleteTask`.
+  `tools_lifecycle.go`, `tools_workflow.go`, `tools_projects.go`.
+  `requireActiveClaim` shared between `registerAddLog` and `registerCompleteTask`.
 - Service-layer functions (`TransitionTo`, `CreateCard`, `applyCardMutation`,
-  `GetDashboard`, `WriteKnowledgeDocs`, `UpdateRunnerStatus`) brought under
-  the 100-LOC function budget via named pipeline helpers.
+  `GetDashboard`, `UpdateRunnerStatus`) brought under the 100-LOC function
+  budget via named pipeline helpers.
 - Chat manager: `ensureRunningForSend`, `coldPrep`, `rollbackContainer`
   extracted.
 - Cross-cutting Go: Go 1.26 `new(expr)` adopted (the planned `ptr.Of` helper
@@ -50,7 +49,6 @@ deferred. Highlights:
 **Deferred (out of scope for a pure refactor; needs its own brainstorm + plan
 each):**
 
-- Refresh registry opaque `JobID` (new API contract).
 - Operator-visibility log on chat-runner container drift (new emission).
 - `PaletteSelector` ARIA menu pattern (new accessibility behavior).
 - `Board.tsx` column virtualisation (perf-driven rendering change).
@@ -125,14 +123,6 @@ After extraction `main()` should be ~150 lines of declarative wiring.
   further split the message-append branch and the sessionManager lifecycle hooks
   into named helpers.
 
-### `internal/service/service_knowledge.go`
-
-- `WriteKnowledgeDocs` (~181 lines): extract `snapshotPriorDocs`,
-  `restorePriorDocs`,
-  `commitKnowledgeWrites(ctx, in, paths, msg, snapshots) error`. Round-1 fixer
-  added partial-write rollback inline; the helpers make the rollback flow
-  legible.
-
 ### `internal/chat/manager.go`
 
 - `openCold` (~229 lines): extract `coldPrep(ctx, sess) (StartChatOpts, error)`
@@ -153,7 +143,6 @@ Split by area for navigability:
 
 - `tools_lifecycle.go` (claim/release/heartbeat/complete/log).
 - `tools_workflow.go` (skill/workflow/review tools).
-- `tools_knowledge.go` (already coherent — 5 tools at the bottom).
 - `tools_projects.go` (project CRUD).
 - `tools_cards.go` (create/update/patch/get/list).
 
@@ -178,10 +167,10 @@ mirroring `requireHumanAgent` and have both callers share it.
   `localTrue := true; field := &localTrue`. A tiny generic helper
   (`func ptrTo[T any](v T) *T`) removes the boilerplate; mostly affects
   `internal/api/runner.go` and `internal/service/service_cards.go`.
-- **Single agent-id reader.** `cards.go`, `chats.go`, `knowledge.go`,
-  `knowledge_refresh.go`, `runner.go`, and `agents.go` all read
-  `r.Header.Get("X-Agent-ID")` inline with subtly different trimming. Route
-  everyone through `extractAgentID` (or a private `headerAgentID`).
+- **Single agent-id reader.** `cards.go`, `chats.go`, `runner.go`, and
+  `agents.go` all read `r.Header.Get("X-Agent-ID")` inline with subtly
+  different trimming. Route everyone through `extractAgentID` (or a private
+  `headerAgentID`).
 - **Error code registry.** `branches.go`, `sync.go`, and a handful of others use
   ad-hoc string literals (`"NO_GITHUB_REPO"`, `"SYNC_DISABLED"`, etc.) instead
   of named constants in `router.go`'s central block. Promote to `ErrCode*`
@@ -300,11 +289,6 @@ component is JSX-heavy / logic-light.
 
 ## Cross-cutting / process
 
-- **Refresh registry: opaque `JobID`.** Round-2 Specialist 5A suggested
-  attaching an opaque `JobID` to each `Acquire` and requiring it on every
-  subsequent mutator (`MarkRunning`, `UpdateProgress`, `MarkTerminal`). This
-  closes a class of "ghost progress" bugs where a late callback against a
-  superseded job mutates the live one.
 - **Operator visibility for chat-runner container drift.** When
   `SendChatMessage` fails right after a cold-open started a container, the
   runner container is up but the user gets a 5xx. The reaper / warm-idle TTL
