@@ -410,6 +410,14 @@ Clicking it sends a signed webhook to
 separate binary), which spawns a disposable Docker container running Claude Code
 in headless mode. The container connects back to ContextMatrix via MCP tools.
 
+ContextMatrix also supports
+**[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** as a
+v1-parity, operator-selectable alternative task backend (a custom Go harness
+backed by OpenRouter instead of Claude Code). The two coexist; exactly one serves
+task execution at a time. See
+[docs/agent-backend-parity.md](docs/agent-backend-parity.md) for the parity audit
+and the enable recipe.
+
 **HITL mode:** uncheck the **Autonomous mode** checkbox and click **"Run
 HITL"**. The agent begins planning immediately — a priming message instructs it
 to start the `create-plan` workflow without waiting for user input. A per-card
@@ -439,6 +447,11 @@ sequenceDiagram
     D-->>R: Exit
     R-->>CM: Status callback (done/failed)
 ```
+
+> The diagram shows the runner backend. When contextmatrix-agent is the active
+> backend, CM sends webhooks to the agent's `serve` process, which spawns a Docker
+> worker container running a custom Go harness instead of Claude Code; the
+> trigger–claim–heartbeat–done sequence is identical from the UI's perspective.
 
 ### Setup
 

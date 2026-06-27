@@ -287,7 +287,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "runner", "runner_status: "+status)
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "runner_status: "+status)
 
 	// Flush deferred commits only on terminal runner statuses (completed,
 	// failed, killed). These occur after the agent has released the card, so
@@ -295,7 +295,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	// running) happen during active work and should continue to defer.
 	var flushErr error
 	if status == "failed" || status == "killed" || status == "completed" {
-		flushErr = s.flushDeferredCommit(ctx, cardID, "runner")
+		flushErr = s.flushDeferredCommit(ctx, cardID, s.backendAuthor())
 	}
 
 	s.writeMu.Unlock()
@@ -349,7 +349,7 @@ func (s *CardService) appendRunnerStatusMessage(card *board.Card, message string
 	}
 
 	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
-		Agent:     "runner",
+		Agent:     s.backendAuthor(),
 		Timestamp: s.clk.Now(),
 		Action:    "runner_status",
 		Message:   message,
@@ -524,7 +524,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 	}
 
 	entry := board.ActivityEntry{
-		Agent:     "runner",
+		Agent:     s.backendAuthor(),
 		Timestamp: s.clk.Now(),
 		Action:    "skill_engaged",
 		Message:   "engaged " + skillName,
@@ -542,7 +542,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 		return fmt.Errorf("save card: %w", err)
 	}
 
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, "runner", "log: skill_engaged")
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "log: skill_engaged")
 
 	s.writeMu.Unlock()
 
@@ -564,7 +564,7 @@ func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, s
 		Type:    events.CardLogAdded,
 		Project: project,
 		CardID:  cardID,
-		Agent:   "runner",
+		Agent:   s.backendAuthor(),
 		Data: map[string]any{
 			"action":  "skill_engaged",
 			"message": "engaged " + skillName,
