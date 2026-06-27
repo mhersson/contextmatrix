@@ -57,10 +57,9 @@ func TestSSEHub_Drop_Idempotent(t *testing.T) {
 
 // TestSSEHub_PerSessNoLeak_ManyDrops verifies that after a flurry of
 // Subscribe + Publish + Drop + Unsubscribe cycles the perSess map size returns
-// to zero. The earlier version of this test never exercised Subscribe before
-// Drop, which made it vacuous: Unsubscribe used to lazy-create a fresh perSess
-// entry, defeating Drop. The Subscribe + deferred-Unsubscribe pattern is what
-// the streamChat HTTP handler actually does.
+// to zero. It exercises Subscribe before Drop — the Subscribe +
+// deferred-Unsubscribe pattern the streamChat HTTP handler uses — so that
+// Unsubscribe cannot lazy-create a fresh perSess entry that defeats Drop.
 func TestSSEHub_PerSessNoLeak_ManyDrops(t *testing.T) {
 	hub := NewSSEHub(8)
 

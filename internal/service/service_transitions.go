@@ -38,10 +38,9 @@ import (
 // The smell: a card in done with a live claim looks stalled to the lock
 // manager. Defense-in-depth lives in markCardStalled (it skips terminal
 // states even when AssignedAgent is non-empty), and ReleaseCard flushes
-// the deferred-commit queue then drops the claim. The cleaner refactor
-// would have complete_task / ReleaseCard own the claim-clear so done
-// cards never carry a live agent, but that requires rewriting the four
-// tests above and is out of scope here.
+// the deferred-commit queue then drops the claim. Having complete_task /
+// ReleaseCard own the claim-clear so done cards never carry a live agent
+// would be cleaner but requires rewriting the four tests above.
 //
 // Safe to call regardless of stateChanged — it only acts when the card's
 // current state is one of the targets. But callers should pass stateChanged

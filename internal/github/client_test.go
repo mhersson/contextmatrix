@@ -294,7 +294,7 @@ func TestFetchBranches_EmptyRepo(t *testing.T) {
 }
 
 func TestParseLinkNext(t *testing.T) {
-	// parseLinkNext is now a method; use a client with the default base URL.
+	// parseLinkNext is a method; use a client with the default base URL.
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 

@@ -449,23 +449,23 @@ Sent by an event-bus subscriber in CM that listens for `card.released` and
 1. `card.assigned_agent` is empty (the card has actually been released).
 2. `card.state` is `done` or `not_planned`.
 
-`card.runner_status` is intentionally NOT part of this predicate. An earlier
-version gated on `runner_status ∈ {queued, running}`, which silently skipped any
-container whose `runner_status` had drifted away from Docker reality (the
-runner's `reportCompleted` / `reportFailure` callbacks flip the field before the
-Docker cleanup defers actually succeed). Gating on it turned every such drift
-into a permanent leak. The runner's `/kill` is idempotent, so the subscriber
-firing "spuriously" against an already-dead container costs one 200 no-op and
-eliminates that class of bug at the source.
+`card.runner_status` is intentionally NOT part of this predicate. Gating on
+`runner_status ∈ {queued, running}` would silently skip any container whose
+`runner_status` has drifted away from Docker reality — the runner's
+`reportCompleted` / `reportFailure` callbacks flip the field before the Docker
+cleanup defers actually succeed, so a drifted status becomes a permanent leak.
+The runner's `/kill` is idempotent, so the subscriber firing "spuriously"
+against an already-dead container costs one 200 no-op and avoids that class of
+bug at the source.
 
 This prevents the container from exiting on intermediate `release_card` calls an
 orchestrator makes between subtasks: a release without a terminal-state
 transition does not satisfy the predicate.
 
 **End-session is always followed by `/kill`.** Claude in
-`--input-format stream-json` mode has been observed keeping the container
-process alive well past stdin EOF (processing in-flight work and then idling
-instead of exiting). The subscriber therefore calls `/end-session` first (polite
+`--input-format stream-json` mode keeps the container process alive well past
+stdin EOF (processing in-flight work and then idling instead of exiting). The
+subscriber therefore calls `/end-session` first (polite
 close, lets claude exit gracefully if it respects EOF) and then calls `/kill`
 unconditionally as a safety net so a terminal-state card never leaves a live
 container behind. `/kill` is idempotent — if the container is already gone the
@@ -826,7 +826,7 @@ Or on error:
 
 - **`/kill`** — idempotent: returns `200` (not 404) when the card is not
   tracked. Use this to safely call stop on cards that may already be finished.
-- **`/message`** — may return `410` with code `stdin_closed` after the container
+- **`/message`** — returns `410` with code `stdin_closed` once the container
   session has ended and stdin is no longer writable.
 - **`/promote`** — closes stdin immediately after writing the canned message. A
   subsequent `/end-session` on the same card is idempotent (returns `409` or
@@ -903,7 +903,7 @@ running. A card that reaches a terminal state (`done` or `not_planned`) and is
 released must therefore be killed by ContextMatrix explicitly, otherwise the
 container would leak until the runner's `container_timeout` (default 2h).
 
-Two independent mechanisms guarantee this cleanup, and they now use different
+Two independent mechanisms guarantee this cleanup, and they use different
 truths so a bug in either cannot silently hide a live container:
 
 1. **Event subscriber (fast path).** `internal/runner/endsession.go` watches the
@@ -923,11 +923,11 @@ truths so a bug in either cannot silently hide a live container:
 
    **The sweep does not read `runner_status`.** It reasons exclusively from two
    authoritative sources — Docker ("is this container running?") and the card
-   store ("should it be?"). Every previous implementation of this sweep
-   consulted CM's own `runner_status` bookkeeping and inherited the drift bug
-   where a failed cleanup defer flipped the field to `completed` / `failed`
-   while Docker still had the container, then every subsequent sweep silently
-   skipped it. That class of bug is now unreachable.
+   store ("should it be?"). Consulting CM's own `runner_status` bookkeeping would
+   inherit the drift bug where a failed cleanup defer flips the field to
+   `completed` / `failed` while Docker still has the container, then every
+   subsequent sweep silently skips it. Reasoning from Docker and the card store
+   keeps that class of bug unreachable.
 
 The event path's logline is `"end-session + kill sent" source=subscriber`; the
 sweep's is

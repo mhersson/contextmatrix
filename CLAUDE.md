@@ -17,16 +17,16 @@ but ContextMatrix never touches it.
 
 Read these when working on the relevant area:
 
-| Document                                               | Contents                                                                                                                                                    |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)         | Component responsibilities, data flow, git repo scope, file layout, **trust model** (single-tenant, no auth — read before any security/auth review). |
-| [`docs/agent-workflow.md`](docs/agent-workflow.md)     | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. § Task skills: two-channel design, guard/permit, description convention. |
-| [`docs/data-model.md`](docs/data-model.md)             | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation. |
-| [`docs/api-reference.md`](docs/api-reference.md)       | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                          |
-| [`docs/gotchas.md`](docs/gotchas.md)                   | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                            |
-| [`docs/remote-execution.md`](docs/remote-execution.md) | Remote execution architecture, webhook protocol, container lifecycle, worker safety, operator endpoints, runner config reference, graceful shutdown. Read when working on runner or agent task backend integration, or MCP auth.  |
-| [`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) | Agent backend v1 parity matrix, intentional divergences, and the enable recipe. Read when selecting or validating the agent task backend. |
-| [`web/CLAUDE.md`](web/CLAUDE.md)                       | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                   |
+| Document                                                       | Contents                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                 | Component responsibilities, data flow, git repo scope, file layout, **trust model** (single-tenant, no auth — read before any security/auth review).                                                                             |
+| [`docs/agent-workflow.md`](docs/agent-workflow.md)             | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. § Task skills: two-channel design, guard/permit, description convention.      |
+| [`docs/data-model.md`](docs/data-model.md)                     | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation.                                                                      |
+| [`docs/api-reference.md`](docs/api-reference.md)               | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                                                                                               |
+| [`docs/gotchas.md`](docs/gotchas.md)                           | YAML parsing, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit in a session.                                                                                                                                 |
+| [`docs/remote-execution.md`](docs/remote-execution.md)         | Remote execution architecture, webhook protocol, container lifecycle, worker safety, operator endpoints, runner config reference, graceful shutdown. Read when working on runner or agent task backend integration, or MCP auth. |
+| [`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) | Agent backend v1 parity matrix, intentional divergences, and the enable recipe. Read when selecting or validating the agent task backend.                                                                                        |
+| [`web/CLAUDE.md`](web/CLAUDE.md)                               | Frontend conventions, Everforest color palette, UI semantic mappings. Auto-loaded when working in `web/`.                                                                                                                        |
 
 ## Trust model (read this before any auth/identity review)
 
@@ -35,41 +35,43 @@ user accounts, no logins, no per-user permissions. The deployment story is
 "loopback or behind a network ACL" (see `docs/api-reference.md` on the admin
 listener — same posture). If you can reach the API, you are trusted.
 
-**`X-Agent-ID` is identity, not authentication.** It tags writes for the
-audit trail (boards-repo commit author, activity log entries, `assigned_agent`
-on cards). It cannot prove the caller is who they say they are because there
-is no auth layer underneath. Treat it the way you treat `git config user.name`
-on a personal machine — the user could lie, but they have no incentive to.
+**`X-Agent-ID` is identity, not authentication.** It tags writes for the audit
+trail (boards-repo commit author, activity log entries, `assigned_agent` on
+cards). It cannot prove the caller is who they say they are because there is no
+auth layer underneath. Treat it the way you treat `git config user.name` on a
+personal machine — the user could lie, but they have no incentive to.
 
 **UI = human, by design.** The web UI is operated by a human; the CSRF gate
-(`X-Requested-With: contextmatrix`) is the UI-origin signal, not an auth
-check. The frontend auto-generates a per-browser identity
-(`human:web-<8 hex chars>`, persisted in localStorage by `useAgentId`) so
-two browsers on the same instance have distinct claim identities. We do
-**not** prompt users for usernames — that's pointless theatre on a tool
-with no auth, and the user has rejected that pattern explicitly.
+(`X-Requested-With: contextmatrix`) is the UI-origin signal, not an auth check.
+The frontend auto-generates a per-browser identity (`human:web-<8 hex chars>`,
+persisted in localStorage by `useAgentId`) so two browsers on the same instance
+have distinct claim identities. We do **not** prompt users for usernames —
+that's pointless theatre on a tool with no auth, and the user has rejected that
+pattern explicitly.
 
 **Don't re-flag these as security issues:**
+
 - The `human:web` REST fallback when `X-Agent-ID` is absent on write endpoints
   where the UI is the only legitimate caller.
 - The `human:api` fallback for runner human-only endpoints
   (`internal/api/runner.go`). Same reasoning.
-- The lack of auth on read endpoints, project CRUD, sync, branches, app
-  config, healthz/readyz, etc.
+- The lack of auth on read endpoints, project CRUD, sync, branches, app config,
+  healthz/readyz, etc.
 - The browser-generated agent ID being "spoofable." Spoofing it accomplishes
   nothing — there is no permission gradient to escalate into.
 
 **Where identity gates DO matter:**
+
 - MCP tools that gate on `human:` prefix (e.g., `promote_to_autonomous`).
-  Reason: MCP is the agent interface, so an agent caller would lack the
-  prefix; the gate enforces a workflow contract ("only humans promote"), not a
-  security boundary. The prefix check is intentionally weak (any
-  `human:anything` passes).
+  Reason: MCP is the agent interface, so an agent caller would lack the prefix;
+  the gate enforces a workflow contract ("only humans promote"), not a security
+  boundary. The prefix check is intentionally weak (any `human:anything`
+  passes).
 - Card-claim / heartbeat / release endpoints check that the supplied
-  `X-Agent-ID` matches `assigned_agent`. This prevents two agents from
-  stepping on each other, not unauthorized access.
-- GitHub authentication via the shared `githubauth` module — that's real
-  auth against an external system; do not weaken or bypass.
+  `X-Agent-ID` matches `assigned_agent`. This prevents two agents from stepping
+  on each other, not unauthorized access.
+- GitHub authentication via the shared `githubauth` module — that's real auth
+  against an external system; do not weaken or bypass.
 
 When in doubt: **"UI = human, case closed."**
 
@@ -113,9 +115,8 @@ details.
 - **goldmark** — markdown rendering for preview (`github.com/yuin/goldmark`)
 - **Go MCP SDK** — MCP server via Streamable HTTP
   (`github.com/modelcontextprotocol/go-sdk`)
-- **`github.com/mhersson/contextmatrix-githubauth`** — shared GitHub
-  auth module (App + PAT + caching). Imported by both the server and
-  the runner.
+- **`github.com/mhersson/contextmatrix-githubauth`** — shared GitHub auth module
+  (App + PAT + caching). Imported by both the server and the runner.
 - **React 19 + TypeScript** — frontend
 - **Vite** — frontend build
 - **Tailwind CSS** — styling
@@ -145,10 +146,9 @@ details.
 - Prefer returning concrete types from constructors, interfaces from consumers.
 - All exported functions that write to disk or network must accept
   `context.Context`.
-- GitHub authentication is handled exclusively via
-  `githubauth.TokenGenerator` from the shared module. Do not introduce
-  new code paths that read raw tokens from config or env vars; the
-  provider abstraction is the only entry point.
+- GitHub authentication is handled exclusively via `githubauth.TokenGenerator`
+  from the shared module. Do not introduce new code paths that read raw tokens
+  from config or env vars; the provider abstraction is the only entry point.
 
 ### Frontend
 
@@ -179,9 +179,14 @@ only — no palette-specific code in components.
   the resolved subset into the worker container; the agent fetches a
   `{git_remote_url, ref}` pointer from `GET /api/agent/task-skills-source` and
   mounts it read-only. Both report first engagement via `RecordSkillEngaged`
-  (runner: `POST /api/runner/skill-engaged`; agent: MCP `add_log
-  action=skill_engaged`). See `docs/agent-workflow.md` § Task skills for full
-  details.
+  (runner: `POST /api/runner/skill-engaged`; agent: MCP
+  `add_log action=skill_engaged`). See `docs/agent-workflow.md` § Task skills
+  for full details.
+
+### Documentation
+
+- Document the CURRENT STATE not changed state. What exists NOW and WHY, not how
+  we got here
 
 ## Key domain rules (summary)
 
@@ -296,9 +301,9 @@ scripts/install.sh --force
 
 On a fresh install the script creates `~/.config/contextmatrix/config.yaml` from
 the template. Edit `boards.dir` (and any other fields) before starting the
-server. Workflow skills are always refreshed from the repo's
-`workflow-skills/` directory even without `--update-workflow-skills` — that
-flag simply skips the config.yaml step entirely.
+server. Workflow skills are always refreshed from the repo's `workflow-skills/`
+directory even without `--update-workflow-skills` — that flag simply skips the
+config.yaml step entirely.
 
 ## Agent permissions in target projects
 

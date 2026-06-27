@@ -79,9 +79,9 @@ the per-card budget ledger) or reaches the same outcome by a different route
   whose card is gone, terminal, or past its max-age. The agent adds a boot-time
   label-based orphan sweep for crash leftovers. CM is the single authority on
   whether a container should run, so the agent needs no runtime loop of its own.
-- **Knowledge base retired.** Repo grounding replaced the knowledge base
-  (`AGENTS.md` / `CLAUDE.md`). Claude Code reads those files natively, so the
-  runner keeps grounding too; the agent walks them explicitly
+- **Repo grounding mechanism differs.** Both backends ground on the repo's
+  `AGENTS.md` / `CLAUDE.md`. Claude Code (the runner's worker) reads those files
+  natively; the agent walks them explicitly
   (`agent internal/orchestrator/grounding.go`). Same outcome, different mechanism.
 - **Metric prefix `cm_agent_*`** (agent) vs `cmr_*` (runner) — parallel,
   namespaced surfaces on each backend's loopback admin listener. Scrape both to
@@ -89,14 +89,14 @@ the per-card budget ledger) or reaches the same outcome by a different route
   runner's; the runner's extras are feature-specific (chat, preflight) or
   explicitly deferred on the agent.
 - **Readiness preflight.** The runner additionally gates `/readyz` on a preflight
-  check (Docker/DNS/image availability) before it will accept work; the agent has
+  check (Docker/DNS/image availability) before it accepts work; the agent has
   no preflight stage and gates `/readyz` on draining only. Both return 503 while
   draining — this is a Kubernetes-readiness nicety, not a task-execution-parity
   gap.
 
 ## Validation
 
-Parity was established by this code-vs-features audit, not a fresh live run: each
-behavior was live-validated in its own delivery increment, and the agent has executed
-real cards end-to-end (autonomous and HITL) through ContextMatrix. The audit is
-the sign-off.
+Parity rests on this code-vs-features audit rather than a fresh live run: each
+behavior was live-validated as it shipped, and the agent runs real cards
+end-to-end (autonomous and HITL) through ContextMatrix. The audit is the
+sign-off.

@@ -36,8 +36,10 @@
   middleware chain (recovery, security headers, CORS when enabled, request ID,
   observe/metrics+logging, body limit, csrfGuard). The body-size cap is **5 MB**
   (`maxRequestBodySize`) — sized to the largest legitimate MCP card payload and
-  applied uniformly to every route. Requests with a `Content-Length` exceeding 5
-  MB are rejected with `413 Payload Too Large` before the body is read; requests
+  applied to every route without a per-route override (`POST /api/images` raises
+  it to 11 MB via `bodyLimitOverrides`). Requests with a `Content-Length`
+  exceeding 5 MB are rejected with `413 Payload Too Large` before the body is
+  read; requests
   without `Content-Length` are capped during reads via `http.MaxBytesReader`.
 - **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
   is an absolute deadline measured from when request headers are read — it is
@@ -197,8 +199,7 @@
   migrated: an obsolete one is deleted and recreated by the operator. To change
   the schema, edit the `ensureSchema` DDL directly — it is all idempotent
   `CREATE ... IF NOT EXISTS`. A `chats.db` from a previous install is not
-  forward-compatible; operators must delete it before starting a server that
-  includes this change.
+  forward-compatible; operators must delete it before starting the server.
 - **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
   `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap via
   `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID change, the
@@ -231,6 +232,6 @@
   enabled, not as a user message. The rehydration priming therefore has to
   arrive as a stream-json `user`-typed envelope written to stdin _after_
   `AttachChatStdin` succeeds — see `webhook/chat.go` and
-  `streammsg.BuildUserMessage`. The same applies to any future "kick the agent
-  off with X" pattern in chat or HITL modes: use a stream-json user envelope on
-  stdin, not `-p`. Cost us several iterations during the chat rehydration build.
+  `streammsg.BuildUserMessage`. The same applies to any "kick the agent off
+  with X" pattern in chat or HITL modes: use a stream-json user envelope on
+  stdin, not `-p`.

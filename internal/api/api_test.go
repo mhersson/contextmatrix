@@ -225,9 +225,9 @@ func TestCreateCard(t *testing.T) {
 	})
 
 	t.Run("non-existent parent returns 404 PARENT_NOT_FOUND", func(t *testing.T) {
-		// Regression guard: before the ctxmax-328 audit, a missing parent
-		// wrapped in board.ErrInvalidType, which surfaced as 422
-		// VALIDATION_ERROR. Parent is a resource — clients need 404.
+		// Regression guard: a missing parent must surface as 404
+		// PARENT_NOT_FOUND, not 422 VALIDATION_ERROR — parent is a
+		// resource, so clients need 404.
 		body := createCardRequest{
 			Title:    "Subtask with bogus parent",
 			Type:     "task",

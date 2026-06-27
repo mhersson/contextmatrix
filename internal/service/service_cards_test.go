@@ -475,7 +475,7 @@ func TestTrimActivityLog_UnderCapNoOp(t *testing.T) {
 func TestTrimActivityLog_DropsNonStateChangedFirst(t *testing.T) {
 	// 60 entries: 55 non-state-changed entries followed by 5 state_changed.
 	// After trim to maxActivityLogEntries (50), all 5 state_changed entries
-	// must survive — the regression the helper was added to prevent.
+	// must survive — the regression the helper prevents.
 	in := make([]board.ActivityEntry, 0, 60)
 	for i := range 55 {
 		in = append(in, board.ActivityEntry{Action: "claimed", Message: fmt.Sprintf("entry %d", i)})

@@ -21,12 +21,10 @@ interface AutomationTabProps {
 }
 
 /**
- * Automation rail tab — the checkbox rail + inline activity log. All the
- * `onXxxChange` setters that previously inlined as fresh arrows in
- * CardPanelSections now live in this component; they still aren't
- * stable across renders, but that's fine because AutomationCheckboxes
- * itself isn't memoised anymore (the memo was a placebo given the
- * prop shape).
+ * Automation rail tab — the checkbox rail + inline activity log. The
+ * `onXxxChange` setters inline as fresh arrows here; they aren't stable
+ * across renders, but that's fine because AutomationCheckboxes isn't
+ * memoised — memoising it would be a placebo given the prop shape.
  */
 export function AutomationTab({
   card,

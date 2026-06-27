@@ -58,7 +58,7 @@ fall back to the server default.
 Dark/light mode is **user-toggleable** (sun/moon button) and orthogonal to
 palette. Dark mode: no `data-theme` attribute. Light mode: `data-theme="light"`.
 
-Both palettes define the same CSS custom properties. Components need no changes
+All three palettes define the same CSS custom properties. Components need no changes
 when the palette is switched — all styling references CSS variables only. Do not
 hardcode hex values in components.
 
@@ -245,19 +245,17 @@ ordinary chat message with the options inline. The runner suppresses the
 tool, so it never reaches the transcript. Questions therefore arrive as
 normal `text` entries and need no dedicated card.
 
-Do **not** re-introduce a `user_question` log type, a `UserQuestionCard`
-component, or the `pendingToolUseID` bridging that previously existed — that
-machinery was removed deliberately. Asking in plain text is the agreed
+Do **not** introduce a `user_question` log type, a `UserQuestionCard`
+component, or `pendingToolUseID` bridging. Asking in plain text is the agreed
 pattern.
 
 ### Rail tabs + default tab on HITL
 
-The bifold drawer no longer uses section-level collapsibles for Description,
-Labels, and Automation. Instead, the right-side rail exposes **tabs**
+The bifold drawer uses **tabs** rather than section-level collapsibles for
+Description, Labels, and Automation. The right-side rail exposes tabs
 (`Automation`, `Info`, `Danger`, plus `Chat` when an HITL session is running)
-and only the active tab's content is mounted. This replaces the previous
-per-section chevron pattern; there is no `descriptionCollapsed` /
-`labelsCollapsed` / `automationCollapsed` state anymore.
+and only the active tab's content is mounted. There is no
+`descriptionCollapsed` / `labelsCollapsed` / `automationCollapsed` state.
 
 **Default tab** is derived from `isHITLRunning`:
 
@@ -376,7 +374,7 @@ with external readers that expect a single "current chat" pointer.
 `/chat` renders a tiled layout of up to 4 simultaneously open chats. The
 shell is `ChatLayout` (`web/src/components/ChatLayout/`), composed with
 `react-resizable-panels` `PanelGroup`s for the column + row splits. State
-lives in `useChatLayout` (`web/src/hooks/useChatLayout.ts`) and is threaded to descendants via props (`ChatLayoutContext` is exported for future composition but currently has no consumers).
+lives in `useChatLayout` (`web/src/hooks/useChatLayout.ts`) and is threaded to descendants via props.
 
 ### Layout model
 
@@ -396,10 +394,10 @@ panels library.
 
 ### Mutations
 
-- `openInNewPane(id)` / `openInFocused(id)` — same implementation in v1:
-  sidebar clicks always auto-tile into a new pane (per the captured build
-  prompt — no `Cmd`-click distinction). If the chat is already open in
-  another pane, focus that pane instead of opening a duplicate.
+- `openInNewPane(id)` / `openInFocused(id)` — same implementation:
+  sidebar clicks always auto-tile into a new pane (no `Cmd`-click
+  distinction). If the chat is already open in another pane, focus that
+  pane instead of opening a duplicate.
 - `swapPaneChat(slot, id)` — drop semantics. If the dropped chat is
   already in another pane, the two panes' contents **swap** (same-chat-
   twice = swap). If not, the target pane's contents are replaced.
@@ -727,8 +725,7 @@ The drawer closes on any of these events (all call `onMobileClose`):
 - Navigate to any project link or "All Projects"
 
 Note: the "New Project" button does **not** call `onMobileClose` — the wizard
-modal covers the screen anyway, but this can be improved in a future pass
-(`onClick={() => { onNewProject(); onMobileClose?.(); }}`).
+modal covers the screen anyway.
 
 ### Known limitations
 
@@ -739,10 +736,10 @@ modal covers the screen anyway, but this can be improved in a future pass
   with a hamburger that reuses `useMobileSidebar`, plus the focused chat title
   and a "+ new chat" button.
 - The desktop collapsed sidebar (48 px strip, no `.sidebar` class) does not
-  hide on mobile — pre-existing issue unrelated to this feature.
+  hide on mobile.
 - `MobileSidebarContext.tsx` exports both a component and a hook from the same
   file, which triggers the `react-refresh/only-export-components` lint warning.
-  This is consistent with the pre-existing `useProjects.tsx` pattern.
+  This is consistent with the `useProjects.tsx` pattern.
 
 ## Mobile NowRail drawer
 
@@ -792,10 +789,8 @@ Vitest + jsdom does not apply CSS, so the `@media (max-width: 768px)` block
 itself is functionally untested. The Board.test.tsx cases mock `matchMedia`
 and assert DOM-level open/close state only — they do **not** verify that
 `.now-rail` is `position: fixed` at the mobile breakpoint or that the
-backdrop's z-index is below the rail. A future Playwright smoke at
-375 × 667 would close this gap; until then, the layout is verified by
-manual QA per `docs/superpowers/specs/2026-05-18-board-mobile-design.md`
-§ Testing.
+backdrop's z-index is below the rail. The layout is verified by manual QA
+per `docs/superpowers/specs/2026-05-18-board-mobile-design.md` § Testing.
 
 ## Subtask parent navigation
 
@@ -823,15 +818,13 @@ navigates to the parent card (same handler as subtask navigation).
 - Styling: `--bg-blue` background, `--aqua` text, monospace font — consistent
   with subtask ID buttons.
 
-**Known UX notes (tracked for future polish):**
+**Known UX notes:**
 
 - In the expanded CardItem footer, the parent badge and agent indicator share
   identical colours (`--bg-blue`/`--aqua`). They are visually distinguishable
   only by content (card ID vs. agent name). `title` tooltips disambiguate on
-  hover. A future pass may add a small icon prefix or border to the parent badge.
-- The parent badge button in CardItem has no `aria-label`. Adding
-  `aria-label={\`Navigate to parent \${card.parent}\`}` would improve screen
-  reader accessibility.
+  hover.
+- The parent badge button in CardItem has no `aria-label`.
 
 ## ConfirmModal
 
@@ -869,9 +862,9 @@ modal on button click, run the action in `onConfirm`, and close in `onCancel`.
 ## CardPanel destructive actions
 
 Destructive actions live in the **Danger tab** of the card panel's right rail,
-rendered by `CardPanel/CardPanelDangerZone.tsx`. The header no longer carries
-a Delete button — the move to a dedicated tab keeps destructive UI out of the
-primary action row and leaves space for a clearer tooltip / warning copy.
+rendered by `CardPanel/CardPanelDangerZone.tsx`. The header does not carry a
+Delete button — the dedicated tab keeps destructive UI out of the primary
+action row and leaves space for a clearer tooltip / warning copy.
 
 ### Delete button
 
@@ -982,8 +975,7 @@ polluted. **Prefer the updater-callback form**
 (`setSearchParams((prev) => { … return prev; }, { replace: true })`) so
 concurrent writers don't clobber each other's keys. The snapshot form
 (`setSearchParams(new URLSearchParams(snapshot), { replace: true })`) exists
-in some legacy call sites and is functional but should be migrated when
-touched.
+in some call sites and is functional; prefer the updater form.
 
 | Param | Owner | Route | Form | Meaning |
 |---|---|---|---|---|

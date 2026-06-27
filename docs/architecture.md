@@ -92,7 +92,8 @@ bodies at 5 MB (with per-route overrides via `bodyLimitOverrides` — currently
 `POST /api/images` gets the 11 MB image-upload envelope so screenshots fit),
 and `csrfGuard` rejects state-changing requests that lack
 `X-Requested-With: contextmatrix` (with narrow exemptions: GET/HEAD/OPTIONS,
-`/healthz`, `/readyz`, `/api/runner/*`, and `/mcp`).
+`/healthz`, `/readyz`, `/api/runner/*`, `/api/agent/*`, `/api/chat/*`, and
+`/mcp`).
 
 Card mutations follow the same pipeline through the service layer:
 
@@ -311,9 +312,10 @@ and commit completion. The service layer closes that gap on failure:
   attachments on `get_card` / `get_task_context`.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
-  `GET /api/runner/logs` has two modes: card-scoped (uses the session manager
-  for replay-on-reconnect) and project-scoped legacy proxy (forwards the raw
-  runner SSE stream verbatim).
+  `GET /api/runner/logs` has two modes: card-scoped (subscribes to one card's
+  session) and project-scoped (subscribes to the project session, fanning out
+  every card's events). Both replay the buffered snapshot through the session
+  manager before tailing live events.
 - **MCP server** (`mcp/*`): exposes tools (card operations) and prompts (skill
   files) via Streamable HTTP on `/mcp` (registered for `POST`, `GET`, and
   `DELETE`). Registered on the same `http.ServeMux` as the REST API, so it
@@ -457,5 +459,3 @@ project-beta/
   templates/
   tasks/
 ```
-
-Existing `<project>/knowledge/` directories in boards repos are orphaned — ContextMatrix no longer reads them. Remove with `rm -r <project>/knowledge` if present.

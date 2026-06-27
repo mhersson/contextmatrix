@@ -224,13 +224,12 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 }
 
 // TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus
-// is the contract change that fixes the class of leak bug: the subscriber
-// now fires on terminal + released, ignoring runner_status. A card whose
-// runner_status has drifted to "" (or "completed", "failed") but still has
-// a live container on the runner must still get a /kill — the runner's
-// /kill is idempotent, so a spurious call against an already-dead container
-// is a 200 no-op, and the class of silent-skip bug around runner_status
-// drift is eliminated at the source.
+// verifies the subscriber fires on terminal + released, ignoring
+// runner_status. A card whose runner_status has drifted to "" (or
+// "completed", "failed") but still has a live container on the runner must
+// still get a /kill — the runner's /kill is idempotent, so a spurious call
+// against an already-dead container is a 200 no-op, and silent-skip bugs
+// around runner_status drift are eliminated at the source.
 func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(t *testing.T) {
 	ctx := t.Context()
 
@@ -240,9 +239,9 @@ func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(
 			ID:            "SUB-001",
 			State:         "done",
 			AssignedAgent: "",
-			// Empty runner_status — the OLD subscriber silently skipped
-			// this; the NEW subscriber fires because the card is
-			// terminal and released, which is all the truth it needs.
+			// Empty runner_status — the subscriber fires anyway because
+			// the card is terminal and released, which is all the truth
+			// it needs.
 			RunnerStatus: "",
 		},
 	}}

@@ -58,10 +58,9 @@ The repo includes a multi-stage Dockerfile:
   `embed.FS` (`web/embed.go`), so the final image is a single binary.
 - **Stage 3**: Alpine runtime with `git`, `openssh-client`, and
   `ca-certificates`. The runtime user is `nobody` with `HOME=/home/nobody`. The
-  `openssh-client` package is present for backward compatibility only — the
   config validator rejects any `boards.git_remote_url` or
-  `task_skills.git_remote_url` that does not start with `https://`, so SSH
-  cloning is not exercised in practice.
+  `task_skills.git_remote_url` that does not start with `https://`, so all
+  cloning is over HTTPS; the `openssh-client` package is unused.
 
 Workflow skills are baked into the image at `/etc/contextmatrix/skills/` (the
 Dockerfile sets `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR` to that path). Override
@@ -151,8 +150,7 @@ writers.
   `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and
   `/home/nobody`.
 
-> **SSH is no longer supported.** Earlier releases included an SSH deploy-key
-> variant; the server now rejects any `boards.git_remote_url` (and
+> **HTTPS only.** The server rejects any `boards.git_remote_url` (and
 > `task_skills.git_remote_url`) that does not start with `https://`. Use the PAT
 > or GitHub App variants below.
 

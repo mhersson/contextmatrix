@@ -161,7 +161,7 @@ type Manager struct {
 
 	// openGroup deduplicates concurrent cold-open work per sessionID. Two
 	// callers racing to open the same id share one runner.StartChat
-	// round-trip; callers on *different* ids no longer serialise behind a
+	// round-trip; callers on *different* ids do not serialise behind a
 	// global mutex while a slow docker pull is in flight.
 	openGroup singleflight.Group
 
@@ -730,7 +730,7 @@ func (m *Manager) isRehydrationActive(ctx context.Context, sessionID string) boo
 // the persisted value and the cached value cannot diverge under concurrent
 // flips on the same session. The global m.mu is held only across the
 // trivial cache write — never across the SQL UPDATE — so a slow fsync on
-// one session no longer stalls every unrelated session's AppendMessage
+// one session does not stall every unrelated session's AppendMessage
 // hot path (which reads seqMap under m.mu).
 //
 // On store failure the cache is left untouched, so disk and cache stay
@@ -954,10 +954,10 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 	case StatusActive:
 		// Idempotent for already-active sessions. Also ensure the runner-log
 		// consumer is bridging /logs back into the SSE hub: a CM restart
-		// strands that goroutine while the row stays active, and the only
-		// recovery path used to be End → Reopen (which kills the container
-		// and rehydrates a fresh one). startConsumer is a no-op when a
-		// consumer for this session is already running.
+		// strands that goroutine while the row stays active, so reopening
+		// restarts the consumer in place instead of forcing an End → Reopen
+		// that kills the container and rehydrates a fresh one. startConsumer
+		// is a no-op when a consumer for this session is already running.
 		m.startConsumer(sess.ID)
 
 		return sess, nil
@@ -1015,7 +1015,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 		// Route the cold-start path through singleflight keyed on
 		// sessionID so concurrent callers for the same id share one
 		// runner.StartChat round-trip, and callers for *different* ids
-		// no longer serialise on a global mutex behind a slow docker
+		// do not serialise on a global mutex behind a slow docker
 		// run / image pull.
 		v, err, _ := m.openGroup.Do(id, func() (any, error) {
 			return m.openCold(ctx, id)
@@ -1036,14 +1036,14 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 // openCold runs the cold→active transition for a single sessionID. It is
 // invoked under singleflight by OpenSession so concurrent callers for the
 // same id share one runner.StartChat round-trip; callers for *different*
-// ids no longer serialise on a global lock when MaxConcurrent is 0.
+// ids do not serialise on a global lock when MaxConcurrent is 0.
 //
 // The MaxConcurrent ceiling is enforced via the in-memory pendingActive
 // reservation counter: a slot is reserved under openLimitMu BEFORE the
 // slow StartChat call and decremented in a deferred cleanup once the
 // outcome is known. openLimitMu is held only for the brief count +
 // increment / decrement windows, never across StartChat or any other
-// I/O, so concurrent cold opens on different sessions no longer
+// I/O, so concurrent cold opens on different sessions do not
 // serialise at runner-latency timescale.
 func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	sess, err := m.store.GetSession(ctx, id)
@@ -1375,7 +1375,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 
 	// Per-session lock keeps the (seq-assign → store-write) window atomic
 	// for this session without coupling unrelated sessions through m.mu.
-	// One slow fsync on session A no longer stalls appends to session B.
+	// One slow fsync on session A does not stall appends to session B.
 	// SQLite serialises writes at the engine level and the
 	// UNIQUE(session_id, seq) index is the final correctness guarantor.
 	sl := m.appendLock(sessionID)

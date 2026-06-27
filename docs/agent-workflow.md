@@ -77,17 +77,16 @@ returns the model alongside the skill content. The orchestrator decides whether
 to run inline or spawn a sub-agent based on the phase (see the **Model
 Allocation** section below for the full decision model).
 
-**Why delegation wrappers exist:** An earlier design returned the full skill
-content directly to the orchestrator agent. In practice, agents ignored model
-requirements, skipped sub-agent spawning, ignored the ContextMatrix workflow
-(claim/heartbeat/complete), and just solved the underlying task — leaving
-orphaned cards across the board. The delegation wrapper pattern was introduced
-specifically to force agents through the `get_skill` → `Agent` tool → sub-agent
-pipeline, where lifecycle enforcement is structurally guaranteed rather than
-relying on voluntary compliance. Any optimization to this flow must preserve the
-forced indirection. The server-side inline execution mechanism (see below) is
-the approved alternative: it still enforces lifecycle steps by wrapping the
-content in a lifecycle-enforcing preamble before returning it.
+**Why delegation wrappers exist:** Returning the full skill content directly to
+the orchestrator agent lets it ignore model requirements, skip sub-agent
+spawning, and bypass the ContextMatrix workflow (claim/heartbeat/complete) —
+solving the underlying task while leaving orphaned cards across the board. The
+delegation wrapper forces agents through the `get_skill` → `Agent` tool →
+sub-agent pipeline, where lifecycle enforcement is structurally guaranteed
+rather than relying on voluntary compliance. Any optimization to this flow must
+preserve the forced indirection. The server-side inline execution mechanism (see
+below) is the approved alternative: it still enforces lifecycle steps by wrapping
+the content in a lifecycle-enforcing preamble before returning it.
 
 **Exception — interview skills run inline:** `create-task` and `init-project`
 require multi-turn conversations with the user, so their prompt handlers return
@@ -141,8 +140,8 @@ Phase-specific skills (`create-plan`, `execute-task`,
 `review-task`, `document-task`, `run-autonomous`, `brainstorming`,
 `systematic-debugging`) are loaded by the orchestrator via `get_skill` (or
 `start_review` for the review-entry transition); they are not user-facing entry
-points. This mirrors how `brainstorming` and `systematic-debugging` have always
-worked. `validSkillNames` in `internal/mcp/prompts.go` lists the complete set
+points. This mirrors how `brainstorming` and `systematic-debugging` work.
+`validSkillNames` in `internal/mcp/prompts.go` lists the complete set
 addressable by `get_skill`.
 
 `start-workflow` has no skill file. It exists as both a **prompt** (slash
@@ -243,10 +242,10 @@ CC exposes these slash commands via the MCP `prompts` capability:
 `/contextmatrix:start-workflow` is the canonical entry point: it inspects the
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
 `create-plan` (HITL cards). Phase-specific prompts for `create-plan`,
-`execute-task`, `review-task`, `document-task`, and `run-autonomous` were
-intentionally removed from the slash-command surface — they're internal
-orchestration steps, not user entry points. The orchestrator loads each phase's
-skill via `get_skill` (or `start_review` for the review-entry transition).
+`execute-task`, `review-task`, `document-task`, and `run-autonomous` are not on
+the slash-command surface — they're internal orchestration steps, not user entry
+points. The orchestrator loads each phase's skill via `get_skill` (or
+`start_review` for the review-entry transition).
 
 Usage examples:
 
@@ -641,7 +640,7 @@ used depends on the orchestrator and phase — see the **Model Allocation**
 section below for the full breakdown. The `recalculate_costs` tool reprices
 from the current rate table: on cards with a usage breakdown every estimated
 bucket is re-priced (stale prices corrected) while actual provider-reported
-costs are never modified; on legacy cards without a breakdown it only fills in
+costs are never modified; on cards without a breakdown it only fills in
 costs for cards with non-zero tokens but zero stored cost and never overwrites
 an existing cost.
 

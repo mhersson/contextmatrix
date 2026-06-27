@@ -94,7 +94,7 @@ token_costs:
 
 # Optional API key for MCP endpoint authentication.
 # When set, all MCP requests must include this key in the Authorization header
-# as "Bearer <key>". Leave empty to disable MCP authentication (current behavior).
+# as "Bearer <key>". Leave empty to disable MCP authentication.
 # Env: CONTEXTMATRIX_MCP_API_KEY
 mcp_api_key: ""
 
@@ -142,7 +142,7 @@ boards:
 
   # Clone-on-empty + remote URL — useful in container deployments where
   # persistent storage starts empty. Requires git_remote_url to be set.
-  # HTTPS only; SSH is no longer supported.
+  # HTTPS only; SSH is not supported.
   # Default: false
   # Env: CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY (true/false/1/0)
   git_clone_on_empty: false
@@ -170,7 +170,7 @@ task_skills:
   # Env: CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY
   git_clone_on_empty: false
 
-  # HTTPS URL only (SSH no longer supported).
+  # HTTPS URL only (SSH is not supported).
   # Authentication uses the global github.* config above.
   # Env: CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL
   git_remote_url: ""
@@ -342,10 +342,6 @@ images:
 # Operational SQLite database. Holds chat sessions/transcripts AND the model
 # blacklist in a single file (ops.db). This is one of exactly two SQLite stores
 # (the other is images.db).
-#
-# NOTE: earlier versions used a separate chats.db for chat data. That file is
-# no longer used and can be deleted — chat history does not migrate (the chat
-# transcript resets on first start with this layout).
 # op_store:
 #   # CONTEXTMATRIX_OP_STORE_DB_PATH overrides this.
 #   # Default: $XDG_STATE_HOME/contextmatrix/ops.db

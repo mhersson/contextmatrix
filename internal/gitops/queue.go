@@ -435,8 +435,7 @@ func (q *CommitQueue) execute(job CommitJob) error {
 						"project", job.Project, "error", rerr2)
 				}
 			} else {
-				// Non-fatal: log and continue. Callers previously treated
-				// this as a warning too.
+				// Non-fatal: log and continue.
 				slog.Warn("commit queue: reload repo after commit",
 					"project", job.Project, "error", rerr)
 			}
