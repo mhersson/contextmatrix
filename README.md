@@ -31,7 +31,7 @@ own repos, and report progress back through the board.
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
   automatic stall detection, and dependency enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 34 MCP tools and 4 slash commands give Claude Code
+- **MCP-first interface** — 28 MCP tools and 3 slash commands give Claude Code
   agents structured access to the board.
 - **Autonomous execution** — cards marked `autonomous: true` run the full
   plan-execute-document-review lifecycle without human gates. The `simple` label
@@ -767,7 +767,7 @@ format.
 | `boards.git_pull_interval`             | `"60s"`                               | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
 | `boards.git_remote_url`                | `""`                                  | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
 | `boards.git_clone_on_empty`            | `false`                               | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
-| `backends` | `{}` | Execution-backend map; valid entry names `runner`, `agent`, `chat` — sister services CM drives over HMAC-signed webhooks. Task backend = `runner` if enabled, else `agent`; chat backend = `runner` if enabled, else `chat`. The `agent` entry runs card execution only; `chat` is not yet released. Read once at startup (restart to change). |
+| `backends` | `{}` | Execution-backend map; valid entry names `runner`, `agent`, `chat` — sister services CM drives over HMAC-signed webhooks. Task backend = `runner` if enabled, else `agent`; chat backend = `runner` if enabled, else `chat`. The `agent` entry runs card execution only; the `chat` entry names the unreleased contextmatrix-chat service. Read once at startup (restart to change). |
 | `backends.runner.url` | `""` | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`) |
 | `backends.runner.api_key` | `""` | Shared secret for HMAC-SHA256 webhook signing (min 32 chars) |
 | `backends.runner.enabled` | `true` | Set `false` to keep the block as an inert placeholder (omitting it = active) |
@@ -780,7 +780,7 @@ format.
 | `backends.agent.default_model` | `""` | Default orchestrator model (OpenRouter slug) for the agent backend; card pins override, empty falls back to the agent service's own default (agent entry only) |
 | `backends.agent.aa_api_key` | `""` | Artificial Analysis API key CM uses for live model-catalog lookups when building the agent's selection payload (agent entry only) |
 | `backends.agent.model_allowlist` | `[]` | Trusted Artificial Analysis creator slugs for the agent's catalog; empty = built-in default allowlist (agent entry only) |
-| `op_store.db_path` | `<XDG_STATE>/contextmatrix/ops.db` | SQLite database holding chat sessions/transcripts AND the model blacklist in one `ops.db`; the earlier `chats.db` is no longer used |
+| `op_store.db_path` | `<XDG_STATE>/contextmatrix/ops.db` | SQLite database holding chat sessions/transcripts AND the model blacklist in one `ops.db` |
 | `chat.idle_ttl`                        | `"1h"`                                | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
 | `chat.max_concurrent`                  | `8`                                   | Maximum concurrent chat containers                                                                                                                                                   |
 | `chat.default_model`                   | (required)                            | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
@@ -862,18 +862,18 @@ All config fields can be overridden with environment variables:
 
 > [!IMPORTANT]
 >
-> The legacy top-level `runner:` config block and the `CONTEXTMATRIX_RUNNER_*`
-> environment variables were replaced by the `backends:` map. The server now
-> **refuses to start** if any `CONTEXTMATRIX_RUNNER_*` variable is set — migrate
-> to `backends.runner` / `CONTEXTMATRIX_BACKEND_RUNNER_*`. Chat persistence moved
-> from `chat.db_path` to the shared `op_store.db_path` (`ops.db`).
+> Runner configuration lives in the `backends:` map (`backends.runner` /
+> `CONTEXTMATRIX_BACKEND_RUNNER_*`). The server **refuses to start** if any
+> top-level `CONTEXTMATRIX_RUNNER_*` variable is set, and the error names the
+> `CONTEXTMATRIX_BACKEND_RUNNER_*` replacement. Chat persistence lives in the
+> shared `op_store.db_path` (`ops.db`).
 
 ## GitHub Authentication
 
 ContextMatrix authenticates to GitHub via a single identity used for both git
 operations (boards repo, task-skills repo) and REST API calls (issue import,
 branch listing). Two methods are supported: GitHub App (recommended) or
-fine-grained PAT. SSH deploy keys are no longer supported. See
+fine-grained PAT. SSH deploy keys are not supported. See
 [docs/github-auth-setup.md](docs/github-auth-setup.md) for end-to-end setup.
 
 ## Security

@@ -454,7 +454,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost(t *testing.T) {
 	assert.Equal(t, int64(500), byAgent["unassigned"].CompletionTokens)
 	assert.Equal(t, int64(50), byAgent["cmx-agent-new"].PromptTokens)
 
-	// RecalculateCosts can now price the migrated bucket from the rate table;
+	// RecalculateCosts prices the migrated bucket from the rate table;
 	// the actual-cost delta bucket stays untouched.
 	_, err = svc.RecalculateCosts(ctx, "test-project", "")
 	require.NoError(t, err)

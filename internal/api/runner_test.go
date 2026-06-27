@@ -194,7 +194,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a non-autonomous card — should now succeed (autonomous gate removed).
+	// Create a non-autonomous card — it must succeed (no autonomous-only gate).
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Normal task", Type: "task", Priority: "medium",
 	})
@@ -218,7 +218,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Non-autonomous card with empty body now succeeds with Interactive=false.
+	// Non-autonomous card with empty body succeeds with Interactive=false.
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
@@ -2279,7 +2279,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 //
 // The runner calls this during /promote to confirm the card's autonomous
 // flag. HMAC signing is the primary auth path; a Bearer fallback is kept
-// during the runner-upgrade window (CTXRUN-048).
+// for runner compatibility.
 
 const testRunnerAPIKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
@@ -2918,8 +2918,8 @@ func TestRunCardSelectionNilForRunnerBackend(t *testing.T) {
 // footgun: a nil *modelcatalog.Builder assigned to RouterConfig.Catalog
 // produces a non-nil catalogProvider interface value, so the h.catalog != nil
 // guard in runCard is TRUE and Candidates is called on a nil receiver →
-// mutex lock on nil → panic. The test boxes the typed-nil exactly as main.go
-// used to, then drives runCard and asserts no panic + 202 Accepted.
+// mutex lock on nil → panic. The test boxes the typed-nil deliberately, then
+// drives runCard and asserts no panic + 202 Accepted.
 func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()

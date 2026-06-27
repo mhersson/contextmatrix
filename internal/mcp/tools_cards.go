@@ -296,7 +296,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, err
 		}
 
-		// Agent-ownership check is now enforced inside PatchCard via AgentID.
+		// Agent-ownership is enforced inside PatchCard via AgentID.
 		patchInput := service.PatchCardInput{
 			AgentID: input.AgentID,
 			State:   &input.NewState,

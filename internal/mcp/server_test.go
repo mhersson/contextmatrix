@@ -1761,7 +1761,7 @@ func setupMCPWithCosts(t *testing.T) *testEnv {
 
 func TestReportUsageCacheFields(t *testing.T) {
 	// Verify cache-tier fields are accepted, persisted, and priced correctly.
-	// Acceptance example from CTXMAX-568 (claude-opus-4-7):
+	// Worked cache-tier pricing example:
 	//   input=1000, cache_read=80000, cache_creation=4000, output=2000
 	//   cost = 1000*0.000005 + 80000*0.000005*0.10 + 4000*0.000005*1.25 + 2000*0.000025
 	//        = 0.005 + 0.040 + 0.025 + 0.050 = $0.120

@@ -12,12 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStressPushCommitNoIndexLockRace exercises the acceptance criterion from
-// CTXMAX-318: 1000 concurrent HeartbeatCard calls (each triggering a git
-// commit) racing against repeated pushWithRetry invocations must produce zero
-// index.lock errors. The fix from CTXMAX-364 serialises push against card
-// mutations via the service write lock — this test validates that invariant
-// under load.
+// TestStressPushCommitNoIndexLockRace exercises the invariant that 1000
+// concurrent HeartbeatCard calls (each triggering a git commit) racing against
+// repeated pushWithRetry invocations produce zero index.lock errors.
+// Serialising push against card mutations via the service write lock holds that
+// invariant — this test validates it under load.
 func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 	ctx := context.Background()

@@ -52,12 +52,12 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 func f(v float64) *float64 { return &v }
 
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
-// *Builder returns nil without panicking — the nil-receiver guard added to
-// fix the typed-nil-interface footgun in main.go.
+// *Builder returns nil without panicking — the nil-receiver guard protects
+// against the typed-nil-interface footgun in main.go.
 func TestBuilderCandidatesNilReceiver(t *testing.T) {
 	var b *Builder
 
-	// Before the fix this panics on b.mu.Lock() (nil receiver dereference).
+	// Without the nil-receiver guard this panics on b.mu.Lock() (nil receiver dereference).
 	got := b.Candidates(context.Background())
 	if got != nil {
 		t.Errorf("nil Builder.Candidates must return nil, got %v", got)

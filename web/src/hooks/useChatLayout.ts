@@ -303,9 +303,9 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     });
   }, [onLRUEvict]);
 
-  // openInFocused per the "always-new" build prompt is effectively the same
-  // as openInNewPane (a single click → new pane, auto-tile). We expose both
-  // names so the call sites stay readable; both route to the same logic.
+  // openInFocused is the same as openInNewPane: a single click → new pane,
+  // auto-tile. Both names exist so the call sites stay readable; both route
+  // to the same logic.
   const openInFocused = openInNewPane;
 
   const closePane = useCallback((slot: Slot) => {

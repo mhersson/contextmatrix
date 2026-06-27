@@ -367,8 +367,8 @@ func TestManager_EndSession_RecoversFromStuckEnding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, chat.StatusCold, got.Status, "session must be cold after EndSession recovers from stuck-ending")
 
-	// The recovered session must be openable again (OpenSession previously
-	// rejected status=ending rows, so a stuck row would prevent reopening).
+	// The recovered session must be openable again — a stuck status=ending
+	// row must not prevent reopening.
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err, "session must be openable after EndSession clears the stuck-ending state")
 }
@@ -1913,9 +1913,9 @@ func newTestManagerWithStore(t *testing.T, store chat.Store) (*chat.Manager, *st
 // TestAppendMessage_UnrelatedSessionsDoNotSerialize asserts that two appends
 // to two different sessions execute in parallel. The gatingStore parks the
 // underlying store write on a per-session channel; the test verifies that
-// both calls reach the parked point before either returns. Regression for
-// the global m.mu lock in AppendMessage, which used to couple unrelated
-// sessions through the seq-assign window.
+// both calls reach the parked point before either returns. Guards against the
+// global m.mu lock in AppendMessage coupling unrelated sessions through the
+// seq-assign window.
 func TestAppendMessage_UnrelatedSessionsDoNotSerialize(t *testing.T) {
 	t.Parallel()
 
@@ -1963,10 +1963,9 @@ func TestAppendMessage_UnrelatedSessionsDoNotSerialize(t *testing.T) {
 
 // TestOpenSession_ConcurrentColdOpensRunInParallel asserts that two cold
 // opens for distinct session IDs route through their own singleflight slot
-// and reach the runner concurrently. Before the singleflight refactor, a
-// global openMu serialised the cold-start path so the second call observed
-// the first's full StartChat latency; one slow docker pull stalled every
-// other cold open. With singleflight keyed on sessionID, two distinct
+// and reach the runner concurrently. Singleflight is keyed on sessionID, so
+// the second call does not wait behind the first's full StartChat latency and
+// one slow docker pull does not stall every other cold open: two distinct
 // sessions complete within ~one StartChat duration.
 func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 	release := make(chan struct{})
@@ -2632,9 +2631,9 @@ func TestClearContext_EndingSession(t *testing.T) {
 // TestMarkActive_OnSubscribe_NoDeadlock is a regression test for the
 // OnSubscribe → MarkActive → PublishSessionUpdate deadlock. SSEHub.Subscribe
 // holds the per-session lock (sh.mu) while invoking OnSubscribe. When the
-// session is warm-idle, MarkActive calls publishStatus which now runs the
+// session is warm-idle, MarkActive calls publishStatus, which runs
 // hub.PublishSessionUpdate in a separate goroutine to avoid re-entering
-// sh.mu on the same thread. Without the goroutine-publish fix, this test
+// sh.mu on the same thread. Without that separate goroutine, this test
 // would hang forever (deadlock) with:
 //
 //	hub.Subscribe → sh.mu.Lock → OnSubscribe → MarkActive →
@@ -3071,9 +3070,9 @@ func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
 }
 
 // TestHandleUsageEntry_NegativeDeltaRegression is a regression test ensuring
-// that a smaller frame following a larger one does not produce a negative delta.
-// Previously, treating frames as cumulative totals would subtract the previous
-// snapshot and produce negative increments when turn B < turn A.
+// that a smaller frame following a larger one does not produce a negative
+// delta. Frames are not treated as cumulative totals: doing so would subtract
+// the previous snapshot and produce negative increments when turn B < turn A.
 func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 	hub := chat.NewSSEHub(64)
 

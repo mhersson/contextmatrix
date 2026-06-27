@@ -347,8 +347,8 @@ type UsageBucket struct {
 ```
 
 `CacheReadTokens` and `CacheCreationTokens` are optional (`omitempty`); they are
-absent from the YAML/JSON when zero (i.e. on cards reported before this feature
-and on cards whose agents do not pass cache fields). `RecalculateCosts` handles
+absent from the YAML/JSON when zero (cards whose agents do not pass cache
+fields). `RecalculateCosts` handles
 absent values correctly — missing fields default to 0 and do not affect the
 recalculated cost.
 
@@ -384,8 +384,8 @@ actual-cost report stays `actual`.
 
 The cumulative `TokenUsage` (counters and `estimated_cost_usd`) is kept equal to
 the bucket sum for breakdown cards: each report increments both the matching
-bucket and the cumulative total. Legacy cards reported before this feature have
-no buckets; the dashboard falls back to `assigned_agent` for their agent rollup.
+bucket and the cumulative total. Cards with no `usage_breakdown` buckets fall
+back to `assigned_agent` for their agent rollup.
 
 ```go
 // internal/board/project.go
@@ -415,7 +415,7 @@ type ProjectConfig struct {
     DisplayName     string                 `yaml:"display_name,omitempty"     json:"display_name,omitempty"`
     Prefix          string                 `yaml:"prefix"                     json:"prefix"`
     NextID          int                    `yaml:"next_id"                    json:"next_id"`
-    Repo            string                 `yaml:"repo,omitempty"             json:"repo,omitempty"`     // legacy singular field; superseded by Repos
+    Repo            string                 `yaml:"repo,omitempty"             json:"repo,omitempty"`     // singular repo; Repos is the multi-repo form and takes precedence
     Repos           []Repo                 `yaml:"repos,omitempty"            json:"repos,omitempty"`    // multi-repo projects; one entry may be Primary
     States          []string               `yaml:"states"                     json:"states"`
     Types           []string               `yaml:"types"                      json:"types"`
@@ -431,7 +431,7 @@ type ProjectConfig struct {
 `ProjectConfig.EffectiveRepos()` normalises the two fields into a single
 `[]Repo`: when `Repos` is set the slice is returned with empty `Name` fields
 derived from `URL` and the first entry auto-promoted to `Primary` when no entry
-sets it; otherwise the legacy singular `Repo` field is synthesised as
+sets it; otherwise the singular `Repo` field is synthesised as
 `[]Repo{{URL: Repo, Primary: true}}`. Validation rejects duplicate names,
 missing URLs, or more than one `Primary: true` entry.
 
@@ -445,8 +445,8 @@ generation.
 `usage_breakdown`, `dependencies_met`.
 
 **Agent-managed field** — `phase`: the agent-orchestrator's progress within a run
-(`plan` | `execute` | `review` | `integrate` | `done`), orthogonal to `state`.
-Enum-validated; the empty string clears it and means "not agent-driven". Settable
+(`plan` | `execute` | `document` | `review` | `integrate` | `done`), orthogonal
+to `state`. Enum-validated; the empty string clears it and means "not agent-driven". Settable
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
@@ -670,10 +670,9 @@ dashboard chat-cost rollup.
 | `deleted_at`          | INTEGER | —       | Unix epoch when the session was deleted.      |
 
 Archive rows are retained indefinitely (each is ~80 bytes). There is no purge
-mechanism; add one as a future task if needed.
+mechanism.
 
 **`estimated_cost_usd` precision:** stored as SQLite `REAL` (IEEE 754
 double). The precision floor is approximately $0.0001 per frame; rounding
 drift accumulates over long sessions. Dashboards round to two decimal places
-for display. If sub-cent billing accuracy is ever required, migrate to
-integer cents.
+for display. Exact sub-cent billing requires integer cents rather than `REAL`.

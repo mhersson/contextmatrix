@@ -41,7 +41,7 @@ The suite covers integration concerns that unit tests can't:
 - HITL chat-loop wiring (chat message → worker stdin → response).
 - Global-chat REST surface end-to-end (`Chat` scenario): create / get / list /
   patch / delete against a live SQLite store, with the expected HTTP status
-  codes. Sending a message and reopen flow are not yet wired through the
+  codes. Sending a message and the reopen flow are not wired through the
   stub-worker — see comments in `testChatStub`.
 
 It does NOT cover real Claude reasoning, planning, skill engagement, or
@@ -50,8 +50,8 @@ integration level — see "Future work" below.
 
 ## Future work
 
-If we want behavioural signal from a real model, the cheapest first step is a
-single manually-triggered smoke test that asserts a card reaches `done` and the
+The cheapest first step toward behavioural signal from a real model is a single
+manually-triggered smoke test that asserts a card reaches `done` and the
 artifact compiles — no relaxed graders, no skill assertions. Not currently
 implemented.
 

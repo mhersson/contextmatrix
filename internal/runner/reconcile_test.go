@@ -16,10 +16,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// TestReconciliationSweep_TerminalCardKillsContainer is the core fix: the
+// TestReconciliationSweep_TerminalCardKillsContainer covers the case where the
 // runner reports a live container whose CM card is already `done`. The sweep
-// must kill it, regardless of the card's runner_status field (which we no
-// longer consult — that was the source of the old silent-skip bug).
+// must kill it, regardless of the card's runner_status field, which the sweep
+// does not consult — consulting it is the source of silent-skip bugs.
 func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 	ctx := t.Context()
 
@@ -28,8 +28,8 @@ func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 			ID:    "C-001",
 			State: "done",
 			// runner_status is deliberately set to "completed" — a value
-			// the OLD sweep would have silently skipped. The new sweep
-			// does not read this field.
+			// the sweep does not read. Gating on it would silently skip
+			// this container.
 			RunnerStatus:  "completed",
 			AssignedAgent: "",
 		},
@@ -457,11 +457,10 @@ func TestChatReconcileSweep_RunnerListErrorSkipsTick(t *testing.T) {
 }
 
 // TestReconciliationSweep_SingleContainersFetchPerTick is the regression guard
-// for the HMAC replay-cache 409 we hit in dev: card and chat sweeps were
-// firing simultaneously on two tickers, each calling /containers with the
-// same signed payload — the runner's replay cache rejected the second one
-// as "duplicate request". Both reconcilers must now share a single
-// ListContainers round-trip per tick.
+// against an HMAC replay-cache 409: card and chat sweeps firing simultaneously
+// on two tickers, each calling /containers with the same signed payload, make
+// the runner's replay cache reject the second as a "duplicate request". Both
+// reconcilers must share a single ListContainers round-trip per tick.
 func TestReconciliationSweep_SingleContainersFetchPerTick(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

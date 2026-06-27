@@ -184,14 +184,14 @@ func isExpectedEndSessionErr(err error) bool {
 // associated runner container should be terminated: the card is in a
 // terminal state (done / not_planned) AND the agent claim has been released.
 //
-// runner_status is deliberately NOT consulted. The older predicate gated on
-// runner_status ∈ {queued, running}, which silently hid every container
-// whose runner_status had drifted away from Docker reality (runner callbacks
-// flip the field before Docker cleanup actually succeeds). The reconcile
-// sweep now owns the ground-truth "is this container still running?"
-// question by asking the runner directly; the subscriber is a fast-path
-// accelerator that fires on release events and relies on the runner's
-// idempotent /kill to turn spurious calls into 200 no-ops.
+// runner_status is deliberately NOT consulted: it drifts away from Docker
+// reality because runner callbacks flip the field before Docker cleanup
+// actually succeeds, so gating on runner_status ∈ {queued, running} would
+// silently hide every container that is still alive. The reconcile sweep
+// owns the ground-truth "is this container still running?" question by
+// asking the runner directly; the subscriber is a fast-path accelerator
+// that fires on release events and relies on the runner's idempotent /kill
+// to turn spurious calls into 200 no-ops.
 //
 // See docs/remote-execution.md for the full rationale.
 func shouldEndSession(card *board.Card) bool {

@@ -360,7 +360,7 @@ func (c *Config) Validate() error {
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
-	// All git remote URLs must be HTTPS — SSH is no longer supported.
+	// All git remote URLs must be HTTPS — SSH is not supported.
 	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
 		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
 	}

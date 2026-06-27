@@ -447,7 +447,7 @@ func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
 
 	// Set parent via direct storage update before transitioning to stalled,
 	// so the parent field is in place. The state transition itself goes through
-	// PatchCard (in_progress → stalled is now in the test project's transitions).
+	// PatchCard (in_progress → stalled is in the test project's transitions).
 	s2card, err := svc.GetCard(ctx, project, sub2.ID)
 	require.NoError(t, err)
 
@@ -971,10 +971,10 @@ func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministic
 	assert.Equal(t, "review", got)
 }
 
-// TestGetChatCostSummary_DeletePreservesCost guards the invariant introduced by
-// CTXMAX-604: after Manager.DeleteSession, the deleted session's estimated cost
-// must still appear in GetChatCostSummary because DeleteSession archives the
-// cost columns into chat_cost_archive and AggregateCost UNIONs both tables.
+// TestGetChatCostSummary_DeletePreservesCost guards the invariant that after
+// Manager.DeleteSession, the deleted session's estimated cost still appears in
+// GetChatCostSummary because DeleteSession archives the cost columns into
+// chat_cost_archive and AggregateCost UNIONs both tables.
 func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	ctx := context.Background()
 
@@ -1016,7 +1016,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 1.50, baseline, 1e-9, "baseline last30d must include the seeded session cost")
 
-	// Delete the session — CTXMAX-604 archives cost into chat_cost_archive.
+	// Delete the session — DeleteSession archives cost into chat_cost_archive.
 	require.NoError(t, mgr.DeleteSession(ctx, sessID))
 
 	// Build a fresh manager on the same store to bypass the 30s costCache TTL.

@@ -8,13 +8,13 @@ import (
 )
 
 // csrfTestTransport wraps an http.RoundTripper so test requests automatically
-// include the X-Requested-With header that csrfGuard now requires on every
+// include the X-Requested-With header that csrfGuard requires on every
 // mutation, and the X-Agent-ID header derived from any JSON body that carries
 // an agent_id field. Existing tests POST agent_id in the body and never set
-// the header — after the body-fallback for agent identity was removed they
-// would all 400 unless the test transport copies the field up. Tests that
-// explicitly exercise the CSRF guard or the missing-header behavior build
-// their own *http.Client without this transport.
+// the header — without a body-fallback for agent identity they would all 400
+// unless the test transport copies the field up. Tests that explicitly
+// exercise the CSRF guard or the missing-header behavior build their own
+// *http.Client without this transport.
 type csrfTestTransport struct{ base http.RoundTripper }
 
 func (t *csrfTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {

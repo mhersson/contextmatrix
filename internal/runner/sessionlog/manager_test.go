@@ -656,9 +656,6 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 //   - Exact set equality: received Seqs == {1..1000} (no gaps, not just matching totals).
 //   - No duplicate Seq values.
 //   - Received events are in non-decreasing Seq order.
-//
-// On current main this test fails reporting missing tail events (roughly
-// Seq 257..1000 depending on timing). Subtask 2 (CTXMAX-305) will make it pass.
 func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 	const (
 		cardID      = "TAIL-001"
@@ -2183,12 +2180,11 @@ func TestSignSSERequestBindsPath(t *testing.T) {
 		"signSSERequest must hash over the path arg; same key, different paths must differ")
 }
 
-// TestSSESignatureBindsFullURI is the integration-style regression
-// for the round-2 fix that changed `signSSERequest(key, "/logs")` to
-// `signSSERequest(key, req.URL.RequestURI())` at both project and
-// per-card call sites. A reverting refactor that drops the query
-// string from the signed payload causes the HMAC verification on the
-// server side to fail; this test fails closed in that case.
+// TestSSESignatureBindsFullURI is an integration-style regression test that
+// signSSERequest signs over req.URL.RequestURI() — the full URI including the
+// query string — at both project and per-card call sites. Dropping the query
+// string from the signed payload causes the HMAC verification on the server
+// side to fail; this test fails closed in that case.
 func TestSSESignatureBindsFullURI(t *testing.T) {
 	const apiKey = "harness-key"
 

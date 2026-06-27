@@ -12,12 +12,9 @@
 #   $XDG_CONFIG_HOME/contextmatrix     if XDG_CONFIG_HOME is set
 #   ~/.config/contextmatrix            otherwise
 #
-# Migration note (post-rename, 2026-04-25): the workflow-skills directory was
-# previously installed as <config-dir>/skills/ and selected via the --update-skills
-# flag. Existing installs should:
-#   1. mv <config-dir>/skills <config-dir>/workflow-skills
-#   2. Update config.yaml: skills_dir → workflow_skills_dir
-#   3. Update any env var: CONTEXTMATRIX_SKILLS_DIR → CONTEXTMATRIX_WORKFLOW_SKILLS_DIR
+# Workflow skills install to <config-dir>/workflow-skills/ (config key
+# workflow_skills_dir; env CONTEXTMATRIX_WORKFLOW_SKILLS_DIR) and refresh with
+# --update-workflow-skills.
 
 set -euo pipefail
 

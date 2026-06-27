@@ -67,7 +67,7 @@ func TestPermissionPrompt_AskUserQuestion_RedirectsToPlainText(t *testing.T) {
 	handler := buildPermissionPromptHandler()
 
 	// AskUserQuestion is denied everywhere with a plain-text redirect. The
-	// runner no longer renders it as a clickable card, so the model must ask
+	// runner does not render it as a clickable card, so the model must ask
 	// its question as an ordinary message instead — the deny message must say
 	// so and must not reference clickable cards or waiting.
 	result, _, err := handler(context.Background(), nil, permissionPromptInput{

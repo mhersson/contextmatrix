@@ -36,6 +36,7 @@ POST   /api/projects/{project}/cards/{id}/promote     # promote interactive sess
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
 POST   /api/runner/status                              # backend callback at derived /api/<name>/status; per-backend HMAC key
 POST   /api/runner/skill-engaged                       # skill-engaged callback at derived /api/<name>/... (HMAC-signed; task-backend required)
+GET    /api/runner/task-skills-source                  # agent task-skills {git_remote_url, ref} pointer at derived /api/<name>/... (HMAC-signed; task-backend required)
 GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached; fixed path)
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; task-backend required)
@@ -88,8 +89,8 @@ is also used to gate human-only fields and human-only endpoints (`/run`,
 `/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
 value beginning with `human:`. Read endpoints, project CRUD,
 sync, branches, app config, task-skills, healthz, and readyz do not require the
-header. Request bodies on agent endpoints no longer carry an `agent_id` field —
-it is silently ignored if present.
+header. Request bodies on agent endpoints do not carry an `agent_id` field; it
+is silently ignored if present.
 
 **Identity is a tag, not auth.** ContextMatrix is single-tenant and has no auth
 layer below `X-Agent-ID`; spoofing it accomplishes nothing because there is no
@@ -398,7 +399,7 @@ to apply.
 frontend sets `data-palette` on `<html>` to match the theme value;
 `"everforest"` removes the attribute (it is the default CSS block). `version` is
 the build version string the binary was compiled with; it is always present and
-may be empty when the binary is built without the version ldflag. `task_backend`
+is empty when the binary is built without the version ldflag. `task_backend`
 is the active task-backend name (`"runner"`, `"agent"`, or `""` when none is
 configured). `favorites` maps each tier to its operator-configured preferred
 model slugs (the leaderboard "favorites as pin presets" surface); the field is
@@ -708,9 +709,8 @@ preceding 7-day window (used by the UI to render a week-over-week delta).
 covers the preceding 30-day window (days 30–60 ago), used by the UI to render
 a period-over-period delta on the "Cost · 30d" tile. `cost_series_30d` is a
 30-element daily bucket array (oldest first, today last) bucketed by `updated`
-day; each card's cumulative cost is attributed to its last-touch day. All three
-fields may be absent on older servers — treat a missing value as `0`. The
-all-time `total_cost_usd` field is unchanged.
+day; each card's cumulative cost is attributed to its last-touch day. The
+server always emits all three fields, alongside the all-time `total_cost_usd`.
 
 `chat_cost_usd_last_30d`, `chat_cost_usd_prior_30d`, and `chat_cost_series_30d`
 are **server-wide** aggregates (not per-project) that ride on the per-project
@@ -723,8 +723,8 @@ All Projects view fans out one request per project), all responses within the sa
 30-second window return identical chat-cost values. Frontend aggregation picks the
 **first response with a numeric `chat_cost_usd_last_30d`** (i.e. `typeof ... ===
 'number'`) — not the first non-zero value — so a genuinely-zero last30d with
-non-zero prior30d still propagates correctly. All three fields are omitted on
-older servers; treat a missing value as `0`.
+non-zero prior30d still propagates correctly. `chat_cost_series_30d` is omitted
+when empty; treat a missing value as `0`.
 
 `metric_series` is an 8-sample daily window (oldest first, today last) for
 each tile on the board's metrics ribbon. Each slice always has exactly 8
@@ -1061,6 +1061,20 @@ card's autonomous flag during `/promote` before writing the canned stdin
 message. Only registered when a task backend is configured. No other card
 fields are exposed on this path.
 
+### GET /api/<name>/task-skills-source
+
+Backend-callback endpoint at the derived path (`/api/runner/task-skills-source`
+or `/api/agent/task-skills-source`). Authenticated with HMAC-SHA256 over an
+empty body (`X-Signature-256` + `X-Webhook-Timestamp`, signed with the task
+backend's `api_key`), the same scheme as `/autonomous`. Returns the task-skills
+repo pointer the agent backend clones for itself:
+
+```json
+{ "git_remote_url": "https://github.com/org/task-skills.git", "ref": "main" }
+```
+
+Only registered when a task backend is configured.
+
 ## Chat Endpoints
 
 Project-agnostic chat sessions that share the runner's worker image but use
@@ -1335,7 +1349,7 @@ kinds share the wire:
   | `completion_tokens`          | int64     | New cumulative completion-token total. Omitted when zero.                    |
   | `cache_read_tokens`          | int64     | New cumulative cache-read-token total. Omitted when zero.                    |
   | `cache_creation_tokens`      | int64     | New cumulative cache-creation-token total. Omitted when zero.                |
-  | `estimated_cost_usd`         | float64   | New running cost total in USD after this frame. Omitted when zero. Matches the value now persisted on the session row. |
+  | `estimated_cost_usd`         | float64   | New running cost total in USD after this frame. Omitted when zero. Matches the value persisted on the session row. |
 
   **`ChatStatus` values:**
 
@@ -1344,7 +1358,7 @@ kinds share the wire:
   | `cold`      | Session is idle; no runner container. Starting state and the state after `EndSession`.               |
   | `active`    | Runner container is running and a browser subscriber is present.                                     |
   | `warm-idle` | Container still running but no browser subscriber (grace window). Reverts to `active` on resubscribe. |
-  | `ending`    | Reserved; not emitted in the current implementation.                                                 |
+  | `ending`    | Transient teardown state; not emitted as an SSE `status`.                                                 |
 
   **Lifecycle transitions that emit a `status` field:**
   - `cold → active` via `OpenSession` (POST `/open`)

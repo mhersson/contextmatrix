@@ -18,13 +18,12 @@ import (
 // `claude --permission-prompt-tool mcp__contextmatrix__permission_prompt`
 // invocation in docker/entrypoint.sh.
 //
-// Phase 1: always denies. AskUserQuestion gets a plain-text redirect — the
-// runner no longer renders it as a clickable card, so the model is told to
+// This gate denies every tool call. AskUserQuestion gets a plain-text redirect —
+// the runner does not render it as a clickable card, so the model is told to
 // ask its question as an ordinary message (with options listed inline)
 // instead. Every other tool that reaches this gate gets a generic deny.
 // Without this gate Claude Code auto-denies in headless mode with no message,
-// and the model has been observed to silently make decisions the operator
-// never sees.
+// and the model silently makes decisions the operator never sees.
 type permissionPromptInput struct {
 	ToolName  string         `json:"tool_name" jsonschema:"required,name of the tool the agent is requesting permission for"`
 	Input     map[string]any `json:"input" jsonschema:"input the agent passed to the tool"`

@@ -249,12 +249,12 @@ describe('useImageUpload', () => {
   });
 
   it('still uploads after StrictMode dual-effect runs (controller re-created in effect)', async () => {
-    // Regression: previously the AbortController was constructed at `useRef`
-    // init. In dev StrictMode the first cleanup nulled the ref and the
-    // second setup didn't re-create it, so every subsequent upload short-
-    // circuited at the `if (!controller) return` guard. Wrapping renderHook
-    // in <React.StrictMode> reproduces the dual-effect; the upload must
-    // still go through.
+    // Regression guard: the AbortController must not be constructed at
+    // `useRef` init. In dev StrictMode the first cleanup nulls the ref and
+    // the second setup doesn't re-create it, so every subsequent upload
+    // short-circuits at the `if (!controller) return` guard. Wrapping
+    // renderHook in <React.StrictMode> reproduces the dual-effect; the
+    // upload must still go through.
     uploadMock.mockResolvedValueOnce({ id: 'strict0000000000', url: '/api/images/strict0000000000' });
     const onInsert = vi.fn();
     const { result } = renderHook(() => useImageUpload(onInsert), {

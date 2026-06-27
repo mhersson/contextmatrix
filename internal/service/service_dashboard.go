@@ -61,9 +61,9 @@ type CardCost struct {
 // MetricSeries holds an 8-sample daily window (oldest first, today last) for
 // each tile on the board's metrics ribbon. Shipped is bucketed by Updated
 // across cards in the done state. The other three are reconstructed by
-// walking each card's state_changed activity-log entries — accurate going
-// forward from when state-change logging was introduced; for older cards
-// without state-change entries the sparkline falls back to the card's
+// walking each card's state_changed activity-log entries — accurate for cards
+// that have state-change entries; for older cards without state-change entries
+// the sparkline falls back to the card's
 // current state. ActiveAgents counts cards where the reconstructed state
 // is in_progress/review and the card currently has an assigned agent
 // (claim history isn't tracked, so per-day agent presence is approximate).
@@ -684,13 +684,13 @@ func extractStateChanges(card *board.Card) ([]stateChange, string) {
 
 // stateAtTimeFromChanges returns the card's state at instant t given a
 // pre-sorted (ascending by ts) slice of stateChange and the baseline state.
-// Semantics mirror the original stateAtTime:
+// Semantics:
 //
 //  1. Latest change whose ts <= t exists  → use that change's `to`.
 //  2. All known changes have ts > t       → use `baseline` (the `from`
 //     of the oldest recorded transition).
 //  3. No state_changed entries at all     → fall back to card.State
-//     (legacy data before the state-change log existed).
+//     (legacy data with no state-change log entries).
 //
 // O(log N) via binary search on the sorted slice.
 func stateAtTimeFromChanges(card *board.Card, changes []stateChange, baseline string, t time.Time) string {

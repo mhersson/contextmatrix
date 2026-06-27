@@ -5709,8 +5709,8 @@ func TestUpdateCard_VettedField(t *testing.T) {
 		// A PUT that passes Vetted=false (zero value or explicit) on such a
 		// card cannot un-vet it. This protects against callers that build
 		// UpdateCardInput from the request body without copying the existing
-		// Vetted state — for example, the depends_on follow-up inside the
-		// MCP create_card path used to silently strip the auto-vetted flag.
+		// Vetted state — for example, a depends_on follow-up inside the
+		// MCP create_card path that does not copy the auto-vetted flag.
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 

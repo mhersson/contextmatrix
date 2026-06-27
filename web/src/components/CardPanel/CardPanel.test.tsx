@@ -552,7 +552,7 @@ describe('CardPanel — mobile layout (≤ 768px)', () => {
     const cardTab = screen.getByRole('tab', { name: 'Card' });
     expect(cardTab).toBeInTheDocument();
     expect(cardTab).toHaveAttribute('aria-selected', 'true');
-    // Automation is no longer the default on mobile.
+    // On mobile, Card is the default tab, not Automation.
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'false');
   });
 

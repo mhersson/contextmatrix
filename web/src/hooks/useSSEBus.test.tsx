@@ -204,10 +204,11 @@ describe('pattern filtering', () => {
   });
 
   it('does not collide an exact-match "card" subscription with the "card.*" prefix bucket', () => {
-    // Regression: bucket keys were previously the raw prefix string ('card'),
-    // so a literal exact subscription to 'card' (no dot) would share its
-    // bucket with the 'card.*' prefix subscription and receive every card.X
-    // event. Sigil-prefixed buckets ('p:card' vs 'e:card') keep them apart.
+    // Regression guard: a literal exact subscription to 'card' (no dot) must
+    // not collide with the 'card.*' prefix subscription. With raw prefix
+    // strings as bucket keys they would share a bucket, so the exact sub
+    // would receive every card.X event. Sigil-prefixed buckets ('p:card' vs
+    // 'e:card') keep them apart.
     const exactReceived: BoardEvent[] = [];
     const prefixReceived: BoardEvent[] = [];
 

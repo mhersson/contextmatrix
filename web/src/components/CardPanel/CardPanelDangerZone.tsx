@@ -20,8 +20,8 @@ interface DangerZoneTabProps {
  * Currently lists:
  *   1. Delete card — enabled only when state ∈ {todo, not_planned} AND no
  *      runner attached.
- *   2. Force-release agent claim — placeholder, always disabled until the
- *      backend exposes the operation.
+ *   2. Force-release agent claim — always disabled; the backend does not
+ *      expose the operation.
  */
 export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDelete }: DangerZoneTabProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);

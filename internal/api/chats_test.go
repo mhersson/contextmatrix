@@ -298,10 +298,10 @@ func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
 }
 
 // TestStreamChat_UnknownSession_404 verifies that GET .../stream against a
-// session that does not exist returns 404 without creating a hub entry. The
-// SSE hub used to lazily create a per-session ring buffer on first reference,
-// so any GET against an unknown id would grow perSess permanently. The
-// handler must validate the session exists before subscribing.
+// session that does not exist returns 404 without creating a hub entry.
+// Without the existence check, subscribing would lazily create a per-session
+// ring buffer and any GET against an unknown id would grow perSess
+// permanently, so the handler validates the session exists before subscribing.
 func TestStreamChat_UnknownSession_404(t *testing.T) {
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
 

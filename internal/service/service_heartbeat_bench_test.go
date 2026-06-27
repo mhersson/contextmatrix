@@ -50,9 +50,9 @@ func BenchmarkHeartbeat_Sequential(b *testing.B) {
 
 // BenchmarkHeartbeat_ConcurrentDistinctCards hammers 20 distinct cards in
 // a single project. Because the queue uses one worker per project, commits
-// still serialize — but writeMu is no longer held during the go-git call,
-// so store writes in N goroutines can progress in parallel up to the
-// enqueue boundary.
+// still serialize — but writeMu is not held during the go-git call, so
+// store writes in N goroutines can progress in parallel up to the enqueue
+// boundary.
 func BenchmarkHeartbeat_ConcurrentDistinctCards(b *testing.B) {
 	svc, _, _ := benchSetupService(b)
 

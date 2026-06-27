@@ -66,7 +66,7 @@ func wireRunnerSubsystems(
 	}
 
 	// --- session-log manager (always constructed; Subscribe is a no-op when disabled) ---
-	// taskCfg is the zero value when disabled — same as the empty legacy URL.
+	// taskCfg is the zero value when disabled — an empty URL.
 	sys.SessionLog = sessionlog.NewManager(
 		sessionlog.WithRunnerConfig(taskCfg.URL, taskCfg.APIKey),
 		sessionlog.WithMaxSessions(64),
