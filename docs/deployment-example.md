@@ -125,7 +125,10 @@ on a volume if you want this state to survive container restarts. Chat tunables 
 `chat.idle_ttl`, `chat.max_concurrent`, `chat.default_model`,
 `chat.resume_budget_tokens`, `chat.rehydration_timeout`, and the `chat.models`
 allowlist — all have working defaults; see `config.yaml.example` for the full
-list.
+list. Note `chat.default_model` / `chat.models` apply only when the **runner**
+serves chat; when the dedicated **chat** backend (contextmatrix-chat, OpenRouter)
+serves chat, the picker uses the live OpenRouter catalog and the default comes
+from `backends.chat.default_model` (required when that backend is enabled).
 
 ## Running on Kubernetes
 

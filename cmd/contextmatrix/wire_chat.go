@@ -26,12 +26,22 @@ func wireChat(
 ) (*chat.Manager, *chat.SSEHub, func()) {
 	var chatBackend chat.Backend
 
+	// chatDefaultModel is the cold-open fallback used when a session row has an
+	// empty model. The runner path keeps the native chat.default_model; the
+	// dedicated chat backend (contextmatrix-chat, OpenRouter) overrides it with
+	// its OpenRouter slug so the fallback is never a native Anthropic slug.
+	chatDefaultModel := cfg.Chat.DefaultModel
+
 	if entry, ok := cfg.ChatBackendConfig(); ok {
 		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{
 			BaseURL:   entry.URL,
 			HMACKey:   entry.APIKey,
 			MCPAPIKey: cfg.MCPAPIKey,
 		})
+
+		if entry.Name == config.BackendNameChat {
+			chatDefaultModel = entry.DefaultModel
+		}
 	} else {
 		// Nil backend causes nil-pointer panics at call sites. Use a no-op
 		// stub that errors on every operation — chat features require a
@@ -55,7 +65,7 @@ func wireChat(
 		Hub:                chatHub,
 		ResumeBudgetTokens: cfg.Chat.ResumeBudgetTokens,
 		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
-		DefaultModel:       cfg.Chat.DefaultModel,
+		DefaultModel:       chatDefaultModel,
 		PrimerPath:         primerPath,
 		Pricer:             svc,
 		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {

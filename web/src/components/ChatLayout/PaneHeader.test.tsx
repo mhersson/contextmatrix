@@ -10,7 +10,10 @@ vi.mock('../../utils/chatModels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/chatModels')>();
   return {
     ...actual,
-    useChatModels: () => [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
+    useChatModels: () => ({
+      models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
+      source: 'config' as const,
+    }),
   };
 });
 

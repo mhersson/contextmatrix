@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
+import { useOpenRouterContextLengths } from '../../hooks/useOpenRouterModels';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
 import {
   PANE_SOURCE_MIME,
@@ -200,12 +201,17 @@ export function PaneHeader({
  */
 function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackModel?: string }) {
   const live = useChatLiveData(chatId);
-  const models = useChatModels();
+  const { models, source } = useChatModels();
+  // OpenRouter mode has no config allowlist; the chat header sizes the context
+  // window from the live OpenRouter catalog instead. Fetch is deferred to that
+  // mode only.
+  const orContextLengths = useOpenRouterContextLengths(source === 'openrouter');
   const modelId = live?.model ?? fallbackModel;
   if (!modelId) return null;
   const m = models.find((x) => x.id === modelId);
   const label = m?.label ?? modelId;
-  const max = modelMaxTokens(models, modelId);
+  const max =
+    source === 'openrouter' ? (orContextLengths[modelId] ?? 0) : modelMaxTokens(models, modelId);
   const tokens = live?.contextTokens ?? 0;
   const pct = contextPct(tokens, max);
 

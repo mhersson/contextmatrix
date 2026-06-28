@@ -2,37 +2,51 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChatModel } from '../types';
 
+export type ChatModelSource = 'config' | 'openrouter';
+
+export interface ChatModelsResult {
+  models: ChatModel[];
+  // source mirrors GET /api/chats/models: 'config' (runner serves chat → the
+  // allowlist drives the picker and the context-window denominator) or
+  // 'openrouter' (dedicated chat backend → models is empty; consumers fall back
+  // to the live OpenRouter catalog for context windows).
+  source: ChatModelSource;
+}
+
 // Module-scope cache so a single GET /api/chats/models response is reused by
 // every component that needs the model list (PaneHeader, etc).
-const cache: { promise?: Promise<ChatModel[]>; models?: ChatModel[] } = {};
+const cache: { promise?: Promise<ChatModelsResult>; result?: ChatModelsResult } = {};
 
-export function loadChatModels(): Promise<ChatModel[]> {
-  if (cache.models) return Promise.resolve(cache.models);
+export function loadChatModels(): Promise<ChatModelsResult> {
+  if (cache.result) return Promise.resolve(cache.result);
   if (cache.promise) return cache.promise;
   cache.promise = api
     .listChatModels()
     .then((resp) => {
-      cache.models = resp.models;
-      return resp.models;
+      const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'config' };
+      cache.result = result;
+      return result;
     })
-    .catch(() => []);
+    .catch((): ChatModelsResult => ({ models: [], source: 'config' }));
   return cache.promise;
 }
 
-export function useChatModels(): ChatModel[] {
-  const [models, setModels] = useState<ChatModel[]>(cache.models ?? []);
+export function useChatModels(): ChatModelsResult {
+  const [result, setResult] = useState<ChatModelsResult>(
+    cache.result ?? { models: [], source: 'config' },
+  );
   useEffect(() => {
-    if (cache.models) return;
+    if (cache.result) return;
     let cancelled = false;
-    void loadChatModels().then((list) => {
+    void loadChatModels().then((r) => {
       if (cancelled) return;
-      setModels(list);
+      setResult(r);
     });
     return () => {
       cancelled = true;
     };
   }, []);
-  return models;
+  return result;
 }
 
 export function modelMaxTokens(models: ChatModel[], modelId?: string): number {
