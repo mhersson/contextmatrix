@@ -121,6 +121,10 @@ type RouterConfig struct {
 	ChatManager            *chat.Manager       // optional; enables /api/chats routes
 	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
 	ChatConfig             *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
+	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
+	// authenticates GET /api/chat/task-skills-source (the chat service's
+	// pointer fetch). Zero value when no dedicated chat backend is configured.
+	ChatBackendCfg config.BackendConfig
 	// ImageStore is required in production — main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
 	// not exercise /api/images may omit it; the routes are then unregistered
@@ -281,6 +285,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 		mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
+	}
+
+	// Chat backend callback (HMAC-signed): the dedicated chat service fetches the
+	// task-skills git pointer and clones it itself, mirroring the agent. Registered
+	// only when a dedicated chat backend key is configured. When the runner serves
+	// chat instead (ChatBackendConfig precedence: runner → chat), the chat resolver
+	// uses the runner's own /api/runner/task-skills-source, so no /api/chat route is
+	// needed here.
+	if cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" {
+		cbh := &chatBackendHandlers{
+			apiKey:                 cfg.ChatBackendCfg.APIKey,
+			replayCache:            runner.NewSignatureCache(),
+			taskSkillsDir:          cfg.TaskSkillsDir,
+			taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
+		}
+		mux.HandleFunc("GET "+cfg.ChatBackendCfg.CallbackPath()+"/task-skills-source", cbh.getTaskSkillsSource)
 	}
 
 	// bodyLimitOverrides maps a registered mux pattern (e.g.

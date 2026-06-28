@@ -616,3 +616,117 @@ func TestGetTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
 }
+
+// testChatBackendAPIKey is the dedicated chat backend HMAC key used by the chat
+// task-skills-source endpoint tests. Distinct from testRunnerAPIKey so a
+// wrong-key request proves the endpoint verifies with the chat key, not the
+// runner's.
+const testChatBackendAPIKey = "chat-backend-test-key-0123456789abcdef"
+
+// setupChatTaskSkillsSourceEndpoint mounts the chat backend's task-skills-source
+// route, authenticated by the dedicated chat backend key. No Runner is wired —
+// the chat callback is independent of the active task backend.
+func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+
+	router := NewRouter(RouterConfig{
+		Service:        svc,
+		Bus:            bus,
+		ChatBackendCfg: config.BackendConfig{APIKey: testChatBackendAPIKey, Name: config.BackendNameChat},
+	})
+
+	server := httptest.NewServer(router)
+
+	return server, func() {
+		server.Close()
+		cleanup()
+	}
+}
+
+func TestGetChatTaskSkillsSource_HMAC_Valid(t *testing.T) {
+	server, cleanup := setupChatTaskSkillsSourceEndpoint(t)
+	defer cleanup()
+
+	path := "/api/chat/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testChatBackendAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body taskSkillsSourceResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	// dir and fallback are both empty in this fixture — both fields are empty.
+	assert.Empty(t, body.GitRemoteURL)
+	assert.Empty(t, body.Ref)
+}
+
+func TestGetChatTaskSkillsSource_HMAC_WrongKey(t *testing.T) {
+	server, cleanup := setupChatTaskSkillsSourceEndpoint(t)
+	defer cleanup()
+
+	path := "/api/chat/task-skills-source"
+	// Sign with a different key than the configured chat backend key.
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestGetChatTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
+	server, cleanup := setupChatTaskSkillsSourceEndpoint(t)
+	defer cleanup()
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/chat/task-skills-source", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestChatTaskSkillsSource_NotRegisteredWithoutBackend verifies the route is
+// absent when no dedicated chat backend key is configured (the runner-served-
+// chat case uses /api/runner/task-skills-source instead).
+func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	path := "/api/chat/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testChatBackendAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
