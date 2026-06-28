@@ -125,8 +125,10 @@ Open `http://localhost:8080` for the web UI.
 ## Creating a Board
 
 Each project lives in a subdirectory of the boards repo with a `.board.yaml`.
-You can create projects via the `/contextmatrix:init-project` slash command in
-Claude Code, the API (`POST /api/projects`), or manually:
+The easiest way to create one is the **New Project** button in the web UI
+sidebar, which opens a guided wizard. You can also use the
+`/contextmatrix:init-project` slash command in Claude Code, the API
+(`POST /api/projects`), or create the files manually:
 
 ```bash
 mkdir -p ~/boards/contextmatrix/my-project/tasks
@@ -572,14 +574,6 @@ Every field has a `CONTEXTMATRIX_*` environment override (e.g.
 auth, chat limits, image storage, and the operational store (`op_store.db_path`,
 which holds chat transcripts and the model blacklist) are all documented in
 `config.yaml.example`.
-
-> [!IMPORTANT]
->
-> Backend configuration lives in the `backends:` map (`backends.runner` /
-> `CONTEXTMATRIX_BACKEND_RUNNER_*`). The server **refuses to start** if any
-> legacy top-level `CONTEXTMATRIX_RUNNER_*` variable is set, and the error names
-> the `CONTEXTMATRIX_BACKEND_RUNNER_*` replacement. Backends are read once at
-> startup — restart to change them.
 
 ## GitHub Authentication
 
