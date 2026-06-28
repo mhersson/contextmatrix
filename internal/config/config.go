@@ -621,10 +621,6 @@ func FindConfigPath() string {
 func Load(path string) (*Config, error) {
 	cfg := defaults()
 
-	if err := checkLegacyEnv(); err != nil {
-		return nil, err
-	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -659,10 +655,6 @@ func Load(path string) (*Config, error) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(cfg); err != nil {
-		if strings.Contains(err.Error(), "field runner not found") {
-			return nil, fmt.Errorf("parse config: %w — the runner block was replaced by the backends map: move url/api_key into backends.runner (enabled defaults to true; nothing else required)", err)
-		}
-
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -1121,46 +1113,6 @@ func checkBackendEnvKeys() error {
 				key,
 				strings.Join(allowedBackendNames, ", "),
 				strings.Join(backendEnvSuffixes, ", "))
-		}
-	}
-
-	return nil
-}
-
-// legacyRunnerEnvVars are the pre-backends env overrides. They configure
-// nothing anymore; failing loudly beats a silently half-configured deploy.
-var legacyRunnerEnvVars = []string{
-	"CONTEXTMATRIX_RUNNER_ENABLED",
-	"CONTEXTMATRIX_RUNNER_URL",
-	"CONTEXTMATRIX_RUNNER_API_KEY",
-	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL",
-	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL",
-	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL",
-}
-
-// legacyRunnerEnvMigration maps each retired var to its replacement name.
-var legacyRunnerEnvMigration = map[string]string{
-	"CONTEXTMATRIX_RUNNER_URL":                       "CONTEXTMATRIX_BACKEND_RUNNER_URL",
-	"CONTEXTMATRIX_RUNNER_API_KEY":                   "CONTEXTMATRIX_BACKEND_RUNNER_API_KEY",
-	"CONTEXTMATRIX_RUNNER_ENABLED":                   "CONTEXTMATRIX_BACKEND_RUNNER_ENABLED",
-	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_SONNET_MODEL": "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL",
-	"CONTEXTMATRIX_RUNNER_ORCHESTRATOR_OPUS_MODEL":   "CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL",
-	"CONTEXTMATRIX_RUNNER_RECONCILE_INTERVAL":        "CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL",
-}
-
-// checkLegacyEnv rejects retired CONTEXTMATRIX_RUNNER_* variables with a
-// migration pointer.
-func checkLegacyEnv() error {
-	for _, name := range legacyRunnerEnvVars {
-		if os.Getenv(name) != "" {
-			msg := fmt.Sprintf("%s is no longer supported: runner config moved to the backends map", name)
-			if replacement, ok := legacyRunnerEnvMigration[name]; ok {
-				msg += fmt.Sprintf(" — rename to %s", replacement)
-			} else {
-				msg += " (see config.yaml.example)"
-			}
-
-			return fmt.Errorf("%s", msg) //nolint:err113
 		}
 	}
 
