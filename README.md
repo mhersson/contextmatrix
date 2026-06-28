@@ -10,49 +10,74 @@ files with YAML frontmatter, stored in a git repository. Every mutation is
 auto-committed, giving you a full audit trail.
 
 ContextMatrix is a coordination layer — it tracks tasks but never touches your
-project code repositories. Claude Code agents claim tasks, execute them in their
-own repos, and report progress back through the board.
+project code repositories. Agents claim cards, execute them in their own repos,
+and report progress back through the board. It is the hub of a small ecosystem:
+ContextMatrix holds the board and dispatches work to pluggable execution
+backends that do the actual coding inside sandboxed containers.
 
 ![contextmatrix-kanban-console](assets/contextmatrix-dogfooding-demo.png)
+
+## The ContextMatrix ecosystem
+
+ContextMatrix is the hub. It dispatches work to interchangeable backends over
+HMAC-signed webhooks, and every backend reports back through the same MCP
+interface. You only need this repo to get started — add a backend when you want
+remote, unattended, or chat execution.
+
+| Repository                                                                 | Role                                                                                                                                                              |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo) | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                  |
+| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | Default all-in-one backend. Runs cards by spawning disposable Docker containers running **Claude Code** headless, and serves the global chat surface.            |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Alternative task backend — a custom Go harness on **OpenRouter** with per-role model selection, at v1 parity with the runner. Executes cards only.               |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent. _Unreleased; under heavy development._         |
+
+Pick one of two backend topologies: the **runner alone** (handles tasks *and*
+chat), or the **agent + chat** pair (agent runs cards, chat serves chat). The
+runner is mutually exclusive with the agent and chat backends.
+
+Three shared Go modules underpin the services:
+**[contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)**
+(the webhook protocol),
+**[contextmatrix-githubauth](https://github.com/mhersson/contextmatrix-githubauth)**
+(GitHub App/PAT authentication), and
+**[contextmatrix-harness](https://github.com/mhersson/contextmatrix-harness)**
+(the interactive agent loop shared by the agent and chat backends).
 
 ## Features
 
 - **Kanban web UI** — drag-and-drop columns, real-time SSE updates, collapsible
-  columns and cards, filter bar, and an Everforest dark/light theme.
+  columns and cards, a filter bar, and light/dark theming with selectable color
+  palettes.
 - **Markdown-native cards** — plain files with YAML frontmatter, human-readable
   and diffable. No database required.
-- **Image attachments** — paste from the clipboard or drag-and-drop screenshots
-  straight into a card description. Uploads are resized server-side (max
-  1024×768, 10 MiB), content-hashed for deduplication, and rendered inline.
-  Agents see them automatically: `get_card` and `get_task_context` extract
-  embedded images and attach them as base64 in the MCP response.
 - **Git audit trail** — every card mutation is auto-committed. Optional deferred
   batching groups an agent's entire work session into a single commit.
+- **MCP-first agent interface** — 28 MCP tools and 3 slash commands give agents
+  structured access to the board. Agents work through MCP, never the REST API.
+- **Pluggable execution backends** — trigger work from the UI and a backend runs
+  it in a sandboxed Docker container: the **runner** (Claude Code headless) or
+  the **agent** (a Go harness on OpenRouter). Swap them with one config change.
+- **Autonomous & HITL execution** — `autonomous: true` cards run the full
+  plan → execute → document → review lifecycle with no gates; Human-in-the-Loop
+  mode opens a per-card chat pane to approve or redirect the agent, with
+  one-click promotion to autonomous. The `simple` label triggers a fast path
+  that skips planning and review.
+- **Global chat surface** — a `/chat` route hosts long-lived, board-aware chat
+  sessions independent of any card. Up to 4 are tiled in a resizable layout,
+  persisted across reloads.
+- **Image attachments** — paste from the clipboard or drag-and-drop screenshots
+  into a card description. Uploads are resized server-side, content-hashed for
+  deduplication, and surfaced to agents as base64 via MCP (`get_card`,
+  `get_task_context`).
 - **AI agent coordination** — exclusive card claims, heartbeat monitoring,
-  automatic stall detection, and dependency enforcement keep parallel agents
+  automatic stall detection, and `depends_on` enforcement keep parallel agents
   from stepping on each other.
-- **MCP-first interface** — 28 MCP tools and 3 slash commands give Claude Code
-  agents structured access to the board.
-- **Autonomous execution** — cards marked `autonomous: true` run the full
-  plan-execute-document-review lifecycle without human gates. The `simple` label
-  triggers a fast path that skips planning and review entirely.
-- **Remote execution + HITL** — the **Autonomous mode** checkbox controls the
-  execution mode. Click **"Run Auto"** to launch a fully autonomous run in a
-  sandboxed Docker container, or uncheck the checkbox and click **"Run HITL"**
-  for a Human-in-the-Loop session: chat with the agent in real time via a
-  per-card chat pane, then promote to fully autonomous with a single button.
-- **Global chat surface** — a `/chat` route hosts long-lived, multi-pane chat
-  sessions independent of any card. Up to 4 chats are tiled simultaneously in a
-  resizable layout, persisted across reloads.
-- **GitHub issue import** — periodically fetches open issues from GitHub and
-  creates cards automatically. Imported cards show a GitHub icon badge and
-  trigger a toast notification in the web UI.
-- **Cost tracking** — per-model token usage reporting with USD cost estimates,
-  broken down by agent and card on the dashboard.
+- **GitHub issue import** — periodically imports open issues as cards,
+  de-duplicated by external ID, with a GitHub badge and a toast in the UI.
+- **Cost tracking** — per-model token usage with USD estimates, broken down by
+  agent and card on the dashboard.
 - **Customizable workflow** — define your own types, priorities, and transition
-  rules per project via `.board.yaml`. Add extra states beyond the built-in six
-  (see "States, Transitions, and Skills" below for the names that are structural
-  and cannot be renamed).
+  rules per project via `.board.yaml`. Add extra states beyond the built-in six.
 - **Single binary** — the React frontend is embedded via Go's `embed.FS`. Build
   once, deploy anywhere.
 
@@ -78,30 +103,24 @@ Open `http://localhost:8080` for the web UI.
 
 ## Web UI
 
-- **Board view** — drag-and-drop kanban columns per project, with card detail
-  panel. Columns can be collapsed to a narrow vertical strip by clicking the
-  left-arrow button in the column header. Individual cards can be collapsed to a
-  single header row (ID, type badge, and truncated title) using the chevron
-  button on each card. Both collapsed column and collapsed card sets are
-  persisted per-project in `localStorage`.
-- **Dashboard** — per-project or all state counts, active agents, and token cost
+- **Board view** — drag-and-drop kanban columns per project, with a card detail
+  panel. Columns collapse to a narrow vertical strip; individual cards collapse
+  to a single header row. Both collapsed sets are persisted per-project in
+  `localStorage`.
+- **Dashboard** — per-project or all-state counts, active agents, and token cost
   breakdown.
 - **Chat** — global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
-  sessions in a resizable tile layout, persisted across reloads. Sidebar
-  drag-and-drop tiles a chat into a pane; the 5th open triggers LRU eviction
-  with an Undo toast.
-- **Runner Console** — when the runner backend is enabled (`backends.runner`), a toggleable console (`>_`
-  button in the header, keyboard `c`) streams live logs from runner containers
-  below the board with a resizable divider.
-- **Theme toggle** — sun/moon icon in the header toggles between dark and light
-  modes. The preference is persisted in `localStorage` and defaults to your
-  system's `prefers-color-scheme` setting if no preference is stored.
-- **Palette selector** — a dropdown next to the theme toggle picks between three
-  color palettes: **Everforest** (default), **Radix**, and **Catppuccin**. The
-  server-side default is configurable via the `theme` config key
-  (`CONTEXTMATRIX_THEME`); each user's selection is stored per-browser in
-  `localStorage` under the `palette` key and overrides the server default on
-  subsequent loads.
+  sessions in a resizable tile layout, persisted across reloads. The 5th open
+  triggers LRU eviction with an Undo toast.
+- **Execution console** — when a task backend is enabled, a toggleable console
+  (`>_` button in the header, keyboard `c`) streams live container logs below
+  the board with a resizable divider.
+- **Theme toggle** — sun/moon icon toggles dark/light, persisted in
+  `localStorage`, defaulting to your system `prefers-color-scheme`.
+- **Palette selector** — a dropdown picks between **Everforest** (default),
+  **Radix**, and **Catppuccin**. The server default is set via the `theme`
+  config key; each browser's choice is stored under the `palette` key and
+  overrides it on subsequent loads.
 
 ## Creating a Board
 
@@ -186,25 +205,20 @@ scripts/install.sh --force
 ```
 
 **Config directory** is resolved via the XDG Base Directory spec:
-
-- `$XDG_CONFIG_HOME/contextmatrix` — if `XDG_CONFIG_HOME` is set
-- `~/.config/contextmatrix` — otherwise
+`$XDG_CONFIG_HOME/contextmatrix` if set, otherwise `~/.config/contextmatrix`.
 
 **What gets installed:**
 
 - `config.yaml` — copied from `config.yaml.example` (skipped if it already
-  exists, unless `--force`)
+  exists, unless `--force`).
 - `workflow-skills/` — the lifecycle workflow skill files (create-plan,
-  execute-task, review-task, etc.) from the repo's `workflow-skills/` source
-  directory. Always refreshed.
+  execute-task, review-task, etc.). Always refreshed.
 - `task-skills/` — curated specialist task skills (Go, TypeScript/React, etc.)
-  seeded on fresh install. Never overwritten on subsequent runs (only
+  seeded on fresh install. Never overwritten afterwards (only
   `--update-task-skills` adds missing entries).
 
 After a fresh install, edit `boards.dir` in
-`~/.config/contextmatrix/config.yaml` before starting the server. The
-`workflow_skills_dir` defaults to the `workflow-skills/` directory next to the
-config file, so no manual path update is needed.
+`~/.config/contextmatrix/config.yaml` before starting the server.
 
 ## MCP Integration
 
@@ -252,7 +266,7 @@ block if `mcp_api_key` is empty.
 | `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                          |
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
 | `release_card`              | Release a claim                                                         |
-| `report_incapable_model`   | Record that a model could not drive the tool loop so it is never auto-selected again |
+| `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again |
 | `report_push`               | Report a git push for a card                                            |
 | `report_usage`              | Report token usage and estimated cost                                   |
 | `start_review`              | Atomically transition a card to review and return the review-task skill |
@@ -266,17 +280,17 @@ block if `mcp_api_key` is empty.
 Skill files in `workflow-skills/` are served as MCP prompts, available as Claude
 Code slash commands:
 
-| Command                            | Argument                     | Description                                                                                 |
-| ---------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `/contextmatrix:create-task`       | `description`                | Guided task creation with human interview                                                   |
-| `/contextmatrix:init-project`      | `name`                       | Initialize a new project board                                                              |
-| `/contextmatrix:start-workflow`    | `card_id`                    | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
+| Command                         | Argument      | Description                                                                                  |
+| ------------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview                                                    |
+| `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                               |
+| `/contextmatrix:start-workflow` | `card_id`     | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
 
 Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
 `document-task`, `run-autonomous`, `brainstorming`, `systematic-debugging`) are
 loaded internally by the orchestrator via `get_skill` (or, for the review-entry
-transition, via `start_review`). They are not exposed as slash commands — invoke
-`start-workflow` and the orchestrator drives the phases.
+transition, via `start_review`). Invoke `start-workflow` and the orchestrator
+drives the phases.
 
 ## Agent Workflow
 
@@ -285,10 +299,10 @@ tool. The typical workflow:
 
 1. **Create** — `/contextmatrix:create-task` interviews the human and creates a
    card.
-2. **Start** — `/contextmatrix:start-workflow <card_id>` (or call the
-   `start_workflow` MCP tool) drives the card through its full lifecycle. The
-   orchestrator inspects the card's `autonomous` flag and routes to either the
-   HITL flow (`create-plan`, with human approval gates) or the autonomous flow
+2. **Start** — `/contextmatrix:start-workflow <card_id>` (or the `start_workflow`
+   MCP tool) drives the card through its full lifecycle. The orchestrator
+   inspects the card's `autonomous` flag and routes to either the HITL flow
+   (`create-plan`, with human approval gates) or the autonomous flow
    (`run-autonomous`, no gates).
 
 Internally the orchestrator chains:
@@ -299,8 +313,8 @@ Internally the orchestrator chains:
 - **Document** — write external docs (`document-task`); parent stays
   `in_progress`.
 - **Review** — `start_review` atomically transitions the parent to `review` and
-  loads the `review-task` skill in one call. A review sub-agent (or the
-  orchestrator inline) writes findings; for HITL the user approves or rejects.
+  loads the `review-task` skill in one call. A review sub-agent writes findings;
+  for HITL the user approves or rejects.
 
 Cards with `depends_on` relationships are enforced — a card cannot transition to
 `in_progress` until all its dependencies are `done`. The `get_ready_tasks` tool
@@ -311,8 +325,7 @@ returns only cards eligible for execution.
 ContextMatrix ships with **six built-in states**. Their names are part of the
 contract — the server, MCP tools, and built-in workflow skills branch on these
 exact strings, so they cannot be renamed or removed. You can add extra states
-(e.g. `qa`, `design`, `archived`) and you control which transitions are allowed
-between any of them via `.board.yaml`.
+and control which transitions are allowed between any of them via `.board.yaml`.
 
 | Built-in state | Role                                                                            |
 | -------------- | ------------------------------------------------------------------------------- |
@@ -325,147 +338,122 @@ between any of them via `.board.yaml`.
 | `not_planned`  | Deprioritized; clears agent claim and flushes deferred commits on entry.        |
 
 `stalled` and `not_planned` are enforced by the config validator — projects that
-omit them from `states` or `transitions` are rejected at load time. The other
-four (`todo`, `in_progress`, `review`, `done`) are not validator-checked but are
-hardcoded in `claim_card`, `complete_task`, parent/child orchestration,
-dashboard metrics, and every built-in workflow skill. Renaming them will
-silently break those code paths.
+omit them are rejected at load time. The other four (`todo`, `in_progress`,
+`review`, `done`) are hardcoded across claim/complete, parent/child
+orchestration, dashboard metrics, and every built-in skill; renaming them
+silently breaks those paths.
 
-### What you can customize
+**You can:** add new states alongside the built-in six (e.g. a `qa` step),
+restrict transitions (e.g. forbid `done → todo`), and define types and
+priorities freely per project. **You cannot:** rename the six built-in state
+names or change their semantics without forking — there is no alias layer.
 
-- **Add new states** alongside the built-in six (e.g. `qa` between `review` and
-  `done`). Wire them into the `transitions` map.
-- **Restrict transitions** between any states — e.g. forbid `done → todo` to
-  make `done` truly terminal.
-- **Types and priorities** are fully user-defined per project.
-
-### What you cannot customize
-
-- The six built-in state names. If you need different vocabulary, you currently
-  have to fork the codebase — there is no alias layer.
-- The semantics attached to those names (auto-transitions on claim/complete,
-  heartbeat → `stalled`, etc.).
-
-### If you add or rearrange states
-
-The built-in skills under `workflow-skills/` reference the six names directly.
-If your workflow diverges (e.g. you add a `qa` step the skills should drive
-into), copy the skill files and override them:
-
-1. Copy `workflow-skills/` to a custom location.
-2. Edit the relevant skills.
-3. Set `workflow_skills_dir` in `config.yaml` to point at your copy.
-
-The default skills are refreshed from the repo by `scripts/install.sh`; your
-custom directory is never touched.
+If your workflow adds states the skills should drive into, copy `workflow-skills/`
+to a custom location, edit the relevant skills, and point `workflow_skills_dir`
+in `config.yaml` at your copy. The default skills are refreshed from the repo by
+`scripts/install.sh`; your custom directory is never touched.
 
 ## Autonomous Mode
 
 Cards with `autonomous: true` run through the full lifecycle without human
-approval gates. The `/contextmatrix:start-workflow` slash command (or the
-`start_workflow` MCP tool) routes autonomous cards to the `run-autonomous` skill
-automatically:
+approval gates. `/contextmatrix:start-workflow` (or the `start_workflow` MCP
+tool) routes them to the `run-autonomous` skill automatically:
 
 ```
 plan → subtask creation → execute (parallel) → document → review → done
 ```
 
-The orchestrator agent handles each phase in sequence, spawning sub-agents via
-the `Agent` tool for execution, documentation, and review.
+The orchestrator handles each phase in sequence, spawning sub-agents via the
+`Agent` tool for execution, documentation, and review.
 
 ### Fast Path (`simple` label)
 
 Cards with the label `simple` — and no existing subtasks — skip planning,
 subtask creation, review, and documentation. The agent claims the card, executes
-the work directly, runs tests, and transitions straight to `done`.
-
-The fast path still enforces card claims, heartbeats, tests, branch protection,
-and release. It only removes the orchestration overhead for small,
-self-contained changes. See [`docs/data-model.md`](docs/data-model.md) §
-Reserved labels for details.
+the work directly, runs tests, and transitions straight to `done`. The fast path
+still enforces card claims, heartbeats, tests, branch protection, and release.
+See [`docs/data-model.md`](docs/data-model.md) § Reserved labels.
 
 ### Guardrails
 
-- **Branch protection** — agents operating in autonomous mode must never push to
-  `main` or `master`. The `report_push` MCP tool enforces this and returns a
-  hard error if the branch name is `main` or `master`.
-- **Maximum review cycles** — the orchestrator skill (`run-autonomous`) halts
-  after 3 review cycles (initial review + 2 rejections) and asks a human to
-  intervene. The server caps the `review_attempts` counter at 5 as
-  defense-in-depth, so even a misbehaving orchestrator cannot loop indefinitely.
-  The `increment_review_attempts` tool advances the counter; the orchestrator
-  checks it before spawning another review sub-agent.
+- **Branch protection** — autonomous agents must never push to `main` or
+  `master`. The `report_push` MCP tool returns a hard error if the branch is
+  `main` or `master`.
+- **Maximum review cycles** — the `run-autonomous` skill halts after 3 review
+  cycles and asks a human to intervene. The server caps the `review_attempts`
+  counter at 5 as defense-in-depth, so even a misbehaving orchestrator cannot
+  loop indefinitely.
 - **Heartbeat-based stall detection** — if a sub-agent's heartbeat times out,
   the service layer marks the card `stalled` and releases the claim. The
-  orchestrator uses `check_agent_health` to detect stalled sub-agents and
-  respawn them automatically.
+  orchestrator uses `check_agent_health` to detect and respawn stalled
+  sub-agents.
 
-## Remote Execution
+## Remote Execution & Backends
 
-Remote execution lets you trigger tasks from the web UI. When runner integration
-is enabled, cards in `todo` state show a run button — **"Run Auto"** when the
-**Autonomous mode** checkbox is checked, or **"Run HITL"** when unchecked.
-Clicking it sends a signed webhook to
-**[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** (a
-separate binary), which spawns a disposable Docker container running Claude Code
-in headless mode. The container connects back to ContextMatrix via MCP tools.
+ContextMatrix dispatches work to a **task backend** that runs it in a sandboxed
+Docker container. Cards in `todo` show a run button in the UI — **"Run Auto"**
+when the **Autonomous mode** checkbox is checked, or **"Run HITL"** when
+unchecked. ContextMatrix sends an HMAC-signed webhook to the backend, which
+spawns a disposable container that connects back via MCP to claim the card,
+heartbeat, and report progress. Each container is sandboxed from the host — no
+access to your filesystem or other processes — and destroyed when the task
+finishes or fails, so remote execution is safe to run unattended.
 
-ContextMatrix also supports
-**[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** as a
-v1-parity, operator-selectable alternative task backend (a custom Go harness
-backed by OpenRouter instead of Claude Code). The two coexist; exactly one serves
-task execution at a time. See
-[docs/agent-backend-parity.md](docs/agent-backend-parity.md) for the parity audit
-and the enable recipe.
+Two task backends exist, at v1 parity, selected globally in `config.yaml`:
 
-**HITL mode:** uncheck the **Autonomous mode** checkbox and click **"Run
-HITL"**. The agent begins planning immediately — a priming message instructs it
-to start the `create-plan` workflow without waiting for user input. A per-card
-chat pane appears in the web UI while the container is running, letting you
-approve or redirect the agent at each gate (plan approval, subtask execution,
-review). A **Switch to Autonomous** button promotes the session so the agent
-skips remaining gates and finishes without further input.
+- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)**
+  (default) — spawns containers running **Claude Code** headless, with a
+  Sonnet/Opus orchestrator. It also serves the global chat surface, so the
+  runner alone covers both tasks and chat.
+- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** — a
+  custom Go harness backed by **OpenRouter** with per-role model selection.
+  Executes cards only; pair it with
+  **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)** to
+  serve the chat surface.
 
-Each container is sandboxed from the host machine — no access to your filesystem
-or other processes. When the task finishes (or fails), the container is
-destroyed. This makes remote execution safe to run unattended: a misbehaving
-agent cannot affect the host, and any damage is contained to a throwaway
-environment you can discard.
+The runner is mutually exclusive with the agent and chat backends. Pick one
+topology — **runner alone** (tasks + chat) or **agent + chat** — and restart to
+apply. See
+[`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) for the parity
+audit and the enable recipe.
+
+**HITL mode:** uncheck **Autonomous mode** and click **"Run HITL"**. The agent
+begins planning immediately — a priming message tells it to start the
+`create-plan` workflow without waiting. A per-card chat pane appears while the
+container runs, letting you approve or redirect the agent at each gate (plan
+approval, subtask execution, review). A **Switch to Autonomous** button promotes
+the session so the agent skips remaining gates and finishes without further
+input.
 
 ```mermaid
 sequenceDiagram
     participant UI as Web UI
     participant CM as ContextMatrix
-    participant R as contextmatrix-runner
+    participant B as Task Backend
     participant D as Docker Container
 
     UI->>CM: Run Auto / Run HITL
-    CM->>R: HMAC-signed webhook
-    R->>D: Spawn container
+    CM->>B: HMAC-signed webhook
+    B->>D: Spawn container
     D->>CM: Connect via MCP
     D->>CM: Claim card, heartbeat, report progress
-    D-->>R: Exit
-    R-->>CM: Status callback (done/failed)
+    D-->>B: Exit
+    B-->>CM: Status callback (done/failed)
 ```
-
-> The diagram shows the runner backend. When contextmatrix-agent is the active
-> backend, CM sends webhooks to the agent's `serve` process, which spawns a Docker
-> worker container running a custom Go harness instead of Claude Code; the
-> trigger–claim–heartbeat–done sequence is identical from the UI's perspective.
 
 ### Setup
 
 ```yaml
 # config.yaml
 backends:
-  runner:
-    url: "http://localhost:9090" # runner base URL
+  runner: # or `agent:` with url / api_key / enabled / default_model
+    url: "http://localhost:9090" # backend base URL
     api_key: "your-secret-key-min-32ch" # shared HMAC secret (min 32 chars)
     enabled: true
 mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
 ```
 
-Per-project, you can override the enabled flag and set a custom runner image in
+Per-project, override the enabled flag and set a custom worker image in
 `.board.yaml`:
 
 ```yaml
@@ -475,21 +463,19 @@ remote_execution:
 ```
 
 Triggering a run automatically enables `feature_branch` and `create_pr` on the
-card for both autonomous and HITL runs, so the container always works on a
-dedicated branch and opens a pull request.
-
-Cards track execution state via `runner_status`: `queued` → `running` →
-`completed`/`failed`/`killed`. The web UI shows status badges and pulsing
-indicators for active tasks. See
-[`docs/remote-execution.md`](docs/remote-execution.md) for the full
-architecture, webhook protocol, and security model.
+card (both autonomous and HITL), so the container always works on a dedicated
+branch and opens a pull request. Cards track execution state via `runner_status`:
+`queued` → `running` → `completed`/`failed`/`killed`, surfaced as status badges
+in the UI. See [`docs/remote-execution.md`](docs/remote-execution.md) for the
+full architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
 
 When GitHub authentication is configured and a project has
 `github.import_issues` enabled in its `.board.yaml`, ContextMatrix periodically
 fetches open issues and creates cards in the project's `todo` column. Duplicate
-issues are detected by external ID and never imported twice.
+issues are detected by external ID and never imported twice. Imported cards show
+a GitHub icon next to the type badge and trigger an info toast.
 
 ```yaml
 # config.yaml (global)
@@ -501,34 +487,8 @@ github:
     private_key_path: "/path/to/private-key.pem"
   issue_importing:
     enabled: true
-    sync_interval: "5m" # Minimum 5m
+    sync_interval: "5m" # minimum 5m
 ```
-
-See [docs/github-auth-setup.md](docs/github-auth-setup.md) for end-to-end
-authentication setup.
-
-### GitHub Enterprise
-
-For GitHub Enterprise Cloud with Data Residency (GHEC-DR) or GitHub Enterprise
-Server (GHES), set `host` and optionally `api_base_url`:
-
-```yaml
-github:
-  auth_mode: "app"
-  host: acme.ghe.com # enterprise hostname
-  # api_base_url is derived as https://api.<host> when omitted
-  # api_base_url: https://api.acme.ghe.com # set only for non-standard API paths
-```
-
-`host` controls which repository URLs are accepted (both `github.com` and the
-enterprise host are allowed simultaneously). The API base URL is derived as
-`https://api.<host>` unless you override it explicitly.
-
-When using the runner with a GitHub Enterprise App, also set
-`github.api_base_url` in the runner's `config.yaml` to the same enterprise API
-endpoint. See the
-[runner README](https://github.com/mhersson/contextmatrix-runner) and
-[`docs/remote-execution.md`](docs/remote-execution.md) for details.
 
 ```yaml
 # .board.yaml (per-project)
@@ -540,333 +500,86 @@ github:
 ```
 
 Owner and repo are resolved automatically from the project's `repo` field (SSH
-and HTTPS GitHub URLs are supported). You can override them explicitly:
-
-```yaml
-github:
-  import_issues: true
-  owner: myorg
-  repo: myrepo
-```
-
-Imported cards display a GitHub icon next to the type badge in the web UI and
-trigger an info toast notification on creation.
+and HTTPS GitHub URLs are supported); override them with explicit `owner` /
+`repo` keys if needed. For GitHub Enterprise (GHEC-DR / GHES), set `github.host`
+(and optionally `github.api_base_url`) in `config.yaml`. See
+[docs/github-auth-setup.md](docs/github-auth-setup.md) for end-to-end setup.
 
 ## API
 
-All endpoints are under `/api`. Agent identity is sent via the `X-Agent-ID`
-header. Claimed cards can only be mutated by the owning agent.
+All endpoints live under `/api`. The REST API powers the web UI and is handy for
+human verification during development — **agents always use MCP, never curl.**
 
-Non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) require the
-`X-Requested-With: contextmatrix` header as a CSRF guard. The web UI sets it
-automatically; CLI callers must add it explicitly. Exempt paths: `/healthz`,
-`/readyz`, `/mcp`, and `/api/runner/*` (which are HMAC-signed instead). The
-examples below omit it for brevity.
+Identity is sent via the `X-Agent-ID` header; claimed cards can only be mutated
+by the owning agent. Non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) require
+an `X-Requested-With: contextmatrix` CSRF header, which the web UI sets
+automatically. Exempt paths: `/healthz`, `/readyz`, `/mcp`, and `/api/runner/*`,
+`/api/agent/*`, `/api/chat/*` (HMAC-signed instead).
 
-### Projects
+A few representative calls:
 
 ```bash
 # List projects
 curl http://localhost:8080/api/projects
 
-# Create a project
-curl -X POST http://localhost:8080/api/projects \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-project",
-    "prefix": "MYPROJ",
-    "repo": "git@github.com:org/my-project.git",
-    "states": ["todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"],
-    "types": ["task", "bug", "feature"],
-    "priorities": ["low", "medium", "high", "critical"],
-    "transitions": {
-      "todo": ["in_progress", "not_planned"],
-      "in_progress": ["blocked", "review", "todo"],
-      "blocked": ["in_progress", "todo"],
-      "review": ["done", "in_progress"],
-      "done": ["todo"],
-      "stalled": ["todo", "in_progress"],
-      "not_planned": ["todo"]
-    }
-  }'
-
-# Get project config
-curl http://localhost:8080/api/projects/my-project
-
-# Update project config
-curl -X PUT http://localhost:8080/api/projects/my-project \
-  -H "Content-Type: application/json" \
-  -d '{ "types": ["task", "bug", "feature", "epic"] }'
-
-# Delete project (must have zero cards)
-curl -X DELETE http://localhost:8080/api/projects/my-project
+# Create a card
+curl -X POST http://localhost:8080/api/projects/my-project/cards \
+  -H "Content-Type: application/json" -H "X-Requested-With: contextmatrix" \
+  -d '{"title": "Implement auth", "type": "task", "priority": "high"}'
 
 # Project dashboard (state counts, active agents, costs)
 curl http://localhost:8080/api/projects/my-project/dashboard
 
-# Aggregated token usage
-curl http://localhost:8080/api/projects/my-project/usage
-```
-
-### Cards
-
-```bash
-# Create a card
-curl -X POST http://localhost:8080/api/projects/my-project/cards \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Implement auth", "type": "task", "priority": "high"}'
-
-# List cards (with optional filters)
-curl "http://localhost:8080/api/projects/my-project/cards?state=todo&type=task"
-
-# Get a card
-curl http://localhost:8080/api/projects/my-project/cards/MYPROJ-001
-
-# Update a card (full)
-curl -X PUT http://localhost:8080/api/projects/my-project/cards/MYPROJ-001 \
-  -H "Content-Type: application/json" \
-  -H "X-Agent-ID: claude-1" \
-  -d '{"title": "Implement auth", "type": "task", "state": "in_progress", "priority": "high"}'
-
-# Patch a card (partial)
-curl -X PATCH http://localhost:8080/api/projects/my-project/cards/MYPROJ-001 \
-  -H "Content-Type: application/json" \
-  -H "X-Agent-ID: claude-1" \
-  -d '{"state": "done"}'
-
-# Delete a card
-curl -X DELETE http://localhost:8080/api/projects/my-project/cards/MYPROJ-001 \
-  -H "X-Agent-ID: claude-1"
-```
-
-### Agent Operations
-
-```bash
-# Claim a card
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/claim \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1"}'
-
-# Send heartbeat
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/heartbeat \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1"}'
-
-# Add activity log entry
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/log \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1", "action": "status_update", "message": "JWT middleware done"}'
-
-# Release a card
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/release \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1"}'
-
-# Get card context (card + parent + siblings + project config)
-curl http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/context
-
-# Report token usage
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/usage \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "claude-1", "model": "claude-sonnet-4-6", "prompt_tokens": 5000, "completion_tokens": 1200}'
-```
-
-### Server-Sent Events
-
-```bash
-# Stream all events
+# Stream server-sent events (optionally ?project=my-project)
 curl -N http://localhost:8080/api/events
 
-# Stream events for a specific project
-curl -N "http://localhost:8080/api/events?project=my-project"
-```
-
-Events: `card.created`, `card.updated`, `card.deleted`, `card.state_changed`,
-`card.claimed`, `card.released`, `card.stalled`, `card.log_added`,
-`card.usage_reported`, `project.created`, `project.updated`, `project.deleted`,
-`sync.started`, `sync.completed`, `sync.conflict`, `sync.error`,
-`runner.triggered`, `runner.started`, `runner.failed`, `runner.killed`.
-
-### Remote Execution
-
-These endpoints are human-only. Requests are rejected when the `X-Agent-ID`
-header is set to a non-human value (i.e. anything not prefixed with `human:`);
-omit the header or use a `human:<name>` ID. Requires a runner backend enabled
-(`backends.runner.enabled: true`) in config.
-
-```bash
-# Trigger remote execution (autonomous mode — no body required)
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/run
-
-# Trigger in interactive (HITL) mode
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/run \
-  -H "Content-Type: application/json" \
-  -d '{"interactive": true}'
-
-# Send a chat message to a running interactive container
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/message \
-  -H "Content-Type: application/json" \
-  -d '{"content": "Please focus on the authentication module first."}'
-
-# Promote an interactive session to autonomous (creates branch + PR)
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/promote
-
-# Stop a running/queued task
-curl -X POST http://localhost:8080/api/projects/my-project/cards/MYPROJ-001/stop
-
-# Stop all running tasks in a project
-curl -X POST http://localhost:8080/api/projects/my-project/stop-all
-```
-
-The runner status callback (`POST /api/runner/status`) is HMAC-signed and used
-by the contextmatrix-runner to report container state changes. See
-[`docs/remote-execution.md`](docs/remote-execution.md) for the full webhook
-protocol.
-
-### Health Check
-
-```bash
-# Liveness probe — always 200 while the process is alive
+# Liveness / readiness probes (for Kubernetes)
 curl http://localhost:8080/healthz
-
-# Readiness probe — 200 when store, git, and session-log checks pass; 503 otherwise
 curl http://localhost:8080/readyz
 ```
 
-Kubernetes operators should point `readinessProbe` at `/readyz` and
-`livenessProbe` at `/healthz`. See
-[`docs/api-reference.md`](docs/api-reference.md) for the full JSON response
-format.
+SSE event types include `card.created`, `card.updated`, `card.state_changed`,
+`card.claimed`, `card.released`, `card.stalled`, `card.log_added`,
+`card.usage_reported`, the `project.*` and `sync.*` families, and `runner.*`
+lifecycle events. See [`docs/api-reference.md`](docs/api-reference.md) for the
+complete endpoint reference, request/response shapes, and error format.
 
 ## Configuration
 
-### config.yaml
-
-| Field                                  | Default                               | Description                                                                                                                                                                          |
-| -------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `port`                                 | `8080`                                | HTTP server port                                                                                                                                                                     |
-| `log_format`                           | `"text"`                              | Log output format: `"text"` (key=value) or `"json"` (structured)                                                                                                                     |
-| `log_level`                            | `"info"`                              | Minimum log level: `"debug"`, `"info"`, `"warn"`, or `"error"`                                                                                                                       |
-| `admin_port`                           | `0`                                   | Port for the admin server (`/debug/pprof/*`, `/metrics`); `0` disables it                                                                                                            |
-| `admin_bind_addr`                      | `127.0.0.1`                           | Bind address for the admin server (loopback by default)                                                                                                                              |
-| `theme`                                | `"everforest"`                        | Default UI palette: `"everforest"`, `"radix"`, or `"catppuccin"` (per-user override in browser)                                                                                      |
-| `heartbeat_timeout`                    | `"30m"`                               | Duration before a claimed card becomes stalled                                                                                                                                       |
-| `stalled_check_interval`               | `"1m"`                                | How often the lock manager scans for stalled cards (Go duration string)                                                                                                              |
-| `cors_origin`                          | `http://localhost:5173`               | Allowed CORS origin for the web UI (update for production)                                                                                                                           |
-| `workflow_skills_dir`                  | `<config-dir>/workflow-skills`        | Path to the workflow skill markdown directory (lifecycle skills served via MCP prompts). When empty, resolves to a `workflow-skills` directory next to `config.yaml` (XDG-resolved). |
-| `task_skills.dir`                      | `<config-dir>/task-skills`            | Path to the curated task-skills repo (specialist skills mounted into runner workers)                                                                                                 |
-| `task_skills.git_clone_on_empty`       | `false`                               | Clone on first start when `task_skills.dir` is empty                                                                                                                                 |
-| `task_skills.git_remote_url`           | `""`                                  | HTTPS URL used for clone-on-empty and for the startup `git pull --ff-only`                                                                                                           |
-| `token_costs`                          | ---                                   | Per-model token cost rates (see example below)                                                                                                                                       |
-| `mcp_api_key`                          | `""`                                  | Bearer token for MCP endpoint authentication (empty = no auth)                                                                                                                       |
-| `boards.dir`                           | ---                                   | Path to boards git repo (required)                                                                                                                                                   |
-| `boards.git_auto_commit`               | `true`                                | Auto-commit card mutations to git                                                                                                                                                    |
-| `boards.git_deferred_commit`           | `false`                               | Batch commits until a terminal state (done/not_planned) is reached                                                                                                                   |
-| `boards.git_auto_push`                 | `false`                               | Auto-push after each commit                                                                                                                                                          |
-| `boards.git_auto_pull`                 | `false`                               | Pull from remote on startup and at `boards.git_pull_interval`                                                                                                                        |
-| `boards.git_pull_interval`             | `"60s"`                               | How often to pull when `boards.git_auto_pull` is enabled (Go duration string)                                                                                                        |
-| `boards.git_remote_url`                | `""`                                  | Remote URL for the boards repo (HTTPS); required for clone-on-empty                                                                                                                  |
-| `boards.git_clone_on_empty`            | `false`                               | Clone the boards repo from `boards.git_remote_url` if the directory is empty on startup                                                                                              |
-| `backends` | `{}` | Execution-backend map; valid entry names `runner`, `agent`, `chat` — sister services CM drives over HMAC-signed webhooks. Task backend = `runner` if enabled, else `agent`; chat backend = `runner` if enabled, else `chat`. The `agent` entry runs card execution only; the `chat` entry names the unreleased contextmatrix-chat service. Read once at startup (restart to change). |
-| `backends.runner.url` | `""` | Base URL of the contextmatrix-runner (e.g. `http://localhost:9090`) |
-| `backends.runner.api_key` | `""` | Shared secret for HMAC-SHA256 webhook signing (min 32 chars) |
-| `backends.runner.enabled` | `true` | Set `false` to keep the block as an inert placeholder (omitting it = active) |
-| `backends.runner.orchestrator_sonnet_model` | `claude-sonnet-4-6` | Model ID for the Sonnet orchestrator in autonomous runs (runner entry only) |
-| `backends.runner.orchestrator_opus_model` | `claude-opus-4-8` | Model ID for the Opus orchestrator, high-capability mode (runner entry only) |
-| `backends.runner.reconcile_interval` | `"60s"` | Backstop sweep interval that ends/kills runner sessions for terminal cards (runner entry only) |
-| `backends.agent.url` | `""` | Base URL of the contextmatrix-agent backend (e.g. `http://localhost:9092`) |
-| `backends.agent.api_key` | `""` | Shared secret for HMAC-SHA256 webhook signing (min 32 chars) |
-| `backends.agent.enabled` | `true` | Set `false` to keep the block inert; the agent runs card execution only and is mutually exclusive with `runner` |
-| `backends.agent.default_model` | `""` | Default orchestrator model (OpenRouter slug) for the agent backend; card pins override, empty falls back to the agent service's own default (agent entry only) |
-| `backends.agent.aa_api_key` | `""` | Artificial Analysis API key CM uses for live model-catalog lookups when building the agent's selection payload (agent entry only) |
-| `backends.agent.model_allowlist` | `[]` | Trusted Artificial Analysis creator slugs for the agent's catalog; empty = built-in default allowlist (agent entry only) |
-| `op_store.db_path` | `<XDG_STATE>/contextmatrix/ops.db` | SQLite database holding chat sessions/transcripts AND the model blacklist in one `ops.db` |
-| `chat.idle_ttl`                        | `"1h"`                                | How long a chat container survives after the browser disconnects (Go duration string)                                                                                                |
-| `chat.max_concurrent`                  | `8`                                   | Maximum concurrent chat containers                                                                                                                                                   |
-| `chat.default_model`                   | (required)                            | Model ID used when a chat is created without an explicit selection; must be a key in `chat.models`                                                                                   |
-| `chat.resume_budget_tokens`            | `40000`                               | Rough token budget for the rehydration payload sent to the runner on cold-reopen                                                                                                     |
-| `chat.rehydration_timeout`             | `"10m"`                               | Hard cap on the rehydration phase if the agent never calls `chat_rehydration_complete`                                                                                               |
-| `chat.models`                          | (required)                            | Allowlist of selectable models keyed by model ID; each entry has `label` and `max_tokens`                                                                                            |
-| `images.db_path`                       | `<XDG_STATE>/contextmatrix/images.db` | SQLite database for paste / drag-drop screenshot uploads (content-hashed, deduplicated)                                                                                              |
-| `github.auth_mode`                     | (required)                            | `"app"` (recommended) or `"pat"`                                                                                                                                                     |
-| `github.host`                          | `""`                                  | Enterprise hostname, e.g. `acme.ghe.com` (empty = `github.com`)                                                                                                                      |
-| `github.api_base_url`                  | `""`                                  | Enterprise API base URL; derived from `host` when empty (`https://api.<host>`)                                                                                                       |
-| `github.app.app_id`                    | `0`                                   | GitHub App ID (required when `auth_mode` is `"app"`)                                                                                                                                 |
-| `github.app.installation_id`           | `0`                                   | App installation ID                                                                                                                                                                  |
-| `github.app.private_key_path`          | `""`                                  | Path to PEM private key                                                                                                                                                              |
-| `github.pat.token`                     | `""`                                  | Fine-grained PAT (required when `auth_mode` is `"pat"`)                                                                                                                              |
-| `github.issue_importing.enabled`       | `false`                               | Periodically fetch open issues from project repos that have `import_issues` set                                                                                                      |
-| `github.issue_importing.sync_interval` | `"5m"`                                | How often to check GitHub for new issues (minimum 5m)                                                                                                                                |
-
-Token cost configuration:
+ContextMatrix reads `config.yaml` from the working directory or the XDG config
+directory. [`config.yaml.example`](config.yaml.example) is the fully-commented
+canonical reference — it documents every field, its default, and the matching
+`CONTEXTMATRIX_*` environment-variable override. A minimal config:
 
 ```yaml
-token_costs:
-  claude-haiku-4-5: { prompt: 0.000001, completion: 0.000005 }
-  claude-sonnet-4-6: { prompt: 0.000003, completion: 0.000015 }
-  claude-opus-4-6: { prompt: 0.000005, completion: 0.000025 }
-  claude-opus-4-7: { prompt: 0.000005, completion: 0.000025 }
-  claude-opus-4-8: { prompt: 0.000005, completion: 0.000025 }
+port: 8080
+mcp_api_key: "" # Bearer token for the MCP endpoint (set for non-localhost)
+
+boards:
+  dir: ~/contextmatrix-boards # path to the boards git repo (required)
+
+# Optional: enable a remote-execution backend (see "Remote Execution & Backends")
+backends:
+  runner:
+    url: "http://localhost:9090"
+    api_key: "your-shared-secret-min-32-chars"
+    enabled: true
 ```
 
-### Environment Variables
-
-All config fields can be overridden with environment variables:
-
-- `CONTEXTMATRIX_PORT`
-- `CONTEXTMATRIX_LOG_FORMAT`
-- `CONTEXTMATRIX_LOG_LEVEL`
-- `CONTEXTMATRIX_ADMIN_PORT`
-- `CONTEXTMATRIX_ADMIN_BIND_ADDR`
-- `CONTEXTMATRIX_THEME`
-- `CONTEXTMATRIX_BOARDS_DIR`
-- `CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT`
-- `CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT`
-- `CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH`
-- `CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL`
-- `CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL`
-- `CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY`
-- `CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL`
-- `CONTEXTMATRIX_HEARTBEAT_TIMEOUT`
-- `CONTEXTMATRIX_CORS_ORIGIN`
-- `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`
-- `CONTEXTMATRIX_TASK_SKILLS_DIR`
-- `CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL`
-- `CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY`
-- `CONTEXTMATRIX_MCP_API_KEY`
-- `CONTEXTMATRIX_BACKEND_RUNNER_ENABLED`
-- `CONTEXTMATRIX_BACKEND_RUNNER_URL`
-- `CONTEXTMATRIX_BACKEND_RUNNER_API_KEY`
-- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL`
-- `CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL`
-- `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL`
-- `CONTEXTMATRIX_BACKEND_AGENT_ENABLED`
-- `CONTEXTMATRIX_BACKEND_AGENT_URL`
-- `CONTEXTMATRIX_BACKEND_AGENT_API_KEY`
-- `CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL`
-- `CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY`
-- `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST`
-- `CONTEXTMATRIX_OP_STORE_DB_PATH`
-- `CONTEXTMATRIX_CHAT_IDLE_TTL`
-- `CONTEXTMATRIX_CHAT_MAX_CONCURRENT`
-- `CONTEXTMATRIX_IMAGES_DB_PATH`
-- `CONTEXTMATRIX_GITHUB_AUTH_MODE`
-- `CONTEXTMATRIX_GITHUB_HOST`
-- `CONTEXTMATRIX_GITHUB_API_BASE_URL`
-- `CONTEXTMATRIX_GITHUB_APP_ID`
-- `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`
-- `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`
-- `CONTEXTMATRIX_GITHUB_PAT_TOKEN`
-- `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_ENABLED`
-- `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL`
+Every field has a `CONTEXTMATRIX_*` environment override (e.g.
+`CONTEXTMATRIX_PORT`, `CONTEXTMATRIX_BOARDS_DIR`,
+`CONTEXTMATRIX_BACKEND_RUNNER_URL`). Token cost rates (`token_costs`), GitHub
+auth, chat limits, image storage, and the operational store (`op_store.db_path`,
+which holds chat transcripts and the model blacklist) are all documented in
+`config.yaml.example`.
 
 > [!IMPORTANT]
 >
-> Runner configuration lives in the `backends:` map (`backends.runner` /
+> Backend configuration lives in the `backends:` map (`backends.runner` /
 > `CONTEXTMATRIX_BACKEND_RUNNER_*`). The server **refuses to start** if any
-> top-level `CONTEXTMATRIX_RUNNER_*` variable is set, and the error names the
-> `CONTEXTMATRIX_BACKEND_RUNNER_*` replacement. Chat persistence lives in the
-> shared `op_store.db_path` (`ops.db`).
+> legacy top-level `CONTEXTMATRIX_RUNNER_*` variable is set, and the error names
+> the `CONTEXTMATRIX_BACKEND_RUNNER_*` replacement. Backends are read once at
+> startup — restart to change them.
 
 ## GitHub Authentication
 
@@ -887,16 +600,16 @@ autonomous runs if enabled.
 Internet → [Reverse Proxy + TLS] → [ContextMatrix] → [Boards Git Repo]
 ```
 
-ContextMatrix does not include built-in TLS, authentication, or rate limiting.
-These are the responsibility of your reverse proxy (Nginx, Caddy, Cloudflare
+ContextMatrix does not include built-in TLS, authentication, or rate limiting;
+these are the responsibility of your reverse proxy (Nginx, Caddy, Cloudflare
 Tunnel, etc.).
 
 - **REST API** — unauthenticated by default. Do not expose directly to the
   internet without an authenticating proxy in front.
 - **MCP endpoint** (`/mcp`) — optional Bearer token authentication via
   `mcp_api_key`. Strongly recommended for any non-localhost deployment.
-- **Runner webhooks** — HMAC-SHA256 signed in both directions (ContextMatrix ↔
-  runner). The shared secret is never transmitted — only signatures are sent on
+- **Backend webhooks** — HMAC-SHA256 signed in both directions (ContextMatrix ↔
+  backend). The shared secret is never transmitted — only signatures are sent on
   the wire.
 - **Agent identity** (`X-Agent-ID` header) — a coordination mechanism, not
   cryptographic authentication. Agents are trusted participants.
@@ -909,70 +622,29 @@ For production deployment with Docker, Kubernetes, and external access, see
 ```bash
 # Prerequisites: Go 1.26+, Node.js 20+, npm, golangci-lint
 
-# Run Go tests
-make test
-
-# Run linter
-make lint
-
-# Frontend dev server (hot reload, proxies API to :8080)
-cd web && npm install && npm run dev
-
-# Build binary with embedded frontend
-make build
+make test                 # run Go tests
+make lint                 # run the linter
+make build                # build binary with embedded frontend
+cd web && npm install && npm run dev   # frontend dev server (proxies API to :8080)
 ```
 
-### CI
-
-GitHub Actions workflows live in `.github/workflows/`:
-
-- **`build.yaml`** — runs on pull requests and pushes to `main`:
-  - `go-checks`: `go vet`, `go test`, `go test -race -short`, `golangci-lint`.
-  - `frontend-checks` (in `web/`): `npm ci`, `npm run lint`, `npm run test`,
-    `npm run build`, `npm audit --audit-level=high`.
-  - `build`: docker build + push of `:latest` and short-SHA tags. Gated on both
-    check jobs and only runs on push to `main` — PRs validate but do not
-    publish.
-- **`nightly.yaml`** — full race suite (`go test -race ./...`, no `-short`) on a
-  daily cron at 02:00 UTC, with `workflow_dispatch` as an on-demand escape
-  hatch. 60-minute job timeout.
-
-Both workflows run on the self-hosted runner and read the Go toolchain version
-from `go.mod`.
+GitHub Actions workflows live in `.github/workflows/`: `build.yaml` runs
+`go vet` / `go test` / `go test -race -short` / `golangci-lint` plus the
+frontend checks on every PR, and builds + pushes Docker images on push to
+`main`; `nightly.yaml` runs the full race suite on a daily cron. Both run on the
+self-hosted runner and read the Go toolchain version from `go.mod`.
 
 ## Troubleshooting
 
-### Config file not found
-
-ContextMatrix looks for `config.yaml` in the current directory, then in the XDG
-config directory (`~/.config/contextmatrix/config.yaml`). Run
-`make install-config` to create the default config.
-
-### Boards directory errors
-
-The `boards.dir` path must point to an initialized git repository:
-
-```bash
-mkdir -p ~/boards/contextmatrix
-cd ~/boards/contextmatrix && git init
-```
-
-### MCP connection refused
-
-Verify the server is running and the URL in your MCP config matches the server
-port. If using `mcp_api_key`, add the `Authorization` header to your MCP config:
-
-```json
-{
-  "mcpServers": {
-    "contextmatrix": {
-      "type": "http",
-      "url": "http://localhost:8080/mcp",
-      "headers": { "Authorization": "Bearer your-mcp-api-key" }
-    }
-  }
-}
-```
+- **Config file not found** — ContextMatrix looks for `config.yaml` in the
+  current directory, then in `~/.config/contextmatrix/config.yaml`. Run
+  `make install-config` to create the default config.
+- **Boards directory errors** — `boards.dir` must point to an initialized git
+  repository (`mkdir -p ~/boards/contextmatrix && cd ~/boards/contextmatrix &&
+  git init`).
+- **MCP connection refused** — verify the server is running and the URL/port in
+  your MCP config match. If `mcp_api_key` is set, add the matching
+  `Authorization: Bearer …` header to your MCP config.
 
 ## Acknowledgments
 
