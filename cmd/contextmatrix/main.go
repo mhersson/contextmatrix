@@ -339,6 +339,12 @@ func main() {
 	// catalogProvider interface — a typed nil defeats the h.catalog != nil guard
 	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
 	// Blacklist (opStore) is always non-nil so it is set unconditionally.
+	// chatBackendCfg is the dedicated "chat" backend entry (zero value when
+	// absent). Its key authenticates the chat service's task-skills pointer
+	// fetch. Name is set defensively: map values may not carry it.
+	chatBackendCfg := cfg.Backends[config.BackendNameChat]
+	chatBackendCfg.Name = config.BackendNameChat
+
 	routerCfg := api.RouterConfig{
 		Service:                svc,
 		Bus:                    bus,
@@ -361,6 +367,7 @@ func main() {
 		ChatManager:            chatMgr,
 		ChatHub:                chatHub,
 		ChatConfig:             &cfg.Chat,
+		ChatBackendCfg:         chatBackendCfg,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
 	}

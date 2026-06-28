@@ -743,18 +743,43 @@ func (h *runnerHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
 }
 
-// extractRunnerSignature performs the shared header validation for runner
-// HMAC authentication. It checks that an API key is configured and that the
-// X-Signature-256 / X-Webhook-Timestamp headers are present and well-formed,
-// returning the trimmed signature hex and timestamp on success. On failure
-// it writes the 403 response and returns ok=false.
+// chatBackendHandlers serves the HMAC-signed callbacks the dedicated chat
+// service makes back to CM. Today that is only the task-skills git pointer; the
+// chat worker clones it and exposes the skills via its Skill tool. It closes
+// over the chat backend's HMAC key + its own replay cache so it verifies
+// independently of the runner/agent task backend.
+type chatBackendHandlers struct {
+	apiKey                 string
+	replayCache            *runner.SignatureCache
+	taskSkillsDir          string
+	taskSkillsGitRemoteURL string
+}
+
+// getTaskSkillsSource serves GET /api/chat/task-skills-source — the chat service
+// fetches this {git_remote_url, ref} pointer and clones the task-skills repo
+// itself, mirroring the agent backend. CM stays the single source of truth.
+func (h *chatBackendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Request) {
+	if !authenticateBackendGet(w, r, h.apiKey, h.replayCache) {
+		return
+	}
+
+	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
+}
+
+// extractBackendSignature performs shared header validation for backend HMAC
+// authentication (runner, agent, or chat). It checks that an API key is
+// configured and that the X-Signature-256 / X-Webhook-Timestamp headers are
+// present and well-formed, returning the trimmed signature hex and timestamp on
+// success. On failure it writes the 403 response and returns ok=false.
 //
-// Body reading and the actual HMAC verification are left to the caller so
-// GET (no body) and POST (body in the signed payload) handlers can share
-// this prefix without duplicating the differing tails.
-func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.Request) (sig, ts string, ok bool) {
-	if h.backendCfg.APIKey == "" {
-		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "runner authentication not configured", "")
+// Body reading and the actual HMAC verification are left to the caller so GET
+// (no body) and POST (body in the signed payload) handlers can share this
+// prefix without duplicating the differing tails.
+func extractBackendSignature(w http.ResponseWriter, r *http.Request, apiKey string) (sig, ts string, ok bool) {
+	if apiKey == "" {
+		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "backend authentication not configured", "")
 
 		return "", "", false
 	}
@@ -782,22 +807,36 @@ func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.R
 	return strings.TrimPrefix(sigHeader, "sha256="), tsHeader, true
 }
 
-// authenticateRunnerGet verifies an HMAC-SHA256 signature over
-// `timestamp + "." + ""` (empty body) on a runner-originated GET. Returns
+// authenticateBackendGet verifies an HMAC-SHA256 signature over method + uri
+// with an empty body on a backend-originated GET, using the supplied key and
+// replay cache. Shared by the runner/agent and chat callback handlers. Returns
 // true on success; on failure it writes the 403 response and returns false.
-func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
-	sig, tsHeader, ok := h.extractRunnerSignature(w, r)
+func authenticateBackendGet(w http.ResponseWriter, r *http.Request, apiKey string, replayCache protocol.ReplayCache) bool {
+	sig, ts, ok := extractBackendSignature(w, r, apiKey)
 	if !ok {
 		return false
 	}
 
-	if !protocol.VerifySignatureWithTimestamp(h.backendCfg.APIKey, r.Method, r.URL.RequestURI(), sig, tsHeader, nil, protocol.DefaultMaxClockSkew, h.replayCache) {
+	if !protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, ts, nil, protocol.DefaultMaxClockSkew, replayCache) {
 		writeError(w, http.StatusForbidden, ErrCodeInvalidSignature, "invalid HMAC signature or expired timestamp", "")
 
 		return false
 	}
 
 	return true
+}
+
+// extractRunnerSignature is the runner/agent backend's signature-header check,
+// keyed by its configured backend HMAC key.
+func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.Request) (sig, ts string, ok bool) {
+	return extractBackendSignature(w, r, h.backendCfg.APIKey)
+}
+
+// authenticateRunnerGet verifies an HMAC-SHA256 signature over
+// `timestamp + "." + ""` (empty body) on a runner-originated GET. Returns
+// true on success; on failure it writes the 403 response and returns false.
+func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
+	return authenticateBackendGet(w, r, h.backendCfg.APIKey, h.replayCache)
 }
 
 // handleRunnerSkillEngaged handles POST /api/runner/skill-engaged — runner
