@@ -272,7 +272,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Chat routes — registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
-		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatConfig)
+		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatConfig, cfg.ChatBackendCfg)
 		mux.HandleFunc("GET /api/chats", chh.listChats)
 		mux.HandleFunc("POST /api/chats", chh.createChat)
 		mux.HandleFunc("GET /api/chats/{id}", chh.getChat)

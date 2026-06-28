@@ -203,7 +203,9 @@ task_skills:
 # TASK-ONLY FIELDS:
 #   orchestrator_sonnet_model, orchestrator_opus_model, reconcile_interval —
 #     runner entry only; rejected on agent and chat entries.
-#   default_model — agent entry only; rejected on runner and chat entries.
+#   default_model — agent and chat entries; rejected on the runner entry.
+#     Required on the chat entry when it is enabled (contextmatrix-chat has no
+#     server-side default — CM supplies the model as CM_MODEL).
 #
 # RESTART REQUIRED: backends are read once at startup. Any change requires
 # a CM restart.
@@ -218,7 +220,7 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL  (runner only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL    (runner only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (runner only)
-#   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent and chat)
 backends: {}
 #  runner:
 #    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
@@ -285,6 +287,14 @@ backends: {}
 #    url: "http://localhost:9093"
 #    api_key: ""
 #    enabled: false
+#
+#    # Default OpenRouter model slug for new chats and the cold-open fallback.
+#    # REQUIRED when this entry is enabled — contextmatrix-chat has no
+#    # server-side default and CM supplies the model as CM_MODEL. In this mode
+#    # the New Chat dialog offers the live OpenRouter catalog (autocomplete +
+#    # favorites); the chat.models allowlist below is NOT used.
+#    # Env: CONTEXTMATRIX_BACKEND_CHAT_DEFAULT_MODEL
+#    default_model: "anthropic/claude-sonnet-4"
 
 # Chat (global chat panel)
 # Chat sessions and transcripts are stored in the shared operational store
@@ -300,8 +310,14 @@ chat:
   # CONTEXTMATRIX_CHAT_MAX_CONCURRENT overrides this.
   max_concurrent: 8
 
-  # Claude model used when a chat is created without an explicit
-  # selection in the New Chat dialog. Must be a key in chat.models.
+  # RUNNER-SERVED CHAT ONLY. default_model and models below apply when the
+  # runner serves chat (native Anthropic slugs via Claude Code). When the
+  # dedicated chat backend (contextmatrix-chat) serves chat, both are ignored:
+  # the picker offers the live OpenRouter catalog and the default comes from
+  # backends.chat.default_model.
+  #
+  # Claude model used when a chat is created without an explicit selection in
+  # the New Chat dialog. Must be a key in chat.models.
   default_model: claude-sonnet-4-6
 
   # Rough token budget for the rehydration payload sent to the runner on
@@ -314,9 +330,10 @@ chat:
   # also ends the phase, so this is a belt-and-suspenders cap.
   rehydration_timeout: 10m
 
-  # Allowlist of selectable models for new chats. The label is shown in
-  # the picker; max_tokens drives the context-window denominator in the
-  # ChatThread header indicator. Adding a new model is a single edit.
+  # Allowlist of selectable models for new chats (runner-served chat only;
+  # see the note on default_model above). The label is shown in the picker;
+  # max_tokens drives the context-window denominator in the ChatThread header
+  # indicator. Adding a new model is a single edit.
   models:
     claude-sonnet-4-6:
       label: "Sonnet 4.6"

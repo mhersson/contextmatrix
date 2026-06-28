@@ -59,6 +59,10 @@ func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.L
 
 type fixtureOpts struct {
 	chatConfig config.ChatConfig
+	// chatBackendCfg is the dedicated "chat" backend entry. Zero value (the
+	// default) means the runner serves chat → config-source picker. Set an
+	// enabled+keyed entry with a DefaultModel to exercise OpenRouter mode.
+	chatBackendCfg config.BackendConfig
 }
 
 func defaultFixtureOpts() fixtureOpts {
@@ -113,7 +117,7 @@ func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPat
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
-	chh := newChatHandlers(mgr, hub, &chatCfg)
+	chh := newChatHandlers(mgr, hub, &chatCfg, opts.chatBackendCfg)
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	mux.HandleFunc("GET /api/chats", chh.listChats)
 	mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -503,6 +507,84 @@ func TestCreateChat_InvalidModel(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "INVALID_MODEL")
 }
 
+// openRouterFixtureOpts builds fixtureOpts with the dedicated chat backend
+// enabled + keyed and a default OpenRouter slug — i.e. the contextmatrix-chat
+// (OpenRouter) chat-server topology, which puts listModels/createChat in
+// openRouter mode.
+func openRouterFixtureOpts() fixtureOpts {
+	o := defaultFixtureOpts()
+	o.chatBackendCfg = config.BackendConfig{
+		Name:         config.BackendNameChat,
+		APIKey:       "chat-backend-hmac-key-0123456789ab",
+		DefaultModel: "anthropic/claude-sonnet-4",
+	}
+
+	return o
+}
+
+func TestListModels_ConfigSource(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+	require.Equal(t, 200, rec.Code)
+
+	var body struct {
+		Source  string            `json:"source"`
+		Models  []json.RawMessage `json:"models"`
+		Default string            `json:"default"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "config", body.Source)
+	require.Equal(t, "claude-sonnet-4-6", body.Default)
+	require.NotEmpty(t, body.Models)
+}
+
+func TestListModels_OpenRouterSource(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, openRouterFixtureOpts())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+	require.Equal(t, 200, rec.Code)
+
+	var body struct {
+		Source  string            `json:"source"`
+		Models  []json.RawMessage `json:"models"`
+		Default string            `json:"default"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "openrouter", body.Source)
+	require.Empty(t, body.Models, "openrouter mode returns no allowlist; the frontend pulls OpenRouter live")
+	require.Equal(t, "anthropic/claude-sonnet-4", body.Default)
+}
+
+func TestCreateChat_OpenRouter_SkipsAllowlist(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, openRouterFixtureOpts())
+	// A slug that is NOT in chat.Models — rejected in config mode, accepted here.
+	body := `{"title":"x","project":"p","model":"openai/gpt-5"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+	require.Equal(t, 201, rec.Code, "body=%s", rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	require.Equal(t, "openai/gpt-5", sess.Model)
+}
+
+func TestCreateChat_OpenRouter_EmptyModelFallsBackToBackendDefault(t *testing.T) {
+	t.Parallel()
+	mux, _ := newChatFixture(t, openRouterFixtureOpts())
+	body := `{"title":"x","project":"p"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+	require.Equal(t, 201, rec.Code, "body=%s", rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	require.Equal(t, "anthropic/claude-sonnet-4", sess.Model)
+}
+
 func TestClearChat_Success(t *testing.T) {
 	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
 	// Wrap with csrfGuard so the success path exercises the same gate the
@@ -697,7 +779,7 @@ func TestListModels_NilConfig(t *testing.T) {
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
-	chh := newChatHandlers(mgr, hub, nil)
+	chh := newChatHandlers(mgr, hub, nil, config.BackendConfig{})
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 
 	rec := httptest.NewRecorder()

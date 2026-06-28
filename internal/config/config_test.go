@@ -2179,6 +2179,7 @@ backends:
   chat:
     url: http://localhost:9092
     api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "anthropic/claude-sonnet-4"
 `,
 			wantErr: "",
 		},
@@ -2257,7 +2258,8 @@ backends:
 			wantErr: "default_model",
 		},
 		{
-			// default_model is agent-only; rejected on chat entry.
+			// default_model IS allowed on the chat entry (it is the OpenRouter
+			// slug CM supplies as CM_MODEL); satisfies the required check too.
 			name: "default_model on chat entry",
 			yaml: `
 backends:
@@ -2266,7 +2268,7 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     default_model: "deepseek/deepseek-v4-flash"
 `,
-			wantErr: "default_model",
+			wantErr: "",
 		},
 		{
 			// orchestrator_sonnet_model is runner-only (clean retirement from
@@ -2373,6 +2375,7 @@ backends:
   chat:
     url: http://localhost:9092
     api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "anthropic/claude-sonnet-4"
 `
 	path := writeConfigFile(t, dir, yaml)
 
@@ -2424,6 +2427,7 @@ func TestBackendsRoleDerivation(t *testing.T) {
   chat:
     url: http://c:9092
     api_key: "` + apiKey + `"
+    default_model: "anthropic/claude-sonnet-4"
 `,
 			wantTaskOK:   false,
 			wantChatName: "chat", wantChatOK: true,
@@ -2437,6 +2441,7 @@ func TestBackendsRoleDerivation(t *testing.T) {
   chat:
     url: http://c:9092
     api_key: "` + apiKey + `"
+    default_model: "anthropic/claude-sonnet-4"
 `,
 			wantTaskName: "agent", wantTaskOK: true,
 			wantChatName: "chat", wantChatOK: true,
@@ -2558,6 +2563,47 @@ backends:
 	assert.Equal(t, "deepseek/deepseek-v4-flash", cfg.Backends["agent"].DefaultModel)
 }
 
+func TestBackendEnvChatDefaultModel(t *testing.T) {
+	// CONTEXTMATRIX_BACKEND_CHAT_DEFAULT_MODEL sets default_model on the chat
+	// entry; Validate accepts it and the value is visible on the entry.
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_DEFAULT_MODEL", "anthropic/claude-sonnet-4")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "anthropic/claude-sonnet-4", cfg.Backends["chat"].DefaultModel)
+}
+
+func TestValidate_ChatBackendRequiresDefaultModel(t *testing.T) {
+	// An enabled chat backend with no default_model fails fast: contextmatrix-chat
+	// has no server-side default, so an empty CM_MODEL would break chat init.
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "default_model")
+}
+
 func TestBackendEnvEnabled(t *testing.T) {
 	apiKey := strings.Repeat("k", 32)
 	dir := t.TempDir()
@@ -2631,6 +2677,7 @@ backends:
   chat:
     url: http://localhost:9092
     api_key: "` + apiKey + `"
+    default_model: "anthropic/claude-sonnet-4"
 `
 	path := writeConfigFile(t, dir, yaml)
 
@@ -2675,6 +2722,9 @@ func TestBackendEnvOnlyChatConfiguration(t *testing.T) {
 
 	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_URL", "http://env-only:9092")
 	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_API_KEY", strings.Repeat("e", 32))
+	// Required when the chat backend is enabled (contextmatrix-chat has no
+	// server-side default model).
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_DEFAULT_MODEL", "anthropic/claude-sonnet-4")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)

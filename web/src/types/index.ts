@@ -430,6 +430,11 @@ export interface ChatModel {
 }
 
 export interface ChatModelList {
+  // source tells the New Chat picker which mode to render:
+  //  - 'config': runner serves chat → `models` is the chat.models allowlist.
+  //  - 'openrouter': dedicated chat backend serves chat → `models` is empty and
+  //    the picker pulls the live OpenRouter catalog; `default` seeds it.
+  source: 'config' | 'openrouter';
   models: ChatModel[];
   default: string;
 }

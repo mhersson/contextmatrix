@@ -529,7 +529,9 @@ backward compatibility with older CM builds that don't ship the field).
 `model` selects the orchestrator model; the runner sets it as
 `CM_ORCHESTRATOR_MODEL` in the container env so the entrypoint passes it as the
 `--model` argument to Claude. Required for chat starts (CM always populates it
-from the session row, falling back to `chat.default_model`).
+from the session row, falling back to the configured chat default —
+`chat.default_model` on the runner-served path; the dedicated chat backend uses
+`backends.chat.default_model` instead).
 
 `resume` is optional. When present, it carries the truncated transcript built by
 `chat.transcript.Build` (one JSON object per turn, `seq` + `role` + `content`).

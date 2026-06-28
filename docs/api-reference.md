@@ -45,7 +45,7 @@ GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous 
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
-GET    /api/chats/models                               # chat model allowlist + default
+GET    /api/chats/models                               # chat model picker source (config|openrouter)
 GET    /api/chats/{id}
 PATCH  /api/chats/{id}                                 # rename a session
 DELETE /api/chats/{id}                                 # delete session and transcript
@@ -174,7 +174,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
 | `CHAT_NOT_FOUND`          | 404     | chat session ID does not exist                                |
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
-| `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist                   |
+| `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist (config-source chat only) |
 | `RUNNER_CONFLICT`         | 409     | card already queued/running                                   |
 | `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
 | `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
@@ -1098,22 +1098,38 @@ Request body:
 
 All three fields are optional. An empty `title` is auto-filled from the first
 user message; `project` may be empty for cross-project chats. `model` selects
-the orchestrator model for this session; omit to use `chat.default_model`. The
-value must be a key from `chat.models` — unknown IDs return `400`
-(`INVALID_MODEL`). The choice is persisted on the session row and forwarded to
-the container as `CM_ORCHESTRATOR_MODEL` on every `/open`.
+the model for this session; omit to use the server default. The choice is
+persisted on the session row and forwarded to the container on every `/open`.
+
+Model validation depends on which backend serves chat (see
+`GET /api/chats/models`):
+
+- **runner serves chat** (`source: "config"`): `model` must be a key from
+  `chat.models`; unknown IDs return `400` (`INVALID_MODEL`). Omit to use
+  `chat.default_model`. Forwarded as `CM_ORCHESTRATOR_MODEL`.
+- **dedicated chat backend serves chat** (`source: "openrouter"`): `model` is
+  any OpenRouter slug — no allowlist (an invalid slug surfaces later as a
+  chat-init failure from contextmatrix-chat). Omit to use
+  `backends.chat.default_model`. Forwarded as `CM_MODEL`.
 
 Response (`201 Created`): the new `ChatSession` row.
 
 ### GET /api/chats/models
 
-List the chat model allowlist and the configured default. Used by the New Chat
-dialog to populate the model picker.
+Tells the New Chat dialog which model picker to render. The `source` field
+selects the mode:
 
-Response:
+- `"config"` — the runner serves chat. `models` is the `chat.models` allowlist
+  (native Anthropic slugs, sorted by `id`) and `default` is `chat.default_model`.
+- `"openrouter"` — the dedicated chat backend (contextmatrix-chat) serves chat.
+  `models` is empty: the dialog pulls the live OpenRouter catalog itself for
+  autocomplete. `default` is `backends.chat.default_model`.
+
+Response (`source: "config"`):
 
 ```json
 {
+  "source": "config",
   "models": [
     {
       "id": "claude-haiku-4-5-20251001",
@@ -1128,8 +1144,18 @@ Response:
 }
 ```
 
-Models are sorted by `id`. When chat is disabled in config the response is
-`{"models": [], "default": ""}`.
+Response (`source: "openrouter"`):
+
+```json
+{
+  "source": "openrouter",
+  "models": [],
+  "default": "anthropic/claude-sonnet-4"
+}
+```
+
+When chat is disabled in config the response is
+`{"source": "config", "models": [], "default": ""}`.
 
 ### GET /api/chats
 

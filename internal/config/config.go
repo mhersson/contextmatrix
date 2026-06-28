@@ -70,9 +70,12 @@ type BackendConfig struct {
 	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
 	ReconcileInterval       string `yaml:"reconcile_interval"`
 
-	// DefaultModel is the default OpenRouter model slug for the agent backend.
-	// Per-card pins override it. Agent-only — runner and chat entries must
-	// leave this empty (Validate rejects misuse).
+	// DefaultModel is the default OpenRouter model slug.
+	//   - agent backend: default orchestrator model; per-card pins override it.
+	//   - chat backend: default model for new chats and the cold-open fallback;
+	//     required when the chat backend is enabled (contextmatrix-chat has no
+	//     server-side default — CM supplies it as CM_MODEL).
+	// Rejected on the runner backend (Validate rejects misuse).
 	DefaultModel string `yaml:"default_model"`
 
 	// Agent-only: catalog and selection inputs.
@@ -216,12 +219,17 @@ type ChatConfig struct {
 
 	// DefaultModel is the Claude model ID used when a chat is created
 	// without an explicit selection. Must be a key in Models. Default:
-	// "claude-sonnet-4-6".
+	// "claude-sonnet-4-6". Applies only when the runner serves chat; when
+	// the dedicated chat backend (contextmatrix-chat, OpenRouter) serves
+	// chat, the default comes from backends.chat.default_model instead.
 	DefaultModel string `yaml:"default_model"`
 
 	// Models is the allowlist of selectable models for new chats, keyed
 	// by model ID. The values carry the human label shown in the picker
 	// and the context-window denominator used by the UI usage indicator.
+	// Used only when the runner serves chat (native Anthropic slugs via
+	// Claude Code); ignored when the dedicated chat backend serves chat,
+	// which offers the live OpenRouter catalog instead.
 	Models map[string]ChatModelConfig `yaml:"models"`
 
 	// ResumeBudgetTokens caps the rough token estimate the transcript
@@ -433,9 +441,11 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
 			}
 
-			if b.DefaultModel != "" {
-				return fmt.Errorf("backends[%q].default_model must not be set on the chat backend", name)
-			}
+			// default_model IS allowed on the chat backend: contextmatrix-chat
+			// has no server-side default, so CM supplies the OpenRouter slug as
+			// CM_MODEL. It is required when the chat backend is enabled — checked
+			// after the mutual-exclusivity gate below so a runner+chat misconfig
+			// reports the exclusivity error first.
 
 			continue
 		}
@@ -487,6 +497,15 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backends: runner is mutually exclusive with agent and chat " +
 			"(runner already serves both task execution and chat); " +
 			"set enabled: false on the entries you are not using")
+	}
+
+	// The dedicated chat backend (contextmatrix-chat) has no server-side default
+	// model — CM supplies it as CM_MODEL on every chat-start — so default_model
+	// is mandatory when that backend is enabled. Checked here (after the
+	// exclusivity gate) so the error order is deterministic.
+	if chatActive && c.Backends[BackendNameChat].DefaultModel == "" {
+		return fmt.Errorf(`backends["chat"].default_model is required when the chat backend ` +
+			`is enabled (contextmatrix-chat has no server-side default; it is supplied as CM_MODEL)`)
 	}
 
 	if c.Theme == "" {

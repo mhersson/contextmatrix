@@ -4,20 +4,12 @@ import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useProjects } from '../../hooks/useProjects';
 import { notifyChatSessionsChanged } from '../../hooks/useChatSessions';
+import { ChatModelPicker } from './ChatModelPicker';
 import type { ChatModel } from '../../types';
 
 interface NewChatDialogProps {
   open: boolean;
   onClose: () => void;
-}
-
-// formatTokens renders a token count as a short human label, e.g.
-// 200_000 → "200k". Kept inline because the function is one-liner and
-// only used in the model picker.
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
 }
 
 export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
@@ -28,6 +20,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
+  const [modelSource, setModelSource] = useState<'config' | 'openrouter'>('config');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +57,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         if (cancelled) return;
         setModels(resp.models);
         setDefaultModel(resp.default);
+        setModelSource(resp.source ?? 'config');
         setModel((cur) => cur || resp.default);
       })
       .catch((e) => {
@@ -190,28 +184,13 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           ))}
         </select>
 
-        {models.length > 0 && (
-          <>
-            <label
-              className="block text-xs mb-1"
-              style={{ color: 'var(--grey2)' }}
-            >
-              Model
-            </label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="bf-input w-full mb-4"
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label} ({formatTokens(m.max_tokens)} context)
-                  {m.id === defaultModel ? ' — default' : ''}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+        <ChatModelPicker
+          source={modelSource}
+          model={model}
+          defaultModel={defaultModel}
+          models={models}
+          onChange={setModel}
+        />
 
         {error && (
           <div className="text-xs mb-3" style={{ color: 'var(--red)' }}>
