@@ -274,10 +274,23 @@ func main() {
 
 	// Model catalog builder: constructed only when the agent backend has an AA key.
 	var catalogBuilder *modelcatalog.Builder
-	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
-		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0)
 
-		slog.Info("model catalog builder initialized")
+	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
+		opts := []modelcatalog.BuilderOption{}
+
+		if cfg.LLMEndpoint.Type == "openai" {
+			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
+			for slug, p := range agentCfg.ModelPriors {
+				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
+			}
+
+			opts = append(opts, modelcatalog.WithEndpoint(
+				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
+		}
+
+		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
+
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type)
 	}
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat

@@ -2,7 +2,10 @@ package modelcatalog
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
@@ -96,6 +99,29 @@ func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testin
 	// model-b dropped: endpoint marks it tool-incapable.
 	assert.NotContains(t, bySlug, "model-b")
 	require.Len(t, got, 2)
+}
+
+func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+	b.aaEndpoint = aaSrv.URL // package-accessible field; set directly (no existing helper)
+
+	cands := b.Candidates(context.Background())
+	require.Len(t, cands, 1)
+	assert.Equal(t, "model-a", cands[0].Slug)
 }
 
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
