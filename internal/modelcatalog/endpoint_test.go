@@ -32,5 +32,17 @@ func TestFetchEndpointCatalog(t *testing.T) {
 	assert.True(t, out["model-a"].Tools)
 	assert.Equal(t, 200000, out["model-a"].ContextWindow)
 	assert.InDelta(t, 0.000003, out["model-a"].PromptPrice, 1e-12)
+	assert.InDelta(t, 0.000015, out["model-a"].CompletionPrice, 1e-12)
+	require.Contains(t, out, "model-b")
 	assert.False(t, out["model-b"].Tools)
+}
+
+func TestFetchEndpointCatalog_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := fetchEndpointCatalog(context.Background(), srv.URL, "bad-key")
+	assert.Error(t, err)
 }

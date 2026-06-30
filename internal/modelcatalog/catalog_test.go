@@ -58,14 +58,12 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 
 func f(v float64) *float64 { return &v }
 
-func fp(v float64) *float64 { return &v }
-
 func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testing.T) {
 	aa := []aaModel{
 		// base row often unscored; a variant carries the score
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: fp(50)},
-		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: fp(80), IntelIndex: fp(80)},
-		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: fp(40), IntelIndex: fp(40)},
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: f(50)},
+		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: f(80), IntelIndex: f(80)},
+		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: f(40), IntelIndex: f(40)},
 	}
 	endpoint := map[string]orEntry{
 		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
@@ -89,12 +87,14 @@ func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testin
 	// model-a: per-axis max picks coder 80/80=1.0 from the -thinking row.
 	require.Contains(t, bySlug, "model-a")
 	assert.InDelta(t, 1.0, bySlug["model-a"].CoderPrior, 1e-9)
+	assert.InDelta(t, 1.0, bySlug["model-a"].ReviewerPrior, 1e-9)
 	assert.Equal(t, 200000, bySlug["model-a"].ContextWindow)
 	assert.InDelta(t, 3e-6, bySlug["model-a"].PromptPricePerTok, 1e-12)
 
 	// model-c: override used verbatim, AA join skipped, kept (tool-capable, clears floor).
 	require.Contains(t, bySlug, "model-c")
 	assert.InDelta(t, 0.9, bySlug["model-c"].CoderPrior, 1e-9)
+	assert.InDelta(t, 0.88, bySlug["model-c"].ReviewerPrior, 1e-9)
 
 	// model-b dropped: endpoint marks it tool-incapable.
 	assert.NotContains(t, bySlug, "model-b")

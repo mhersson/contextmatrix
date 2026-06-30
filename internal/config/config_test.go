@@ -2875,11 +2875,32 @@ backends:
 	require.NoError(t, err)
 	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
 	assert.Equal(t, "https://your-llm-endpoint.example/v1", cfg.LLMEndpoint.BaseURL)
+	assert.Equal(t, "test-key", cfg.LLMEndpoint.APIKey)
 	assert.Equal(t, "vendor-x-1", cfg.Backends["agent"].AAModelMap["model-a"])
 	assert.InDelta(t, 0.91, cfg.Backends["agent"].ModelPriors["model-b"].Coder, 1e-9)
+	assert.InDelta(t, 0.88, cfg.Backends["agent"].ModelPriors["model-b"].Reviewer, 1e-9)
 }
 
 func TestLLMEndpointValidationRequiresBaseURLForOpenAI(t *testing.T) {
 	c := &Config{LLMEndpoint: LLMEndpointConfig{Type: "openai", APIKey: "k"}}
 	assert.Error(t, c.LLMEndpoint.validate())
+}
+
+func TestLLMEndpointValidationRequiresAPIKeyForOpenAI(t *testing.T) {
+	c := &Config{LLMEndpoint: LLMEndpointConfig{Type: "openai", BaseURL: "https://your-llm-endpoint.example/v1"}}
+	assert.Error(t, c.LLMEndpoint.validate())
+}
+
+func TestLLMEndpointValidationRejectsUnknownType(t *testing.T) {
+	c := &Config{LLMEndpoint: LLMEndpointConfig{Type: "gemini"}}
+	assert.Error(t, c.LLMEndpoint.validate())
+}
+
+func TestLLMEndpointValidationAcceptsValidTypes(t *testing.T) {
+	for _, typ := range []string{"", "openrouter"} {
+		t.Run(typ, func(t *testing.T) {
+			c := &Config{LLMEndpoint: LLMEndpointConfig{Type: typ}}
+			assert.NoError(t, c.LLMEndpoint.validate())
+		})
+	}
 }
