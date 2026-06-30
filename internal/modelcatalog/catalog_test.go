@@ -3,6 +3,10 @@ package modelcatalog
 import (
 	"context"
 	"testing"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
@@ -50,6 +54,49 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 }
 
 func f(v float64) *float64 { return &v }
+
+func fp(v float64) *float64 { return &v }
+
+func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testing.T) {
+	aa := []aaModel{
+		// base row often unscored; a variant carries the score
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: fp(50)},
+		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: fp(80), IntelIndex: fp(80)},
+		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: fp(40), IntelIndex: fp(40)},
+	}
+	endpoint := map[string]orEntry{
+		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
+		"model-b": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: false},
+		"model-c": {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 200000, Tools: true},
+	}
+	stemMap := map[string]string{
+		"model-a": "vendor-x-1", // family: vendor-x-1 + vendor-x-1-thinking
+		"model-b": "vendor-y-2",
+	}
+	// model-c is not in the stem map (AA does not rate it) but has an override.
+	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
+
+	got := buildFromStemMap(aa, endpoint, stemMap, priors, 0.65)
+
+	bySlug := map[string]protocol.CandidateModel{}
+	for _, c := range got {
+		bySlug[c.Slug] = c
+	}
+
+	// model-a: per-axis max picks coder 80/80=1.0 from the -thinking row.
+	require.Contains(t, bySlug, "model-a")
+	assert.InDelta(t, 1.0, bySlug["model-a"].CoderPrior, 1e-9)
+	assert.Equal(t, 200000, bySlug["model-a"].ContextWindow)
+	assert.InDelta(t, 3e-6, bySlug["model-a"].PromptPricePerTok, 1e-12)
+
+	// model-c: override used verbatim, AA join skipped, kept (tool-capable, clears floor).
+	require.Contains(t, bySlug, "model-c")
+	assert.InDelta(t, 0.9, bySlug["model-c"].CoderPrior, 1e-9)
+
+	// model-b dropped: endpoint marks it tool-incapable.
+	assert.NotContains(t, bySlug, "model-b")
+	require.Len(t, got, 2)
+}
 
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
 // *Builder returns nil without panicking — the nil-receiver guard protects

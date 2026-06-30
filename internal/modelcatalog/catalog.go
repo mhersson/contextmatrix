@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -172,4 +173,90 @@ func norm(idx *float64, maxVal float64) float64 {
 	}
 
 	return n
+}
+
+// PriorOverride is an operator-supplied prior (already on the normalized 0..1
+// scale) for an endpoint slug AA does not rate. Mapped from config in main.go.
+type PriorOverride struct {
+	Coder    float64
+	Reviewer float64
+}
+
+// buildFromStemMap fuses Artificial Analysis priors with an endpoint catalog for
+// the openai type. It iterates the endpoint's served models; for each it uses an
+// operator override when present (AA join skipped for that slug), otherwise it
+// aggregates the strongest prior across the mapped AA stem and its variant rows.
+//
+// Family aggregation takes the best coder prior and the best reviewer prior
+// INDEPENDENTLY across the stem's rows ("stem", "stem-*"). This deliberately
+// differs from the OpenRouter build() collapse, which keeps both priors from the
+// single highest combined-score row: AA populates variant rows inconsistently
+// (the base slug is frequently unscored while a sibling variant carries the
+// score), so a per-axis maximum is the safer family aggregation here. The two
+// legs can therefore rank a shared model differently — accepted, documented.
+//
+// A served, tool-capable model that is neither overridden nor mapped is skipped
+// (the caller counts these for the "served but unselectable" WARN). Output is
+// keyed by endpoint slug and filtered to tool-capable, floor-clearing models.
+func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[string]string, priors map[string]PriorOverride, floor float64) []protocol.CandidateModel {
+	var maxCoding, maxIntel float64
+	for _, m := range aa {
+		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
+			maxCoding = *m.CodingIndex
+		}
+
+		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
+			maxIntel = *m.IntelIndex
+		}
+	}
+
+	out := make([]protocol.CandidateModel, 0, len(endpoint))
+
+	for slug, e := range endpoint {
+		if !e.Tools {
+			continue // endpoint reports the model cannot use tools
+		}
+
+		var coder, rev float64
+
+		if p, ok := priors[slug]; ok {
+			// Operator override: used verbatim, AA join skipped for this slug.
+			coder, rev = p.Coder, p.Reviewer
+		} else {
+			stem, mapped := stemMap[slug]
+			if !mapped || maxCoding <= 0 || maxIntel <= 0 {
+				continue // unmapped and no override, or AA has no usable scores
+			}
+
+			// Per-axis max across the stem family (see doc comment).
+			for _, m := range aa {
+				if m.Slug != stem && !strings.HasPrefix(m.Slug, stem+"-") {
+					continue
+				}
+
+				if c := norm(m.CodingIndex, maxCoding); c > coder {
+					coder = c
+				}
+
+				if r := norm(m.IntelIndex, maxIntel); r > rev {
+					rev = r
+				}
+			}
+		}
+
+		if coder < floor && rev < floor {
+			continue // below the quality floor for both roles
+		}
+
+		out = append(out, protocol.CandidateModel{
+			Slug:                  slug,
+			PromptPricePerTok:     e.PromptPrice,
+			CompletionPricePerTok: e.CompletionPrice,
+			ContextWindow:         e.ContextWindow,
+			CoderPrior:            coder,
+			ReviewerPrior:         rev,
+		})
+	}
+
+	return out
 }
