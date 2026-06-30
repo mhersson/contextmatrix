@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
@@ -7,17 +7,27 @@ import { useChatModels } from '../../utils/chatModels';
 
 // Mock useChatModels so PaneContextUsage can render a model label without
 // an API call. The default return covers 'config' mode (model-x, 200k tokens)
-// so existing tests run unmodified. Individual tests that need a different
-// source/model can use vi.mocked(useChatModels).mockReturnValueOnce(...).
+// so existing tests run unmodified.
 vi.mock('../../utils/chatModels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/chatModels')>();
   return {
     ...actual,
+    // Inline the default — vi.mock factories are hoisted before const declarations.
     useChatModels: vi.fn().mockReturnValue({
       models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
       source: 'config' as const,
     }),
   };
+});
+
+// Reset the mock before each test and restore the config-mode default so a
+// mockReturnValue set in one test does not bleed into siblings (StrictMode-safe).
+beforeEach(() => {
+  vi.mocked(useChatModels).mockReset();
+  vi.mocked(useChatModels).mockReturnValue({
+    models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
+    source: 'config' as const,
+  });
 });
 
 const baseProps = {
@@ -186,8 +196,9 @@ describe('PaneContextUsage cost glyph', () => {
 
 describe('PaneContextUsage endpoint mode context-window denominator', () => {
   it('uses server max_tokens as the context-window denominator for endpoint source', () => {
-    // Override useChatModels for this test only: endpoint source, model-a with 200k tokens.
-    vi.mocked(useChatModels).mockReturnValueOnce({
+    // Override useChatModels for this test: endpoint source, model-a with 200k tokens.
+    // Use mockReturnValue (not Once) so the mock holds across any StrictMode double-invoke.
+    vi.mocked(useChatModels).mockReturnValue({
       models: [{ id: 'model-a', label: 'Model A', max_tokens: 200_000 }],
       source: 'endpoint' as const,
     });
