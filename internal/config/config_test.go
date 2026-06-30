@@ -2846,3 +2846,40 @@ backends:
 		t.Errorf("critical reviewer favorites: %v", got)
 	}
 }
+
+// ---------- LLM Endpoint config tests ----------
+
+func TestLLMEndpointConfigParses(t *testing.T) {
+	cfg, err := loadFromYAML(t, `
+boards:
+  dir: `+t.TempDir()+`
+github:
+  auth_mode: pat
+  pat:
+    token: ghp_test
+llm_endpoint:
+  type: openai
+  base_url: https://your-llm-endpoint.example/v1
+  api_key: test-key
+backends:
+  agent:
+    url: http://localhost:9092
+    api_key: 0123456789012345678901234567890123456789
+    default_model: model-a
+    aa_api_key: aa-key
+    aa_model_map:
+      model-a: vendor-x-1
+    model_priors:
+      model-b: { coder: 0.91, reviewer: 0.88 }
+`)
+	require.NoError(t, err)
+	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
+	assert.Equal(t, "https://your-llm-endpoint.example/v1", cfg.LLMEndpoint.BaseURL)
+	assert.Equal(t, "vendor-x-1", cfg.Backends["agent"].AAModelMap["model-a"])
+	assert.InDelta(t, 0.91, cfg.Backends["agent"].ModelPriors["model-b"].Coder, 1e-9)
+}
+
+func TestLLMEndpointValidationRequiresBaseURLForOpenAI(t *testing.T) {
+	c := &Config{LLMEndpoint: LLMEndpointConfig{Type: "openai", APIKey: "k"}}
+	assert.Error(t, c.LLMEndpoint.validate())
+}
