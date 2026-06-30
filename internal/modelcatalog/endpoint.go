@@ -10,6 +10,34 @@ import (
 	"time"
 )
 
+// EndpointModel is a picker-facing projection of a served, tool-capable model.
+type EndpointModel struct {
+	ID        string
+	Label     string
+	MaxTokens int
+}
+
+// FetchEndpointModels returns the endpoint's tool-capable models for the chat
+// picker, reusing the same authenticated /models fetch as the catalog.
+func FetchEndpointModels(ctx context.Context, baseURL, apiKey string) ([]EndpointModel, error) {
+	cat, err := fetchEndpointCatalog(ctx, baseURL, apiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]EndpointModel, 0, len(cat))
+
+	for id, e := range cat {
+		if !e.Tools {
+			continue
+		}
+
+		out = append(out, EndpointModel{ID: id, Label: id, MaxTokens: e.ContextWindow})
+	}
+
+	return out, nil
+}
+
 // fetchEndpointCatalog GETs an OpenAI-compatible /models listing (authenticated)
 // and flattens it to the same orEntry shape used by the OpenRouter leg, so the
 // fusion and cost code are leg-agnostic. Tool capability is read from
@@ -60,6 +88,7 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
 
 		tools := false
+
 		for _, f := range d.Capabilities.Features {
 			if f == "tools" {
 				tools = true

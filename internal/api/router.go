@@ -137,6 +137,21 @@ type RouterConfig struct {
 	// Catalog != nil before attaching Selection, so omitting them is safe.
 	Catalog   catalogProvider
 	Blacklist blacklistReader
+
+	// ChatEndpointModels, when non-nil, is called by the chat model picker to
+	// retrieve the openai-endpoint model list. Set when llm_endpoint.type ==
+	// "openai". The neutral EndpointModelView keeps modelcatalog independent of
+	// the api package.
+	ChatEndpointModels func(context.Context) []EndpointModelView
+}
+
+// EndpointModelView is the api-package projection of modelcatalog.EndpointModel
+// used to thread the endpoint model list from main.go through RouterConfig into
+// chatHandlers without introducing a modelcatalog→api import cycle.
+type EndpointModelView struct {
+	ID        string
+	Label     string
+	MaxTokens int
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -273,6 +288,21 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Chat routes — registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatConfig, cfg.ChatBackendCfg)
+
+		if cfg.ChatEndpointModels != nil {
+			emFn := cfg.ChatEndpointModels
+			chh.endpointModels = func(ctx context.Context) []chatModelEntry {
+				views := emFn(ctx)
+				models := make([]chatModelEntry, len(views))
+
+				for i, v := range views {
+					models[i] = chatModelEntry{ID: v.ID, Label: v.Label, MaxTokens: int64(v.MaxTokens)}
+				}
+
+				return models
+			}
+		}
+
 		mux.HandleFunc("GET /api/chats", chh.listChats)
 		mux.HandleFunc("POST /api/chats", chh.createChat)
 		mux.HandleFunc("GET /api/chats/{id}", chh.getChat)

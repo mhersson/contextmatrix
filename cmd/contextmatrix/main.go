@@ -403,6 +403,27 @@ func main() {
 		routerCfg.Catalog = catalogBuilder
 	}
 
+	if cfg.LLMEndpoint.Type == "openai" {
+		baseURL := cfg.LLMEndpoint.BaseURL
+		apiKey := cfg.LLMEndpoint.APIKey
+		routerCfg.ChatEndpointModels = func(ctx context.Context) []api.EndpointModelView {
+			eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
+			if err != nil {
+				slog.Warn("chat picker: endpoint models fetch failed", "error", err)
+
+				return nil
+			}
+
+			out := make([]api.EndpointModelView, len(eps))
+
+			for i, e := range eps {
+				out[i] = api.EndpointModelView{ID: e.ID, Label: e.Label, MaxTokens: e.MaxTokens}
+			}
+
+			return out
+		}
+	}
+
 	mux := api.NewRouter(routerCfg)
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")

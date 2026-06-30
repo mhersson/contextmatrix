@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -33,6 +34,9 @@ type chatHandlers struct {
 	// orDefault is the default OpenRouter slug (backends.chat.default_model),
 	// used to seed the picker and as the empty-model fallback in openRouter mode.
 	orDefault string
+	// endpointModels, when non-nil, supplies the openai-endpoint model list for
+	// the picker (id/label/context). Set when llm_endpoint.type == "openai".
+	endpointModels func(ctx context.Context) []chatModelEntry
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatCfg *config.ChatConfig, chatBackendCfg config.BackendConfig) *chatHandlers {
@@ -177,11 +181,18 @@ type chatModelEntry struct {
 //   - "openrouter": the dedicated chat backend serves chat; Models is empty (the
 //     picker pulls the live OpenRouter catalog itself) and Default seeds it with
 //     backends.chat.default_model.
-func (h *chatHandlers) listModels(w http.ResponseWriter, _ *http.Request) {
+func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source  string           `json:"source"`
 		Models  []chatModelEntry `json:"models"`
 		Default string           `json:"default"`
+	}
+
+	if h.endpointModels != nil {
+		models := h.endpointModels(r.Context())
+		writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: models, Default: h.orDefault})
+
+		return
 	}
 
 	if h.openRouter {
