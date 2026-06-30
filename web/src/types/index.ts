@@ -434,7 +434,9 @@ export interface ChatModelList {
   //  - 'config': runner serves chat → `models` is the chat.models allowlist.
   //  - 'openrouter': dedicated chat backend serves chat → `models` is empty and
   //    the picker pulls the live OpenRouter catalog; `default` seeds it.
-  source: 'config' | 'openrouter';
+  //  - 'endpoint': server-provided list from the configured OpenAI-compatible
+  //    endpoint; rendered like 'config' (a <select> over the server models[]).
+  source: 'config' | 'openrouter' | 'endpoint';
   models: ChatModel[];
   default: string;
 }

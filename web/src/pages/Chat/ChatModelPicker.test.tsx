@@ -99,4 +99,20 @@ describe('ChatModelPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: /anthropic\/claude-opus-4/ }));
     expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
   });
+
+  it('endpoint mode: renders a <select> over the server-provided models', () => {
+    const onChange = vi.fn();
+    render(
+      <ChatModelPicker
+        source="endpoint"
+        model="model-a"
+        defaultModel="model-a"
+        models={[{ id: 'model-a', label: 'Model A', max_tokens: 200000 }]}
+        onChange={onChange}
+      />,
+    );
+    const select = screen.getByLabelText('Model');
+    expect(select.tagName).toBe('SELECT');
+    expect(screen.getByRole('option', { name: /Model A/ })).toBeInTheDocument();
+  });
 });

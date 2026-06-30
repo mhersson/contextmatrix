@@ -6,7 +6,7 @@ import type { ChatModel } from '../../types';
 
 interface ChatModelPickerProps {
   /** Which picker to render — driven by GET /api/chats/models `source`. */
-  source: 'config' | 'openrouter';
+  source: 'config' | 'openrouter' | 'endpoint';
   /** Current model value (config: allowlist id; openrouter: OpenRouter slug). */
   model: string;
   /** Server default, used to mark the default option in config mode. */
@@ -25,6 +25,8 @@ interface ChatModelPickerProps {
  *  - 'openrouter': a free-text input with live OpenRouter-catalog autocomplete
  *    plus a favorites chip row (operator-configured slugs from app config).
  *    Always renders, even though the config `models` list is empty.
+ *  - 'endpoint': server-provided model list from the configured OpenAI-
+ *    compatible endpoint; rendered as a <select>, identical to 'config'.
  */
 export function ChatModelPicker({
   source,
