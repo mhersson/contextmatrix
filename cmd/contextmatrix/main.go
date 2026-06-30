@@ -276,7 +276,7 @@ func main() {
 	var catalogBuilder *modelcatalog.Builder
 
 	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
-		opts := []modelcatalog.BuilderOption{}
+		var opts []modelcatalog.BuilderOption
 
 		if cfg.LLMEndpoint.Type == "openai" {
 			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))

@@ -181,6 +181,8 @@ type chatModelEntry struct {
 //   - "openrouter": the dedicated chat backend serves chat; Models is empty (the
 //     picker pulls the live OpenRouter catalog itself) and Default seeds it with
 //     backends.chat.default_model.
+//   - "endpoint": llm_endpoint.type is "openai"; Models comes from the endpoint's
+//     /v1/models response and Default is backends.chat.default_model.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source  string           `json:"source"`

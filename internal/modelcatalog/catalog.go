@@ -31,7 +31,7 @@ type Builder struct {
 	cachedAt time.Time
 	// lastCatalog is the raw per-slug catalog from the most recent refresh (every
 	// served model, not just selection candidates). Guarded by mu; consumed by
-	// Rate() for cost lookups (Task 5).
+	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
 }
 
@@ -74,7 +74,8 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 
 // refreshIfStaleLocked checks whether the cache is stale and refreshes it if
 // so. Must be called with b.mu held. On refresh failure it logs and leaves
-// b.cached unchanged (last-good). On success it updates b.cached and b.cachedAt.
+// b.cached unchanged (last-good). On success it updates b.cached, b.cachedAt,
+// and b.lastCatalog (via b.refresh).
 func (b *Builder) refreshIfStaleLocked(ctx context.Context) {
 	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
 		return
