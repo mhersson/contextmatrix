@@ -107,6 +107,81 @@ func TestCardServicePriceTokens(t *testing.T) {
 	})
 }
 
+// TestRateForFallsBackToCatalog verifies that rateFor (and the methods that
+// route through it) uses the catalog fallback when a model is absent from the
+// static tokenCosts map.
+func TestRateForFallsBackToCatalog(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	svc.SetCatalogRateLookup(func(model string) (ModelRate, bool) {
+		if model == "catalog-model" {
+			return ModelRate{Prompt: 3e-6, Completion: 15e-6}, true
+		}
+
+		return ModelRate{}, false
+	})
+
+	cost, ok := svc.PriceTokens("catalog-model", 1_000_000, 0, 0, 0)
+	require.True(t, ok)
+	assert.InDelta(t, 3.0, cost, 1e-9)
+
+	_, ok = svc.PriceTokens("unknown", 1, 0, 0, 0)
+	assert.False(t, ok)
+}
+
+// TestStaticTokenCostsOverrideCatalog verifies that a static tokenCosts entry
+// wins over a catalog fallback for the same model slug.
+func TestStaticTokenCostsOverrideCatalog(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	svc.tokenCosts = map[string]ModelRate{"catalog-model": {Prompt: 1e-6, Completion: 1e-6}}
+	svc.SetCatalogRateLookup(func(string) (ModelRate, bool) {
+		return ModelRate{Prompt: 9e-6, Completion: 9e-6}, true
+	})
+
+	cost, ok := svc.PriceTokens("catalog-model", 1_000_000, 0, 0, 0)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, cost, 1e-9) // static override wins
+}
+
+// TestReportUsageCatalogFallbackRecordsNonZeroCost is the Blocker assertion:
+// an agent calling ReportUsage without ActualCostUSD must record a non-zero cost
+// when the model is priced only via the catalog fallback (not in static tokenCosts).
+func TestReportUsageCatalogFallbackRecordsNonZeroCost(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	svc.SetCatalogRateLookup(func(model string) (ModelRate, bool) {
+		if model == "catalog-model" {
+			return ModelRate{Prompt: 3e-6, Completion: 15e-6}, true
+		}
+
+		return ModelRate{}, false
+	})
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Catalog rate test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-catalog",
+		Model:            "catalog-model",
+		PromptTokens:     1_000_000,
+		CompletionTokens: 0,
+	})
+	require.NoError(t, err)
+
+	// Catalog-priced model without ActualCostUSD must record non-zero cost.
+	assert.InDelta(t, 3.0, got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
 // byModelOf returns a map from model name to UsageBucket for easy lookup in
 // tests. It assumes all buckets belong to a single agent — with multiple
 // agents reporting the same model, later buckets would overwrite earlier ones.

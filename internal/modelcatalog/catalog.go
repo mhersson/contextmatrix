@@ -72,6 +72,24 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 	return b
 }
 
+// refreshIfStaleLocked checks whether the cache is stale and refreshes it if
+// so. Must be called with b.mu held. On refresh failure it logs and leaves
+// b.cached unchanged (last-good). On success it updates b.cached and b.cachedAt.
+func (b *Builder) refreshIfStaleLocked(ctx context.Context) {
+	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
+		return
+	}
+
+	fresh, err := b.refresh(ctx)
+	if err != nil {
+		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+
+		return
+	}
+
+	b.cached, b.cachedAt = fresh, time.Now()
+}
+
 // Candidates returns the current candidate set, refreshing if the cache is
 // stale. On refresh failure it logs and returns the last-good snapshot (nil
 // only if no successful build has ever happened).
@@ -87,20 +105,31 @@ func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
-		return b.cached
+	b.refreshIfStaleLocked(ctx)
+
+	return b.cached
+}
+
+// Rate returns the per-token prices for slug from the most recent raw catalog
+// (every served model, refreshing if stale). ok is false when the slug is not
+// served. Unlike Candidates, this is not filtered to AA-rated/floor-clearing
+// models, so picker-only and below-floor models are still priced.
+func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion float64, ok bool) {
+	if b == nil {
+		return 0, 0, false
 	}
 
-	fresh, err := b.refresh(ctx)
-	if err != nil {
-		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-		return b.cached
+	b.refreshIfStaleLocked(ctx)
+
+	e, found := b.lastCatalog[slug]
+	if !found {
+		return 0, 0, false
 	}
 
-	b.cached, b.cachedAt = fresh, time.Now()
-
-	return fresh
+	return e.PromptPrice, e.CompletionPrice, true
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {

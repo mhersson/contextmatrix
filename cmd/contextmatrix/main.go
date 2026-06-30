@@ -293,6 +293,21 @@ func main() {
 		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type)
 	}
 
+	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
+	// RecalculateCosts, PriceTokens) can price models that are served but not in
+	// the static token_costs override map (e.g. the agent's primary model when
+	// no explicit rate is configured).
+	if catalogBuilder != nil {
+		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
+			p, c, ok := catalogBuilder.Rate(ctx, model)
+			if !ok {
+				return service.ModelRate{}, false
+			}
+
+			return service.ModelRate{Prompt: p, Completion: c}, true
+		})
+	}
+
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
 	chatMgr, chatHub, chatCleanup := wireChat(ctx, cfg, svc, opStore)

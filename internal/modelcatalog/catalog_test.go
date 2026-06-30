@@ -136,3 +136,44 @@ func TestBuilderCandidatesNilReceiver(t *testing.T) {
 		t.Errorf("nil Builder.Candidates must return nil, got %v", got)
 	}
 }
+
+// TestBuilderRatePricesAnyServedModel verifies that Rate returns prices for every
+// model in the raw catalog, including models that are not selection candidates
+// (unmapped / below floor / picker-only).
+func TestBuilderRatePricesAnyServedModel(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"model-a","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"capabilities":{"features":["tools"]}},
+			{"id":"picker-only","context_length":128000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"capabilities":{"features":["tools"]}}
+		]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+	b.aaEndpoint = aaSrv.URL
+
+	// picker-only is NOT a selection candidate (unmapped), but it is served and priced.
+	p, c, ok := b.Rate(context.Background(), "picker-only")
+	require.True(t, ok)
+	assert.InDelta(t, 0.000001, p, 1e-12)
+	assert.InDelta(t, 0.000005, c, 1e-12)
+
+	_, _, ok = b.Rate(context.Background(), "not-served")
+	assert.False(t, ok)
+}
+
+// TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
+// without panicking.
+func TestBuilderRateNilReceiver(t *testing.T) {
+	var b *Builder
+
+	_, _, ok := b.Rate(context.Background(), "any-model")
+	assert.False(t, ok)
+}

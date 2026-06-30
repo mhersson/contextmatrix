@@ -69,6 +69,7 @@ type CardService struct {
 	bus               *events.Bus
 	boardsDir         string
 	tokenCosts        map[string]ModelRate
+	catalogRate       func(model string) (ModelRate, bool) // optional catalog-backed fallback
 	gitAutoCommit     bool
 	gitDeferredCommit bool
 
