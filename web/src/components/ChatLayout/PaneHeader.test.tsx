@@ -3,14 +3,17 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import { PaneHeader } from './PaneHeader';
 import type { AvailableChat } from './types';
 import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData';
+import { useChatModels } from '../../utils/chatModels';
 
 // Mock useChatModels so PaneContextUsage can render a model label without
-// an API call. The mock returns a single model entry that matches 'model-x'.
+// an API call. The default return covers 'config' mode (model-x, 200k tokens)
+// so existing tests run unmodified. Individual tests that need a different
+// source/model can use vi.mocked(useChatModels).mockReturnValueOnce(...).
 vi.mock('../../utils/chatModels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/chatModels')>();
   return {
     ...actual,
-    useChatModels: () => ({
+    useChatModels: vi.fn().mockReturnValue({
       models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
       source: 'config' as const,
     }),
@@ -178,5 +181,33 @@ describe('PaneContextUsage cost glyph', () => {
     expect(c1.textContent).toContain('$0.10');
     expect(c1.textContent).not.toContain('$0.99');
     expect(c2.textContent).toContain('$0.99');
+  });
+});
+
+describe('PaneContextUsage endpoint mode context-window denominator', () => {
+  it('uses server max_tokens as the context-window denominator for endpoint source', () => {
+    // Override useChatModels for this test only: endpoint source, model-a with 200k tokens.
+    vi.mocked(useChatModels).mockReturnValueOnce({
+      models: [{ id: 'model-a', label: 'Model A', max_tokens: 200_000 }],
+      source: 'endpoint' as const,
+    });
+
+    act(() => {
+      setChatLiveData('chat-1', {
+        model: 'model-a',
+        contextTokens: 100_000,
+        estimatedCostUsd: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+      });
+    });
+
+    render(<PaneHeader {...baseProps} />);
+
+    // 100_000 / 200_000 = 50%. Endpoint mode must use the server-provided
+    // max_tokens as the denominator (same path as 'config'), not OpenRouter.
+    expect(screen.getByText('50%')).toBeInTheDocument();
+    // useOpenRouterContextLengths should stay disabled — no OR network call.
+    expect(screen.getByText('Model A')).toBeInTheDocument();
   });
 });
