@@ -406,12 +406,10 @@ func main() {
 	if cfg.LLMEndpoint.Type == "openai" {
 		baseURL := cfg.LLMEndpoint.BaseURL
 		apiKey := cfg.LLMEndpoint.APIKey
-		routerCfg.ChatEndpointModels = func(ctx context.Context) []api.EndpointModelView {
+		routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
 			eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
 			if err != nil {
-				slog.Warn("chat picker: endpoint models fetch failed", "error", err)
-
-				return nil
+				return nil, err
 			}
 
 			out := make([]api.EndpointModelView, len(eps))
@@ -420,7 +418,7 @@ func main() {
 				out[i] = api.EndpointModelView{ID: e.ID, Label: e.Label, MaxTokens: e.MaxTokens}
 			}
 
-			return out
+			return out, nil
 		}
 	}
 

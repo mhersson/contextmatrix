@@ -138,11 +138,11 @@ type RouterConfig struct {
 	Catalog   catalogProvider
 	Blacklist blacklistReader
 
-	// ChatEndpointModels, when non-nil, is called by the chat model picker to
-	// retrieve the openai-endpoint model list. Set when llm_endpoint.type ==
-	// "openai". The neutral EndpointModelView keeps modelcatalog independent of
-	// the api package.
-	ChatEndpointModels func(context.Context) []EndpointModelView
+	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
+	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
+	// NewRouter wraps it with a TTL cache via newCachedEndpointFetcher. The
+	// neutral EndpointModelView keeps modelcatalog independent of the api package.
+	ChatEndpointModels func(context.Context) ([]EndpointModelView, error)
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -291,16 +291,21 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		if cfg.ChatEndpointModels != nil {
 			emFn := cfg.ChatEndpointModels
-			chh.endpointModels = func(ctx context.Context) []chatModelEntry {
-				views := emFn(ctx)
+			raw := func(ctx context.Context) ([]chatModelEntry, error) {
+				views, err := emFn(ctx)
+				if err != nil {
+					return nil, err
+				}
+
 				models := make([]chatModelEntry, len(views))
 
 				for i, v := range views {
 					models[i] = chatModelEntry{ID: v.ID, Label: v.Label, MaxTokens: int64(v.MaxTokens)}
 				}
 
-				return models
+				return models, nil
 			}
+			chh.endpointModels = newCachedEndpointFetcher(raw, endpointModelCacheTTL)
 		}
 
 		mux.HandleFunc("GET /api/chats", chh.listChats)

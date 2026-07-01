@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +65,10 @@ type fixtureOpts struct {
 	// default) means the runner serves chat → config-source picker. Set an
 	// enabled+keyed entry with a DefaultModel to exercise OpenRouter mode.
 	chatBackendCfg config.BackendConfig
+	// endpointModels, when non-nil, is the raw (uncached) endpoint model
+	// fetcher. The fixture wraps it with a TTL cache before wiring into
+	// the handler, matching the production path in NewRouter.
+	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
 }
 
 func defaultFixtureOpts() fixtureOpts {
@@ -118,6 +124,9 @@ func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPat
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
 	chh := newChatHandlers(mgr, hub, &chatCfg, opts.chatBackendCfg)
+	if opts.endpointModels != nil {
+		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
+	}
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	mux.HandleFunc("GET /api/chats", chh.listChats)
 	mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -765,8 +774,8 @@ func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
 func TestListModelsEndpointSource(t *testing.T) {
 	t.Parallel()
 	h := &chatHandlers{
-		endpointModels: func(_ context.Context) []chatModelEntry {
-			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}
+		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
+			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}, nil
 		},
 		orDefault: "model-a",
 	}
@@ -810,4 +819,83 @@ func TestListModels_NilConfig(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 	require.Contains(t, rec.Body.String(), `"models":[]`)
 	require.Contains(t, rec.Body.String(), `"default":""`)
+}
+
+// TestListModelsServesCachedEndpoint verifies that the endpoint model fetch is
+// cached: two consecutive GET /api/chats/models requests must only trigger one
+// upstream call.
+func TestListModelsServesCachedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	mux, _ := newChatFixture(t, fixtureOpts{
+		chatConfig: defaultFixtureOpts().chatConfig,
+		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
+			calls.Add(1)
+			return []chatModelEntry{{ID: "ep-model", Label: "EP Model", MaxTokens: 8192}}, nil
+		},
+	})
+
+	for range 2 {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+		require.Equal(t, 200, rec.Code)
+	}
+
+	require.Equal(t, int64(1), calls.Load(),
+		"upstream endpoint model fetch must be cached — two requests should trigger only one call")
+}
+
+// TestListModelsSurfacesFetchError verifies that when the endpoint model fetch
+// fails, listModels returns a response that distinguishes the error from "no
+// models" (i.e. the fetch_error field is populated, not a bare empty 200).
+func TestListModelsSurfacesFetchError(t *testing.T) {
+	t.Parallel()
+
+	mux, _ := newChatFixture(t, fixtureOpts{
+		chatConfig: defaultFixtureOpts().chatConfig,
+		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
+			return nil, fmt.Errorf("upstream unavailable")
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
+	require.Equal(t, 200, rec.Code)
+
+	var body struct {
+		Source     string `json:"source"`
+		FetchError string `json:"fetch_error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "endpoint", body.Source)
+	require.NotEmpty(t, body.FetchError,
+		"fetch error must be surfaced in fetch_error field, not silently dropped as an empty model list")
+}
+
+// TestCreateChatAcceptsEndpointModel verifies that when the endpoint picker is
+// active, createChat accepts any model slug without consulting the config
+// allowlist — matching the free-text trust applied in openRouter mode.
+func TestCreateChatAcceptsEndpointModel(t *testing.T) {
+	t.Parallel()
+
+	mux, _ := newChatFixture(t, fixtureOpts{
+		chatConfig: defaultFixtureOpts().chatConfig,
+		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
+			return []chatModelEntry{
+				{ID: "ep-model-a", Label: "EP Model A", MaxTokens: 32768},
+			}, nil
+		},
+	})
+
+	// ep-model-a is NOT in the config allowlist; in endpoint mode it must be accepted.
+	body := `{"title":"x","project":"p","model":"ep-model-a"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+	require.Equal(t, 201, rec.Code,
+		"endpoint picker model must be accepted without allowlist check: body=%s", rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	require.Equal(t, "ep-model-a", sess.Model)
 }
