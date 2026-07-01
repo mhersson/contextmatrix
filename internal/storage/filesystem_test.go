@@ -1277,7 +1277,7 @@ func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
 	cp.UsageBreakdown[0].CostUSD = 999.0
 	(*cp.Skills)[0] = "mutated"
 
-	assert.Equal(t, 1.0, orig.UsageBreakdown[0].CostUSD,
+	assert.InDelta(t, 1.0, orig.UsageBreakdown[0].CostUSD, 1e-9,
 		"UsageBreakdown copy must not share backing array with original")
 	assert.Equal(t, "go-development", (*orig.Skills)[0],
 		"Skills copy must not share backing array with original")
