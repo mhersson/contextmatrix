@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -20,6 +21,60 @@ const (
 	ErrCodeTooManyChats = "TOO_MANY_CHATS"
 	ErrCodeInvalidModel = "INVALID_MODEL"
 )
+
+// endpointModelCacheTTL is the lifetime of the cached endpoint model list.
+// The picker calls listModels on page load and on re-focus; a 5-minute window
+// absorbs repeated requests while remaining consistent with normal catalog churn.
+const endpointModelCacheTTL = 5 * time.Minute
+
+// cachedEndpointFetcher wraps a raw endpoint-model fetch function with a TTL
+// cache and a last-good fallback: when a refresh fails but a prior successful
+// fetch exists, the stale snapshot is returned rather than an error.
+// Thread-safe.
+type cachedEndpointFetcher struct {
+	mu        sync.Mutex
+	models    []chatModelEntry
+	fetchedAt time.Time
+	ttl       time.Duration
+	raw       func(ctx context.Context) ([]chatModelEntry, error)
+}
+
+// newCachedEndpointFetcher returns a func that wraps raw with a TTL cache.
+// The returned func is safe for concurrent calls and matches the type expected
+// by chatHandlers.endpointModels.
+func newCachedEndpointFetcher(
+	raw func(ctx context.Context) ([]chatModelEntry, error),
+	ttl time.Duration,
+) func(context.Context) ([]chatModelEntry, error) {
+	f := &cachedEndpointFetcher{raw: raw, ttl: ttl}
+
+	return f.get
+}
+
+func (f *cachedEndpointFetcher) get(ctx context.Context) ([]chatModelEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.models != nil && time.Since(f.fetchedAt) < f.ttl {
+		return f.models, nil
+	}
+
+	models, err := f.raw(ctx)
+	if err != nil {
+		// Last-good fallback: serve the stale snapshot rather than an error
+		// when a prior successful fetch exists.
+		if f.models != nil {
+			return f.models, nil
+		}
+
+		return nil, err
+	}
+
+	f.models = models
+	f.fetchedAt = time.Now()
+
+	return models, nil
+}
 
 type chatHandlers struct {
 	mgr  *chat.Manager
@@ -34,9 +89,10 @@ type chatHandlers struct {
 	// orDefault is the default OpenRouter slug (backends.chat.default_model),
 	// used to seed the picker and as the empty-model fallback in openRouter mode.
 	orDefault string
-	// endpointModels, when non-nil, supplies the openai-endpoint model list for
-	// the picker (id/label/context). Set when llm_endpoint.type == "openai".
-	endpointModels func(ctx context.Context) []chatModelEntry
+	// endpointModels, when non-nil, retrieves the (cached) endpoint model list
+	// for the picker. Returns (nil, err) when the upstream fetch fails and no
+	// last-good snapshot exists. Set when llm_endpoint.type == "openai".
+	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatCfg *config.ChatConfig, chatBackendCfg config.BackendConfig) *chatHandlers {
@@ -128,12 +184,12 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 
 	model := body.Model
 
-	if h.openRouter {
-		// OpenRouter mode: the chat.models allowlist does not apply. Accept any
-		// non-empty slug as-is (same free-text trust as the card model pins — an
-		// invalid slug surfaces as a chat-init failure from contextmatrix-chat,
-		// which CM cannot pre-validate without an OpenRouter catalog). Fall back
-		// to the configured default when the caller omits the model.
+	if h.openRouter || h.endpointModels != nil {
+		// Free-text acceptance: OpenRouter and endpoint-picker modes both accept
+		// any non-empty slug as-is. In endpoint mode an invalid slug surfaces as
+		// a chat-init failure from the backend, which CM cannot pre-validate
+		// without holding a complete up-to-date catalog copy. Fall back to the
+		// configured default when the caller omits the model.
 		if model == "" {
 			model = h.orDefault
 		}
@@ -185,13 +241,29 @@ type chatModelEntry struct {
 //     /v1/models response and Default is backends.chat.default_model.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		Source  string           `json:"source"`
-		Models  []chatModelEntry `json:"models"`
-		Default string           `json:"default"`
+		Source     string           `json:"source"`
+		Models     []chatModelEntry `json:"models"`
+		Default    string           `json:"default"`
+		FetchError string           `json:"fetch_error,omitempty"`
 	}
 
 	if h.endpointModels != nil {
-		models := h.endpointModels(r.Context())
+		models, err := h.endpointModels(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusOK, response{
+				Source:     "endpoint",
+				FetchError: err.Error(),
+				Models:     []chatModelEntry{},
+				Default:    h.orDefault,
+			})
+
+			return
+		}
+
+		if models == nil {
+			models = []chatModelEntry{}
+		}
+
 		writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: models, Default: h.orDefault})
 
 		return
