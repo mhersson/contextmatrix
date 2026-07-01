@@ -34,12 +34,34 @@ func PriceTokens(rate ModelRate, prompt, cacheRead, cacheCreation, completion in
 		float64(completion)*rate.Completion
 }
 
-// PriceTokens looks up the model in the service's cost map and, when found,
-// delegates to the package-level PriceTokens helper. Returns (cost, true) when
-// the model is known and (0, false) when it is not. Chat and other callers use
-// this via the chat.Pricer interface.
+// SetCatalogRateLookup installs a catalog-backed rate fallback used when a
+// model is not in the static token_costs override map.
+func (s *CardService) SetCatalogRateLookup(fn func(model string) (ModelRate, bool)) {
+	s.catalogRate = fn
+}
+
+// rateFor resolves a model's per-token rate: the static token_costs override
+// wins first (e.g. cache-aware rates), else the catalog fallback, else false.
+// Used by every cost path so ReportUsage, RecalculateCosts, and the PriceTokens
+// method all price identically.
+func (s *CardService) rateFor(model string) (ModelRate, bool) {
+	if rate, ok := s.tokenCosts[model]; ok {
+		return rate, true
+	}
+
+	if s.catalogRate != nil {
+		return s.catalogRate(model)
+	}
+
+	return ModelRate{}, false
+}
+
+// PriceTokens looks up the model via rateFor (static token_costs first, then
+// catalog fallback) and delegates to the package-level PriceTokens helper.
+// Returns (cost, true) when the model is known and (0, false) when it is not.
+// Chat and other callers use this via the chat.Pricer interface.
 func (s *CardService) PriceTokens(model string, prompt, cacheRead, cacheCreation, completion int64) (float64, bool) {
-	rate, ok := s.tokenCosts[model]
+	rate, ok := s.rateFor(model)
 	if !ok {
 		return 0, false
 	}
@@ -182,7 +204,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		deltaCost = *input.ActualCostUSD
 		costSource = "actual"
 	} else if input.Model != "" {
-		if rate, ok := s.tokenCosts[input.Model]; ok {
+		if rate, ok := s.rateFor(input.Model); ok {
 			deltaCost = PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
@@ -345,7 +367,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 					model = defaultModel
 				}
 
-				rate, ok := s.tokenCosts[model]
+				rate, ok := s.rateFor(model)
 				if !ok {
 					ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping bucket",
 						"model", model,
@@ -387,7 +409,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 				model = defaultModel
 			}
 
-			rate, ok := s.tokenCosts[model]
+			rate, ok := s.rateFor(model)
 			if !ok {
 				ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping card",
 					"model", model,

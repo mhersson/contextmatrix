@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChatModel } from '../types';
 
-export type ChatModelSource = 'config' | 'openrouter';
+export type ChatModelSource = 'config' | 'openrouter' | 'endpoint';
 
 export interface ChatModelsResult {
   models: ChatModel[];
   // source mirrors GET /api/chats/models: 'config' (runner serves chat → the
-  // allowlist drives the picker and the context-window denominator) or
-  // 'openrouter' (dedicated chat backend → models is empty; consumers fall back
-  // to the live OpenRouter catalog for context windows).
+  // allowlist drives the picker and the context-window denominator), 'openrouter'
+  // (dedicated chat backend → models is empty; consumers fall back to the live
+  // OpenRouter catalog for context windows), or 'endpoint' (server-provided list
+  // from the configured OpenAI-compatible endpoint — rendered like 'config').
   source: ChatModelSource;
 }
 

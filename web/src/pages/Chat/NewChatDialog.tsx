@@ -20,7 +20,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
-  const [modelSource, setModelSource] = useState<'config' | 'openrouter'>('config');
+  const [modelSource, setModelSource] = useState<'config' | 'openrouter' | 'endpoint'>('config');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

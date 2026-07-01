@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,13 +19,39 @@ type Builder struct {
 	allowlist                     []string
 	ttl                           time.Duration
 
+	// Endpoint leg (openai type). When endpointBaseURL != "", refresh() fuses
+	// the endpoint catalog with AA priors via stemMap/priors instead of the OR leg.
+	endpointBaseURL string
+	endpointAPIKey  string
+	stemMap         map[string]string
+	priors          map[string]PriorOverride
+
 	mu       sync.Mutex
 	cached   []protocol.CandidateModel
 	cachedAt time.Time
+	// lastCatalog is the raw per-slug catalog from the most recent refresh (every
+	// served model, not just selection candidates). Guarded by mu; consumed by
+	// Rate() for per-slug cost lookups.
+	lastCatalog map[string]orEntry
+}
+
+// BuilderOption configures a Builder after construction.
+type BuilderOption func(*Builder)
+
+// WithEndpoint switches the Builder to the openai endpoint leg: it fetches the
+// endpoint's /v1/models (authenticated) and fuses with AA priors via stemMap,
+// with per-slug operator overrides from priors.
+func WithEndpoint(baseURL, apiKey string, stemMap map[string]string, priors map[string]PriorOverride) BuilderOption {
+	return func(b *Builder) {
+		b.endpointBaseURL = baseURL
+		b.endpointAPIKey = apiKey
+		b.stemMap = stemMap
+		b.priors = priors
+	}
 }
 
 // NewBuilder constructs a Builder. floor<=0 defaults to 0.65; ttl<=0 to 6h.
-func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Duration) *Builder {
+func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Duration, opts ...BuilderOption) *Builder {
 	if floor <= 0 {
 		floor = 0.65
 	}
@@ -33,10 +60,35 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 		ttl = 6 * time.Hour
 	}
 
-	return &Builder{
+	b := &Builder{
 		aaEndpoint: AADefaultEndpoint, orEndpoint: ORDefaultEndpoint,
 		aaKey: aaKey, floor: floor, allowlist: allowlist, ttl: ttl,
 	}
+
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	return b
+}
+
+// refreshIfStaleLocked checks whether the cache is stale and refreshes it if
+// so. Must be called with b.mu held. On refresh failure it logs and leaves
+// b.cached unchanged (last-good). On success it updates b.cached, b.cachedAt,
+// and b.lastCatalog (via b.refresh).
+func (b *Builder) refreshIfStaleLocked(ctx context.Context) {
+	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
+		return
+	}
+
+	fresh, err := b.refresh(ctx)
+	if err != nil {
+		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+
+		return
+	}
+
+	b.cached, b.cachedAt = fresh, time.Now()
 }
 
 // Candidates returns the current candidate set, refreshing if the cache is
@@ -54,20 +106,31 @@ func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
-		return b.cached
+	b.refreshIfStaleLocked(ctx)
+
+	return b.cached
+}
+
+// Rate returns the per-token prices for slug from the most recent raw catalog
+// (every served model, refreshing if stale). ok is false when the slug is not
+// served. Unlike Candidates, this is not filtered to AA-rated/floor-clearing
+// models, so picker-only and below-floor models are still priced.
+func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion float64, ok bool) {
+	if b == nil {
+		return 0, 0, false
 	}
 
-	fresh, err := b.refresh(ctx)
-	if err != nil {
-		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-		return b.cached
+	b.refreshIfStaleLocked(ctx)
+
+	e, found := b.lastCatalog[slug]
+	if !found {
+		return 0, 0, false
 	}
 
-	b.cached, b.cachedAt = fresh, time.Now()
-
-	return fresh
+	return e.PromptPrice, e.CompletionPrice, true
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
@@ -80,10 +143,42 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return nil, err
 	}
 
+	if b.endpointBaseURL != "" {
+		ep, err := fetchEndpointCatalog(ctx, b.endpointBaseURL, b.endpointAPIKey)
+		if err != nil {
+			return nil, err
+		}
+
+		b.lastCatalog = ep
+		cands := buildFromStemMap(aa, ep, b.stemMap, b.priors, b.floor)
+
+		// "Served but unselectable" is a loud condition, not a silent one: a
+		// tool-capable served model that yields no candidate (unmapped, no
+		// override, or below the floor) means selection will fall back to the
+		// default model for that quality. Surface it.
+		toolCapable := 0
+
+		for _, e := range ep {
+			if e.Tools {
+				toolCapable++
+			}
+		}
+
+		if len(cands) < toolCapable {
+			slog.Warn("endpoint models served but not selectable",
+				"served_tool_capable", toolCapable, "candidates", len(cands),
+				"reason", "unmapped to AA, no model_priors override, or below the quality floor")
+		}
+
+		return cands, nil
+	}
+
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
 	if err != nil {
 		return nil, err
 	}
+
+	b.lastCatalog = or
 
 	return build(aa, or, b.floor, b.allowlist), nil
 }
@@ -172,4 +267,90 @@ func norm(idx *float64, maxVal float64) float64 {
 	}
 
 	return n
+}
+
+// PriorOverride is an operator-supplied prior (already on the normalized 0..1
+// scale) for an endpoint slug AA does not rate. Mapped from config in main.go.
+type PriorOverride struct {
+	Coder    float64
+	Reviewer float64
+}
+
+// buildFromStemMap fuses Artificial Analysis priors with an endpoint catalog for
+// the openai type. It iterates the endpoint's served models; for each it uses an
+// operator override when present (AA join skipped for that slug), otherwise it
+// aggregates the strongest prior across the mapped AA stem and its variant rows.
+//
+// Family aggregation takes the best coder prior and the best reviewer prior
+// INDEPENDENTLY across the stem's rows ("stem", "stem-*"). This deliberately
+// differs from the OpenRouter build() collapse, which keeps both priors from the
+// single highest combined-score row: AA populates variant rows inconsistently
+// (the base slug is frequently unscored while a sibling variant carries the
+// score), so a per-axis maximum is the safer family aggregation here. The two
+// legs can therefore rank a shared model differently — accepted, documented.
+//
+// A served, tool-capable model that is neither overridden nor mapped is skipped
+// (the caller counts these for the "served but unselectable" WARN). Output is
+// keyed by endpoint slug and filtered to tool-capable, floor-clearing models.
+func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[string]string, priors map[string]PriorOverride, floor float64) []protocol.CandidateModel {
+	var maxCoding, maxIntel float64
+	for _, m := range aa {
+		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
+			maxCoding = *m.CodingIndex
+		}
+
+		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
+			maxIntel = *m.IntelIndex
+		}
+	}
+
+	out := make([]protocol.CandidateModel, 0, len(endpoint))
+
+	for slug, e := range endpoint {
+		if !e.Tools {
+			continue // endpoint reports the model cannot use tools
+		}
+
+		var coder, rev float64
+
+		if p, ok := priors[slug]; ok {
+			// Operator override: used verbatim, AA join skipped for this slug.
+			coder, rev = p.Coder, p.Reviewer
+		} else {
+			stem, mapped := stemMap[slug]
+			if !mapped || maxCoding <= 0 || maxIntel <= 0 {
+				continue // unmapped and no override, or AA has no usable scores
+			}
+
+			// Per-axis max across the stem family (see doc comment).
+			for _, m := range aa {
+				if m.Slug != stem && !strings.HasPrefix(m.Slug, stem+"-") {
+					continue
+				}
+
+				if c := norm(m.CodingIndex, maxCoding); c > coder {
+					coder = c
+				}
+
+				if r := norm(m.IntelIndex, maxIntel); r > rev {
+					rev = r
+				}
+			}
+		}
+
+		if coder < floor && rev < floor {
+			continue // below the quality floor for both roles
+		}
+
+		out = append(out, protocol.CandidateModel{
+			Slug:                  slug,
+			PromptPricePerTok:     e.PromptPrice,
+			CompletionPricePerTok: e.CompletionPrice,
+			ContextWindow:         e.ContextWindow,
+			CoderPrior:            coder,
+			ReviewerPrior:         rev,
+		})
+	}
+
+	return out
 }

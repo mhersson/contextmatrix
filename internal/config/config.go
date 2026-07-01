@@ -22,6 +22,40 @@ type ModelRate struct {
 	Completion float64 `yaml:"completion"`
 }
 
+// LLMEndpointConfig is CM's connection to the inference endpoint it reads model
+// metadata from (catalog for agent selection + chat picker proxy). type selects
+// the wire/catalog dialect; base_url + api_key address the endpoint.
+type LLMEndpointConfig struct {
+	Type    string `yaml:"type"`     // "openrouter" (default) | "openai"
+	BaseURL string `yaml:"base_url"` // required for "openai"; defaults to the OpenRouter models URL for "openrouter"
+	APIKey  string `yaml:"api_key"`
+}
+
+func (e LLMEndpointConfig) validate() error {
+	switch e.Type {
+	case "", "openrouter":
+		return nil
+	case "openai":
+		if e.BaseURL == "" {
+			return fmt.Errorf("llm_endpoint.base_url is required when llm_endpoint.type is \"openai\"")
+		}
+		if e.APIKey == "" {
+			return fmt.Errorf("llm_endpoint.api_key is required when llm_endpoint.type is \"openai\"")
+		}
+		return nil
+	default:
+		return fmt.Errorf("llm_endpoint.type must be \"openrouter\" or \"openai\", got %q", e.Type)
+	}
+}
+
+// PriorOverride is an operator-supplied selection prior for a single endpoint
+// slug, used for the openai type when Artificial Analysis does not rate the
+// model. Values are on the same normalized 0..1 scale as AA-derived priors.
+type PriorOverride struct {
+	Coder    float64 `yaml:"coder"`
+	Reviewer float64 `yaml:"reviewer"`
+}
+
 // MinBackendAPIKeyLength is the minimum required length for a backend
 // entry's api_key.
 const MinBackendAPIKeyLength = 32
@@ -82,6 +116,18 @@ type BackendConfig struct {
 	AAAPIKey       string                         `yaml:"aa_api_key"`
 	ModelAllowlist []string                       `yaml:"model_allowlist"`
 	Favorites      map[string]board.TierFavorites `yaml:"favorites"`
+
+	// AAModelMap maps each endpoint model slug to its Artificial Analysis model
+	// stem, for the openai endpoint type. Used only by the agent backend's
+	// selection fusion. Empty for the openrouter type (which uses the built-in
+	// slug mapping).
+	AAModelMap map[string]string `yaml:"aa_model_map"`
+
+	// ModelPriors supplies a direct selection prior for an endpoint slug AA does
+	// not rate (a brand-new release, or a private model). When present for a
+	// slug, the AA join is skipped for that slug and these priors are used
+	// verbatim. openai type only.
+	ModelPriors map[string]PriorOverride `yaml:"model_priors"`
 }
 
 // IsEnabled reports whether this entry is active. nil Enabled defaults to true
@@ -270,6 +316,7 @@ type Config struct {
 	TaskSkills           TaskSkillsConfig     `yaml:"task_skills"`
 	Theme                string               `yaml:"theme"`
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
+	LLMEndpoint          LLMEndpointConfig    `yaml:"llm_endpoint"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
 	// Backends maps a backend name (runner, agent, chat) to its connection
 	// config. Roles and callback paths are derived from the entry name.
@@ -312,6 +359,10 @@ func defaults() *Config {
 func (c *Config) Validate() error {
 	if c.Boards.Dir == "" {
 		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	}
+
+	if err := c.LLMEndpoint.validate(); err != nil {
+		return err
 	}
 
 	switch c.GitHub.AuthMode {

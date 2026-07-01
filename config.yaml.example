@@ -82,8 +82,45 @@ cors_origin: "http://localhost:5173"
 # Env: CONTEXTMATRIX_THEME
 theme: "everforest"
 
+# LLM endpoint configuration.
+# CM uses this endpoint to read model metadata: building the agent selection
+# catalog (Artificial Analysis × endpoint fusion) and populating the chat model
+# picker when llm_endpoint.type is "openai".
+#
+# type selects the catalog dialect:
+#   "openrouter" (default) — fetches the public OpenRouter catalog; no auth
+#                            required for catalog reads; api_key drives agent
+#                            model invocations through the agent backend.
+#   "openai"               — fetches /v1/models from a private OpenAI-compatible
+#                            endpoint. api_key is sent as Bearer auth on every
+#                            catalog fetch and is a new secret surface — treat
+#                            it like a database password, not a public key.
+#
+# base_url is required for "openai" and should point to the base URL of the
+# inference endpoint (e.g. "https://your-llm-endpoint.example/v1"). For
+# "openrouter" it defaults to the canonical OpenRouter models URL and can
+# usually be omitted.
+#
+# Env: CONTEXTMATRIX_LLM_ENDPOINT_TYPE
+#      CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL
+#      CONTEXTMATRIX_LLM_ENDPOINT_API_KEY
+#
+# llm_endpoint:
+#   type: openai
+#   base_url: https://your-llm-endpoint.example/v1
+#   api_key: ""
+
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.
+#
+# For models served via llm_endpoint.type == "openai", rates are auto-filled
+# from the endpoint catalog — you do NOT need to list them here. Hand-listed
+# entries act as per-model overrides (useful for cache-aware rates or when the
+# endpoint does not publish pricing). Example:
+#
+#   # Override: cache-aware rate for a model whose endpoint pricing omits cache.
+#   # vendor-x-1: { prompt: 0.000003, completion: 0.000015 }
+#
 # Rates per https://platform.claude.com/docs/en/about-claude/pricing, 2026-04-23.
 token_costs:
   claude-haiku-4-5:   { prompt: 0.000001,  completion: 0.000005  }  # $1/$5 per MTok
@@ -271,8 +308,29 @@ backends: {}
 #    aa_api_key: ""
 #
 #    # Trusted AA creator slugs; empty = built-in default allowlist.
+#    # NOTE: model_allowlist is INERT when llm_endpoint.type is "openai". The
+#    # openai leg derives its candidate set from aa_model_map + model_priors
+#    # below — only slugs that appear in one of those two maps are considered for
+#    # selection. The allowlist is only consulted on the OpenRouter leg.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
 #    model_allowlist: []
+#
+#    # aa_model_map maps each endpoint model slug to its Artificial Analysis model
+#    # stem. Used only when llm_endpoint.type is "openai". The AA lookup fuses
+#    # the endpoint's pricing / context-window data with AA quality scores to
+#    # produce a selection candidate. Unmapped slugs are ignored unless they have
+#    # an entry in model_priors below.
+#    # Example: endpoint slug "model-a" is scored by AA as "vendor-x-1".
+#    # aa_model_map:
+#    #   model-a: vendor-x-1
+#
+#    # model_priors supplies a direct selection prior (0..1 normalized quality
+#    # score) for endpoint slugs that AA does not rate. Used only when
+#    # llm_endpoint.type is "openai". Slugs in this map bypass the AA join
+#    # entirely; the values are used verbatim for coder and reviewer roles.
+#    # Example: "model-b" is not in AA's catalog but the operator knows its quality.
+#    # model_priors:
+#    #   model-b: { coder: 0.91, reviewer: 0.88 }
 #
 #    # Optional per-tier model preferences, considered before cost-optimal selection.
 #    # Each tier accepts either a bare list (applies to all roles) or a role map.

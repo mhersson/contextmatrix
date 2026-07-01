@@ -274,10 +274,38 @@ func main() {
 
 	// Model catalog builder: constructed only when the agent backend has an AA key.
 	var catalogBuilder *modelcatalog.Builder
-	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
-		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0)
 
-		slog.Info("model catalog builder initialized")
+	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
+		var opts []modelcatalog.BuilderOption
+
+		if cfg.LLMEndpoint.Type == "openai" {
+			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
+			for slug, p := range agentCfg.ModelPriors {
+				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
+			}
+
+			opts = append(opts, modelcatalog.WithEndpoint(
+				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
+		}
+
+		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
+
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type)
+	}
+
+	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
+	// RecalculateCosts, PriceTokens) can price models that are served but not in
+	// the static token_costs override map (e.g. the agent's primary model when
+	// no explicit rate is configured).
+	if catalogBuilder != nil {
+		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
+			p, c, ok := catalogBuilder.Rate(ctx, model)
+			if !ok {
+				return service.ModelRate{}, false
+			}
+
+			return service.ModelRate{Prompt: p, Completion: c}, true
+		})
 	}
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
@@ -373,6 +401,27 @@ func main() {
 	}
 	if catalogBuilder != nil {
 		routerCfg.Catalog = catalogBuilder
+	}
+
+	if cfg.LLMEndpoint.Type == "openai" {
+		baseURL := cfg.LLMEndpoint.BaseURL
+		apiKey := cfg.LLMEndpoint.APIKey
+		routerCfg.ChatEndpointModels = func(ctx context.Context) []api.EndpointModelView {
+			eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
+			if err != nil {
+				slog.Warn("chat picker: endpoint models fetch failed", "error", err)
+
+				return nil
+			}
+
+			out := make([]api.EndpointModelView, len(eps))
+
+			for i, e := range eps {
+				out[i] = api.EndpointModelView{ID: e.ID, Label: e.Label, MaxTokens: e.MaxTokens}
+			}
+
+			return out
+		}
 	}
 
 	mux := api.NewRouter(routerCfg)

@@ -762,6 +762,29 @@ func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
 		"transcript must remain empty when the runner /clear call fails")
 }
 
+func TestListModelsEndpointSource(t *testing.T) {
+	t.Parallel()
+	h := &chatHandlers{
+		endpointModels: func(_ context.Context) []chatModelEntry {
+			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}
+		},
+		orDefault: "model-a",
+	}
+
+	rec := httptest.NewRecorder()
+	h.listModels(rec, httptest.NewRequest(http.MethodGet, "/api/chats/models", nil))
+
+	var resp struct {
+		Source  string           `json:"source"`
+		Models  []chatModelEntry `json:"models"`
+		Default string           `json:"default"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "endpoint", resp.Source)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "model-a", resp.Models[0].ID)
+}
+
 func TestListModels_NilConfig(t *testing.T) {
 	t.Parallel()
 	// Create a fixture with nil chat config by manually building without the chatConfig.

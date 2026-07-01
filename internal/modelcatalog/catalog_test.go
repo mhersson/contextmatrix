@@ -2,7 +2,14 @@ package modelcatalog
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
@@ -51,6 +58,72 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 
 func f(v float64) *float64 { return &v }
 
+func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testing.T) {
+	aa := []aaModel{
+		// base row often unscored; a variant carries the score
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: f(50)},
+		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: f(80), IntelIndex: f(80)},
+		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: f(40), IntelIndex: f(40)},
+	}
+	endpoint := map[string]orEntry{
+		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
+		"model-b": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: false},
+		"model-c": {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 200000, Tools: true},
+	}
+	stemMap := map[string]string{
+		"model-a": "vendor-x-1", // family: vendor-x-1 + vendor-x-1-thinking
+		"model-b": "vendor-y-2",
+	}
+	// model-c is not in the stem map (AA does not rate it) but has an override.
+	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
+
+	got := buildFromStemMap(aa, endpoint, stemMap, priors, 0.65)
+
+	bySlug := map[string]protocol.CandidateModel{}
+	for _, c := range got {
+		bySlug[c.Slug] = c
+	}
+
+	// model-a: per-axis max picks coder 80/80=1.0 from the -thinking row.
+	require.Contains(t, bySlug, "model-a")
+	assert.InDelta(t, 1.0, bySlug["model-a"].CoderPrior, 1e-9)
+	assert.InDelta(t, 1.0, bySlug["model-a"].ReviewerPrior, 1e-9)
+	assert.Equal(t, 200000, bySlug["model-a"].ContextWindow)
+	assert.InDelta(t, 3e-6, bySlug["model-a"].PromptPricePerTok, 1e-12)
+
+	// model-c: override used verbatim, AA join skipped, kept (tool-capable, clears floor).
+	require.Contains(t, bySlug, "model-c")
+	assert.InDelta(t, 0.9, bySlug["model-c"].CoderPrior, 1e-9)
+	assert.InDelta(t, 0.88, bySlug["model-c"].ReviewerPrior, 1e-9)
+
+	// model-b dropped: endpoint marks it tool-incapable.
+	assert.NotContains(t, bySlug, "model-b")
+	require.Len(t, got, 2)
+}
+
+func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+	b.aaEndpoint = aaSrv.URL // package-accessible field; set directly (no existing helper)
+
+	cands := b.Candidates(context.Background())
+	require.Len(t, cands, 1)
+	assert.Equal(t, "model-a", cands[0].Slug)
+}
+
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
 // *Builder returns nil without panicking — the nil-receiver guard protects
 // against the typed-nil-interface footgun in main.go.
@@ -62,4 +135,45 @@ func TestBuilderCandidatesNilReceiver(t *testing.T) {
 	if got != nil {
 		t.Errorf("nil Builder.Candidates must return nil, got %v", got)
 	}
+}
+
+// TestBuilderRatePricesAnyServedModel verifies that Rate returns prices for every
+// model in the raw catalog, including models that are not selection candidates
+// (unmapped / below floor / picker-only).
+func TestBuilderRatePricesAnyServedModel(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"model-a","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"capabilities":{"features":["tools"]}},
+			{"id":"picker-only","context_length":128000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"capabilities":{"features":["tools"]}}
+		]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+	b.aaEndpoint = aaSrv.URL
+
+	// picker-only is NOT a selection candidate (unmapped), but it is served and priced.
+	p, c, ok := b.Rate(context.Background(), "picker-only")
+	require.True(t, ok)
+	assert.InDelta(t, 0.000001, p, 1e-12)
+	assert.InDelta(t, 0.000005, c, 1e-12)
+
+	_, _, ok = b.Rate(context.Background(), "not-served")
+	assert.False(t, ok)
+}
+
+// TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
+// without panicking.
+func TestBuilderRateNilReceiver(t *testing.T) {
+	var b *Builder
+
+	_, _, ok := b.Rate(context.Background(), "any-model")
+	assert.False(t, ok)
 }
