@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { Card } from '../../../types';
 import { useTheme } from '../../../hooks/useTheme';
 import { useOpenRouterModels } from '../../../hooks/useOpenRouterModels';
+import { useChatModels } from '../../../utils/chatModels';
 import { AutomationCheckboxes } from '../AutomationCheckboxes';
 import { CardPanelActivity } from '../CardPanelActivity';
 
@@ -41,7 +42,12 @@ export function AutomationTab({
   clearForcedCreatePR,
 }: AutomationTabProps) {
   const { taskBackend, favorites: favsByTier } = useTheme();
-  const models = useOpenRouterModels(taskBackend === 'agent');
+  // Card model pins use the configured endpoint catalog when
+  // llm_endpoint.type=openai (source==='endpoint'), else the live OpenRouter
+  // catalog — mirroring the chat model picker. Only consumed on the agent path.
+  const { models: endpointModels, source } = useChatModels();
+  const orModels = useOpenRouterModels(source !== 'endpoint' && taskBackend === 'agent');
+  const models = source === 'endpoint' ? endpointModels.map((m) => m.id) : orModels;
 
   // Flatten all per-tier All slugs into a single de-duplicated list for the
   // chip row. Only relevant when taskBackend === 'agent'; the prop is ignored

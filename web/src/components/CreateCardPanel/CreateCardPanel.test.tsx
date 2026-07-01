@@ -30,6 +30,11 @@ vi.mock('@uiw/react-md-editor', () => ({
   ),
 }));
 
+vi.mock('../../utils/chatModels', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/chatModels')>();
+  return { ...actual, useChatModels: vi.fn().mockReturnValue({ models: [], source: 'config' }) };
+});
+
 vi.mock('../../api/client', () => ({
   api: {
     fetchBranches: vi.fn().mockResolvedValue([]),
