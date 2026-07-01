@@ -89,8 +89,10 @@ theme: "everforest"
 #
 # type selects the catalog dialect:
 #   "openrouter" (default) — fetches the public OpenRouter catalog; no auth
-#                            required for catalog reads; api_key drives agent
-#                            model invocations through the agent backend.
+#                            required for catalog reads. api_key is unused for
+#                            this type: the public OpenRouter catalog needs no
+#                            credentials, and the agent's model key is
+#                            configured on the agent backend, not here.
 #   "openai"               — fetches /v1/models from a private OpenAI-compatible
 #                            endpoint. api_key is sent as Bearer auth on every
 #                            catalog fetch and is a new secret surface — treat
