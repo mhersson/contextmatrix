@@ -2904,3 +2904,31 @@ func TestLLMEndpointValidationAcceptsValidTypes(t *testing.T) {
 		})
 	}
 }
+
+// TestLLMEndpointEnvOverrides verifies that the three CONTEXTMATRIX_LLM_ENDPOINT_*
+// variables documented in config.yaml.example are wired in applyEnvOverrides.
+func TestLLMEndpointEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	path := writeConfigFile(t, dir, `
+boards:
+  dir: `+boardsDir+`
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+`)
+
+	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_TYPE", "openai")
+	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL", "https://my-llm.example/v1")
+	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_API_KEY", "sk-test-override")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
+	assert.Equal(t, "https://my-llm.example/v1", cfg.LLMEndpoint.BaseURL)
+	assert.Equal(t, "sk-test-override", cfg.LLMEndpoint.APIKey)
+}

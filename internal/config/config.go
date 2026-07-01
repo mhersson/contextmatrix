@@ -1073,6 +1073,18 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 	}
 
+	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_TYPE"); v != "" {
+		cfg.LLMEndpoint.Type = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL"); v != "" {
+		cfg.LLMEndpoint.BaseURL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_API_KEY"); v != "" {
+		cfg.LLMEndpoint.APIKey = v
+	}
+
 	// Backend entries can be configured entirely via env: a variable for one
 	// of the allowed names creates the entry when YAML does not declare it,
 	// so pure-env deployments need no backends stub in the config file.
