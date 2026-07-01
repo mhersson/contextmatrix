@@ -1257,6 +1257,32 @@ Created by an external writer (e.g. git rebase pulling in a commit).
 	assert.Equal(t, "in_progress", got.State)
 }
 
+// TestCopyCardIsolatesUsageBreakdown verifies that copyCard produces a deep copy
+// of UsageBreakdown and Skills so that mutations to the copy do not affect the
+// original (and therefore the cached card).
+func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
+	skills := []string{"go-development", "test-driven-development"}
+	orig := &board.Card{
+		ID:    "TEST-001",
+		Title: "isolation test",
+		UsageBreakdown: []board.UsageBucket{
+			{Agent: "agent-a", Model: "m1", CostUSD: 1.0, CostSource: "actual"},
+		},
+		Skills: &skills,
+	}
+
+	cp := copyCard(orig)
+
+	// Mutate the copy — the original must remain unchanged.
+	cp.UsageBreakdown[0].CostUSD = 999.0
+	(*cp.Skills)[0] = "mutated"
+
+	assert.Equal(t, 1.0, orig.UsageBreakdown[0].CostUSD,
+		"UsageBreakdown copy must not share backing array with original")
+	assert.Equal(t, "go-development", (*orig.Skills)[0],
+		"Skills copy must not share backing array with original")
+}
+
 // BenchmarkListCards_500Cards measures ListCards throughput with a warm cache.
 func BenchmarkListCards_500Cards(b *testing.B) {
 	dir := b.TempDir()

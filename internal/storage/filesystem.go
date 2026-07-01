@@ -203,6 +203,15 @@ func copyCard(c *board.Card) *board.Card {
 		cp.ActivityLog = slices.Clone(c.ActivityLog)
 	}
 
+	if c.UsageBreakdown != nil {
+		cp.UsageBreakdown = slices.Clone(c.UsageBreakdown)
+	}
+
+	if c.Skills != nil {
+		s := slices.Clone(*c.Skills)
+		cp.Skills = &s
+	}
+
 	return &cp
 }
 
