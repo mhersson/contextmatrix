@@ -205,16 +205,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 // map to OR, collapse effort variants (same OR slug -> highest prior), join
 // price/window/tools. Effort collapse falls out of keying by OR slug.
 func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) []protocol.CandidateModel {
-	var maxCoding, maxIntel float64
-	for _, m := range aa {
-		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
-			maxCoding = *m.CodingIndex
-		}
-
-		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
-			maxIntel = *m.IntelIndex
-		}
-	}
+	maxCoding, maxIntel := maxIndices(aa)
 
 	if maxCoding <= 0 || maxIntel <= 0 {
 		return []protocol.CandidateModel{}
@@ -286,6 +277,22 @@ func norm(idx *float64, maxVal float64) float64 {
 	return n
 }
 
+// maxIndices returns the response-wide maximum coding and intelligence indices,
+// the normalization denominators shared by both catalog build legs.
+func maxIndices(aa []aaModel) (maxCoding, maxIntel float64) {
+	for _, m := range aa {
+		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
+			maxCoding = *m.CodingIndex
+		}
+
+		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
+			maxIntel = *m.IntelIndex
+		}
+	}
+
+	return maxCoding, maxIntel
+}
+
 // PriorOverride is an operator-supplied prior (already on the normalized 0..1
 // scale) for an endpoint slug AA does not rate. Mapped from config in main.go.
 type PriorOverride struct {
@@ -310,16 +317,7 @@ type PriorOverride struct {
 // (the caller counts these for the "served but unselectable" WARN). Output is
 // keyed by endpoint slug and filtered to tool-capable, floor-clearing models.
 func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[string]string, priors map[string]PriorOverride, floor float64) []protocol.CandidateModel {
-	var maxCoding, maxIntel float64
-	for _, m := range aa {
-		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
-			maxCoding = *m.CodingIndex
-		}
-
-		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
-			maxIntel = *m.IntelIndex
-		}
-	}
+	maxCoding, maxIntel := maxIndices(aa)
 
 	out := make([]protocol.CandidateModel, 0, len(endpoint))
 
