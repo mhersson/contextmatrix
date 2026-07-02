@@ -134,15 +134,10 @@ func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion flo
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
-	if b.aaKey == "" {
-		return nil, fmt.Errorf("no AA API key configured")
-	}
-
-	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
-	if err != nil {
-		return nil, err
-	}
-
+	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
+	// and is independent of Artificial Analysis, so fetch it whenever configured
+	// — even without an AA key. This lets a chat-only deployment (no agent
+	// backend, no AA key) still price endpoint-served models via Rate().
 	if b.endpointBaseURL != "" {
 		ep, err := fetchEndpointCatalog(ctx, b.endpointBaseURL, b.endpointAPIKey)
 		if err != nil {
@@ -150,6 +145,18 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		}
 
 		b.lastCatalog = ep
+
+		// Without an AA key there are no selection candidates (the complexity
+		// selector is an agent-only concern), but per-slug pricing is populated.
+		if b.aaKey == "" {
+			return []protocol.CandidateModel{}, nil
+		}
+
+		aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+		if err != nil {
+			return nil, err
+		}
+
 		cands := buildFromStemMap(aa, ep, b.stemMap, b.priors, b.floor)
 
 		// "Served but unselectable" is a loud condition, not a silent one: a
@@ -171,6 +178,16 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		}
 
 		return cands, nil
+	}
+
+	// OpenRouter leg still requires an AA key to normalize candidate indices.
+	if b.aaKey == "" {
+		return nil, fmt.Errorf("no AA API key configured")
+	}
+
+	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+	if err != nil {
+		return nil, err
 	}
 
 	or, err := fetchORCatalog(ctx, b.orEndpoint)

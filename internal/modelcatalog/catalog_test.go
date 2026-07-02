@@ -169,6 +169,27 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestBuilderRatePricesEndpointWithoutAAKey verifies that Rate prices
+// endpoint-served models even when no AA key is configured — the chat-only +
+// openai-endpoint topology (no agent backend, no AA key).
+func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	// No agent backend, no AA key — the chat-only + openai-endpoint topology.
+	b := NewBuilder("", 0.65, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+
+	p, c, ok := b.Rate(context.Background(), "model-a")
+	require.True(t, ok, "endpoint pricing must resolve without an AA key")
+	assert.InDelta(t, 0.000003, p, 1e-12)
+	assert.InDelta(t, 0.000015, c, 1e-12)
+}
+
 // TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
 // without panicking.
 func TestBuilderRateNilReceiver(t *testing.T) {

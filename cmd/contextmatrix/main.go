@@ -272,10 +272,16 @@ func main() {
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
-	// Model catalog builder: constructed only when the agent backend has an AA key.
+	// Model catalog builder: constructed whenever there is a rate source. The
+	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
+	// the endpoint-only path (chat-only deployments) yields pricing only.
 	var catalogBuilder *modelcatalog.Builder
 
-	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
+	agentCfg, hasAgent := cfg.Backends[config.BackendNameAgent]
+	agentAA := hasAgent && agentCfg.AAAPIKey != ""
+
+	switch {
+	case agentAA:
 		var opts []modelcatalog.BuilderOption
 
 		if cfg.LLMEndpoint.Type == "openai" {
@@ -290,7 +296,15 @@ func main() {
 
 		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
 
-		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type)
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "aa+candidates")
+
+	case cfg.LLMEndpoint.Type == "openai":
+		// Endpoint pricing without AA/agent: Rate() prices endpoint-served models
+		// for chat cost accounting; there are no selection candidates.
+		catalogBuilder = modelcatalog.NewBuilder("", 0.65, nil, 0,
+			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
+
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "endpoint-pricing-only")
 	}
 
 	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
@@ -399,7 +413,7 @@ func main() {
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
 	}
-	if catalogBuilder != nil {
+	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
 	}
 
