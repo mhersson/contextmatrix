@@ -217,7 +217,7 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 	}
 
 	if maxCoding <= 0 || maxIntel <= 0 {
-		return nil
+		return []protocol.CandidateModel{}
 	}
 
 	byOR := map[string]protocol.CandidateModel{}
