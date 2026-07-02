@@ -140,6 +140,18 @@ type RouterConfig struct {
 	// NewRouter wraps it with a TTL cache via newCachedEndpointFetcher. The
 	// neutral EndpointModelView keeps modelcatalog independent of the api package.
 	ChatEndpointModels func(context.Context) ([]EndpointModelView, error)
+
+	// ServedModels, when non-nil, returns the picker/validation model set from
+	// the catalog builder: the vendor-screened OpenRouter list, or the
+	// endpoint's served list. Feeds the openrouter-mode chat picker and
+	// GET /api/models.
+	ServedModels func(context.Context) []ServedModelView
+	// ServedModelsSource labels ServedModels for GET /api/models: "openrouter"
+	// or "endpoint". Empty when ServedModels is nil.
+	ServedModelsSource string
+	// ValidateChatModel, when non-nil, reports whether a model slug is in the
+	// served set (fail-open on an empty catalog).
+	ValidateChatModel func(context.Context, string) bool
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -149,6 +161,13 @@ type EndpointModelView struct {
 	ID        string
 	Label     string
 	MaxTokens int
+}
+
+// ServedModelView is the api-package projection of modelcatalog.ServedModel
+// (same pattern as EndpointModelView — keeps modelcatalog independent of api).
+type ServedModelView struct {
+	ID            string
+	ContextWindow int
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
@@ -226,6 +245,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Task-skills (used by project default + per-card skill selectors in the UI)
 	mux.HandleFunc("GET /api/task-skills", tsh.listTaskSkills)
 
+	// Model catalog for the card pin pickers — available regardless of chat
+	// mode; returns source "none" when no catalog builder is configured.
+	mch := &modelCatalogHandlers{served: cfg.ServedModels, source: cfg.ServedModelsSource}
+	mux.HandleFunc("GET /api/models", mch.listModels)
+
 	// Sync routes
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
@@ -298,6 +322,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			}
 			chh.endpointModels = newCachedEndpointFetcher(raw, endpointModelCacheTTL)
 		}
+
+		if cfg.ServedModels != nil {
+			smFn := cfg.ServedModels
+			chh.servedModels = func(ctx context.Context) []chatModelEntry {
+				views := smFn(ctx)
+				models := make([]chatModelEntry, len(views))
+
+				for i, v := range views {
+					models[i] = chatModelEntry{ID: v.ID, Label: v.ID, MaxTokens: int64(v.ContextWindow)}
+				}
+
+				return models
+			}
+		}
+
+		chh.validateModel = cfg.ValidateChatModel
 
 		mux.HandleFunc("GET /api/chats", chh.listChats)
 		mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -808,6 +848,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
 	case errors.Is(err, service.ErrInvalidPRUrl):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrInvalidModelPin):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "model pin not in catalog", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrFieldTooLong):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "field exceeds maximum length", sanitizeErrorDetails(err))
 

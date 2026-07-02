@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
-import { useOpenRouterContextLengths } from '../../hooks/useOpenRouterModels';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
 import {
   PANE_SOURCE_MIME,
@@ -197,21 +196,18 @@ export function PaneHeader({
  * module-level store (useChatLiveData) so the PaneHeader — a sibling above
  * ChatThread — can read it without prop-drilling. Falls back to the model
  * id from the persisted session row until the first session_updated event
- * arrives. Hidden entirely when no model is known.
+ * arrives. Hidden entirely when no model is known. The context window
+ * denominator always comes from `GET /api/chats/models` (`useChatModels`),
+ * in every source mode — config, endpoint, and openrouter alike.
  */
 function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackModel?: string }) {
   const live = useChatLiveData(chatId);
-  const { models, source } = useChatModels();
-  // OpenRouter mode has no config allowlist; the chat header sizes the context
-  // window from the live OpenRouter catalog instead. Fetch is deferred to that
-  // mode only.
-  const orContextLengths = useOpenRouterContextLengths(source === 'openrouter');
+  const { models } = useChatModels();
   const modelId = live?.model ?? fallbackModel;
   if (!modelId) return null;
   const m = models.find((x) => x.id === modelId);
   const label = m?.label ?? modelId;
-  const max =
-    source === 'openrouter' ? (orContextLengths[modelId] ?? 0) : modelMaxTokens(models, modelId);
+  const max = modelMaxTokens(models, modelId);
   const tokens = live?.contextTokens ?? 0;
   const pct = contextPct(tokens, max);
 

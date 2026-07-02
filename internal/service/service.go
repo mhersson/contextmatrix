@@ -69,7 +69,8 @@ type CardService struct {
 	bus               *events.Bus
 	boardsDir         string
 	tokenCosts        map[string]ModelRate
-	catalogRate       func(model string) (ModelRate, bool) // optional catalog-backed fallback
+	catalogRate       func(model string) (ModelRate, bool)        // optional catalog-backed fallback
+	modelValidator    func(ctx context.Context, slug string) bool // optional catalog-backed pin validation
 	gitAutoCommit     bool
 	gitDeferredCommit bool
 

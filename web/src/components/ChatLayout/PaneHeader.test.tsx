@@ -216,9 +216,36 @@ describe('PaneContextUsage endpoint mode context-window denominator', () => {
     render(<PaneHeader {...baseProps} />);
 
     // 100_000 / 200_000 = 50%. Endpoint mode must use the server-provided
-    // max_tokens as the denominator (same path as 'config'), not OpenRouter.
+    // max_tokens as the denominator, same path as every other source mode.
     expect(screen.getByText('50%')).toBeInTheDocument();
-    // useOpenRouterContextLengths should stay disabled — no OR network call.
     expect(screen.getByText('Model A')).toBeInTheDocument();
+  });
+});
+
+describe('PaneContextUsage openrouter mode context-window denominator', () => {
+  it('uses the CM-served max_tokens as the context-window denominator for openrouter source', () => {
+    // Override useChatModels for this test: openrouter source, model-b with 100k tokens.
+    // Use mockReturnValue (not Once) so the mock holds across any StrictMode double-invoke.
+    vi.mocked(useChatModels).mockReturnValue({
+      models: [{ id: 'model-b', label: 'model-b', max_tokens: 100_000 }],
+      source: 'openrouter' as const,
+    });
+
+    act(() => {
+      setChatLiveData('chat-1', {
+        model: 'model-b',
+        contextTokens: 25_000,
+        estimatedCostUsd: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+      });
+    });
+
+    render(<PaneHeader {...baseProps} />);
+
+    // 25_000 / 100_000 = 25%. Openrouter mode must read max_tokens from the
+    // CM-served model list — no direct browser fetch to the OpenRouter API.
+    expect(screen.getByText('25%')).toBeInTheDocument();
+    expect(screen.getByText('model-b')).toBeInTheDocument();
   });
 });

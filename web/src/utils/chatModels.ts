@@ -7,10 +7,12 @@ export type ChatModelSource = 'config' | 'openrouter' | 'endpoint';
 export interface ChatModelsResult {
   models: ChatModel[];
   // source mirrors GET /api/chats/models: 'config' (runner serves chat → the
-  // allowlist drives the picker and the context-window denominator), 'openrouter'
-  // (dedicated chat backend → models is empty; consumers fall back to the live
-  // OpenRouter catalog for context windows), or 'endpoint' (server-provided list
-  // from the configured OpenAI-compatible endpoint — rendered like 'config').
+  // allowlist drives the picker and the context-window denominator),
+  // 'openrouter' (dedicated chat backend → CM's vendor-screened catalog;
+  // id/label are the OpenRouter slug and max_tokens is the context window —
+  // consumers no longer fetch the OpenRouter API directly from the browser),
+  // or 'endpoint' (server-provided list from the configured OpenAI-compatible
+  // endpoint — rendered like 'config').
   source: ChatModelSource;
 }
 

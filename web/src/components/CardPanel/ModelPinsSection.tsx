@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { ModelCombobox } from '../ModelCombobox';
 
 export type ModelPinField = 'model_orchestrator' | 'model_coder' | 'model_reviewer';
 
@@ -8,7 +9,7 @@ interface ModelPinsSectionProps {
   reviewer: string;
   onChange: (field: ModelPinField, value: string) => void;
   disabled?: boolean;
-  /** OpenRouter catalog slugs for autocomplete; [] = free-text only. */
+  /** CM model-catalog slugs; [] = catalog unavailable → free-text fallback. */
   models: string[];
   /**
    * Operator-configured favorite slugs (flattened across tiers, de-duped).
@@ -28,9 +29,11 @@ const ROWS: { field: ModelPinField; label: string }[] = [
 /**
  * Per-card model pins for the agent backend — three rows (Orchestrator /
  * Coder / Reviewer) in the automation rail's `.bf-spread` row style. Each row
- * is a free-text input bound to a pin value, with OpenRouter-catalog
- * autocomplete via a shared `<datalist>`. An empty pin means the agent's
- * complexity selector decides the model, surfaced by the right-aligned hint.
+ * is a strict `ModelCombobox` bound to a pin value: typing filters CM's
+ * served catalog, and only a listed slug (or empty) can be committed. When
+ * `models` is `[]` (catalog unavailable) each row degrades to a plain
+ * free-text input. An empty pin means the agent's complexity selector
+ * decides the model, surfaced by the right-aligned hint.
  *
  * When `favorites` is supplied, a chip row above the inputs lets operators
  * click a preferred slug into the first empty pin.
@@ -48,9 +51,9 @@ export function ModelPinsSection({
   favorites,
 }: ModelPinsSectionProps) {
   // CardPanel and CreateCardPanel can be mounted simultaneously
-  // (ProjectShell renders both independently), so the datalist id must be
-  // instance-unique — a hardcoded id would be duplicated and one panel
-  // would silently lose autocomplete.
+  // (ProjectShell renders both independently), so each row's input id must be
+  // instance-unique — a hardcoded id would be duplicated and one panel's
+  // label association would break.
   const listId = useId();
   const values: Record<ModelPinField, string> = {
     model_orchestrator: orchestrator,
@@ -128,27 +131,20 @@ export function ModelPinsSection({
               {label}
             </label>
             <div className="flex items-center gap-2 min-w-0">
-              <input
+              <ModelCombobox
                 id={inputId}
-                type="text"
-                list={listId}
-                aria-label={`${label} model pin`}
                 value={value}
+                onChange={(v) => onChange(field, v)}
+                options={models}
                 disabled={disabled}
                 placeholder="selector decides"
-                onChange={(e) => onChange(field, e.target.value)}
-                className="bf-input font-mono"
-                style={{ width: 'auto', minWidth: '180px', fontSize: '11.5px' }}
+                ariaLabel={`${label} model pin`}
+                inputStyle={{ width: 'auto', minWidth: '180px', fontSize: '11.5px' }}
               />
             </div>
           </div>
         );
       })}
-      <datalist id={listId}>
-        {models.map((slug) => (
-          <option key={slug} value={slug} />
-        ))}
-      </datalist>
     </>
   );
 }

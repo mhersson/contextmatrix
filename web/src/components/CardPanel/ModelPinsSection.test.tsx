@@ -40,46 +40,42 @@ describe('ModelPinsSection', () => {
     expect(onChange).toHaveBeenCalledWith('model_reviewer', 'google/gemini-2.5-pro');
   });
 
-  it('renders datalist options when models are supplied, wired to the inputs', () => {
-    const { container } = render(
-      <ModelPinsSection {...baseProps} models={['openrouter/auto', 'anthropic/claude-opus-4']} />,
-    );
-    const datalist = container.querySelector('datalist');
-    expect(datalist).not.toBeNull();
-    const options = datalist!.querySelectorAll('option');
-    expect(options).toHaveLength(2);
-    expect(options[0]).toHaveAttribute('value', 'openrouter/auto');
-    // Each input's `list` must point at this instance's datalist id (the id
-    // is useId-generated so two mounted panels don't collide).
-    expect(screen.getByLabelText('Orchestrator model pin')).toHaveAttribute(
-      'list',
-      datalist!.id,
-    );
-  });
-
-  it('generates distinct datalist ids per instance (no duplicate-id collision)', () => {
-    const { container } = render(
-      <>
-        <ModelPinsSection {...baseProps} models={['openrouter/auto']} />
-        <ModelPinsSection {...baseProps} models={['openrouter/auto']} />
-      </>,
-    );
-    const datalists = container.querySelectorAll('datalist');
-    expect(datalists).toHaveLength(2);
-    expect(datalists[0].id).not.toBe(datalists[1].id);
-  });
-
-  it('renders no datalist options when models=[] but still accepts free text', () => {
+  it('accepts free text when models=[] (no catalog)', () => {
     const onChange = vi.fn();
-    const { container } = render(
-      <ModelPinsSection {...baseProps} models={[]} onChange={onChange} />,
-    );
-    expect(container.querySelectorAll('datalist option')).toHaveLength(0);
-    // Free-text fallback: the input still accepts arbitrary text.
+    render(<ModelPinsSection {...baseProps} models={[]} onChange={onChange} />);
+    expect(screen.getByLabelText('Orchestrator model pin')).toHaveAttribute('type', 'text');
     fireEvent.change(screen.getByLabelText('Orchestrator model pin'), {
       target: { value: 'some/custom-slug' },
     });
     expect(onChange).toHaveBeenCalledWith('model_orchestrator', 'some/custom-slug');
+  });
+
+  it('renders comboboxes when a catalog is supplied and commits only listed slugs', () => {
+    const onChange = vi.fn();
+    render(
+      <ModelPinsSection
+        {...baseProps}
+        onChange={onChange}
+        models={['anthropic/claude-opus-4.8', 'qwen/qwen3-coder']}
+      />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Coder model pin' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'qwen' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'qwen/qwen3-coder' }));
+    expect(onChange).toHaveBeenCalledWith('model_coder', 'qwen/qwen3-coder');
+  });
+
+  it('does not commit free text when a catalog is supplied', () => {
+    const onChange = vi.fn();
+    render(
+      <ModelPinsSection {...baseProps} onChange={onChange} models={['anthropic/claude-opus-4.8']} />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Reviewer model pin' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'typo/model' } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('reflects the bound pin values', () => {

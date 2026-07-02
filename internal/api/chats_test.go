@@ -69,6 +69,12 @@ type fixtureOpts struct {
 	// fetcher. The fixture wraps it with a TTL cache before wiring into
 	// the handler, matching the production path in NewRouter.
 	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
+	// servedModels, when non-nil, is wired directly into chatHandlers.servedModels
+	// (no caching wrapper — the catalog builder handles its own caching).
+	servedModels func(ctx context.Context) []chatModelEntry
+	// validateModel, when non-nil, is wired directly into chatHandlers.validateModel
+	// (no caching wrapper — the catalog builder handles its own caching).
+	validateModel func(ctx context.Context, slug string) bool
 }
 
 func defaultFixtureOpts() fixtureOpts {
@@ -123,10 +129,20 @@ func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPat
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
+
 	chh := newChatHandlers(mgr, hub, &chatCfg, opts.chatBackendCfg)
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
 	}
+
+	if opts.servedModels != nil {
+		chh.servedModels = opts.servedModels
+	}
+
+	if opts.validateModel != nil {
+		chh.validateModel = opts.validateModel
+	}
+
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	mux.HandleFunc("GET /api/chats", chh.listChats)
 	mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -563,8 +579,34 @@ func TestListModels_OpenRouterSource(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "openrouter", body.Source)
-	require.Empty(t, body.Models, "openrouter mode returns no allowlist; the frontend pulls OpenRouter live")
+	require.Empty(t, body.Models, "openrouter mode returns an empty list when no catalog builder is wired")
 	require.Equal(t, "anthropic/claude-sonnet-4", body.Default)
+}
+
+func TestListModels_OpenRouter_ServesScreenedCatalog(t *testing.T) {
+	t.Parallel()
+
+	opts := openRouterFixtureOpts()
+	opts.servedModels = func(_ context.Context) []chatModelEntry {
+		return []chatModelEntry{{ID: "anthropic/claude-sonnet-4.5", Label: "anthropic/claude-sonnet-4.5", MaxTokens: 200000}}
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/models", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Source  string           `json:"source"`
+		Models  []chatModelEntry `json:"models"`
+		Default string           `json:"default"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "openrouter", resp.Source)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "anthropic/claude-sonnet-4.5", resp.Models[0].ID)
+	assert.Equal(t, int64(200000), resp.Models[0].MaxTokens)
 }
 
 func TestCreateChat_OpenRouter_SkipsAllowlist(t *testing.T) {
@@ -592,6 +634,57 @@ func TestCreateChat_OpenRouter_EmptyModelFallsBackToBackendDefault(t *testing.T)
 	var sess chat.Session
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
 	require.Equal(t, "anthropic/claude-sonnet-4", sess.Model)
+}
+
+func TestCreateChat_OpenRouter_RejectsUnknownModel(t *testing.T) {
+	t.Parallel()
+
+	opts := openRouterFixtureOpts()
+	opts.validateModel = func(_ context.Context, slug string) bool {
+		return slug == "anthropic/claude-sonnet-4.5"
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	body := `{"title":"t","project":"alpha","model":"anthropic/claude-sonet-4.5"}` // typo
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "INVALID_MODEL")
+	assert.Contains(t, rec.Body.String(), "anthropic/claude-sonet-4.5")
+}
+
+func TestCreateChat_OpenRouter_AcceptsKnownModel(t *testing.T) {
+	t.Parallel()
+
+	opts := openRouterFixtureOpts()
+	opts.validateModel = func(_ context.Context, slug string) bool {
+		return slug == "anthropic/claude-sonnet-4.5"
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	body := `{"title":"t","project":"alpha","model":"anthropic/claude-sonnet-4.5"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+
+	assert.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+}
+
+func TestCreateChat_Endpoint_RejectsUnknownModel(t *testing.T) {
+	t.Parallel()
+
+	opts := defaultFixtureOpts()
+	opts.endpointModels = func(_ context.Context) ([]chatModelEntry, error) {
+		return []chatModelEntry{{ID: "model-a", Label: "Model A", MaxTokens: 100000}}, nil
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	body := `{"title":"t","project":"alpha","model":"model-b"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "INVALID_MODEL")
 }
 
 func TestClearChat_Success(t *testing.T) {
@@ -773,6 +866,7 @@ func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
 
 func TestListModelsEndpointSource(t *testing.T) {
 	t.Parallel()
+
 	h := &chatHandlers{
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			return []chatModelEntry{{ID: "model-a", Label: "model-a", MaxTokens: 200000}}, nil
@@ -828,10 +922,12 @@ func TestListModelsServesCachedEndpoint(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int64
+
 	mux, _ := newChatFixture(t, fixtureOpts{
 		chatConfig: defaultFixtureOpts().chatConfig,
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			calls.Add(1)
+
 			return []chatModelEntry{{ID: "ep-model", Label: "EP Model", MaxTokens: 8192}}, nil
 		},
 	})

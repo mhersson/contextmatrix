@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,6 +25,7 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -280,6 +282,9 @@ func main() {
 	agentCfg, hasAgent := cfg.Backends[config.BackendNameAgent]
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
+	chatBackendCfg := cfg.Backends[config.BackendNameChat]
+	chatOpenRouter := chatBackendCfg.IsEnabled() && chatBackendCfg.APIKey != ""
+
 	switch {
 	case agentAA:
 		var opts []modelcatalog.BuilderOption
@@ -294,6 +299,8 @@ func main() {
 				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
 		}
 
+		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+
 		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
 
 		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "aa+candidates")
@@ -305,12 +312,27 @@ func main() {
 			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
 
 		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "endpoint-pricing-only")
+
+	case hasAgent || chatOpenRouter:
+		// OpenRouter catalog without AA: no selection candidates, but the
+		// served set drives the model pickers, write-time validation, and
+		// chat cost pricing on AA-less deployments.
+		catalogBuilder = modelcatalog.NewBuilder("", 0.65, agentCfg.ModelAllowlist, 0,
+			modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "openrouter-catalog-only")
 	}
 
 	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
 	// RecalculateCosts, PriceTokens) can price models that are served but not in
 	// the static token_costs override map (e.g. the agent's primary model when
 	// no explicit rate is configured).
+	var (
+		servedModelsFn      func(context.Context) []api.ServedModelView
+		validateChatModelFn func(context.Context, string) bool
+		servedModelsSource  string
+	)
+
 	if catalogBuilder != nil {
 		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
 			p, c, ok := catalogBuilder.Rate(ctx, model)
@@ -320,6 +342,27 @@ func main() {
 
 			return service.ModelRate{Prompt: p, Completion: c}, true
 		})
+
+		svc.SetModelValidator(catalogBuilder.Validate)
+
+		routerServedModels := func(ctx context.Context) []api.ServedModelView {
+			served := catalogBuilder.Served(ctx)
+			views := make([]api.ServedModelView, len(served))
+
+			for i, m := range served {
+				views[i] = api.ServedModelView{ID: m.Slug, ContextWindow: m.ContextWindow}
+			}
+
+			return views
+		}
+
+		servedModelsFn = routerServedModels
+		validateChatModelFn = catalogBuilder.Validate
+		servedModelsSource = "openrouter"
+
+		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+			servedModelsSource = "endpoint"
+		}
 	}
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
@@ -382,9 +425,9 @@ func main() {
 	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
 	// Blacklist (opStore) is always non-nil so it is set unconditionally.
 	// chatBackendCfg is the dedicated "chat" backend entry (zero value when
-	// absent). Its key authenticates the chat service's task-skills pointer
-	// fetch. Name is set defensively: map values may not carry it.
-	chatBackendCfg := cfg.Backends[config.BackendNameChat]
+	// absent), already fetched above for the catalog builder switch. Its key
+	// authenticates the chat service's task-skills pointer fetch. Name is set
+	// defensively: map values may not carry it.
 	chatBackendCfg.Name = config.BackendNameChat
 
 	routerCfg := api.RouterConfig{
@@ -410,6 +453,9 @@ func main() {
 		ChatBackendCfg:         chatBackendCfg,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
+		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil
+		ServedModelsSource:     servedModelsSource,  // "" when catalogBuilder == nil
+		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
@@ -558,6 +604,36 @@ func dirHasGit(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, ".git"))
 
 	return err == nil
+}
+
+// flattenFavorites de-duplicates every favorite slug across tiers and roles
+// for the catalog Builder's vendor screen.
+func flattenFavorites(favs map[string]board.TierFavorites) []string {
+	seen := map[string]bool{}
+
+	var out []string
+
+	add := func(slugs []string) {
+		for _, s := range slugs {
+			if !seen[s] {
+				seen[s] = true
+
+				out = append(out, s)
+			}
+		}
+	}
+
+	for _, tf := range favs {
+		add(tf.All)
+
+		for _, slugs := range tf.ByRole {
+			add(slugs)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // startupPullTaskSkills performs a fast-forward pull of the task-skills repo

@@ -3,11 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatModelPicker } from './ChatModelPicker';
 import type { ChatModel } from '../../types';
 
-// Mock the OpenRouter catalog hook (returns slugs) and useTheme (returns the
-// favorites map) so the picker renders without any network call.
-vi.mock('../../hooks/useOpenRouterModels', () => ({
-  useOpenRouterModels: () => ['anthropic/claude-sonnet-4', 'openai/gpt-5'],
-}));
+// Mock useTheme (returns the favorites map) so the picker renders without
+// pulling in the theme provider.
 vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ favorites: { complex: ['anthropic/claude-opus-4'] } }),
 }));
@@ -47,28 +44,27 @@ describe('ChatModelPicker', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('openrouter mode: renders an input + datalist from the live catalog', () => {
-    const { container } = render(
+  it('openrouter mode: renders a strict combobox over the server-provided list', () => {
+    const onChange = vi.fn();
+    render(
       <ChatModelPicker
         source="openrouter"
-        model="anthropic/claude-sonnet-4"
-        defaultModel="anthropic/claude-sonnet-4"
-        models={[]}
-        onChange={vi.fn()}
+        model=""
+        defaultModel="anthropic/claude-sonnet-4.5"
+        models={[
+          { id: 'anthropic/claude-sonnet-4.5', label: 'anthropic/claude-sonnet-4.5', max_tokens: 200000 },
+        ]}
+        onChange={onChange}
       />,
     );
-    // Renders even though the config `models` list is empty (regression guard
-    // for the old `models.length > 0` visibility gate).
-    const input = screen.getByLabelText('Model');
-    expect(input.tagName).toBe('INPUT');
-
-    const options = container.querySelectorAll('datalist option');
-    expect(options).toHaveLength(2);
-    expect(options[0]).toHaveAttribute('value', 'anthropic/claude-sonnet-4');
-    expect(options[1]).toHaveAttribute('value', 'openai/gpt-5');
+    const input = screen.getByRole('combobox');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'sonnet' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'anthropic/claude-sonnet-4.5' }));
+    expect(onChange).toHaveBeenCalledWith('anthropic/claude-sonnet-4.5');
   });
 
-  it('openrouter mode: typing a free-text slug fires onChange', () => {
+  it('openrouter mode: empty server list degrades to a free-text input', () => {
     const onChange = vi.fn();
     render(
       <ChatModelPicker
@@ -79,9 +75,15 @@ describe('ChatModelPicker', () => {
         onChange={onChange}
       />,
     );
-    fireEvent.change(screen.getByLabelText('Model'), {
-      target: { value: 'deepseek/deepseek-v4' },
-    });
+    // Renders even though the server `models` list is empty (regression guard
+    // for the old `models.length > 0` visibility gate). The fallback input has
+    // an implicit role of `textbox` (not `combobox`) — query by label so both
+    // branches (combobox vs. plain input) resolve the same way.
+    const input = screen.getByLabelText('Model');
+    expect(input.tagName).toBe('INPUT');
+    expect(screen.getByRole('textbox')).toBe(input);
+
+    fireEvent.change(input, { target: { value: 'deepseek/deepseek-v4' } });
     expect(onChange).toHaveBeenCalledWith('deepseek/deepseek-v4');
   });
 

@@ -74,3 +74,38 @@ func contains(s []string, v string) bool {
 
 	return false
 }
+
+// allowedORPrefixes maps the effective creator allowlist (config override or
+// built-in trustedCreators) to OpenRouter namespace prefixes.
+func allowedORPrefixes(allow []string) map[string]bool {
+	if len(allow) == 0 {
+		allow = trustedCreators
+	}
+
+	out := make(map[string]bool, len(allow))
+
+	for _, c := range allow {
+		if p, ok := aaCreatorToOR[c]; ok {
+			out[p] = true
+
+			continue
+		}
+
+		out[c] = true // creators absent from the map are used verbatim
+	}
+
+	return out
+}
+
+// servedSlugAllowed reports whether an OR slug passes the vendor screen: its
+// vendor prefix is allowlisted, it is an operator favorite, or it is the
+// openrouter/auto router (kept pinnable by design).
+func servedSlugAllowed(slug string, allowed, favorites map[string]bool) bool {
+	if slug == "openrouter/auto" || favorites[slug] {
+		return true
+	}
+
+	vendor, _, ok := strings.Cut(slug, "/")
+
+	return ok && allowed[vendor]
+}

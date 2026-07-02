@@ -2,8 +2,8 @@ package modelcatalog
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +34,11 @@ type Builder struct {
 	stemMap         map[string]string
 	priors          map[string]PriorOverride
 
+	// favorites are operator-configured slugs (flattened across tiers/roles).
+	// They pass the Served() vendor screen even when their vendor is not
+	// allowlisted — the operator explicitly trusts them.
+	favorites []string
+
 	mu       sync.Mutex
 	cached   []protocol.CandidateModel
 	cachedAt time.Time
@@ -60,6 +65,12 @@ func WithEndpoint(baseURL, apiKey string, stemMap map[string]string, priors map[
 		b.stemMap = stemMap
 		b.priors = priors
 	}
+}
+
+// WithFavorites registers operator-configured favorite slugs; they pass the
+// Served() vendor screen regardless of vendor.
+func WithFavorites(favs []string) BuilderOption {
+	return func(b *Builder) { b.favorites = favs }
 }
 
 // NewBuilder constructs a Builder. floor<=0 defaults to 0.65; ttl<=0 to 6h.
@@ -157,6 +168,85 @@ func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion flo
 	return e.PromptPrice, e.CompletionPrice, true
 }
 
+// ServedModel is one entry of the picker/validation model set.
+type ServedModel struct {
+	Slug          string
+	ContextWindow int
+}
+
+// Served returns the picker/validation model set, refreshing if stale. On the
+// OpenRouter leg the raw catalog is vendor-screened (allowlist prefixes, plus
+// openrouter/auto and operator favorites); the endpoint leg is served
+// unfiltered because the operator already curates it. Sorted by slug. Nil on
+// a nil receiver or when no catalog has ever been fetched.
+//
+// Like Rate, a stale cache triggers a synchronous network refresh under b.mu.
+// Callers on write paths (card-pin validation via Validate) accept this
+// bounded stall: at most one fetch per TTL, or one per refreshFailureCooldown
+// during a provider outage.
+func (b *Builder) Served(ctx context.Context) []ServedModel {
+	if b == nil {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	if len(b.lastCatalog) == 0 {
+		return nil
+	}
+
+	screen := b.endpointBaseURL == ""
+
+	var allowed map[string]bool
+	if screen {
+		allowed = allowedORPrefixes(b.allowlist)
+	}
+
+	favs := make(map[string]bool, len(b.favorites))
+	for _, f := range b.favorites {
+		favs[f] = true
+	}
+
+	out := make([]ServedModel, 0, len(b.lastCatalog))
+
+	for slug, e := range b.lastCatalog {
+		if screen && !servedSlugAllowed(slug, allowed, favs) {
+			continue
+		}
+
+		out = append(out, ServedModel{Slug: slug, ContextWindow: e.ContextWindow})
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+
+	return out
+}
+
+// Validate reports whether slug is in the served model set. Fail-open: returns
+// true on a nil receiver or when the catalog is empty/never fetched, so an
+// OpenRouter/AA outage or cold start never blocks work.
+func (b *Builder) Validate(ctx context.Context, slug string) bool {
+	served := b.Served(ctx)
+	if len(served) == 0 {
+		return true
+	}
+
+	for _, m := range served {
+		if m.Slug == slug {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
 	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
 	// and is independent of Artificial Analysis, so fetch it whenever configured
@@ -204,22 +294,24 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return cands, nil
 	}
 
-	// OpenRouter leg still requires an AA key to normalize candidate indices.
-	if b.aaKey == "" {
-		return nil, fmt.Errorf("no AA API key configured")
-	}
-
-	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
-	if err != nil {
-		return nil, err
-	}
-
+	// OpenRouter leg: the OR catalog is public and unauthenticated — fetch it
+	// even without an AA key so Rate/Served/Validate work on AA-less
+	// deployments. Candidates still require AA to normalize prior indices.
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	b.lastCatalog = or
+
+	if b.aaKey == "" {
+		return []protocol.CandidateModel{}, nil
+	}
+
+	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+	if err != nil {
+		return nil, err
+	}
 
 	return build(aa, or, b.floor, b.allowlist), nil
 }

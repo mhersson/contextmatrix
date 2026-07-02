@@ -93,6 +93,12 @@ type chatHandlers struct {
 	// for the picker. Returns (nil, err) when the upstream fetch fails and no
 	// last-good snapshot exists. Set when llm_endpoint.type == "openai".
 	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
+	// servedModels, when non-nil, returns the vendor-screened OpenRouter
+	// catalog from CM's cached copy for the openrouter-mode picker.
+	servedModels func(ctx context.Context) []chatModelEntry
+	// validateModel, when non-nil, reports whether a slug is in the served
+	// set. Fail-open on an empty catalog. Used by createChat in openrouter mode.
+	validateModel func(ctx context.Context, slug string) bool
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatCfg *config.ChatConfig, chatBackendCfg config.BackendConfig) *chatHandlers {
@@ -184,16 +190,32 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 
 	model := body.Model
 
-	if h.openRouter || h.endpointModels != nil {
-		// Free-text acceptance: OpenRouter and endpoint-picker modes both accept
-		// any non-empty slug as-is. In endpoint mode an invalid slug surfaces as
-		// a chat-init failure from the backend, which CM cannot pre-validate
-		// without holding a complete up-to-date catalog copy. Fall back to the
-		// configured default when the caller omits the model.
+	switch {
+	case h.endpointModels != nil:
 		if model == "" {
 			model = h.orDefault
 		}
-	} else {
+		// Validate against the same cached list that feeds the picker; a
+		// fetch error fails open so an upstream outage never blocks chat.
+		if model != "" {
+			if models, err := h.endpointModels(r.Context()); err == nil && !containsModelID(models, model) {
+				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+				return
+			}
+		}
+	case h.openRouter:
+		if model == "" {
+			model = h.orDefault
+		}
+		// Validate against CM's vendor-screened catalog copy. validateModel
+		// fails open on an empty catalog (cold start, OpenRouter outage).
+		if model != "" && h.validateModel != nil && !h.validateModel(r.Context(), model) {
+			writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+			return
+		}
+	default:
 		if model == "" && h.chat != nil {
 			model = h.chat.DefaultModel
 		}
@@ -230,12 +252,24 @@ type chatModelEntry struct {
 	MaxTokens int64  `json:"max_tokens"`
 }
 
+// containsModelID reports whether id is present in the picker model list.
+func containsModelID(models []chatModelEntry, id string) bool {
+	for _, m := range models {
+		if m.ID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
 // listModels exposes the chat model picker source for the frontend. The
 // `source` field tells the picker which mode to render:
 //   - "config": the runner serves chat; Models is the chat.models allowlist and
 //     Default is chat.default_model (native Anthropic slugs).
-//   - "openrouter": the dedicated chat backend serves chat; Models is empty (the
-//     picker pulls the live OpenRouter catalog itself) and Default seeds it with
+//   - "openrouter": the dedicated chat backend serves chat; Models is the
+//     vendor-screened OpenRouter catalog from CM's cached copy (empty only
+//     when the catalog has not been fetched) and Default seeds it with
 //     backends.chat.default_model.
 //   - "endpoint": llm_endpoint.type is "openai"; Models comes from the endpoint's
 //     /v1/models response and Default is backends.chat.default_model.
@@ -270,9 +304,14 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.openRouter {
+		models := []chatModelEntry{}
+		if h.servedModels != nil {
+			models = h.servedModels(r.Context())
+		}
+
 		writeJSON(w, http.StatusOK, response{
 			Source:  "openrouter",
-			Models:  []chatModelEntry{},
+			Models:  models,
 			Default: h.orDefault,
 		})
 

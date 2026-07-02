@@ -411,13 +411,26 @@ export interface ChatModel {
 export interface ChatModelList {
   // source tells the New Chat picker which mode to render:
   //  - 'config': runner serves chat → `models` is the chat.models allowlist.
-  //  - 'openrouter': dedicated chat backend serves chat → `models` is empty and
-  //    the picker pulls the live OpenRouter catalog; `default` seeds it.
+  //  - 'openrouter': dedicated chat backend serves chat → `models` is CM's
+  //    vendor-screened OpenRouter catalog (id/label = slug, max_tokens =
+  //    context window); empty only when the server catalog is unfetched.
   //  - 'endpoint': server-provided list from the configured OpenAI-compatible
   //    endpoint; rendered like 'config' (a <select> over the server models[]).
   source: 'config' | 'openrouter' | 'endpoint';
   models: ChatModel[];
   default: string;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  max_tokens: number;
+}
+
+export interface ModelCatalogResponse {
+  // 'openrouter' = CM's vendor-screened OpenRouter list; 'endpoint' = the
+  // endpoint's served list; 'none' = no catalog builder configured server-side.
+  source: 'openrouter' | 'endpoint' | 'none';
+  models: ModelCatalogEntry[];
 }
 
 export interface ChatSessionUpdate {
