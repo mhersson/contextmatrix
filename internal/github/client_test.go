@@ -298,7 +298,7 @@ func TestParseLinkNext(t *testing.T) {
 	p, err := githubauth.NewPATProvider("test-token")
 	require.NoError(t, err)
 
-	c := NewClient(p)
+	c := NewClientWithBaseURL(p, "")
 
 	tests := []struct {
 		name   string
