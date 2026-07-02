@@ -272,13 +272,19 @@ func main() {
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
-	// Model catalog builder: constructed only when the agent backend has an AA key.
+	// Model catalog builder: constructed whenever there is a rate source. The
+	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
+	// the endpoint-only path (chat-only deployments) yields pricing only.
 	var catalogBuilder *modelcatalog.Builder
 
-	if agentCfg, ok := cfg.Backends[config.BackendNameAgent]; ok && agentCfg.AAAPIKey != "" {
+	agentCfg, hasAgent := cfg.Backends[config.BackendNameAgent]
+	agentAA := hasAgent && agentCfg.AAAPIKey != ""
+
+	switch {
+	case agentAA:
 		var opts []modelcatalog.BuilderOption
 
-		if cfg.LLMEndpoint.Type == "openai" {
+		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
 			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
 			for slug, p := range agentCfg.ModelPriors {
 				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
@@ -290,7 +296,15 @@ func main() {
 
 		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
 
-		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type)
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "aa+candidates")
+
+	case cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI:
+		// Endpoint pricing without AA/agent: Rate() prices endpoint-served models
+		// for chat cost accounting; there are no selection candidates.
+		catalogBuilder = modelcatalog.NewBuilder("", 0.65, nil, 0,
+			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
+
+		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "endpoint-pricing-only")
 	}
 
 	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
@@ -399,26 +413,39 @@ func main() {
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
 	}
-	if catalogBuilder != nil {
+	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
 	}
 
-	if cfg.LLMEndpoint.Type == "openai" {
-		baseURL := cfg.LLMEndpoint.BaseURL
-		apiKey := cfg.LLMEndpoint.APIKey
-		routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
-			eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
-			if err != nil {
-				return nil, err
-			}
-
+	if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+		toViews := func(eps []modelcatalog.EndpointModel) []api.EndpointModelView {
 			out := make([]api.EndpointModelView, len(eps))
 
 			for i, e := range eps {
 				out[i] = api.EndpointModelView{ID: e.ID, Label: e.Label, MaxTokens: e.MaxTokens}
 			}
 
-			return out, nil
+			return out
+		}
+
+		if catalogBuilder != nil {
+			// Serve the picker from the Builder's cached catalog — the same
+			// /models fetch already shared by Rate and Candidates — instead of a
+			// second independent fetch with its own TTL.
+			routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
+				return toViews(catalogBuilder.EndpointModels(ctx)), nil
+			}
+		} else {
+			baseURL := cfg.LLMEndpoint.BaseURL
+			apiKey := cfg.LLMEndpoint.APIKey
+			routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
+				eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
+				if err != nil {
+					return nil, err
+				}
+
+				return toViews(eps), nil
+			}
 		}
 	}
 

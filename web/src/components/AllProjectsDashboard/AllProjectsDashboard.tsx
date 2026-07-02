@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { useOncePerKeyToast } from '../../hooks/useOncePerKeyToast';
 import { useProjects } from '../../hooks/useProjects';
-import { useProjectSummaries } from '../../hooks/useProjectSummaries';
+import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useToast } from '../../hooks/useToast';
 import type { AppConfig, SyncStatus } from '../../types';
@@ -27,7 +27,7 @@ interface AllProjectsDashboardProps {
 export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps) {
   const { projects, refreshProjects } = useProjects();
   const projectNames = useMemo(() => projects.map((p) => p.name), [projects]);
-  const { summaries, errors, loading, refresh } = useProjectSummaries(projectNames);
+  const { summaries, errors, loading, refresh } = useProjectSummariesContext();
   const { subscribe } = useSSEBus();
   const { showToast } = useToast();
 

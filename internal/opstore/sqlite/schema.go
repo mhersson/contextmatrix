@@ -6,11 +6,25 @@ import (
 	"fmt"
 )
 
+// schemaVersion is the current opstore schema revision. Bump it when adding
+// tables/columns and add the corresponding migration below.
+const schemaVersion = 1
+
 // ensureSchema creates every operational table if absent. Clean-cut: there is
 // no migration ledger and no backward-compat path — an obsolete DB is deleted
 // and recreated by the operator. Holds both the chat schema (sessions,
 // messages, cost archive) and the model blacklist in a single ops.db.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
+	var current int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+		return fmt.Errorf("opstore: read schema version: %w", err)
+	}
+
+	if current > schemaVersion {
+		return fmt.Errorf("opstore: db schema v%d is newer than this binary (expects v%d); "+
+			"upgrade contextmatrix or delete the ops db to recreate", current, schemaVersion)
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS model_blacklist (
 			slug         TEXT PRIMARY KEY,
@@ -75,6 +89,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, s); err != nil {
 			return fmt.Errorf("opstore schema: %w", err)
 		}
+	}
+
+	// Stamp the version. PRAGMA user_version takes no bound parameter; the value
+	// is a compile-time constant, not user input.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
+		return fmt.Errorf("opstore: stamp schema version: %w", err)
 	}
 
 	return nil

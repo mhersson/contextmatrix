@@ -1210,6 +1210,33 @@ func TestParentAutoTransition_ChildInProgressMovesParentToInProgress(t *testing.
 	assert.Equal(t, "in_progress", updatedParent.State)
 }
 
+func TestParentAutoTransition_AppendsStateChangeLog(t *testing.T) {
+	svc, _, cleanup := setupTestWithReview(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
+	require.Equal(t, "todo", parent.State)
+	require.Empty(t, parent.ActivityLog)
+
+	inProgress := "in_progress"
+	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
+	require.NoError(t, err)
+
+	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, "in_progress", updatedParent.State)
+
+	// The auto-transition must leave a state_changed trail so the dashboard
+	// sparkline can reconstruct the parent's history.
+	require.Len(t, updatedParent.ActivityLog, 1)
+	entry := updatedParent.ActivityLog[0]
+	assert.Equal(t, stateChangedAction, entry.Action)
+	assert.Equal(t, "todo -> in_progress", entry.Message)
+	assert.Equal(t, "system", entry.Agent)
+}
+
 func TestParentAutoTransition_SecondChildInProgressIdempotent(t *testing.T) {
 	svc, _, cleanup := setupTestWithReview(t)
 	defer cleanup()

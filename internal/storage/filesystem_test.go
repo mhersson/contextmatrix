@@ -256,6 +256,39 @@ func TestFilesystemStore_ListCards_NoFilter(t *testing.T) {
 	assert.Len(t, cards, 2)
 }
 
+func TestFilesystemStore_ListCards_DeterministicIDOrder(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Insert in shuffled order; ListCards must return ascending-by-ID.
+	ids := []string{
+		"TEST-007", "TEST-002", "TEST-010", "TEST-001", "TEST-005",
+		"TEST-009", "TEST-003", "TEST-008", "TEST-004", "TEST-006",
+	}
+	for _, id := range ids {
+		require.NoError(t, store.CreateCard(ctx, "test-project", testCard(id, "todo")))
+	}
+
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, cards, len(ids))
+
+	got := make([]string, len(cards))
+	for i, c := range cards {
+		got[i] = c.ID
+	}
+
+	assert.Equal(t, []string{
+		"TEST-001", "TEST-002", "TEST-003", "TEST-004", "TEST-005",
+		"TEST-006", "TEST-007", "TEST-008", "TEST-009", "TEST-010",
+	}, got)
+}
+
 func TestFilesystemStore_ListCards_FilterByState(t *testing.T) {
 	dir := t.TempDir()
 	setupTestProject(t, dir, "test-project", "TEST")
@@ -1255,6 +1288,36 @@ Created by an external writer (e.g. git rebase pulling in a commit).
 	assert.Equal(t, "TEST-EXT", got.ID)
 	assert.Equal(t, "External Card", got.Title)
 	assert.Equal(t, "in_progress", got.State)
+}
+
+// TestFilesystemStore_GetCard_DiskFallbackIsWritable verifies that a card
+// found only via GetCard's cache-miss disk fallback is adopted into the
+// in-memory index so that a subsequent UpdateCard succeeds instead of
+// returning ErrCardNotFound.
+func TestFilesystemStore_GetCard_DiskFallbackIsWritable(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Write a card file directly — present on disk, absent from the index.
+	fp, err := store.cardPath("test-project", "TEST-042")
+	require.NoError(t, err)
+	data, err := board.SerializeCard(testCard("TEST-042", "todo"))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(fp), 0o755))
+	require.NoError(t, os.WriteFile(fp, data, 0o644))
+
+	got, err := store.GetCard(ctx, "test-project", "TEST-042")
+	require.NoError(t, err)
+	require.Equal(t, "TEST-042", got.ID)
+
+	// The fallback must have adopted the card so it is now writable.
+	got.Title = "updated"
+	require.NoError(t, store.UpdateCard(ctx, "test-project", got))
 }
 
 // TestCopyCardIsolatesUsageBreakdown verifies that copyCard produces a deep copy

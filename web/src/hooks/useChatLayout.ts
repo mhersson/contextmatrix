@@ -232,13 +232,22 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     });
   }, [availableIds]);
 
-  // Persist (debounced). On cleanup, flush synchronously so the final state
-  // is not lost when the component unmounts within the debounce window.
+  // Persist (debounced). Keep the latest state in a ref so the unmount flush
+  // below can write it without re-running on every state change.
   const persistTimer = useTimeoutRef();
+  const latestStateRef = useRef(state);
   useEffect(() => {
+    latestStateRef.current = state;
     persistTimer.schedule(() => savePersisted(state), PERSIST_DEBOUNCE_MS);
-    return () => savePersisted(state);
   }, [state, persistTimer]);
+
+  // Flush synchronously only on unmount (useTimeoutRef cancels the pending
+  // debounce on unmount, so without this the final state would be lost).
+  // Ref reads are exempt from exhaustive-deps, so no lint disable is needed
+  // for the empty dependency array.
+  useEffect(() => {
+    return () => savePersisted(latestStateRef.current);
+  }, []);
 
   // Persist focused-pane chat id to last_chat_id. Tab title stays at the
   // index.html default ("ContextMatrix") — match the board view.

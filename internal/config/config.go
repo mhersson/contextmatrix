@@ -33,9 +33,9 @@ type LLMEndpointConfig struct {
 
 func (e LLMEndpointConfig) validate() error {
 	switch e.Type {
-	case "", "openrouter":
+	case "", LLMEndpointTypeOpenRouter:
 		return nil
-	case "openai":
+	case LLMEndpointTypeOpenAI:
 		if e.BaseURL == "" {
 			return fmt.Errorf("llm_endpoint.base_url is required when llm_endpoint.type is \"openai\"")
 		}
@@ -59,6 +59,12 @@ type PriorOverride struct {
 // MinBackendAPIKeyLength is the minimum required length for a backend
 // entry's api_key.
 const MinBackendAPIKeyLength = 32
+
+// LLM endpoint type values (llm_endpoint.type).
+const (
+	LLMEndpointTypeOpenRouter = "openrouter"
+	LLMEndpointTypeOpenAI     = "openai"
+)
 
 // Backend name constants — the closed set of valid backends map keys.
 // Callback paths are derived as /api/<name>.

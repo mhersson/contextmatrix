@@ -317,6 +317,38 @@ describe('useChatLayout — persistence', () => {
     act(() => { result.current.openInNewPane('B'); });
     expect(window.localStorage.getItem('last_chat_id')).toBe('B');
   });
+
+  it('debounces chat_layout persistence — no synchronous write per state change', () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderLayout();
+      act(() => {
+        result.current.openInNewPane('A');
+      });
+      act(() => {
+        result.current.openInNewPane('B');
+      });
+      act(() => {
+        result.current.openInNewPane('C');
+      });
+
+      const before = localStorageMock.setItem.mock.calls.filter(
+        ([k]) => k === 'chat_layout',
+      );
+      expect(before.length).toBe(0); // debounced — nothing flushed yet
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      const after = localStorageMock.setItem.mock.calls.filter(
+        ([k]) => k === 'chat_layout',
+      );
+      expect(after.length).toBe(1); // single debounced flush
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('useChatLayout — movePane', () => {

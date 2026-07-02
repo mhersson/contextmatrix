@@ -134,15 +134,10 @@ func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion flo
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
-	if b.aaKey == "" {
-		return nil, fmt.Errorf("no AA API key configured")
-	}
-
-	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
-	if err != nil {
-		return nil, err
-	}
-
+	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
+	// and is independent of Artificial Analysis, so fetch it whenever configured
+	// — even without an AA key. This lets a chat-only deployment (no agent
+	// backend, no AA key) still price endpoint-served models via Rate().
 	if b.endpointBaseURL != "" {
 		ep, err := fetchEndpointCatalog(ctx, b.endpointBaseURL, b.endpointAPIKey)
 		if err != nil {
@@ -150,6 +145,18 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		}
 
 		b.lastCatalog = ep
+
+		// Without an AA key there are no selection candidates (the complexity
+		// selector is an agent-only concern), but per-slug pricing is populated.
+		if b.aaKey == "" {
+			return []protocol.CandidateModel{}, nil
+		}
+
+		aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+		if err != nil {
+			return nil, err
+		}
+
 		cands := buildFromStemMap(aa, ep, b.stemMap, b.priors, b.floor)
 
 		// "Served but unselectable" is a loud condition, not a silent one: a
@@ -173,6 +180,16 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return cands, nil
 	}
 
+	// OpenRouter leg still requires an AA key to normalize candidate indices.
+	if b.aaKey == "" {
+		return nil, fmt.Errorf("no AA API key configured")
+	}
+
+	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+	if err != nil {
+		return nil, err
+	}
+
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
 	if err != nil {
 		return nil, err
@@ -188,19 +205,10 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 // map to OR, collapse effort variants (same OR slug -> highest prior), join
 // price/window/tools. Effort collapse falls out of keying by OR slug.
 func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) []protocol.CandidateModel {
-	var maxCoding, maxIntel float64
-	for _, m := range aa {
-		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
-			maxCoding = *m.CodingIndex
-		}
-
-		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
-			maxIntel = *m.IntelIndex
-		}
-	}
+	maxCoding, maxIntel := maxIndices(aa)
 
 	if maxCoding <= 0 || maxIntel <= 0 {
-		return nil
+		return []protocol.CandidateModel{}
 	}
 
 	byOR := map[string]protocol.CandidateModel{}
@@ -269,6 +277,22 @@ func norm(idx *float64, maxVal float64) float64 {
 	return n
 }
 
+// maxIndices returns the response-wide maximum coding and intelligence indices,
+// the normalization denominators shared by both catalog build legs.
+func maxIndices(aa []aaModel) (maxCoding, maxIntel float64) {
+	for _, m := range aa {
+		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
+			maxCoding = *m.CodingIndex
+		}
+
+		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
+			maxIntel = *m.IntelIndex
+		}
+	}
+
+	return maxCoding, maxIntel
+}
+
 // PriorOverride is an operator-supplied prior (already on the normalized 0..1
 // scale) for an endpoint slug AA does not rate. Mapped from config in main.go.
 type PriorOverride struct {
@@ -293,16 +317,7 @@ type PriorOverride struct {
 // (the caller counts these for the "served but unselectable" WARN). Output is
 // keyed by endpoint slug and filtered to tool-capable, floor-clearing models.
 func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[string]string, priors map[string]PriorOverride, floor float64) []protocol.CandidateModel {
-	var maxCoding, maxIntel float64
-	for _, m := range aa {
-		if m.CodingIndex != nil && *m.CodingIndex > maxCoding {
-			maxCoding = *m.CodingIndex
-		}
-
-		if m.IntelIndex != nil && *m.IntelIndex > maxIntel {
-			maxIntel = *m.IntelIndex
-		}
-	}
+	maxCoding, maxIntel := maxIndices(aa)
 
 	out := make([]protocol.CandidateModel, 0, len(endpoint))
 

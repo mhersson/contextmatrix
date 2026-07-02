@@ -12,7 +12,7 @@ export interface ActivityFeedState {
 export function useActivityFeed(project: string | null | undefined): ActivityFeedState {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [backfillLoaded, setBackfillLoaded] = useState(false);
-  const bus = useSSEBus();
+  const { subscribe } = useSSEBus();
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
@@ -53,12 +53,12 @@ export function useActivityFeed(project: string | null | undefined): ActivityFee
       ].slice(0, 50));
     };
     const unsubs = [
-      bus.subscribe('card.claimed', handler),
-      bus.subscribe('card.state_changed', handler),
-      bus.subscribe('card.released', handler),
+      subscribe('card.claimed', handler),
+      subscribe('card.state_changed', handler),
+      subscribe('card.released', handler),
     ];
     return () => { unsubs.forEach((u) => u()); };
-  }, [bus, project]);
+  }, [subscribe, project]);
 
   // One-shot historical activity backfill on mount / project change. SSE
   // handles forward updates; this fills in entries older than the page load.

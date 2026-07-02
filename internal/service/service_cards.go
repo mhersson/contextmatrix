@@ -263,12 +263,12 @@ func decodePageCursor(cursor string) (string, error) {
 
 // ListCardsPage returns a single page of cards ordered by ID ascending.
 //
-// The card cache underlying store.ListCards returns the full filtered set in
-// nondeterministic (map-iteration) order; this method sorts IDs to give a
-// stable total order, then applies cursor + limit. Total is populated only
-// on the first page (Opts.Cursor == "") and reflects the UN-filtered project
-// card count so clients can show a "X cards total" hint without paying the
-// filter cost on every request.
+// store.ListCards already returns the filtered set ordered by ID; this method
+// re-sorts as a cheap safety net so paging stays correct even if that
+// invariant ever changes, then applies cursor + limit. Total is populated
+// only on the first page (Opts.Cursor == "") and reflects the UN-filtered
+// project card count so clients can show a "X cards total" hint without
+// paying the filter cost on every request.
 //
 // Callers are responsible for limit/cursor validation — this method trusts
 // the inputs and only rejects cursors that fail base64url decoding.
@@ -287,9 +287,9 @@ func (s *CardService) ListCardsPage(
 		return ListCardsPageResult{}, err
 	}
 
-	// Stable ordering by ID ascending. The cache's internal map iteration is
-	// nondeterministic so paging without this sort would silently miss or
-	// duplicate cards as the map reseeds across Go versions.
+	// Stable ordering by ID ascending. store.ListCards already sorts by ID;
+	// this re-sort is a cheap safety net so paging stays correct even if
+	// that invariant ever changes.
 	sort.Slice(cards, func(i, j int) bool {
 		return cards[i].ID < cards[j].ID
 	})

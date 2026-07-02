@@ -14,6 +14,7 @@ interface UseResizeDividerResult {
     onPointerDown: (e: React.PointerEvent) => void;
     onPointerMove: (e: React.PointerEvent) => void;
     onPointerUp: (e: React.PointerEvent) => void;
+    onPointerCancel: (e: React.PointerEvent) => void;
     style: React.CSSProperties;
   };
 }
@@ -78,6 +79,21 @@ export function useResizeDivider({
     [restoreBodyStyles]
   );
 
+  const onPointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      setIsDragging(false);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        /* browser already released capture on cancel */
+      }
+      restoreBodyStyles();
+    },
+    [restoreBodyStyles]
+  );
+
   return {
     boardPercent: enabled ? boardPercent : DEFAULT_BOARD,
     isDragging,
@@ -85,6 +101,7 @@ export function useResizeDivider({
       onPointerDown,
       onPointerMove,
       onPointerUp,
+      onPointerCancel,
       style: { touchAction: 'none' },
     },
   };
