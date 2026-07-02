@@ -171,7 +171,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
 | `CHAT_NOT_FOUND`          | 404     | chat session ID does not exist                                |
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
-| `INVALID_MODEL`           | 400     | chat `model` not in `chat.models` allowlist (config-source chat only) |
+| `INVALID_MODEL`           | 400     | chat `model` not in the active model source (config allowlist, endpoint list, or CM's vendor-screened OpenRouter catalog) |
 | `RUNNER_CONFLICT`         | 409     | card already queued/running                                   |
 | `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
 | `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
@@ -418,6 +418,13 @@ pins are an agent-backend concern.
 ```json
 { "source": "openrouter", "models": [ { "id": "anthropic/claude-sonnet-4.5", "max_tokens": 200000 } ] }
 ```
+
+Card model pins (`model_orchestrator` / `model_coder` / `model_reviewer` on
+card create, update, and patch) are validated against this same served set:
+setting a pin to a slug outside it returns 422 `VALIDATION_ERROR` ("model pin
+not in catalog"). Only changed values are checked — a pre-existing pin never
+blocks unrelated card edits — and an empty or unfetched catalog disables
+validation entirely (fail-open).
 
 ## Project Endpoints
 
@@ -1049,10 +1056,16 @@ Model validation depends on which backend serves chat (see
 - **runner serves chat** (`source: "config"`): `model` must be a key from
   `chat.models`; unknown IDs return `400` (`INVALID_MODEL`). Omit to use
   `chat.default_model`. Forwarded as `CM_ORCHESTRATOR_MODEL`.
-- **dedicated chat backend serves chat** (`source: "openrouter"`): `model` is
-  any OpenRouter slug — no allowlist (an invalid slug surfaces later as a
-  chat-init failure from contextmatrix-chat). Omit to use
+- **dedicated chat backend serves chat** (`source: "openrouter"`): `model` must
+  be in CM's vendor-screened OpenRouter catalog (the same list
+  `GET /api/chats/models` serves); unknown slugs return `400`
+  (`INVALID_MODEL`). Validation fails open when the catalog has not been
+  fetched (cold start, OpenRouter outage). Omit to use
   `backends.chat.default_model`. Forwarded as `CM_MODEL`.
+- **OpenAI-compatible endpoint serves chat** (`source: "endpoint"`): `model`
+  must be in the endpoint's served model list; unknown slugs return `400`
+  (`INVALID_MODEL`). A failed upstream list fetch fails open. Omit to use
+  `backends.chat.default_model`.
 
 Response (`201 Created`): the new `ChatSession` row.
 
@@ -1064,8 +1077,13 @@ selects the mode:
 - `"config"` — the runner serves chat. `models` is the `chat.models` allowlist
   (native Anthropic slugs, sorted by `id`) and `default` is `chat.default_model`.
 - `"openrouter"` — the dedicated chat backend (contextmatrix-chat) serves chat.
-  `models` is empty: the dialog pulls the live OpenRouter catalog itself for
-  autocomplete. `default` is `backends.chat.default_model`.
+  `models` is CM's vendor-screened OpenRouter catalog (`id`/`label` = the
+  OpenRouter slug, `max_tokens` = the model's context window), served from the
+  server-side catalog cache; empty only when the catalog has not been fetched.
+  `default` is `backends.chat.default_model`.
+- `"endpoint"` — an OpenAI-compatible endpoint serves chat. `models` is the
+  endpoint's served model list (cached server-side); `default` is
+  `backends.chat.default_model`.
 
 Response (`source: "config"`):
 
@@ -1091,7 +1109,13 @@ Response (`source: "openrouter"`):
 ```json
 {
   "source": "openrouter",
-  "models": [],
+  "models": [
+    {
+      "id": "anthropic/claude-sonnet-4.5",
+      "label": "anthropic/claude-sonnet-4.5",
+      "max_tokens": 200000
+    }
+  ],
   "default": "anthropic/claude-sonnet-4"
 }
 ```
