@@ -245,6 +245,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Task-skills (used by project default + per-card skill selectors in the UI)
 	mux.HandleFunc("GET /api/task-skills", tsh.listTaskSkills)
 
+	// Model catalog for the card pin pickers — available regardless of chat
+	// mode; returns source "none" when no catalog builder is configured.
+	mch := &modelCatalogHandlers{served: cfg.ServedModels, source: cfg.ServedModelsSource}
+	mux.HandleFunc("GET /api/models", mch.listModels)
+
 	// Sync routes
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)

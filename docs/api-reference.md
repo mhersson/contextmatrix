@@ -407,6 +407,18 @@ curl http://localhost:8080/api/app/config
 # → {"theme":"everforest","version":"v0.42.0","task_backend":"runner"}
 ```
 
+### GET /api/models
+
+Model catalog for the card model-pin pickers. Returns the vendor-screened
+OpenRouter list (source `openrouter`) or the endpoint's served list (source
+`endpoint`) from the server-side catalog cache; `source: "none"` with an empty
+list when no catalog builder is configured. Independent of the chat mode —
+pins are an agent-backend concern.
+
+```json
+{ "source": "openrouter", "models": [ { "id": "anthropic/claude-sonnet-4.5", "max_tokens": 200000 } ] }
+```
+
 ## Project Endpoints
 
 ### POST /api/projects
