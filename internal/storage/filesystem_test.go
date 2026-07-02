@@ -1290,6 +1290,36 @@ Created by an external writer (e.g. git rebase pulling in a commit).
 	assert.Equal(t, "in_progress", got.State)
 }
 
+// TestFilesystemStore_GetCard_DiskFallbackIsWritable verifies that a card
+// found only via GetCard's cache-miss disk fallback is adopted into the
+// in-memory index so that a subsequent UpdateCard succeeds instead of
+// returning ErrCardNotFound.
+func TestFilesystemStore_GetCard_DiskFallbackIsWritable(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Write a card file directly — present on disk, absent from the index.
+	fp, err := store.cardPath("test-project", "TEST-042")
+	require.NoError(t, err)
+	data, err := board.SerializeCard(testCard("TEST-042", "todo"))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(fp), 0o755))
+	require.NoError(t, os.WriteFile(fp, data, 0o644))
+
+	got, err := store.GetCard(ctx, "test-project", "TEST-042")
+	require.NoError(t, err)
+	require.Equal(t, "TEST-042", got.ID)
+
+	// The fallback must have adopted the card so it is now writable.
+	got.Title = "updated"
+	require.NoError(t, store.UpdateCard(ctx, "test-project", got))
+}
+
 // TestCopyCardIsolatesUsageBreakdown verifies that copyCard produces a deep copy
 // of UsageBreakdown and Skills so that mutations to the copy do not affect the
 // original (and therefore the cached card).

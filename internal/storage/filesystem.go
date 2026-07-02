@@ -593,6 +593,20 @@ func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*boa
 		return nil, fmt.Errorf("parse card: %w", err)
 	}
 
+	// Adopt the disk card into the index so it is not merely readable but also
+	// updatable/deletable. Re-check under the write lock in case a concurrent
+	// reload already inserted it.
+	s.mu.Lock()
+	if idx, ok := s.projects[project]; ok {
+		if _, exists := idx.cards[id]; !exists {
+			idx.cards[id] = copyCard(card)
+			idx.paths[id] = filePath
+
+			s.updateCacheSizeMetric()
+		}
+	}
+	s.mu.Unlock()
+
 	return card, nil
 }
 
