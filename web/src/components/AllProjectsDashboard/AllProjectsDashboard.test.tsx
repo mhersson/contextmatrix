@@ -5,6 +5,7 @@ import { AllProjectsDashboard } from './AllProjectsDashboard';
 import { ToastContext, useToastState } from '../../hooks/useToast';
 import { SSEProvider } from '../../hooks/useSSEBus';
 import { ProjectsProvider } from '../../hooks/useProjects';
+import { ProjectSummariesProvider } from '../../hooks/ProjectSummariesProvider';
 import { MobileSidebarProvider } from '../../context/MobileSidebarContext';
 import { api } from '../../api/client';
 import type { ReactNode } from 'react';
@@ -100,7 +101,9 @@ describe('AllProjectsDashboard — mount fetch count', () => {
           <MobileSidebarProvider>
             <SSEProvider>
               <ProjectsProvider>
-                <AllProjectsDashboard />
+                <ProjectSummariesProvider>
+                  <AllProjectsDashboard />
+                </ProjectSummariesProvider>
               </ProjectsProvider>
             </SSEProvider>
           </MobileSidebarProvider>

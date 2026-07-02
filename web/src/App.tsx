@@ -2,6 +2,7 @@ import { useState, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { SSEProvider } from './hooks/useSSEBus';
 import { ProjectsProvider } from './hooks/useProjects';
+import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
@@ -55,40 +56,42 @@ function AppInner() {
     <ToastContext.Provider value={toastState}>
       <SSEProvider>
         <ProjectsProvider>
-          <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
-            <Sidebar
-              onNewProject={() => setNewProjectOpen(true)}
-              onNewChat={() => navigate('/chat?new=1')}
-              mobileOpen={mobileOpen}
-              onMobileClose={onMobileClose}
-            />
+          <ProjectSummariesProvider>
+            <div className="h-screen flex flex-row" style={{ backgroundColor: 'var(--bg-dim)' }}>
+              <Sidebar
+                onNewProject={() => setNewProjectOpen(true)}
+                onNewChat={() => navigate('/chat?new=1')}
+                mobileOpen={mobileOpen}
+                onMobileClose={onMobileClose}
+              />
 
-            <div className="flex-1 flex flex-col min-w-0">
-              <ErrorBoundary>
-                <Suspense fallback={<AppShellSkeleton />}>
-                  <Routes>
-                    <Route index element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
-                    <Route path="projects/:project/*" element={<ProjectShell />} />
-                    <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
-                    <Route path="chat" element={<ChatPage />} />
-                    <Route path="chat/:id" element={<ChatPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
+              <div className="flex-1 flex flex-col min-w-0">
+                <ErrorBoundary>
+                  <Suspense fallback={<AppShellSkeleton />}>
+                    <Routes>
+                      <Route index element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
+                      <Route path="projects/:project/*" element={<ProjectShell />} />
+                      <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
+                      <Route path="chat" element={<ChatPage />} />
+                      <Route path="chat/:id" element={<ChatPage />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
+
+              {newProjectOpen && (
+                <Suspense fallback={null}>
+                  <NewProjectWizard
+                    onClose={() => setNewProjectOpen(false)}
+                    onCreated={handleProjectCreated}
+                  />
                 </Suspense>
-              </ErrorBoundary>
+              )}
+
+              <ToastContainer />
             </div>
-
-            {newProjectOpen && (
-              <Suspense fallback={null}>
-                <NewProjectWizard
-                  onClose={() => setNewProjectOpen(false)}
-                  onCreated={handleProjectCreated}
-                />
-              </Suspense>
-            )}
-
-            <ToastContainer />
-          </div>
+          </ProjectSummariesProvider>
         </ProjectsProvider>
       </SSEProvider>
     </ToastContext.Provider>

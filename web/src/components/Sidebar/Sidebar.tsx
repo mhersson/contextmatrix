@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
-import { useProjectSummaries } from '../../hooks/useProjectSummaries';
+import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useTheme } from '../../hooks/useTheme';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
@@ -24,8 +24,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
     () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
     [projects]
   );
-  const projectNames = sortedProjects.map((p) => p.name);
-  const { summaries } = useProjectSummaries(projectNames);
+  const { summaries } = useProjectSummariesContext();
 
   // Mobile drawer: trap focus and close on Escape.
   useFocusTrap(drawerRef, mobileOpen);

@@ -7,8 +7,13 @@ vi.mock('../../hooks/useProjects', () => ({
   useProjects: vi.fn(),
 }));
 
-vi.mock('../../hooks/useProjectSummaries', () => ({
-  useProjectSummaries: vi.fn(() => ({ summaries: new Map(), loading: false })),
+vi.mock('../../hooks/ProjectSummariesProvider', () => ({
+  useProjectSummariesContext: vi.fn(() => ({
+    summaries: new Map(),
+    errors: new Set(),
+    loading: false,
+    refresh: vi.fn(),
+  })),
 }));
 
 vi.mock('../../hooks/useTheme', () => ({
