@@ -881,9 +881,8 @@ func applyBackendDefaults(cfg *Config) {
 		// disabled placeholders.
 		b.Name = name
 
-		// Runner-specific defaults: sonnet/opus model selection and reconcile
-		// interval apply only to the runner backend. Agent and chat entries must
-		// leave these fields empty (Validate rejects misuse).
+		// Orchestrator model steering is runner-only: Validate rejects the
+		// sonnet/opus fields on agent and chat entries.
 		if b.IsEnabled() && name == BackendNameRunner {
 			if b.OrchestratorSonnetModel == "" {
 				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
@@ -892,7 +891,14 @@ func applyBackendDefaults(cfg *Config) {
 			if b.OrchestratorOpusModel == "" {
 				b.OrchestratorOpusModel = "claude-opus-4-8"
 			}
+		}
 
+		// The reconcile default applies to every task backend. For the agent
+		// backend CM's sweep is the ONLY reconcile mechanism (the agent has no
+		// internal loop — docs/agent-backend-parity.md), so leaving the entry
+		// at 0 would silently disable the container backstop. Chat entries
+		// must leave the field empty (Validate rejects it there).
+		if b.IsEnabled() && (name == BackendNameRunner || name == BackendNameAgent) {
 			if b.ReconcileInterval == "" {
 				b.ReconcileInterval = "60s"
 			}
