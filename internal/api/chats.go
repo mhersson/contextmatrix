@@ -190,16 +190,32 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 
 	model := body.Model
 
-	if h.openRouter || h.endpointModels != nil {
-		// Free-text acceptance: OpenRouter and endpoint-picker modes both accept
-		// any non-empty slug as-is. In endpoint mode an invalid slug surfaces as
-		// a chat-init failure from the backend, which CM cannot pre-validate
-		// without holding a complete up-to-date catalog copy. Fall back to the
-		// configured default when the caller omits the model.
+	switch {
+	case h.endpointModels != nil:
 		if model == "" {
 			model = h.orDefault
 		}
-	} else {
+		// Validate against the same cached list that feeds the picker; a
+		// fetch error fails open so an upstream outage never blocks chat.
+		if model != "" {
+			if models, err := h.endpointModels(r.Context()); err == nil && !containsModelID(models, model) {
+				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+				return
+			}
+		}
+	case h.openRouter:
+		if model == "" {
+			model = h.orDefault
+		}
+		// Validate against CM's vendor-screened catalog copy. validateModel
+		// fails open on an empty catalog (cold start, OpenRouter outage).
+		if model != "" && h.validateModel != nil && !h.validateModel(r.Context(), model) {
+			writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
+
+			return
+		}
+	default:
 		if model == "" && h.chat != nil {
 			model = h.chat.DefaultModel
 		}
@@ -234,6 +250,17 @@ type chatModelEntry struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	MaxTokens int64  `json:"max_tokens"`
+}
+
+// containsModelID reports whether id is present in the picker model list.
+func containsModelID(models []chatModelEntry, id string) bool {
+	for _, m := range models {
+		if m.ID == id {
+			return true
+		}
+	}
+
+	return false
 }
 
 // listModels exposes the chat model picker source for the frontend. The
