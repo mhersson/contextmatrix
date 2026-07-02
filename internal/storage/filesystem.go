@@ -501,7 +501,8 @@ func (s *FilesystemStore) ProjectCardCount(ctx context.Context, name string) (in
 	return len(idx.cards), nil
 }
 
-// ListCards returns all cards in a project matching the filter.
+// ListCards returns all cards in a project matching the filter, ordered by
+// card ID ascending.
 // Results are deep copies of the cached cards; mutating a returned card does
 // not affect subsequent reads. No disk I/O is performed in steady state.
 func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter CardFilter) ([]*board.Card, error) {
@@ -528,6 +529,13 @@ func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter 
 			cards = append(cards, copyCard(c))
 		}
 	}
+
+	// Deterministic order by card ID so callers that rely on list ordering
+	// (e.g. the agent's crash-resume subtask scheduling) get a stable sequence
+	// instead of nondeterministic map iteration.
+	slices.SortFunc(cards, func(a, b *board.Card) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 
 	return cards, nil
 }

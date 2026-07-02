@@ -256,6 +256,39 @@ func TestFilesystemStore_ListCards_NoFilter(t *testing.T) {
 	assert.Len(t, cards, 2)
 }
 
+func TestFilesystemStore_ListCards_DeterministicIDOrder(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Insert in shuffled order; ListCards must return ascending-by-ID.
+	ids := []string{
+		"TEST-007", "TEST-002", "TEST-010", "TEST-001", "TEST-005",
+		"TEST-009", "TEST-003", "TEST-008", "TEST-004", "TEST-006",
+	}
+	for _, id := range ids {
+		require.NoError(t, store.CreateCard(ctx, "test-project", testCard(id, "todo")))
+	}
+
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, cards, len(ids))
+
+	got := make([]string, len(cards))
+	for i, c := range cards {
+		got[i] = c.ID
+	}
+
+	assert.Equal(t, []string{
+		"TEST-001", "TEST-002", "TEST-003", "TEST-004", "TEST-005",
+		"TEST-006", "TEST-007", "TEST-008", "TEST-009", "TEST-010",
+	}, got)
+}
+
 func TestFilesystemStore_ListCards_FilterByState(t *testing.T) {
 	dir := t.TempDir()
 	setupTestProject(t, dir, "test-project", "TEST")
