@@ -191,6 +191,27 @@ func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 	assert.InDelta(t, 0.000015, c, 1e-12)
 }
 
+func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
+	or := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"anthropic/claude-sonnet-4.5","context_length":200000,
+			 "pricing":{"prompt":"0.000003","completion":"0.000015"},
+			 "supported_parameters":["tools"]}]}`))
+	}))
+	defer or.Close()
+
+	b := NewBuilder("", 0.65, nil, 0)
+	b.orEndpoint = or.URL
+
+	// No AA key: zero selection candidates, but the raw catalog is cached.
+	assert.Empty(t, b.Candidates(context.Background()))
+
+	prompt, completion, ok := b.Rate(context.Background(), "anthropic/claude-sonnet-4.5")
+	require.True(t, ok)
+	assert.InDelta(t, 0.000003, prompt, 1e-12)
+	assert.InDelta(t, 0.000015, completion, 1e-12)
+}
+
 // TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
 // without panicking.
 func TestBuilderRateNilReceiver(t *testing.T) {

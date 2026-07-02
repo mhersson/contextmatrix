@@ -2,7 +2,6 @@ package modelcatalog
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -204,22 +203,24 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return cands, nil
 	}
 
-	// OpenRouter leg still requires an AA key to normalize candidate indices.
-	if b.aaKey == "" {
-		return nil, fmt.Errorf("no AA API key configured")
-	}
-
-	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
-	if err != nil {
-		return nil, err
-	}
-
+	// OpenRouter leg: the OR catalog is public and unauthenticated — fetch it
+	// even without an AA key so Rate/Served/Validate work on AA-less
+	// deployments. Candidates still require AA to normalize prior indices.
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	b.lastCatalog = or
+
+	if b.aaKey == "" {
+		return []protocol.CandidateModel{}, nil
+	}
+
+	aa, err := fetchAAModels(ctx, b.aaEndpoint, b.aaKey)
+	if err != nil {
+		return nil, err
+	}
 
 	return build(aa, or, b.floor, b.allowlist), nil
 }
