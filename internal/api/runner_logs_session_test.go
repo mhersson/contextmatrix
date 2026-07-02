@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,69 @@ func fakeRunnerServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh ch
 		// Channel closed — hold the connection until the client disconnects.
 		<-r.Context().Done()
 	}))
+}
+
+// fakeRunnerServerCounting behaves like fakeRunnerServer but also tracks how
+// many upstream connections have been established (via the returned
+// *atomic.Int32), so a test can assert that a reconnect actually happened —
+// i.e. the manager called Start again — rather than a stale pump silently
+// continuing to serve a subscriber parked in pendingSubs. All connections
+// share eventCh; the tests using this helper serialize Stop/Start so only one
+// connection is ever actively selecting on it at a time. Like fakeRunnerServer,
+// the handler selects on r.Context().Done() alongside eventCh so a client
+// disconnect (or the manager cancelling the pump context) tears the handler
+// down promptly instead of leaking it.
+func fakeRunnerServerCounting(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+
+	var (
+		once      sync.Once
+		connCount atomic.Int32
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		connCount.Add(1)
+		once.Do(func() { close(readyCh) })
+
+		for {
+			select {
+			case evt, ok := <-eventCh:
+				if !ok {
+					// No more events will ever be pushed — hold the connection
+					// open until the client (the manager's pump) disconnects.
+					<-r.Context().Done()
+
+					return
+				}
+
+				b, err := json.Marshal(evt)
+				if err != nil {
+					return
+				}
+
+				if _, err = fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+					return
+				}
+
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}))
+
+	return srv, &connCount
 }
 
 // connectSSEClient opens an SSE GET connection to url and returns a channel of
@@ -284,6 +348,100 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 	rh.streamRunnerLogs(rec, req)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+// TestStreamCardSession_RevivesSweptSession is the regression test for the
+// bug where streamCardSession never called Start, so a browser reconnect
+// after the idle sweeper force-closed a session (Manager.Stop) would park in
+// pendingSubs forever — the runner_status transition that originally
+// triggered Start fires only once per run, so nothing else would ever revive
+// it.
+//
+// Sequence:
+//  1. Start a session, deliver one event, and confirm exactly one upstream
+//     connection was made.
+//  2. Call mgr.Stop directly, simulating the idle sweeper force-closing the
+//     session mid-run.
+//  3. Connect a card-scoped SSE client through streamRunnerLogs (the full
+//     HTTP handler, not the manager directly) — this must call the idempotent
+//     Start on every connect, which opens a SECOND upstream connection.
+//  4. A fresh event delivered after the revival must reach the reconnected
+//     client.
+//
+// Without the fix, step 3 never opens a second connection and the
+// require.Eventually below times out (bounded — not an unbounded block).
+func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
+	const (
+		cardID  = "REVIVE-001"
+		project = "gamma"
+	)
+
+	upstreamCh := make(chan protocol.LogEntry, 8)
+	readyCh := make(chan struct{})
+
+	upstream, connCount := fakeRunnerServerCounting(t, upstreamCh, readyCh)
+	defer upstream.Close()
+
+	mgr := sessionlog.NewManager(
+		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+	)
+
+	// Start the session and deliver one event so we know the first upstream
+	// connection is live and buffering.
+	require.NoError(t, mgr.Start(context.Background(), cardID, project))
+	<-readyCh
+
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "first", CardID: cardID}
+
+	require.Eventually(t, func() bool {
+		return len(mgr.Snapshot(cardID)) == 1
+	}, 3*time.Second, 10*time.Millisecond)
+
+	require.Equal(t, int32(1), connCount.Load(), "expected exactly one upstream connection before the sweep")
+
+	// Simulate the idle sweeper force-closing the session mid-run.
+	mgr.Stop(cardID)
+
+	// Wire the handler and expose it via an httptest server, mirroring the
+	// other streamCardSession tests.
+	rh := &runnerHandlers{sessionManager: mgr}
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rh.streamRunnerLogs(w, r)
+	}))
+	defer apiServer.Close()
+
+	clientURL := apiServer.URL + fmt.Sprintf("/api/runner/logs?card_id=%s&project=%s", cardID, project)
+
+	// A card-scoped browser reconnect must revive the session: streamCardSession
+	// calls Start (idempotent) on every connect, so this must open a SECOND
+	// upstream connection. Bounded wait — this is the assertion that times out
+	// without the fix.
+	chB, cancelB := connectSSEClient(t, clientURL)
+	defer cancelB()
+
+	require.Eventually(t, func() bool {
+		return connCount.Load() >= 2
+	}, 5*time.Second, 10*time.Millisecond,
+		"card-scoped reconnect must revive the swept session (call Start)")
+
+	// A fresh event delivered after revival must reach the reconnected client.
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "revived", CardID: cardID}
+
+	gotB := drainNStr(chB, 1, 5*time.Second)
+	require.Len(t, gotB, 1, "revived client should receive the fresh event")
+
+	m := parseJSONMap(t, gotB[0])
+	assert.Equal(t, "revived", m["content"])
+
+	// Teardown in dependency order: disconnect the browser client first (so
+	// streamCardSession's unsub runs and its select-on-r.Context loop exits
+	// promptly), then stop the manager session (cancels the revived upstream
+	// pump so it does not outlive the test), then let the deferred
+	// apiServer.Close()/upstream.Close() calls finish.
+	cancelB()
+	close(upstreamCh)
+	mgr.Stop(cardID)
 }
 
 // TestStreamProjectSession_SnapshotAndLive covers the project-scoped session lifecycle:

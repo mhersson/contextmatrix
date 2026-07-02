@@ -1180,12 +1180,18 @@ Marker frames:
 **Card-scoped path** (`?project=P&card_id=X`):
 
 1. Delegates to the [Session Log Manager](#session-log-manager).
-2. Calls `manager.Subscribe(cardID)`, which atomically captures a snapshot of
+2. Sends SSE headers and flushes immediately.
+3. Calls `manager.Start(ctx, cardID, project)` (idempotent) on every connect,
+   mirroring the project-scoped path's `StartProject` below. This revives a
+   session the idle sweeper closed: the `runner_status` transition that
+   originally triggered `Start` fires only once per run, so without a
+   per-connect call a reconnect after a sweep would never restart the
+   upstream pump.
+4. Calls `manager.Subscribe(cardID)`, which atomically captures a snapshot of
    all buffered events and registers a live-event channel.
-3. Sends SSE headers and flushes immediately.
-4. Delivers the snapshot events first (replay), then tails the live channel.
-5. On `terminal` event or channel close, ends the response.
-6. On browser disconnect (`r.Context().Done()`), calls the unsubscribe func.
+5. Delivers the snapshot events first (replay), then tails the live channel.
+6. On `terminal` event or channel close, ends the response.
+7. On browser disconnect (`r.Context().Done()`), calls the unsubscribe func.
 
 If the session manager is not initialised (no task backend configured), returns 204.
 
@@ -1238,8 +1244,11 @@ layer that fixes the reconnect-loses-log-history bug.
   overflow, the oldest events are dropped and a single synthetic `dropped`
   marker event is inserted/updated at the front of the buffer.
 - **Lifecycle**: `Start` is called by `CardService.UpdateRunnerStatus` on
-  `→running`. `Stop` is called (fire-and-forget, never fails the status update)
-  on transition to any terminal status (`failed`, `killed`, `completed`). Stop
+  `→running`, and again — idempotently — by `streamCardSession` on every
+  card-scoped SSE connect, so a reconnect after the idle sweeper closes a
+  session revives it without waiting for another `runner_status` transition.
+  `Stop` is called (fire-and-forget, never fails the status update) on
+  transition to any terminal status (`failed`, `killed`, `completed`). Stop
   cancels the upstream connection, sends a `terminal` event to all subscribers,
   and clears the buffer.
 - **Upstream retry**: on read error the pump retries with exponential backoff
@@ -1265,9 +1274,14 @@ layer that fixes the reconnect-loses-log-history bug.
 - **Session cap**: default 64 concurrent sessions (card-scoped and
   project-scoped combined); `Start`/`StartProject` return an error if the cap is
   reached.
-- **Idle sweeper**: `StartSweeper(ctx)` runs a background goroutine that
-  force-closes sessions running longer than the TTL (default 2 h) without an
-  explicit Stop. Sweeps at TTL/2 intervals.
+- **Idle sweeper**: `StartSweeper(ctx)` runs a background goroutine that closes
+  sessions that have gone idle for longer than the TTL (default 2 h). Idleness
+  is keyed off the time of the last delivered event (`activeSession.
+  lastEventTime`, stamped by `readUpstreamStream` on every buffered frame),
+  falling back to the session's start time for sessions that have never
+  delivered an event. An actively-streaming session is never force-closed
+  regardless of total run duration — only a session that has received no
+  events for longer than the TTL is swept. Sweeps at TTL/2 intervals.
 
 #### Defaults and configuration knobs
 
