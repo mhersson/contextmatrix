@@ -303,7 +303,7 @@ export function ProjectShell() {
       </main>
 
       {currentSelectedCard && config && (
-        <ErrorBoundary>
+        <ErrorBoundary key={currentSelectedCard.id}>
           <CardPanel
             card={currentSelectedCard} config={config}
             cardLogs={selectedCardLogs}
