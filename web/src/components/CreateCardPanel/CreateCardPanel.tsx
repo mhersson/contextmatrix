@@ -4,8 +4,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useTheme } from '../../hooks/useTheme';
-import { useOpenRouterModels } from '../../hooks/useOpenRouterModels';
-import { useChatModels } from '../../utils/chatModels';
+import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { CardPanelBody, type RailTabKey } from '../CardPanel/CardPanelBody';
 import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import type { ModelPinField } from '../CardPanel/ModelPinsSection';
@@ -57,12 +56,10 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const { form, titleInputRef } = useCreateCardForm(config, onCreate);
 
   const { taskBackend } = useTheme();
-  // Card model pins use the configured endpoint catalog when
-  // llm_endpoint.type=openai (source==='endpoint'), else the live OpenRouter
-  // catalog — mirroring the chat model picker. Only consumed on the agent path.
-  const { models: endpointModels, source } = useChatModels();
-  const orModels = useOpenRouterModels(source !== 'endpoint' && taskBackend === 'agent');
-  const models = source === 'endpoint' ? endpointModels.map((m) => m.id) : orModels;
+  // Card model pins: CM's served catalog (GET /api/models) — the vendor-
+  // screened OpenRouter list or the endpoint list. Agent path only.
+  const catalog = useModelCatalog(taskBackend === 'agent');
+  const models = catalog.models.map((m) => m.id);
 
   // Field-keyed dispatch — a future ModelPinField union extension fails the
   // Record exhaustiveness check at compile time instead of silently routing

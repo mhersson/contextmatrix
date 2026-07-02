@@ -35,10 +35,9 @@ vi.mock('@uiw/react-markdown-preview', () => ({
   ),
 }));
 
-vi.mock('../../utils/chatModels', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../utils/chatModels')>();
-  return { ...actual, useChatModels: vi.fn().mockReturnValue({ models: [], source: 'config' }) };
-});
+vi.mock('../../hooks/useModelCatalog', () => ({
+  useModelCatalog: vi.fn().mockReturnValue({ source: 'none', models: [] }),
+}));
 
 vi.mock('../../api/client', () => ({
   api: {
