@@ -224,6 +224,24 @@ func (b *Builder) Served(ctx context.Context) []ServedModel {
 	return out
 }
 
+// Validate reports whether slug is in the served model set. Fail-open: returns
+// true on a nil receiver or when the catalog is empty/never fetched, so an
+// OpenRouter/AA outage or cold start never blocks work.
+func (b *Builder) Validate(ctx context.Context, slug string) bool {
+	served := b.Served(ctx)
+	if len(served) == 0 {
+		return true
+	}
+
+	for _, m := range served {
+		if m.Slug == slug {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
 	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
 	// and is independent of Artificial Analysis, so fetch it whenever configured

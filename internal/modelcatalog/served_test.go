@@ -85,3 +85,29 @@ func TestServedEmptyAndNil(t *testing.T) {
 	seedServed(t, b, map[string]orEntry{})
 	assert.Nil(t, b.Served(context.Background()))
 }
+
+func TestValidate(t *testing.T) {
+	catalog := map[string]orEntry{
+		"anthropic/claude-sonnet-4.5": {ContextWindow: 200000},
+		"unlisted-vendor/model-x":     {ContextWindow: 8192},
+	}
+	b := NewBuilder("", 0.65, nil, 0)
+	seedServed(t, b, catalog)
+
+	ctx := context.Background()
+	assert.True(t, b.Validate(ctx, "anthropic/claude-sonnet-4.5"))
+	assert.False(t, b.Validate(ctx, "anthropic/no-such-model"))
+	// Screened-out vendor is invalid even though it is in the raw catalog.
+	assert.False(t, b.Validate(ctx, "unlisted-vendor/model-x"))
+}
+
+func TestValidateFailsOpen(t *testing.T) {
+	ctx := context.Background()
+
+	var nilB *Builder
+	assert.True(t, nilB.Validate(ctx, "anything/at-all"))
+
+	b := NewBuilder("", 0.65, nil, 0)
+	seedServed(t, b, map[string]orEntry{}) // catalog empty → fail-open
+	assert.True(t, b.Validate(ctx, "anything/at-all"))
+}
