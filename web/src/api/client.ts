@@ -426,11 +426,3 @@ export function isAPIError(err: unknown): err is { error: string; code?: string;
     typeof (err as Record<string, unknown>).error === 'string'
   );
 }
-
-export function errorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'error' in err) {
-    return String((err as { error: unknown }).error);
-  }
-  if (err instanceof Error) return err.message;
-  return 'Unknown error';
-}
