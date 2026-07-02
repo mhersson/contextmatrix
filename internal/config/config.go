@@ -855,6 +855,21 @@ func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
 	return BackendConfig{}, false
 }
 
+// TaskBackendServesChat reports whether the active task backend is also the
+// active chat backend — true only for the runner, which serves both roles.
+// The reconcile sweep's chat half cross-references CM chat sessions against
+// the TASK backend's /containers list, so it must only be wired when this is
+// true: with a dedicated chat backend (contextmatrix-chat, which exposes no
+// /containers), every live session is absent from the task backend's list by
+// construction and would be flipped to cold — killing the worker
+// mid-conversation — on every tick.
+func (c *Config) TaskBackendServesChat() bool {
+	tb, taskOK := c.TaskBackendConfig()
+	cb, chatOK := c.ChatBackendConfig()
+
+	return taskOK && chatOK && tb.Name == cb.Name
+}
+
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
 // YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
 // flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults

@@ -2479,6 +2479,72 @@ func TestBackendsRoleDerivation(t *testing.T) {
 	}
 }
 
+// TestTaskBackendServesChat pins the chat-reconcile wiring gate: the sweep's
+// chat half cross-references CM chat sessions against the TASK backend's
+// /containers list, so it must only be wired when the task backend is also
+// the chat backend (runner). With agent+chat, chat containers live on
+// contextmatrix-chat — every live session would be absent from the agent's
+// container list and killed as an orphan each tick.
+func TestTaskBackendServesChat(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+
+	cases := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{
+			name: "runner serves both roles",
+			yaml: `backends:
+  runner:
+    url: http://r:9090
+    api_key: "` + apiKey + `"
+`,
+			want: true,
+		},
+		{
+			name: "agent plus dedicated chat backend",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+  chat:
+    url: http://c:9092
+    api_key: "` + apiKey + `"
+    default_model: "vendor/model-a"
+`,
+			want: false,
+		},
+		{
+			name: "agent only, no chat backend",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+`,
+			want: false,
+		},
+		{
+			name: "no backends",
+			yaml: "",
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, cfg.TaskBackendServesChat())
+		})
+	}
+}
+
 // validBackendsBlock (minimal runner entry) is the fixture for env override
 // tests — no selectors to set anymore, URL/API key come from env.
 func TestBackendEnvOverrides(t *testing.T) {
