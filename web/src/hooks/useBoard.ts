@@ -194,7 +194,19 @@ export function useBoard(
     [project, fetchData]
   );
 
-  const { subscribe, connected, error: sseError } = useSSEBus();
+  const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();
+
+  // Resync after an SSE outage: useSSEBus bumps reconnectEpoch on every
+  // true reconnect (never on the initial connect). Events published while
+  // disconnected are otherwise silently lost and the board stays stale
+  // until the user manually refreshes.
+  const reconnectEpochRef = useRef(reconnectEpoch);
+  useEffect(() => {
+    if (reconnectEpoch !== reconnectEpochRef.current) {
+      reconnectEpochRef.current = reconnectEpoch;
+      void fetchData();
+    }
+  }, [reconnectEpoch, fetchData]);
 
   useEffect(() => {
     // Board reacts to card mutations, runner lifecycle, sync pulls that may

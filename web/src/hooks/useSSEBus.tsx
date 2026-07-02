@@ -22,6 +22,14 @@ interface SSEBusContextValue {
   subscribe: (pattern: SSEPattern, onEvent: Subscriber) => () => void;
   connected: boolean;
   error: string | null;
+  /**
+   * Increments once per true reconnect (a successful open that follows at
+   * least one prior successful open) — never on the initial connect.
+   * Consumers that need to resync state lost during an SSE outage (e.g.
+   * useBoard) watch this: any change after mount means "we just recovered
+   * from a disconnect, missed events may exist, refetch."
+   */
+  reconnectEpoch: number;
 }
 
 const SSEBusContext = createContext<SSEBusContextValue | null>(null);
@@ -58,6 +66,7 @@ function eventPrefix(type: string): string {
 export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectEpoch, setReconnectEpoch] = useState(0);
 
   // Map keyed by bucket (sigil-prefixed to avoid collisions):
   //   '*'              → wildcard subscribers
@@ -71,6 +80,7 @@ export function SSEProvider({ children }: SSEProviderProps) {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
   const connectRef = useRef<() => void>(() => {});
+  const hasConnectedOnceRef = useRef(false);
 
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -84,6 +94,12 @@ export function SSEProvider({ children }: SSEProviderProps) {
       setConnected(true);
       setError(null);
       reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+
+      if (hasConnectedOnceRef.current) {
+        setReconnectEpoch((n) => n + 1);
+      } else {
+        hasConnectedOnceRef.current = true;
+      }
     };
 
     es.onmessage = (event) => {
@@ -169,8 +185,8 @@ export function SSEProvider({ children }: SSEProviderProps) {
   }, []);
 
   const value = useMemo<SSEBusContextValue>(
-    () => ({ subscribe, connected, error }),
-    [subscribe, connected, error],
+    () => ({ subscribe, connected, error, reconnectEpoch }),
+    [subscribe, connected, error, reconnectEpoch],
   );
 
   return <SSEBusContext.Provider value={value}>{children}</SSEBusContext.Provider>;
