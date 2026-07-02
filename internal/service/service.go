@@ -313,6 +313,13 @@ func (s *CardService) HeartbeatTimeout() time.Duration {
 	return s.lock.Timeout()
 }
 
+// Now returns the current time from the service's injected clock. Diagnostics
+// (e.g. the check_agent_health MCP tool) use this to share the single monotonic
+// reading the stall subsystem reads, instead of calling time.Now() directly.
+func (s *CardService) Now() time.Time {
+	return s.clk.Now()
+}
+
 // TransitionTo walks the shortest path of state transitions to reach targetState.
 // Each step validates, persists, commits, and publishes an event. Validation,
 // the in-memory mutation, the store write, and the commit enqueue all happen

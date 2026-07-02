@@ -419,7 +419,7 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 
 		timeout := svc.HeartbeatTimeout()
 		warningThreshold := timeout / 2
-		now := time.Now()
+		now := svc.Now()
 
 		var (
 			subtasks                                                []AgentHealthStatus
