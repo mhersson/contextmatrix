@@ -668,7 +668,13 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 	var callCount int
 	// firstDone is closed when the first (panic) call finishes its recovery.
 	firstDone := make(chan struct{})
-	done := make(chan struct{})
+	// done is buffered so the hook's non-blocking send can never race the
+	// test goroutine reaching its receive: an unbuffered channel here would
+	// let the pushListener goroutine reach `done <- struct{}{}` before the
+	// test reaches `<-done`, hit the `default:` branch, and silently drop
+	// the signal, causing a spurious timeout (see the analogous comment on
+	// the periodicPull test's `done` channel above).
+	done := make(chan struct{}, 1)
 
 	syncer.pushHook = func(_ context.Context) error {
 		callCount++
