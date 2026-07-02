@@ -69,6 +69,9 @@ type fixtureOpts struct {
 	// fetcher. The fixture wraps it with a TTL cache before wiring into
 	// the handler, matching the production path in NewRouter.
 	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
+	// servedModels, when non-nil, is wired directly into chatHandlers.servedModels
+	// (no caching wrapper — the catalog builder handles its own caching).
+	servedModels func(ctx context.Context) []chatModelEntry
 }
 
 func defaultFixtureOpts() fixtureOpts {
@@ -127,6 +130,11 @@ func newChatFixtureWithRunnerAndPrimer(t *testing.T, opts fixtureOpts, primerPat
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
 	}
+
+	if opts.servedModels != nil {
+		chh.servedModels = opts.servedModels
+	}
+
 	mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	mux.HandleFunc("GET /api/chats", chh.listChats)
 	mux.HandleFunc("POST /api/chats", chh.createChat)
@@ -565,6 +573,31 @@ func TestListModels_OpenRouterSource(t *testing.T) {
 	require.Equal(t, "openrouter", body.Source)
 	require.Empty(t, body.Models, "openrouter mode returns no allowlist; the frontend pulls OpenRouter live")
 	require.Equal(t, "anthropic/claude-sonnet-4", body.Default)
+}
+
+func TestListModels_OpenRouter_ServesScreenedCatalog(t *testing.T) {
+	t.Parallel()
+	opts := openRouterFixtureOpts()
+	opts.servedModels = func(_ context.Context) []chatModelEntry {
+		return []chatModelEntry{{ID: "anthropic/claude-sonnet-4.5", Label: "anthropic/claude-sonnet-4.5", MaxTokens: 200000}}
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chats/models", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Source  string           `json:"source"`
+		Models  []chatModelEntry `json:"models"`
+		Default string           `json:"default"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "openrouter", resp.Source)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "anthropic/claude-sonnet-4.5", resp.Models[0].ID)
+	assert.Equal(t, int64(200000), resp.Models[0].MaxTokens)
 }
 
 func TestCreateChat_OpenRouter_SkipsAllowlist(t *testing.T) {

@@ -327,6 +327,12 @@ func main() {
 	// RecalculateCosts, PriceTokens) can price models that are served but not in
 	// the static token_costs override map (e.g. the agent's primary model when
 	// no explicit rate is configured).
+	var (
+		servedModelsFn      func(context.Context) []api.ServedModelView
+		validateChatModelFn func(context.Context, string) bool
+		servedModelsSource  string
+	)
+
 	if catalogBuilder != nil {
 		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
 			p, c, ok := catalogBuilder.Rate(ctx, model)
@@ -336,6 +342,25 @@ func main() {
 
 			return service.ModelRate{Prompt: p, Completion: c}, true
 		})
+
+		routerServedModels := func(ctx context.Context) []api.ServedModelView {
+			served := catalogBuilder.Served(ctx)
+			views := make([]api.ServedModelView, len(served))
+
+			for i, m := range served {
+				views[i] = api.ServedModelView{ID: m.Slug, ContextWindow: m.ContextWindow}
+			}
+
+			return views
+		}
+
+		servedModelsFn = routerServedModels
+		validateChatModelFn = catalogBuilder.Validate
+		servedModelsSource = "openrouter"
+
+		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+			servedModelsSource = "endpoint"
+		}
 	}
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
@@ -426,6 +451,9 @@ func main() {
 		ChatBackendCfg:         chatBackendCfg,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
+		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil
+		ServedModelsSource:     servedModelsSource,  // "" when catalogBuilder == nil
+		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
