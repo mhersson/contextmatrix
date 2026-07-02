@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -220,4 +221,87 @@ func TestBuilderEndpointModelsProjectsCachedCatalog(t *testing.T) {
 	assert.Equal(t, "model-a", got[0].ID)
 	assert.Equal(t, "model-a", got[0].Label)
 	assert.Equal(t, 200000, got[0].MaxTokens)
+}
+
+// TestBuilderRefreshFailureBackoff pins the failure backoff: a failed catalog
+// refresh must not be re-attempted on every call. During a provider outage
+// callers get the last-good state (or nothing) without paying the fetch
+// timeout, until the cooldown elapses.
+func TestBuilderRefreshFailureBackoff(t *testing.T) {
+	var hits atomic.Int32
+
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer endpointSrv.Close()
+
+	b := NewBuilder("", 0.65, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+
+	ctx := context.Background()
+
+	_, _, ok := b.Rate(ctx, "model-a")
+	assert.False(t, ok)
+	require.EqualValues(t, 1, hits.Load(), "first call must attempt a refresh")
+
+	_, _, ok = b.Rate(ctx, "model-a")
+	assert.False(t, ok)
+	assert.EqualValues(t, 1, hits.Load(), "call within cooldown must not refetch")
+
+	// Backdate the last attempt past the cooldown: the next call retries.
+	b.mu.Lock()
+	b.lastRefreshAttempt = time.Now().Add(-2 * refreshFailureCooldown)
+	b.mu.Unlock()
+
+	_, _, _ = b.Rate(ctx, "model-a")
+	assert.EqualValues(t, 2, hits.Load(), "call after cooldown must retry")
+}
+
+// TestBuilderRefreshFailureServesLastGood verifies that a failed refresh after
+// a successful one keeps serving the last-good catalog and still backs off.
+func TestBuilderRefreshFailureServesLastGood(t *testing.T) {
+	var (
+		fail atomic.Bool
+		hits atomic.Int32
+	)
+
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+
+		if fail.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	b := NewBuilder("", 0.65, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+
+	ctx := context.Background()
+
+	_, _, ok := b.Rate(ctx, "model-a")
+	require.True(t, ok)
+
+	// Expire the TTL and make the endpoint fail: Rate must serve last-good.
+	fail.Store(true)
+	b.mu.Lock()
+	b.cachedAt = time.Now().Add(-2 * time.Hour)
+	b.lastRefreshAttempt = time.Time{}
+	b.mu.Unlock()
+
+	p, _, ok := b.Rate(ctx, "model-a")
+	require.True(t, ok, "failed refresh must serve last-good")
+	assert.InDelta(t, 0.000003, p, 1e-12)
+	require.EqualValues(t, 2, hits.Load())
+
+	_, _, ok = b.Rate(ctx, "model-a")
+	require.True(t, ok)
+	assert.EqualValues(t, 2, hits.Load(), "failed refresh must back off, not retry per call")
 }

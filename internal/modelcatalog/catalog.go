@@ -11,6 +11,14 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 )
 
+// refreshFailureCooldown is how long the Builder waits after a refresh attempt
+// before allowing another one once the cache is stale. Between attempts,
+// callers are served the last-good snapshot (or nothing if no refresh has ever
+// succeeded). Without this, every Rate/Candidates call during a catalog
+// provider outage would re-attempt the fetch and eat the full HTTP timeout
+// (up to two 30s requests) per call.
+const refreshFailureCooldown = 60 * time.Second
+
 // Builder fetches AA + OR on a TTL and produces the candidate set. Safe for
 // concurrent use; serves the last-good snapshot when a refresh fails.
 type Builder struct {
@@ -33,6 +41,10 @@ type Builder struct {
 	// served model, not just selection candidates). Guarded by mu; consumed by
 	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
+	// lastRefreshAttempt is when refresh() was last invoked, success or
+	// failure. Guarded by mu. Gates re-attempts on a stale cache so a failing
+	// provider is retried at most once per refreshFailureCooldown.
+	lastRefreshAttempt time.Time
 }
 
 // BuilderOption configures a Builder after construction.
@@ -73,17 +85,29 @@ func NewBuilder(aaKey string, floor float64, allowlist []string, ttl time.Durati
 }
 
 // refreshIfStaleLocked checks whether the cache is stale and refreshes it if
-// so. Must be called with b.mu held. On refresh failure it logs and leaves
-// b.cached unchanged (last-good). On success it updates b.cached, b.cachedAt,
-// and b.lastCatalog (via b.refresh).
+// so. Must be called with b.mu held. On refresh failure it logs, leaves
+// b.cached unchanged (last-good), and backs off: no re-attempt happens until
+// refreshFailureCooldown has elapsed since the last attempt, so a provider
+// outage costs at most one fetch per cooldown window instead of one per call.
+// On success it updates b.cached, b.cachedAt, and b.lastCatalog (via
+// b.refresh). Note: a successful refresh also stamps lastRefreshAttempt, which
+// is harmless because the TTL check short-circuits until expiry and every
+// realistic TTL far exceeds the cooldown.
 func (b *Builder) refreshIfStaleLocked(ctx context.Context) {
 	if b.cached != nil && time.Since(b.cachedAt) < b.ttl {
 		return
 	}
 
+	if time.Since(b.lastRefreshAttempt) < refreshFailureCooldown {
+		return
+	}
+
+	b.lastRefreshAttempt = time.Now()
+
 	fresh, err := b.refresh(ctx)
 	if err != nil {
-		slog.Warn("model catalog refresh failed; using last-good", "error", err, "have", b.cached != nil)
+		slog.Warn("model catalog refresh failed; using last-good and backing off",
+			"error", err, "have", b.cached != nil, "cooldown", refreshFailureCooldown)
 
 		return
 	}
