@@ -85,6 +85,25 @@ func TestEnsureSchema_ReopenIsIdempotent(t *testing.T) {
 	assert.True(t, tableExists(t, s2.db, "model_blacklist"))
 }
 
+func TestEnsureSchema_FailsFastOnNewerDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path) // fresh open stamps the current version
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	// Simulate a DB written by a newer binary.
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	require.NoError(t, err)
+	_, err = db.Exec("PRAGMA user_version = 999")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_, err = Open(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "newer than this binary")
+}
+
 func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
 	t.Helper()
 
