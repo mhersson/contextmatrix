@@ -73,8 +73,13 @@ type subscriber struct {
 type activeSession struct {
 	cancel    context.CancelFunc
 	startTime time.Time
-	subs      []*subscriber
-	done      chan struct{} // closed when the pump goroutine exits
+	// lastEventTime is stamped on every delivered event (see
+	// readUpstreamStream). Zero means no event has ever been delivered.
+	// sweepIdleSessions keys idleness off this, falling back to startTime,
+	// so an actively-streaming session is never force-closed mid-run.
+	lastEventTime time.Time
+	subs          []*subscriber
+	done          chan struct{} // closed when the pump goroutine exits
 }
 
 // nextSubID is an atomic counter used to give each subscriber a unique ID.
@@ -889,6 +894,7 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 		// the duplicate-delivery race where an event is captured in the
 		// snapshot AND also staged in sub.pending.
 		m.mu.Lock()
+		sess.lastEventTime = m.clk.Now()
 		m.getOrCreate(key).append(evt)
 
 		shouldWarn := false
@@ -959,7 +965,11 @@ func (m *Manager) StartSweeper(ctx context.Context) {
 	}()
 }
 
-// sweepIdleSessions finds sessions older than sessionTTL and calls Stop on them.
+// sweepIdleSessions finds sessions idle longer than sessionTTL and calls Stop
+// on them. Idleness is keyed off the last delivered event (activeSession.
+// lastEventTime), falling back to startTime for sessions that have never
+// delivered an event, so an actively-streaming session is never force-closed
+// mid-run just because it has been connected a long time.
 func (m *Manager) sweepIdleSessions(ctx context.Context) {
 	now := m.clk.Now()
 
@@ -968,7 +978,12 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 	var stale []string
 
 	for cardID, sess := range m.activeSessions {
-		if now.Sub(sess.startTime) > m.sessionTTL {
+		reference := sess.startTime
+		if !sess.lastEventTime.IsZero() {
+			reference = sess.lastEventTime
+		}
+
+		if now.Sub(reference) > m.sessionTTL {
 			stale = append(stale, cardID)
 		}
 	}

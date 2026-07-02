@@ -147,10 +147,11 @@ type Manager struct {
 	primerPath         string
 	pricer             Pricer
 
-	mu        sync.Mutex
-	seqMap    map[string]int64           // sessionID → last assigned seq
-	titled    map[string]bool            // sessionID → auto-title work already completed
-	consumers map[string]*consumerHandle // sessionID → runner-log consumer lifecycle
+	mu           sync.Mutex
+	seqMap       map[string]int64           // sessionID → last assigned seq
+	titled       map[string]bool            // sessionID → auto-title work already completed
+	consumers    map[string]*consumerHandle // sessionID → runner-log consumer lifecycle
+	sendFailures map[string]int             // sessionID → consecutive backend-unreachable SendUserMessage failures
 	// rehydrationActive mirrors chat_sessions.rehydration_active. Reads
 	// from AppendMessage's hot path go through the cache to avoid an
 	// extra DB round-trip per log entry; cache misses fall back to the
@@ -233,6 +234,7 @@ func NewManager(cfg Config) *Manager {
 		seqMap:             make(map[string]int64),
 		titled:             make(map[string]bool),
 		consumers:          make(map[string]*consumerHandle),
+		sendFailures:       make(map[string]int),
 		rehydrationActive:  make(map[string]bool),
 		appendLocks:        map[string]*sync.Mutex{},
 		statusLocks:        map[string]*sync.Mutex{},
@@ -1698,6 +1700,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.seqMap, id)
 	delete(m.titled, id)
 	delete(m.rehydrationActive, id)
+	delete(m.sendFailures, id)
 	m.mu.Unlock()
 
 	// Drop the per-session append lock entry. Held under appendLocksMu
@@ -1747,6 +1750,53 @@ func (m *Manager) ensureRunningForSend(ctx context.Context, sess Session) error 
 	return nil
 }
 
+// maxConsecutiveSendFailures is the number of consecutive
+// backend-unreachable SendUserMessage failures tolerated before a session
+// is auto-flipped to cold. This is the only self-healing path available
+// with the dedicated chat backend: the reconcile sweep's chat half is
+// wired only when the task backend also serves chat, because a standalone
+// chat backend exposes no /containers endpoint to reconcile against.
+const maxConsecutiveSendFailures = 3
+
+// recordSendFailure increments the consecutive-failure counter for
+// sessionID when sendErr indicates the backend is unreachable. Reaching
+// maxConsecutiveSendFailures flips the session to cold via EndSession,
+// which preserves the transcript — the next SendUserMessage goes through
+// ensureRunningForSend's StatusCold branch and triggers a cold-open resume.
+func (m *Manager) recordSendFailure(ctx context.Context, sessionID string, sendErr error) {
+	if !errors.Is(sendErr, ErrBackendUnreachable) {
+		return
+	}
+
+	m.mu.Lock()
+	m.sendFailures[sessionID]++
+	n := m.sendFailures[sessionID]
+	m.mu.Unlock()
+
+	if n < maxConsecutiveSendFailures {
+		return
+	}
+
+	m.logger.Warn("chat: backend unreachable on consecutive sends, auto-flipping session to cold",
+		"session_id", sessionID, "consecutive_failures", n)
+
+	m.mu.Lock()
+	delete(m.sendFailures, sessionID)
+	m.mu.Unlock()
+
+	if endErr := m.EndSession(ctx, sessionID); endErr != nil {
+		m.logger.Warn("chat: auto-recovery EndSession failed", "session_id", sessionID, "error", endErr)
+	}
+}
+
+// clearSendFailures resets the consecutive-failure counter after a
+// successful send.
+func (m *Manager) clearSendFailures(sessionID string) {
+	m.mu.Lock()
+	delete(m.sendFailures, sessionID)
+	m.mu.Unlock()
+}
+
 func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string) (string, error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -1773,8 +1823,12 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
 
 	if err := m.backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
+		m.recordSendFailure(ctx, sessionID, err)
+
 		return "", err
 	}
+
+	m.clearSendFailures(sessionID)
 
 	// Runner accepted the message — now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)

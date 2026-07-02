@@ -482,3 +482,67 @@ describe('reconnect backoff', () => {
     expect(instances).toHaveLength(3);
   });
 });
+
+// ── 4. Reconnect epoch ────────────────────────────────────────────────────────
+
+describe('reconnect epoch', () => {
+  it('stays 0 on the initial connect, then increments once per true reconnect', () => {
+    // Captured at render time (mirrors the "provider value memoization" test's
+    // onRender pattern) so we can observe reconnectEpoch after every commit,
+    // not just at mount. The write lives in a function defined outside the
+    // component (called from render) rather than inline in the component
+    // body, matching that test's structure and satisfying
+    // react-hooks/immutability.
+    const captured: { epoch?: number } = {};
+    const capture = (epoch: number) => {
+      captured.epoch = epoch;
+    };
+
+    function EpochConsumer() {
+      const ctx = useSSEBus();
+      capture(ctx.reconnectEpoch);
+      return null;
+    }
+
+    act(() => {
+      render(
+        <SSEProvider>
+          <EpochConsumer />
+        </SSEProvider>,
+      );
+    });
+
+    expect(captured.epoch).toBe(0);
+
+    // Initial connect succeeds — nothing to resync yet, epoch must stay 0.
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(captured.epoch).toBe(0);
+
+    // First outage: error → backoff (1 s) → reconnect succeeds → epoch 1.
+    act(() => {
+      latestInstance()._triggerError();
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(captured.epoch).toBe(1);
+
+    // Second outage cycle: delay was reset to 1 s by the previous open, so
+    // the next error reconnects after 1 s again → epoch 2.
+    act(() => {
+      latestInstance()._triggerError();
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(captured.epoch).toBe(2);
+  });
+});

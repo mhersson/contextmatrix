@@ -131,3 +131,32 @@ func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	assert.Equal(t, "hello", receivedBody["content"])
 	assert.Equal(t, "msg-1", receivedBody["message_id"])
 }
+
+func TestRunnerClient_SendChatMessage_WrapsErrBackendUnreachableOnDialFailure(t *testing.T) {
+	// Port 1 refuses connections without needing a listener.
+	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: "http://127.0.0.1:1", HMACKey: "k"})
+
+	err := rc.SendChatMessage(context.Background(), "S1", "hi", "msg-1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, chat.ErrBackendUnreachable)
+}
+
+func TestRunnerClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerCancel(t *testing.T) {
+	// A real, reachable server — proves the failure is caller-side, not a
+	// dial/DNS/timeout problem with the backend.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-canceled: Do fails immediately with context.Canceled before any dial matters
+
+	err := rc.SendChatMessage(ctx, "S1", "hi", "msg-1")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, chat.ErrBackendUnreachable)
+	assert.ErrorIs(t, err, context.Canceled)
+}

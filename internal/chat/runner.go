@@ -29,6 +29,23 @@ var sseStreamClient = &http.Client{Timeout: 0}
 // exponential backoff rather than treating the disconnect as a clean close.
 var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded buffer")
 
+// ErrBackendUnreachable is wrapped around chat.Backend HTTP failures caused
+// by a transport-level failure to reach the backend at all (connection
+// refused, DNS failure, timeout) — as opposed to an HTTP response with a
+// non-2xx status, which is an application-level rejection, not "the worker
+// is dead". Manager.SendUserMessage matches on this via errors.Is to count
+// consecutive worker-unreachable failures and auto-recover the session to
+// cold; see maxConsecutiveSendFailures in manager.go.
+//
+// Excluded: failures caused by the caller's own context being canceled or
+// timing out (e.g. the inbound HTTP request in SendUserMessage disconnects
+// mid-send). That's a caller-side event, not a signal that the backend is
+// unreachable, so it must not count toward the auto-cold-flip. An
+// http.Client-level timeout is NOT excluded — it still gets the sentinel,
+// since the caller ctx is un-erred and the timeout genuinely indicates the
+// backend is unresponsive.
+var ErrBackendUnreachable = errors.New("chat: backend unreachable")
+
 // RunnerClientConfig wires the HMAC-signed webhook client.
 type RunnerClientConfig struct {
 	BaseURL    string       // e.g. http://contextmatrix-runner:8080
@@ -232,7 +249,17 @@ func (c *runnerClient) post(ctx context.Context, path string, body []byte) ([]by
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("chat: %s: %w", path, err)
+		// A canceled/deadline-exceeded caller ctx is a caller-side event, not
+		// a signal about backend health — exclude it from the sentinel so it
+		// can't count toward the auto-cold-flip in Manager.SendUserMessage.
+		// An http.Client-level timeout (c.httpc.Timeout firing) leaves the
+		// caller ctx un-erred, so it still gets the sentinel — that IS a
+		// backend-unresponsive signal.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("chat: %s: %w", path, err)
+		}
+
+		return nil, fmt.Errorf("chat: %s: %w: %w", path, ErrBackendUnreachable, err)
 	}
 	defer resp.Body.Close()
 

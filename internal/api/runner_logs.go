@@ -111,6 +111,21 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
+	// Start is idempotent — safe to call on every connection, exactly like
+	// streamProjectSession calls StartProject below. This revives a session
+	// the idle sweeper force-closed mid-run: the runner_status transition
+	// that originally triggered Start fires only once per run, so without
+	// this call a reconnect after a sweep would park in pendingSubs forever.
+	if err := h.sessionManager.Start(r.Context(), cardID, project); err != nil {
+		ctxlog.Logger(r.Context()).Error("runner SSE: failed to start card session",
+			"card_id", cardID, "project", project, "error", err)
+
+		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
+		flusher.Flush()
+
+		return
+	}
+
 	ch, unsub := h.sessionManager.Subscribe(cardID)
 	defer unsub()
 

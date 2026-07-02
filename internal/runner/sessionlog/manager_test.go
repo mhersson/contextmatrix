@@ -129,6 +129,66 @@ func sseServerInfinite(t *testing.T) *httptest.Server {
 	}))
 }
 
+// sseServerOnDemand builds an httptest.Server that streams events pushed on
+// eventCh as SSE frames as they arrive, holding the connection open between
+// pushes (and after eventCh is closed) until the client disconnects. readyCh
+// is closed once the handler's headers are flushed, so callers know the pump
+// has connected before pushing the first event. The select loop watches
+// r.Context().Done() alongside eventCh so a client disconnect (or, in these
+// tests, the manager cancelling the pump context on Stop) tears the handler
+// down promptly instead of leaking it until eventCh is closed.
+func sseServerOnDemand(t *testing.T, eventCh <-chan Event, readyCh chan struct{}) *httptest.Server {
+	t.Helper()
+
+	var once sync.Once
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		once.Do(func() { close(readyCh) })
+
+		for {
+			select {
+			case evt, ok := <-eventCh:
+				if !ok {
+					// No more events will ever be pushed — hold the connection
+					// open until the client (the manager's pump) disconnects.
+					<-r.Context().Done()
+
+					return
+				}
+
+				payload, err := json.Marshal(protocol.LogEntry{
+					Timestamp: evt.Timestamp,
+					Type:      evt.Type,
+					Content:   string(evt.Payload),
+				})
+				if err != nil {
+					return
+				}
+
+				if _, err = fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+					return
+				}
+
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}))
+}
+
 // newTestEvents returns n synthetic events for testing.
 func newTestEvents(n int) []Event {
 	evts := make([]Event, n)
@@ -400,6 +460,77 @@ func TestIdleSweeper(t *testing.T) {
 	_, running := m.activeSessions[cardID]
 	m.mu.Unlock()
 	assert.False(t, running, "session should have been swept")
+}
+
+// TestIdleSweeper_KeyedOnLastEventNotStartTime is the regression test for the
+// bug where sweepIdleSessions compared sess.startTime (connection time)
+// against the TTL instead of the most recent delivered-event time. Sanctioned
+// runs (CM ContainerMaxAge 150min, agent container_timeout 2h30m) routinely
+// outlive the hardcoded 2h TTL, so an actively-streaming session must never be
+// force-closed mid-run just because it has been connected a long time.
+//
+// Sequence:
+//  1. Start a session against an on-demand SSE server and advance the fake
+//     clock 5x past TTL — well past what the old startTime-keyed sweep would
+//     tolerate.
+//  2. Deliver one event, which stamps activeSession.lastEventTime at the
+//     current (advanced) fake time.
+//  3. Sweep: the session must survive, because now-lastEventTime is ~0, not
+//     now-startTime (~5x TTL).
+//  4. Advance the clock past TTL again with no further events, so
+//     now-lastEventTime > TTL.
+//  5. Sweep again: the session must now be force-closed.
+func TestIdleSweeper_KeyedOnLastEventNotStartTime(t *testing.T) {
+	const (
+		cardID = "SWEEP-KEYED-001"
+		ttl    = 100 * time.Millisecond
+	)
+
+	eventCh := make(chan Event, 4)
+	readyCh := make(chan struct{})
+
+	srv := sseServerOnDemand(t, eventCh, readyCh)
+	defer srv.Close()
+
+	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	m := NewManager(
+		WithRunnerConfig(srv.URL, "test-key"),
+		WithSessionTTL(ttl),
+		WithClock(fake),
+	)
+	defer m.Stop(cardID)
+
+	require.NoError(t, m.Start(context.Background(), cardID, ""))
+	<-readyCh
+
+	// Advance well past the TTL (5x) before delivering an event — under the
+	// old startTime-keyed sweep this alone would already be stale.
+	fake.Advance(5 * ttl)
+
+	eventCh <- Event{Type: "log", Payload: []byte("still-streaming")}
+
+	// Wait for the pump to buffer the event (and, via the fix, stamp
+	// lastEventTime) before sweeping.
+	require.Eventually(t, func() bool {
+		return len(m.Snapshot(cardID)) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	m.sweepIdleSessions(context.Background())
+
+	m.mu.Lock()
+	_, stillRunning := m.activeSessions[cardID]
+	m.mu.Unlock()
+	assert.True(t, stillRunning, "an actively-streaming session must survive the sweep")
+
+	// Now advance past TTL again with no further events — the session is
+	// genuinely idle and must be swept.
+	fake.Advance(ttl + 20*time.Millisecond)
+	m.sweepIdleSessions(context.Background())
+
+	m.mu.Lock()
+	_, runningAfterIdle := m.activeSessions[cardID]
+	m.mu.Unlock()
+	assert.False(t, runningAfterIdle, "a session idle past TTL with no recent events must be swept")
 }
 
 // TestUpstreamRetryAndError verifies that after maxUpstreamRetries failed
