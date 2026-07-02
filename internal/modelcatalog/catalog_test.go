@@ -198,3 +198,26 @@ func TestBuilderRateNilReceiver(t *testing.T) {
 	_, _, ok := b.Rate(context.Background(), "any-model")
 	assert.False(t, ok)
 }
+
+// TestBuilderEndpointModelsProjectsCachedCatalog verifies that EndpointModels
+// projects the Builder's cached catalog (the same /models fetch already shared
+// by Candidates and Rate) to the picker's tool-capable model list, rather than
+// requiring a second independent fetch.
+func TestBuilderEndpointModelsProjectsCachedCatalog(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"model-a","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"capabilities":{"features":["tools"]}},
+			{"id":"model-b","context_length":32000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"capabilities":{"features":[]}}
+		]}`))
+	}))
+	defer endpointSrv.Close()
+
+	b := NewBuilder("", 0.65, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+
+	got := b.EndpointModels(context.Background())
+	require.Len(t, got, 1)
+	assert.Equal(t, "model-a", got[0].ID)
+	assert.Equal(t, "model-a", got[0].Label)
+	assert.Equal(t, 200000, got[0].MaxTokens)
+}

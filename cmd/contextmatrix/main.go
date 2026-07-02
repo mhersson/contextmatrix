@@ -418,21 +418,34 @@ func main() {
 	}
 
 	if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
-		baseURL := cfg.LLMEndpoint.BaseURL
-		apiKey := cfg.LLMEndpoint.APIKey
-		routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
-			eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
-			if err != nil {
-				return nil, err
-			}
-
+		toViews := func(eps []modelcatalog.EndpointModel) []api.EndpointModelView {
 			out := make([]api.EndpointModelView, len(eps))
 
 			for i, e := range eps {
 				out[i] = api.EndpointModelView{ID: e.ID, Label: e.Label, MaxTokens: e.MaxTokens}
 			}
 
-			return out, nil
+			return out
+		}
+
+		if catalogBuilder != nil {
+			// Serve the picker from the Builder's cached catalog — the same
+			// /models fetch already shared by Rate and Candidates — instead of a
+			// second independent fetch with its own TTL.
+			routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
+				return toViews(catalogBuilder.EndpointModels(ctx)), nil
+			}
+		} else {
+			baseURL := cfg.LLMEndpoint.BaseURL
+			apiKey := cfg.LLMEndpoint.APIKey
+			routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
+				eps, err := modelcatalog.FetchEndpointModels(ctx, baseURL, apiKey)
+				if err != nil {
+					return nil, err
+				}
+
+				return toViews(eps), nil
+			}
 		}
 	}
 
