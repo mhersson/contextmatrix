@@ -121,6 +121,20 @@ type RecalculateCostsResult struct {
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
+	// Resolve the model rate BEFORE taking writeMu: the catalog fallback can
+	// block on network I/O (stale-cache refresh), and holding the global card
+	// write lock across that stalls every claim/heartbeat/transition. Nothing
+	// the lookup reads is guarded by writeMu — tokenCosts is immutable after
+	// construction and catalogRate is wired once at startup.
+	var (
+		rate   ModelRate
+		rateOK bool
+	)
+
+	if input.ActualCostUSD == nil && input.Model != "" {
+		rate, rateOK = s.rateFor(input.Model)
+	}
+
 	s.writeMu.Lock()
 
 	unlocked := false
@@ -204,7 +218,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		deltaCost = *input.ActualCostUSD
 		costSource = "actual"
 	} else if input.Model != "" {
-		if rate, ok := s.rateFor(input.Model); ok {
+		if rateOK {
 			deltaCost = PriceTokens(rate, input.PromptTokens, input.CacheReadTokens, input.CacheCreationTokens, input.CompletionTokens)
 		} else {
 			ctxlog.Logger(ctx).Warn("unknown model in cost map, cost not calculated",
@@ -316,6 +330,57 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 // behavior — only cards with non-zero tokens and a zero EstimatedCostUSD are
 // updated; cards that already have a cost are not modified.
 func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultModel string) (*RecalculateCostsResult, error) {
+	// Pre-resolve every rate this pass could need BEFORE taking writeMu: the
+	// catalog fallback can block on network I/O and must never run under the
+	// global card write lock. The lock-free ListCards pass walks the same
+	// model fallback chains as the locked pass below; resolveRate memoizes,
+	// so a model that only appears mid-pass (concurrent ReportUsage between
+	// the two listings) costs at most one bounded lookup under the lock —
+	// bounded by the catalog Builder's failure backoff. Memoization also
+	// means each model is priced from a single rate snapshot for the whole
+	// pass.
+	type rateResult struct {
+		rate ModelRate
+		ok   bool
+	}
+
+	resolved := make(map[string]rateResult)
+
+	resolveRate := func(model string) (ModelRate, bool) {
+		r, seen := resolved[model]
+		if !seen {
+			r.rate, r.ok = s.rateFor(model)
+			resolved[model] = r
+		}
+
+		return r.rate, r.ok
+	}
+
+	prewarm, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list cards: %w", err)
+	}
+
+	for _, card := range prewarm {
+		if card.TokenUsage == nil {
+			continue
+		}
+
+		if len(card.UsageBreakdown) > 0 {
+			for _, b := range card.UsageBreakdown {
+				if b.CostSource != "estimated" {
+					continue
+				}
+
+				resolveRate(usageModel(b.Model, card.TokenUsage.Model, defaultModel))
+			}
+
+			continue
+		}
+
+		resolveRate(usageModel("", card.TokenUsage.Model, defaultModel))
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -358,16 +423,9 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 
 				// Fallback chain mirrors the legacy path: bucket model →
 				// card's stored model → defaultModel parameter.
-				model := b.Model
-				if model == "" {
-					model = card.TokenUsage.Model
-				}
+				model := usageModel(b.Model, card.TokenUsage.Model, defaultModel)
 
-				if model == "" {
-					model = defaultModel
-				}
-
-				rate, ok := s.rateFor(model)
+				rate, ok := resolveRate(model)
 				if !ok {
 					ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping bucket",
 						"model", model,
@@ -404,12 +462,9 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 				continue // already has a cost — don't double-count
 			}
 
-			model := card.TokenUsage.Model
-			if model == "" {
-				model = defaultModel
-			}
+			model := usageModel("", card.TokenUsage.Model, defaultModel)
 
-			rate, ok := s.rateFor(model)
+			rate, ok := resolveRate(model)
 			if !ok {
 				ctxlog.Logger(ctx).Warn("recalculate_costs: model not in cost map, skipping card",
 					"model", model,
@@ -485,6 +540,20 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	}
 
 	return result, nil
+}
+
+// usageModel resolves the cost-recalculation model fallback chain:
+// bucket model → card's stored model → defaultModel.
+func usageModel(bucketModel, cardModel, defaultModel string) string {
+	if bucketModel != "" {
+		return bucketModel
+	}
+
+	if cardModel != "" {
+		return cardModel
+	}
+
+	return defaultModel
 }
 
 // upsertUsageBucket merges one report into the card's (agent, model) bucket.
