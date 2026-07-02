@@ -290,8 +290,14 @@ func summarizeToolResult(content string) string {
 
 	if looksLikeError(s) {
 		tail := s
-		if len(tail) > 200 {
-			tail = tail[len(tail)-200:]
+		if len(s) > 200 {
+			cut := len(s) - 200
+			// Advance to a rune boundary so the tail doesn't begin mid-rune.
+			for cut < len(s) && (s[cut]&0xC0) == 0x80 {
+				cut++
+			}
+
+			tail = s[cut:]
 		}
 
 		return "→ failed: " + tail
