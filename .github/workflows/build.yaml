@@ -139,6 +139,15 @@ jobs:
         with:
           scandir: scripts
 
+  install-script-checks:
+    if: github.event_name != 'push'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: make test-install
+        run: make test-install
+
   image-scan:
     if: github.event_name != 'push'
     runs-on: self-hosted
@@ -168,7 +177,7 @@ jobs:
 
   build:
     runs-on: self-hosted
-    needs: [go-checks, frontend-checks, govulncheck, hadolint, shellcheck, image-scan]
+    needs: [go-checks, frontend-checks, govulncheck, hadolint, shellcheck, install-script-checks, image-scan]
     if: |
       always() &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
