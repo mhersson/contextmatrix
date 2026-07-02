@@ -1048,6 +1048,52 @@ func TestManager_SendUserMessage_RunnerErrorDoesNotPersist(t *testing.T) {
 	assert.Empty(t, msgs, "no user message must be persisted when runner.SendChatMessage fails")
 }
 
+// TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable:
+// the chat reconcile sweep is deliberately gated to runner topology, so a
+// dead dedicated chat-backend worker is only detectable via repeated send
+// failures. After maxConsecutiveSendFailures the session must flip to cold
+// so the next send resumes via the existing cold-open (Path-B) machinery.
+func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *testing.T) {
+	mgr, runner, store := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	sess.Status = chat.StatusActive
+	sess.ContainerID = "c-1"
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	dialErr := fmt.Errorf("dial tcp 127.0.0.1:8090: connect: connection refused: %w", chat.ErrBackendUnreachable)
+	runner.sendErr = dialErr
+
+	// First two failures must NOT flip the session — only the threshold does.
+	for i := 0; i < 2; i++ {
+		_, sendErr := mgr.SendUserMessage(ctx, sess.ID, "hello")
+		require.Error(t, sendErr)
+	}
+
+	got, err := store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status, "session must stay active before the threshold is reached")
+
+	// Third consecutive failure crosses the threshold.
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello again")
+	require.Error(t, err, "the call that trips the threshold still reports its own send failure")
+
+	got, err = store.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, got.Status, "session must auto-flip to cold after repeated backend-unreachable failures")
+	assert.Empty(t, got.ContainerID, "cold session must have its container_id cleared")
+
+	// The next send attempt must resume via the existing cold-open path.
+	runner.sendErr = nil
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "recovered")
+	require.NoError(t, err, "next send must succeed via cold-open once the backend is reachable again")
+	assert.Equal(t, int64(1), runner.startCalls.Load(), "cold-open must call StartChat to resume the session")
+}
+
 func TestManager_SendUserMessage_OpensColdSession(t *testing.T) {
 	mgr, runner, _ := newManagerWithStubs(t)
 	ctx := context.Background()
