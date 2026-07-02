@@ -164,7 +164,6 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
           sendDisabled={sendDisabled}
           footer={footer}
           focusKey={focusKey}
-          isReadOnly={!!readOnlyMessage}
         />
       )}
     </div>

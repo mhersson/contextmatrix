@@ -47,16 +47,6 @@ func NewSyncer(
 	}
 }
 
-// SetClock overrides the clock used to drive the periodic sync ticker.
-// Must be called before Start; tests inject a fake clock here.
-func (s *Syncer) SetClock(c clock.Clock) {
-	if c == nil {
-		c = clock.Real()
-	}
-
-	s.clk = c
-}
-
 // Start launches the periodic sync goroutine.
 func (s *Syncer) Start(ctx context.Context) {
 	s.wg.Go(func() {

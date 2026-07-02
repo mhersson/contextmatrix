@@ -22,7 +22,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
@@ -107,11 +106,9 @@ type RouterConfig struct {
 	Runner                 TaskBackend          // nil when no task backend is configured
 	BackendCfg             config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
 	MCPAPIKey              string
-	Port                   int
 	GitHubTokenProvider    githubauth.TokenGenerator
-	TaskSkillsGit          *gitops.Manager // reserved for git-pull refresh of task-skills (future)
-	TaskSkillsDir          string          // absolute path to the task-skills directory; empty disables the skills selector
-	TaskSkillsGitRemoteURL string          // configured git remote URL for the task-skills repo; fallback when dir is not a checkout
+	TaskSkillsDir          string // absolute path to the task-skills directory; empty disables the skills selector
+	TaskSkillsGitRemoteURL string // configured git remote URL for the task-skills repo; fallback when dir is not a checkout
 	GitHubAPIBaseURL       string
 	GitHubAllowedHosts     []string
 	SessionManager         *sessionlog.Manager // optional; enables card-scoped SSE log path
@@ -213,11 +210,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Agent routes
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/claim", ah.claimCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/release", ah.releaseCard)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/heartbeat", ah.heartbeatCard)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/log", ah.addLogEntry)
-	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/usage", ah.reportUsage)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/report-push", ah.reportPush)
 
 	// Project usage, dashboard, and activity feed
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
@@ -244,7 +236,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		runner:                 cfg.Runner,
 		backendCfg:             cfg.BackendCfg,
 		mcpAPIKey:              cfg.MCPAPIKey,
-		port:                   cfg.Port,
 		sessionManager:         cfg.SessionManager,
 		replayCache:            runner.NewSignatureCache(),
 		catalog:                cfg.Catalog,

@@ -43,9 +43,8 @@
    always committed immediately regardless of this setting.
 
 6. **Activity log is append-only, capped at 50 entries.** Agents add entries via
-   `POST /api/projects/{project}/cards/{id}/log`. Older entries beyond 50 are
-   dropped from the card file but preserved in git history. Entries are never
-   edited or deleted.
+   the MCP `add_log` tool. Older entries beyond 50 are dropped from the card
+   file but preserved in git history. Entries are never edited or deleted.
 
 7. **Heartbeat timeout.** If `last_heartbeat` exceeds configured timeout
    (default 30min), the service layer (`CardService.StartTimeoutChecker` in

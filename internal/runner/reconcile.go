@@ -180,8 +180,9 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, chatMgr ChatReconcil
 // time, passed through explicitly instead of re-read from the package var so
 // a concurrent test mutation cannot race the sweep's per-tick check.
 func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge time.Duration, logger *slog.Logger) (string, bool) {
-	// Chat containers are reconciled by RunChatReconcileSweep against
-	// chat.Manager's session store — not by the card sweep. Routing them
+	// Chat containers are reconciled by reconcileChatSessions (driven by
+	// StartReconciliationSweep in production) against chat.Manager's
+	// session store — not by the card sweep. Routing them
 	// through decideKill would fire /end-session with an empty CardID,
 	// which the runner rejects with HTTP 400. The chat sweep's input is
 	// CM-authoritative (chat DB) cross-referenced with the same
@@ -269,16 +270,17 @@ type ChatReconciler interface {
 	EndChatSession(ctx context.Context, id string) error
 }
 
-// RunChatReconcileSweep is the standalone chat-reconcile entrypoint kept for
-// unit tests that want to exercise the chat path without standing up a card
-// sweep. Production wiring goes through StartReconciliationSweep, which folds
-// the chat reconcile into the same tick that drives card reconcile so both
-// share one /containers fetch.
+// runChatReconcileSweep is the standalone chat-reconcile entrypoint kept for
+// unit tests (via RunChatReconcileSweepForTest in export_test.go) that want
+// to exercise the chat path without standing up a card sweep. Production
+// wiring goes through StartReconciliationSweep, which folds the chat
+// reconcile into the same tick that drives card reconcile so both share one
+// /containers fetch.
 //
 // A failed /containers call skips the tick — better to leave live sessions
 // alone than to flip every one to cold because the runner briefly couldn't
 // answer.
-func RunChatReconcileSweep(ctx context.Context, chatMgr ChatReconciler, client ContainerLister, logger *slog.Logger) {
+func runChatReconcileSweep(ctx context.Context, chatMgr ChatReconciler, client ContainerLister, logger *slog.Logger) {
 	if chatMgr == nil || client == nil {
 		return
 	}

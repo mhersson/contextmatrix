@@ -12,15 +12,9 @@ export interface ChatComposerProps {
    * is mounted), the textarea grabs focus. Leave undefined to opt out.
    */
   focusKey?: string | number;
-  /**
-   * When true, the focusKey effect is suppressed (textarea is not mounted
-   * in the read-only/cold state). Must match the readOnlyMessage truthiness
-   * in the parent so the effect doesn't fight a missing textarea.
-   */
-  isReadOnly?: boolean;
 }
 
-export function ChatComposer({ onSend, sendDisabled, footer, focusKey, isReadOnly }: ChatComposerProps) {
+export function ChatComposer({ onSend, sendDisabled, footer, focusKey }: ChatComposerProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,13 +22,12 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey, isReadOnl
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Imperative focus when focusKey changes (multi-pane: pane opened/focused).
-  // Skipped when the textarea is missing (readOnly/cold) so we don't fight
-  // the banner. Also skipped during sending; flushSync at send-end re-focuses.
+  // Skipped during sending; flushSync at send-end re-focuses.
   useEffect(() => {
     if (focusKey === undefined) return;
-    if (isReadOnly || sendDisabled) return;
+    if (sendDisabled) return;
     textareaRef.current?.focus();
-  }, [focusKey, isReadOnly, sendDisabled]);
+  }, [focusKey, sendDisabled]);
 
   const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;

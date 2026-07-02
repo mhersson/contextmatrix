@@ -59,12 +59,6 @@ type Client struct {
 	baseURL    string // configurable for testing; defaults to https://api.github.com
 }
 
-// NewClient creates a new GitHub API client with the given token provider.
-// It uses the default GitHub API base URL (https://api.github.com).
-func NewClient(provider githubauth.TokenGenerator) *Client {
-	return NewClientWithBaseURL(provider, "")
-}
-
 // NewClientWithBaseURL creates a new GitHub API client with the given token
 // provider and base URL. The base URL is trimmed of any trailing slash. If
 // baseURL is empty, it defaults to https://api.github.com. Use this constructor

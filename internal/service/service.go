@@ -250,11 +250,6 @@ func (s *CardService) SetCommitQueue(q *gitops.CommitQueue) {
 	s.commitQueue = q
 }
 
-// CommitQueue returns the registered commit queue or nil.
-func (s *CardService) CommitQueue() *gitops.CommitQueue {
-	return s.commitQueue
-}
-
 // SetOnCommit registers a callback invoked after each successful git commit.
 func (s *CardService) SetOnCommit(fn func()) {
 	s.onCommit = fn

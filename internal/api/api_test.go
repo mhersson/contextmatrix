@@ -1079,247 +1079,6 @@ func TestReleaseCard(t *testing.T) {
 	})
 }
 
-func TestHeartbeatCard(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create and claim a card
-	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title:    "Test Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	card, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
-	require.NoError(t, err)
-
-	originalHeartbeat := card.LastHeartbeat
-
-	t.Run("successful heartbeat - 204", func(t *testing.T) {
-		body := agentRequest{}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
-
-		// Verify heartbeat was updated (monotonically — on fast machines the
-		// handler may see the same millisecond as the initial claim).
-		updatedCard, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
-		require.NoError(t, err)
-		assert.False(t, updatedCard.LastHeartbeat.Before(*originalHeartbeat),
-			"heartbeat must not go backwards")
-	})
-
-	t.Run("heartbeat wrong agent - 403", func(t *testing.T) {
-		body := agentRequest{}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-2")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	})
-
-	t.Run("heartbeat unclaimed card - 409", func(t *testing.T) {
-		// Release the card
-		_, err := svc.ReleaseCard(context.Background(), "test-project", "TEST-001", "claude-1")
-		require.NoError(t, err)
-
-		body := agentRequest{}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	})
-
-	t.Run("heartbeat with empty body succeeds", func(t *testing.T) {
-		// Re-claim the card so we can heartbeat it
-		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
-		require.NoError(t, err)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/heartbeat", http.NoBody)
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
-	})
-}
-
-func TestAddLogEntry(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card first
-	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title:    "Test Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	t.Run("successful log entry", func(t *testing.T) {
-		body := addLogRequest{
-			Action:  "progress",
-			Message: "Working on implementation",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/log", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var card board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
-		assert.Len(t, card.ActivityLog, 1)
-		assert.Equal(t, "claude-1", card.ActivityLog[0].Agent)
-		assert.Equal(t, "progress", card.ActivityLog[0].Action)
-		assert.Equal(t, "Working on implementation", card.ActivityLog[0].Message)
-		assert.False(t, card.ActivityLog[0].Timestamp.IsZero())
-	})
-
-	t.Run("missing action - 400", func(t *testing.T) {
-		body := addLogRequest{
-			Action:  "",
-			Message: "Some message",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/log", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	})
-
-	t.Run("missing message - 400", func(t *testing.T) {
-		body := addLogRequest{
-			Action:  "progress",
-			Message: "",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/log", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "claude-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	})
-
-	t.Run("missing agent_id - 400", func(t *testing.T) {
-		body := addLogRequest{
-			Action:  "progress",
-			Message: "Some message",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/test-project/cards/TEST-001/log", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	})
-}
-
-func TestGetCardContext(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card first
-	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title:    "Test Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	t.Run("returns card and project", func(t *testing.T) {
-		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-001/context")
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var ctx service.CardContext
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&ctx))
-		assert.Equal(t, "TEST-001", ctx.Card.ID)
-		assert.Equal(t, "test-project", ctx.Project.Name)
-		// Template may be empty if no template file exists
-	})
-
-	t.Run("non-existent card - 404", func(t *testing.T) {
-		resp, err := http.Get(server.URL + "/api/projects/test-project/cards/TEST-999/context")
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-	})
-}
-
 // === Agent Auth on Mutation Tests ===
 
 func TestAgentAuthOnMutations(t *testing.T) {
@@ -1589,23 +1348,15 @@ func TestFullCardLifecycle(t *testing.T) {
 	assert.Equal(t, agentID, claimed.AssignedAgent)
 	assert.NotNil(t, claimed.LastHeartbeat)
 
-	// Step 3: Add log entry
-	logBody, _ := json.Marshal(addLogRequest{
+	// Step 3: Add log entry. addLogEntry is now a service-layer-only
+	// operation (the REST mirror was removed); MCP's add_log tool and the
+	// runner's promote-webhook-failed path exercise the same svc call.
+	logged, err := svc.AddLogEntry(context.Background(), "test-project", cardID, board.ActivityEntry{
+		Agent:   agentID,
 		Action:  "status_update",
 		Message: "Starting implementation",
 	})
-	req, _ = http.NewRequest(http.MethodPost, cardURL+"/log", bytes.NewReader(logBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", agentID)
-	resp3, err := http.DefaultClient.Do(req)
-
 	require.NoError(t, err)
-	defer closeBody(t, resp3.Body)
-
-	assert.Equal(t, http.StatusOK, resp3.StatusCode)
-
-	var logged board.Card
-	require.NoError(t, json.NewDecoder(resp3.Body).Decode(&logged))
 	require.Len(t, logged.ActivityLog, 1)
 	assert.Equal(t, "Starting implementation", logged.ActivityLog[0].Message)
 
@@ -1626,17 +1377,10 @@ func TestFullCardLifecycle(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp4.Body).Decode(&inProgress))
 	assert.Equal(t, "in_progress", inProgress.State)
 
-	// Step 5: Heartbeat
-	hbBody, _ := json.Marshal(agentRequest{})
-	req, _ = http.NewRequest(http.MethodPost, cardURL+"/heartbeat", bytes.NewReader(hbBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", agentID)
-	resp5, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp5.Body)
-
-	assert.Equal(t, http.StatusNoContent, resp5.StatusCode)
+	// Step 5: Heartbeat. heartbeatCard is now a service-layer-only operation
+	// (the REST mirror was removed); MCP's heartbeat tool exercises the same
+	// svc call.
+	require.NoError(t, svc.HeartbeatCard(context.Background(), "test-project", cardID, agentID))
 
 	// Step 6: Transition in_progress → done
 	doneState := "done"
@@ -1966,52 +1710,6 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 	card, err = svc.GetCard(context.Background(), "test-project", card.ID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, card.AssignedAgent, "card should be claimed by one agent")
-}
-
-func TestReportUsageEndpoint(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card
-	createBody, _ := json.Marshal(createCardRequest{
-		Title:    "Usage endpoint test",
-		Type:     "task",
-		Priority: "medium",
-	})
-	resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(createBody))
-	require.NoError(t, err)
-
-	var card board.Card
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
-	closeBody(t, resp.Body)
-
-	// Report usage
-	usageBody, _ := json.Marshal(map[string]any{
-		"agent_id":          "agent-1",
-		"prompt_tokens":     5000,
-		"completion_tokens": 2000,
-	})
-	req, _ := http.NewRequest(http.MethodPost,
-		server.URL+"/api/projects/test-project/cards/"+card.ID+"/usage",
-		bytes.NewReader(usageBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var updated board.Card
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-	require.NotNil(t, updated.TokenUsage)
-	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
-	assert.Equal(t, int64(2000), updated.TokenUsage.CompletionTokens)
 }
 
 func TestGetProjectUsage(t *testing.T) {
@@ -2466,87 +2164,6 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	})
 }
 
-func TestReportPush_BranchProtection(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create and claim a card
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Push test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-1")
-	require.NoError(t, err)
-
-	tests := []struct {
-		name       string
-		branch     string
-		wantStatus int
-	}{
-		{"empty branch rejected", "", http.StatusBadRequest},
-		{"main rejected", "main", http.StatusForbidden},
-		{"master rejected", "master", http.StatusForbidden},
-		{"refs/heads/main rejected", "refs/heads/main", http.StatusForbidden},
-		{"MAIN rejected (case insensitive)", "MAIN", http.StatusForbidden},
-		{"feature branch allowed", card.ID + "/fix-login", http.StatusOK},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body := fmt.Sprintf(`{"agent_id":"agent-1","branch":"%s"}`, tt.branch)
-			req, _ := http.NewRequest("POST",
-				server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
-				strings.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Agent-ID", "agent-1")
-
-			resp, err := http.DefaultClient.Do(req)
-
-			require.NoError(t, err)
-			defer closeBody(t, resp.Body)
-
-			assert.Equal(t, tt.wantStatus, resp.StatusCode)
-		})
-	}
-}
-
-func TestReportPush_InvalidPRUrl_Returns422(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create and claim a card
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "URL test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-1")
-	require.NoError(t, err)
-
-	body := `{"agent_id":"agent-1","branch":"feat/fix","pr_url":"javascript:alert(1)"}`
-	req, _ := http.NewRequest("POST",
-		server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
-		strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "agent-1")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
-}
-
 func TestHumanOnlyFields_PutClear(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
@@ -2657,60 +2274,6 @@ func TestHumanOnlyFields_PutSet(t *testing.T) {
 	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 	require.NoError(t, err)
 	assert.False(t, reloaded.Autonomous, "autonomous should still be false")
-}
-
-func TestReportPush_AgentMismatch(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create and claim a card as agent-owner
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Push mismatch test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.ClaimCard(context.Background(), "test-project", card.ID, "agent-owner")
-	require.NoError(t, err)
-
-	t.Run("wrong agent rejected", func(t *testing.T) {
-		body := `{"agent_id":"agent-intruder","branch":"feat/fix"}`
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
-			strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-intruder")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
-	})
-
-	t.Run("correct agent allowed", func(t *testing.T) {
-		body := `{"agent_id":"agent-owner","branch":"feat/fix"}`
-		req, _ := http.NewRequest("POST",
-			server.URL+"/api/projects/test-project/cards/"+card.ID+"/report-push",
-			strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-owner")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
 }
 
 // testSetupWithRemoteExecution creates a test environment with a project that has

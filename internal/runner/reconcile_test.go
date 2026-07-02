@@ -405,7 +405,7 @@ func TestChatReconcileSweep_FlipsOrphanToCold(t *testing.T) {
 		},
 	}
 
-	runner.RunChatReconcileSweep(ctx, fcr, fc, discardLogger())
+	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
 
 	ended := fcr.endedCalls()
 	require.ElementsMatch(t, []string{"S-orphan", "S-warm-orphan"}, ended,
@@ -431,7 +431,7 @@ func TestChatReconcileSweep_NoOpWhenAllSessionsHaveContainers(t *testing.T) {
 		},
 	}
 
-	runner.RunChatReconcileSweep(ctx, fcr, fc, discardLogger())
+	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
 
 	assert.Empty(t, fcr.endedCalls(),
 		"happy path: every CM session has a runner container, no end calls expected")
@@ -450,7 +450,7 @@ func TestChatReconcileSweep_RunnerListErrorSkipsTick(t *testing.T) {
 		listErr: errors.New("runner unreachable"),
 	}
 
-	runner.RunChatReconcileSweep(ctx, fcr, fc, discardLogger())
+	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
 
 	assert.Empty(t, fcr.endedCalls(),
 		"runner-list error must skip the tick, not flip every session to cold")
