@@ -170,6 +170,11 @@ func (s *CardService) transitionParentDirect(
 		parent.State = state
 		parent.Updated = s.clk.Now()
 
+		// Record the transition on the activity log so the dashboard sparkline
+		// reconstruction sees parent auto-transitions too (mirrors
+		// applyCardMutation). "system" — auto-transitions carry no agent.
+		appendStateChangeLog(parent, oldState, state, "system", parent.Updated)
+
 		// State-change invariants: release claim on not_planned, clear
 		// runner_status on terminal states.
 		enforceTerminalStateInvariants(parent, true)
