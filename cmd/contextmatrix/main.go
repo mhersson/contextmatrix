@@ -284,7 +284,7 @@ func main() {
 	case agentAA:
 		var opts []modelcatalog.BuilderOption
 
-		if cfg.LLMEndpoint.Type == "openai" {
+		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
 			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
 			for slug, p := range agentCfg.ModelPriors {
 				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
@@ -298,7 +298,7 @@ func main() {
 
 		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "aa+candidates")
 
-	case cfg.LLMEndpoint.Type == "openai":
+	case cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI:
 		// Endpoint pricing without AA/agent: Rate() prices endpoint-served models
 		// for chat cost accounting; there are no selection candidates.
 		catalogBuilder = modelcatalog.NewBuilder("", 0.65, nil, 0,
@@ -417,7 +417,7 @@ func main() {
 		routerCfg.Catalog = catalogBuilder
 	}
 
-	if cfg.LLMEndpoint.Type == "openai" {
+	if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
 		baseURL := cfg.LLMEndpoint.BaseURL
 		apiKey := cfg.LLMEndpoint.APIKey
 		routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
