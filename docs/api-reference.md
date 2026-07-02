@@ -16,12 +16,9 @@ DELETE /api/projects/{project}/cards/{id}
 
 POST   /api/projects/{project}/cards/{id}/claim      # agent identity from X-Agent-ID header
 POST   /api/projects/{project}/cards/{id}/release     # agent identity from X-Agent-ID header
-POST   /api/projects/{project}/cards/{id}/heartbeat   # agent identity from X-Agent-ID header
-POST   /api/projects/{project}/cards/{id}/log         { "action": "...", "message": "..." }
-
-GET    /api/projects/{project}/cards/{id}/context
-POST   /api/projects/{project}/cards/{id}/usage       { "model": "...", "prompt_tokens": N, "completion_tokens": N }
-POST   /api/projects/{project}/cards/{id}/report-push { "branch": "...", "pr_url": "..." }
+# heartbeat, log, context, usage, and report-push have no REST endpoint — the
+# MCP tools (`heartbeat`, `add_log`, `get_task_context`, `report_usage`,
+# `report_push`) are the only interface; agents never call REST directly.
 
 GET    /api/projects/{project}/branches               # list branches from project's GitHub repo
 GET    /api/projects/{project}/usage                  # aggregated token usage
@@ -82,9 +79,9 @@ built-in authentication — keep it loopback-only, or gate it with a firewall /
 NetworkPolicy / service-mesh rule.
 
 **Agent identification:** `X-Agent-ID` header is the **sole** source of agent
-identity. It is required on the agent endpoints (`/claim`, `/release`,
-`/heartbeat`, `/log`, `/usage`, `/report-push`) and on any mutation of a claimed
-card — there the header value must match `assigned_agent` (403 on mismatch). It
+identity. It is required on the agent endpoints (`/claim`, `/release`) and on
+any mutation of a claimed card — there the header value must match
+`assigned_agent` (403 on mismatch). It
 is also used to gate human-only fields and human-only endpoints (`/run`,
 `/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
 value beginning with `human:`. Read endpoints, project CRUD,
@@ -136,15 +133,15 @@ otherwise the server generates a UUID. The same id is emitted as the
 
 **Response codes:**
 
-- 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`, `/log`,
-  `/usage`, `/report-push`, `/stop-all`, `/api/runner/status`,
+- 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`,
+  `/stop-all`, `/api/runner/status`,
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
   `GET /api/v1/cards/.../autonomous`)
 - 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
   `POST /api/chats`)
 - 202: accepted — async endpoint kicked off background work (`POST /run`,
   `/stop`, `/message`, `/promote`, chat `/messages`)
-- 204: deleted (DELETE) and `POST /heartbeat` (no body)
+- 204: deleted (DELETE)
 - 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
   missing CSRF header) — emitted with code `BAD_REQUEST`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
@@ -183,7 +180,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `INVALID_SIGNATURE`       | 403     | HMAC signature or `X-Webhook-Timestamp` missing / expired     |
 | `TOO_MANY_CHATS`          | 429     | configured `chat.max_concurrent` cap reached                  |
 | `CONTENT_TOO_LARGE`       | 413     | message / request body exceeds the size cap                   |
-| `PROTECTED_BRANCH`        | 403     | report-push targeted `main` / `master`                        |
+| `PROTECTED_BRANCH`        | 403     | MCP `report_push` targeted `main` / `master`                  |
 | `NO_GITHUB_REPO`          | 404     | project `repo` is not a GitHub URL                            |
 | `SYNC_DISABLED`           | 503     | sync trigger with no remote configured                        |
 | `SYNC_ERROR`              | 500     | sync trigger raised an error                                  |
@@ -409,73 +406,6 @@ omitted entirely when no favorites are configured.
 curl http://localhost:8080/api/app/config
 # → {"theme":"everforest","version":"v0.42.0","task_backend":"runner"}
 ```
-
-## Agent Endpoints
-
-### POST /api/projects/{project}/cards/{id}/usage
-
-Report token usage for a card. Accumulates across multiple calls. Agent identity
-is taken from the `X-Agent-ID` header.
-
-```json
-{
-  "model": "claude-sonnet-4-6",
-  "prompt_tokens": 1234,
-  "completion_tokens": 567,
-  "cache_read_tokens": 80000,
-  "cache_creation_tokens": 4000
-}
-```
-
-`cache_read_tokens` and `cache_creation_tokens` are optional `int64` fields
-(default 0). They map directly to the `usage` fields in Claude's stream-json
-responses:
-
-| stream-json `usage` field  | request field           |
-| -------------------------- | ----------------------- |
-| `input_tokens`             | `prompt_tokens`         |
-| `output_tokens`            | `completion_tokens`     |
-| `cache_read_input_tokens`  | `cache_read_tokens`     |
-| `cache_creation_input_tokens` | `cache_creation_tokens` |
-
-Negative values for any token field are rejected with 400 `BAD_REQUEST`. All
-four token counts accumulate on the card across multiple calls.
-
-**Cost formula:**
-
-```
-delta = prompt_tokens        * rate.Prompt
-      + cache_read_tokens    * rate.Prompt * 0.10
-      + cache_creation_tokens * rate.Prompt * 1.25
-      + completion_tokens    * rate.Completion
-```
-
-The `cache_creation_tokens` field collapses both the 5-minute and 1-hour
-cache-write tiers into a single 1.25× multiplier — Claude Code uses the 5-minute
-tier by default, so this covers the common case without requiring callers to
-distinguish tiers.
-
-Returns 200 with the updated card. Cost is calculated automatically from
-`token_costs` in `config.yaml` if the model matches a configured key. If the
-model is not in the map, tokens accumulate normally but `estimated_cost_usd`
-stays $0 for that delta; the `contextmatrix_report_usage_unknown_model_total`
-counter is incremented (labeled by model) so operators can detect unconfigured
-models.
-
-### POST /api/projects/{project}/cards/{id}/report-push
-
-Record a git push and optional PR URL on a card. Branch protection is enforced —
-pushing to `main` or `master` returns 403 `PROTECTED_BRANCH`. Agent identity is
-taken from the `X-Agent-ID` header.
-
-```json
-{
-  "branch": "feat/user-auth",
-  "pr_url": "https://github.com/org/repo/pull/42"
-}
-```
-
-Returns 200 with the updated card.
 
 ## Project Endpoints
 

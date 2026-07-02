@@ -213,11 +213,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Agent routes
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/claim", ah.claimCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/release", ah.releaseCard)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/heartbeat", ah.heartbeatCard)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/log", ah.addLogEntry)
-	mux.HandleFunc("GET /api/projects/{project}/cards/{id}/context", ah.getCardContext)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/usage", ah.reportUsage)
-	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/report-push", ah.reportPush)
 
 	// Project usage, dashboard, and activity feed
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
