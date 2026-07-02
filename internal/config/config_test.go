@@ -2390,6 +2390,82 @@ backends:
 	assert.Empty(t, b.ReconcileInterval)
 }
 
+// TestBackendsConfigDefaults_AgentReconcileInterval pins the agent entry's
+// reconcile default: CM's backend-agnostic sweep is the agent backend's ONLY
+// reconcile mechanism (docs/agent-backend-parity.md), so an enabled agent
+// entry defaults reconcile_interval to 60s exactly like the runner. The
+// runner-only orchestrator model defaults must NOT leak onto the agent entry
+// (Validate rejects those fields there).
+func TestBackendsConfigDefaults_AgentReconcileInterval(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  agent:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	b := cfg.Backends["agent"]
+	assert.Equal(t, "agent", b.Name)
+	assert.Equal(t, "60s", b.ReconcileInterval)
+	assert.Empty(t, b.OrchestratorSonnetModel)
+	assert.Empty(t, b.OrchestratorOpusModel)
+
+	tb, ok := cfg.TaskBackendConfig()
+	require.True(t, ok)
+	assert.Equal(t, 60*time.Second, tb.ReconcileIntervalDuration())
+}
+
+// TestBackendsConfigDefaults_AgentReconcileIntervalVariants pins that an
+// explicit value wins over the default and a disabled entry gets no default.
+func TestBackendsConfigDefaults_AgentReconcileIntervalVariants(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "explicit value wins",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    reconcile_interval: "5m"
+`,
+			want: "5m",
+		},
+		{
+			name: "disabled entry gets no default",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9092
+    api_key: "0123456789abcdef0123456789abcdef"
+    enabled: false
+`,
+			want: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Backends["agent"].ReconcileInterval)
+		})
+	}
+}
+
 func TestBackendsRoleDerivation(t *testing.T) {
 	apiKey := strings.Repeat("k", 32)
 
@@ -2475,6 +2551,72 @@ func TestBackendsRoleDerivation(t *testing.T) {
 			if tc.wantChatOK {
 				assert.Equal(t, tc.wantChatName, cb.Name)
 			}
+		})
+	}
+}
+
+// TestTaskBackendServesChat pins the chat-reconcile wiring gate: the sweep's
+// chat half cross-references CM chat sessions against the TASK backend's
+// /containers list, so it must only be wired when the task backend is also
+// the chat backend (runner). With agent+chat, chat containers live on
+// contextmatrix-chat — every live session would be absent from the agent's
+// container list and killed as an orphan each tick.
+func TestTaskBackendServesChat(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+
+	cases := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{
+			name: "runner serves both roles",
+			yaml: `backends:
+  runner:
+    url: http://r:9090
+    api_key: "` + apiKey + `"
+`,
+			want: true,
+		},
+		{
+			name: "agent plus dedicated chat backend",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+  chat:
+    url: http://c:9092
+    api_key: "` + apiKey + `"
+    default_model: "vendor/model-a"
+`,
+			want: false,
+		},
+		{
+			name: "agent only, no chat backend",
+			yaml: `backends:
+  agent:
+    url: http://a:9091
+    api_key: "` + apiKey + `"
+`,
+			want: false,
+		},
+		{
+			name: "no backends",
+			yaml: "",
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, cfg.TaskBackendServesChat())
 		})
 	}
 }

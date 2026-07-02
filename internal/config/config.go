@@ -855,6 +855,21 @@ func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
 	return BackendConfig{}, false
 }
 
+// TaskBackendServesChat reports whether the active task backend is also the
+// active chat backend — true only for the runner, which serves both roles.
+// The reconcile sweep's chat half cross-references CM chat sessions against
+// the TASK backend's /containers list, so it must only be wired when this is
+// true: with a dedicated chat backend (contextmatrix-chat, which exposes no
+// /containers), every live session is absent from the task backend's list by
+// construction and would be flipped to cold — killing the worker
+// mid-conversation — on every tick.
+func (c *Config) TaskBackendServesChat() bool {
+	tb, taskOK := c.TaskBackendConfig()
+	cb, chatOK := c.ChatBackendConfig()
+
+	return taskOK && chatOK && tb.Name == cb.Name
+}
+
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
 // YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
 // flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
@@ -866,9 +881,8 @@ func applyBackendDefaults(cfg *Config) {
 		// disabled placeholders.
 		b.Name = name
 
-		// Runner-specific defaults: sonnet/opus model selection and reconcile
-		// interval apply only to the runner backend. Agent and chat entries must
-		// leave these fields empty (Validate rejects misuse).
+		// Orchestrator model steering is runner-only: Validate rejects the
+		// sonnet/opus fields on agent and chat entries.
 		if b.IsEnabled() && name == BackendNameRunner {
 			if b.OrchestratorSonnetModel == "" {
 				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
@@ -877,7 +891,14 @@ func applyBackendDefaults(cfg *Config) {
 			if b.OrchestratorOpusModel == "" {
 				b.OrchestratorOpusModel = "claude-opus-4-8"
 			}
+		}
 
+		// The reconcile default applies to every task backend. For the agent
+		// backend CM's sweep is the ONLY reconcile mechanism (the agent has no
+		// internal loop — docs/agent-backend-parity.md), so leaving the entry
+		// at 0 would silently disable the container backstop. Chat entries
+		// must leave the field empty (Validate rejects it there).
+		if b.IsEnabled() && (name == BackendNameRunner || name == BackendNameAgent) {
 			if b.ReconcileInterval == "" {
 				b.ReconcileInterval = "60s"
 			}

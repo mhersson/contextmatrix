@@ -903,7 +903,8 @@ A HITL container's `claude` process does not exit when its stdin is closed — i
 stream-json mode it treats EOF as "no more user input for now" and keeps
 running. A card that reaches a terminal state (`done` or `not_planned`) and is
 released must therefore be killed by ContextMatrix explicitly, otherwise the
-container would leak until the runner's `container_timeout` (default 2h).
+container would leak until the active task backend's own `container_timeout`
+(default 2h on the runner, 2h30m on the agent).
 
 Two independent mechanisms guarantee this cleanup, and they use different
 truths so a bug in either cannot silently hide a live container:
@@ -915,10 +916,11 @@ truths so a bug in either cannot silently hide a live container:
    of milliseconds. `runner_status` is intentionally not consulted — see the
    end-session section above for why.
 2. **Reconcile sweep (Docker-authoritative backstop).**
-   `internal/runner/reconcile.go` runs every `backends.runner.reconcile_interval`
-   (default **60s**). Every tick it calls `GET /containers` on the runner and,
-   for each container Docker is actually running, looks up the card and kills
-   the container when:
+   `internal/runner/reconcile.go` runs every `reconcile_interval` of the active
+   task backend entry (`backends.runner` or `backends.agent`; default **60s**
+   on both). Every tick it calls `GET /containers` on the active task backend
+   and, for each container Docker is actually running, looks up the card and
+   kills the container when:
    - the card is missing (deleted or renamed), or
    - the card's state is `done` / `not_planned`, or
    - the container has been alive longer than `ContainerMaxAge` (150m).
@@ -1315,8 +1317,9 @@ mcp_api_key: "your-bearer-token"
 # enabled defaults to true; set enabled: false to keep a block without
 # activating it. Switch backends by toggling enabled flags.
 #
-# Task-only fields (orchestrator_sonnet_model, orchestrator_opus_model,
-# reconcile_interval) are valid on runner/agent; rejected on chat.
+# orchestrator_sonnet_model / orchestrator_opus_model are runner-only
+# (rejected on agent and chat). reconcile_interval is valid on runner and
+# agent (default 60s; rejected on chat).
 
 backends:
   runner:
@@ -1373,6 +1376,9 @@ Environment variable overrides:
   `backends.runner.orchestrator_opus_model`
 - `CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL` — override
   `backends.runner.reconcile_interval`
+- `CONTEXTMATRIX_BACKEND_AGENT_RECONCILE_INTERVAL` — override
+  `backends.agent.reconcile_interval` (same field, agent entry — the override
+  generalizes across backend name; see below)
 - `CONTEXTMATRIX_OP_STORE_DB_PATH` — override `op_store.db_path` (the shared
   `ops.db` holding chat sessions/transcripts and the model blacklist)
 - `CONTEXTMATRIX_CHAT_IDLE_TTL`

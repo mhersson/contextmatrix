@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -799,4 +800,91 @@ func TestCostByAgentSurvivesRelease(t *testing.T) {
 	_, hasUnassigned := byAgent["unassigned"]
 	assert.False(t, hasUnassigned,
 		"no cost should land in the unassigned bucket when breakdown rows are present")
+}
+
+// TestReportUsageResolvesRateOutsideWriteMu pins the lock ordering: the
+// catalog rate lookup can block on network I/O (stale-cache refresh under the
+// Builder's own mutex), so it must never run while writeMu is held — otherwise
+// a catalog-provider outage serializes every card mutation behind the fetch
+// timeout. The lookup probes writeMu with TryLock: a failed TryLock means the
+// lookup ran inside the critical section.
+func TestReportUsageResolvesRateOutsideWriteMu(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	var underLock atomic.Bool
+
+	svc.SetCatalogRateLookup(func(_ string) (ModelRate, bool) {
+		if svc.writeMu.TryLock() {
+			svc.writeMu.Unlock()
+		} else {
+			underLock.Store(true)
+		}
+
+		return ModelRate{Prompt: 3e-6, Completion: 15e-6}, true
+	})
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Rate outside lock",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:      "agent-1",
+		Model:        "catalog-model",
+		PromptTokens: 1_000_000,
+	})
+	require.NoError(t, err)
+
+	assert.False(t, underLock.Load(), "catalog rate lookup must not run under writeMu")
+	// Cost semantics preserved: same result as the pre-fix under-lock lookup.
+	assert.InDelta(t, 3.0, got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+// TestRecalculateCostsResolvesRatesOutsideWriteMu pins the same ordering for
+// the recalculation pass: every model present when the pass starts is
+// pre-resolved before writeMu is taken.
+func TestRecalculateCostsResolvesRatesOutsideWriteMu(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Recalc outside lock",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// No rate installed yet → zero-cost "estimated" bucket to re-price later.
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:      "agent-1",
+		Model:        "catalog-model",
+		PromptTokens: 1_000_000,
+	})
+	require.NoError(t, err)
+
+	var underLock atomic.Bool
+
+	svc.SetCatalogRateLookup(func(_ string) (ModelRate, bool) {
+		if svc.writeMu.TryLock() {
+			svc.writeMu.Unlock()
+		} else {
+			underLock.Store(true)
+		}
+
+		return ModelRate{Prompt: 3e-6, Completion: 15e-6}, true
+	})
+
+	res, err := svc.RecalculateCosts(ctx, "test-project", "")
+	require.NoError(t, err)
+
+	assert.False(t, underLock.Load(), "catalog rate lookups must be pre-resolved outside writeMu")
+	assert.Equal(t, 1, res.CardsUpdated)
+	assert.InDelta(t, 3.0, res.TotalCostRecalculated, 1e-9)
 }

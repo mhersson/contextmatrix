@@ -240,8 +240,10 @@ task_skills:
 # enabled flags — do not delete blocks.
 #
 # TASK-ONLY FIELDS:
-#   orchestrator_sonnet_model, orchestrator_opus_model, reconcile_interval —
-#     runner entry only; rejected on agent and chat entries.
+#   orchestrator_sonnet_model, orchestrator_opus_model — runner entry only;
+#     rejected on agent and chat entries.
+#   reconcile_interval — runner and agent entries (default 60s on both);
+#     rejected on the chat entry.
 #   default_model — agent and chat entries; rejected on the runner entry.
 #     Required on the chat entry when it is enabled (contextmatrix-chat has no
 #     server-side default — CM supplies the model as CM_MODEL).
@@ -258,7 +260,7 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL  (runner only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL    (runner only)
-#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (runner only)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (runner and agent)
 #   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent and chat)
 backends: {}
 #  runner:
@@ -304,6 +306,12 @@ backends: {}
 #    # card pin → CM default_model → agent serve default.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_DEFAULT_MODEL
 #    default_model: "deepseek/deepseek-v4-flash"
+#
+#    # How often the backstop sweep reconciles containers against card state.
+#    # This sweep is the agent backend's ONLY reconcile mechanism (the agent
+#    # has no internal loop). "0s" disables. Default: 60s.
+#    # Env: CONTEXTMATRIX_BACKEND_AGENT_RECONCILE_INTERVAL
+#    reconcile_interval: "60s"
 #
 #    # Artificial Analysis API key for live model catalog lookups.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY

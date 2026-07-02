@@ -26,9 +26,11 @@ type runnerSubsystems struct {
 // sweeper, and (when enabled) launches the Docker-authoritative reconciliation
 // sweep. Returns the aggregate and a cleanup closure the caller must defer.
 //
-// chatMgr is required for the reconciliation sweep (adapts *chat.Manager to
-// the runner.ChatReconciler surface). It may be nil if chat is not configured,
-// in which case the sweep is skipped even when the task backend is enabled.
+// chatMgr is only consulted for the chat half of the reconciliation sweep
+// (adapts *chat.Manager to the runner.ChatReconciler surface), and only when
+// the task backend also serves chat (see Config.TaskBackendServesChat). The
+// card half of the sweep runs whenever a task backend is enabled and does not
+// require chatMgr at all.
 func wireRunnerSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
@@ -49,19 +51,32 @@ func wireRunnerSubsystems(
 		slog.Info("end-session subscriber started")
 	}
 
-	// --- reconciliation sweep (task backend + chat both required) ---
-	if taskEnabled && chatMgr != nil {
+	// --- reconciliation sweep (task backend required) ---
+	if taskEnabled {
+		// Chat half of the sweep: only wired when the task backend also
+		// hosts chat containers (runner). See Config.TaskBackendServesChat.
+		// chatRec stays untyped-nil otherwise — runReconcileSweep skips the
+		// chat pass on nil, and the card sweep runs regardless (it is the
+		// agent backend's only reconcile mechanism).
+		var chatRec runner.ChatReconciler
+		if chatMgr != nil && cfg.TaskBackendServesChat() {
+			chatRec = chatReconcilerAdapter{mgr: chatMgr}
+		}
+
 		reconcileInterval := taskCfg.ReconcileIntervalDuration()
 		runner.StartReconciliationSweep(
 			ctx, svc,
-			chatReconcilerAdapter{mgr: chatMgr},
+			chatRec,
 			sys.Client,
 			reconcileInterval,
 			slog.Default(),
 		)
 
 		if reconcileInterval > 0 {
-			slog.Info("reconciliation sweep started", "interval", reconcileInterval)
+			slog.Info("reconciliation sweep started",
+				"interval", reconcileInterval,
+				"chat_reconcile", chatRec != nil,
+			)
 		}
 	}
 
