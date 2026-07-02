@@ -420,6 +420,18 @@ export interface ChatModelList {
   default: string;
 }
 
+export interface ModelCatalogEntry {
+  id: string;
+  max_tokens: number;
+}
+
+export interface ModelCatalogResponse {
+  // 'openrouter' = CM's vendor-screened OpenRouter list; 'endpoint' = the
+  // endpoint's served list; 'none' = no catalog builder configured server-side.
+  source: 'openrouter' | 'endpoint' | 'none';
+  models: ModelCatalogEntry[];
+}
+
 export interface ChatSessionUpdate {
   context_tokens?: number;
   context_tokens_updated_at?: string;

@@ -16,6 +16,7 @@ import type {
   ChatStatus,
   ChatMessage,
   ChatModelList,
+  ModelCatalogResponse,
   ActivityFeedResponse,
   RunnerHealth,
 } from '../types';
@@ -327,6 +328,10 @@ class APIClient {
 
   async listChatModels(): Promise<ChatModelList> {
     return this.request<ChatModelList>('/chats/models');
+  }
+
+  async getModelCatalog(): Promise<ModelCatalogResponse> {
+    return this.request<ModelCatalogResponse>('/models');
   }
 
   async getChat(id: string): Promise<ChatSession> {
