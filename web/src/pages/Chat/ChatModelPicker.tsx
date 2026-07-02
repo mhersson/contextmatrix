@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { useOpenRouterModels } from '../../hooks/useOpenRouterModels';
+import { ModelCombobox } from '../../components/ModelCombobox';
 import { useTheme } from '../../hooks/useTheme';
 import { formatTokens } from '../../utils/chatModels';
 import type { ChatModel } from '../../types';
@@ -11,7 +11,7 @@ interface ChatModelPickerProps {
   model: string;
   /** Server default, used to mark the default option in config mode. */
   defaultModel: string;
-  /** Config-mode allowlist (empty in openrouter mode). */
+  /** Picker list: config allowlist, or the vendor-screened catalog in openrouter mode. */
   models: ChatModel[];
   onChange: (value: string) => void;
 }
@@ -22,9 +22,11 @@ interface ChatModelPickerProps {
  * serves chat:
  *  - 'config' (runner serves chat): a <select> over the chat.models allowlist.
  *    Renders nothing when the allowlist is empty.
- *  - 'openrouter': a free-text input with live OpenRouter-catalog autocomplete
- *    plus a favorites chip row (operator-configured slugs from app config).
- *    Always renders, even though the config `models` list is empty.
+ *  - 'openrouter': a strict combobox (`ModelCombobox`) over the server-
+ *    provided, vendor-screened model list, plus a favorites chip row
+ *    (operator-configured slugs from app config). Degrades to a free-text
+ *    input when the server list is empty (catalog-unavailable path). Always
+ *    renders, even though the `models` list is empty.
  *  - 'endpoint': server-provided model list from the configured OpenAI-
  *    compatible endpoint; rendered as a <select>, identical to 'config'.
  */
@@ -35,11 +37,8 @@ export function ChatModelPicker({
   models,
   onChange,
 }: ChatModelPickerProps) {
-  const listId = useId();
-  const fieldId = `${listId}-field`;
+  const fieldId = useId();
   const openRouter = source === 'openrouter';
-  // Defer the ~400KB OpenRouter catalog fetch to openrouter mode only.
-  const orSlugs = useOpenRouterModels(openRouter);
   const { favorites: favsByTier } = useTheme();
   // Flatten per-tier favorite slugs into one de-duped chip list (same pattern as
   // AutomationTab). Only relevant in openrouter mode.
@@ -104,20 +103,17 @@ export function ChatModelPicker({
           ))}
         </div>
       )}
-      <input
-        id={fieldId}
-        type="text"
-        list={listId}
-        value={model}
-        onChange={(e) => onChange(e.target.value)}
-        className="bf-input w-full mb-4 font-mono"
-        placeholder="OpenRouter slug, e.g. anthropic/claude-sonnet-4"
-      />
-      <datalist id={listId}>
-        {orSlugs.map((slug) => (
-          <option key={slug} value={slug} />
-        ))}
-      </datalist>
+      <div className="mb-4">
+        <ModelCombobox
+          id={fieldId}
+          value={model}
+          onChange={onChange}
+          options={models.map((m) => m.id)}
+          placeholder="OpenRouter slug, e.g. anthropic/claude-sonnet-4"
+          ariaLabel="Model"
+          className="bf-input w-full font-mono"
+        />
+      </div>
     </>
   );
 }
