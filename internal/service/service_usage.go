@@ -40,6 +40,13 @@ func (s *CardService) SetCatalogRateLookup(fn func(model string) (ModelRate, boo
 	s.catalogRate = fn
 }
 
+// SetModelValidator wires catalog-backed model-pin validation. fn reports
+// whether a slug is in the served model set and must fail open (return true)
+// when the catalog is unavailable. Nil disables pin validation.
+func (s *CardService) SetModelValidator(fn func(ctx context.Context, slug string) bool) {
+	s.modelValidator = fn
+}
+
 // rateFor resolves a model's per-token rate: the static token_costs override
 // wins first (e.g. cache-aware rates), else the catalog fallback, else false.
 // Used by every cost path so ReportUsage, RecalculateCosts, and the PriceTokens

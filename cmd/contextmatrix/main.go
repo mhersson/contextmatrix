@@ -343,6 +343,8 @@ func main() {
 			return service.ModelRate{Prompt: p, Completion: c}, true
 		})
 
+		svc.SetModelValidator(catalogBuilder.Validate)
+
 		routerServedModels := func(ctx context.Context) []api.ServedModelView {
 			served := catalogBuilder.Served(ctx)
 			views := make([]api.ServedModelView, len(served))

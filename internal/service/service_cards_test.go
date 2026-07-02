@@ -624,3 +624,82 @@ func TestCreateCard_ModelPins(t *testing.T) {
 	assert.Equal(t, "anthropic/claude-sonnet-4-5", reloaded.ModelCoder)
 	assert.Equal(t, "openai/gpt-4o", reloaded.ModelReviewer)
 }
+
+func TestModelPinValidation(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	valid := map[string]bool{"anthropic/claude-sonnet-4.5": true}
+	svc.SetModelValidator(func(_ context.Context, slug string) bool { return valid[slug] })
+
+	t.Run("create rejects unknown pin", func(t *testing.T) {
+		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t", Type: "task", Priority: "medium",
+			ModelCoder: "anthropic/claude-sonet-4.5", // typo
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidModelPin)
+	})
+
+	t.Run("create accepts known pin", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t2", Type: "task", Priority: "medium",
+			ModelCoder: "anthropic/claude-sonnet-4.5",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "anthropic/claude-sonnet-4.5", card.ModelCoder)
+	})
+
+	t.Run("patch rejects changed-to-unknown pin", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t3", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		bad := "vendor/none"
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{ModelReviewer: &bad})
+		assert.ErrorIs(t, err, ErrInvalidModelPin)
+	})
+
+	t.Run("unchanged legacy pin passes update", func(t *testing.T) {
+		// Simulate a pre-validation pin: allow it during create, then shrink
+		// the valid set so it would fail if re-validated.
+		valid["legacy/old-model"] = true
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t4", Type: "task", Priority: "medium",
+			ModelOrchestrator: "legacy/old-model",
+		})
+		require.NoError(t, err)
+		delete(valid, "legacy/old-model")
+
+		// Full update carrying the same pin value must NOT be rejected.
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title: "t4 renamed", Type: "task", State: card.State, Priority: "medium",
+			ModelOrchestrator: "legacy/old-model",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "legacy/old-model", updated.ModelOrchestrator)
+	})
+
+	t.Run("clearing a pin always passes", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t5", Type: "task", Priority: "medium",
+			ModelCoder: "anthropic/claude-sonnet-4.5",
+		})
+		require.NoError(t, err)
+
+		empty := ""
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{ModelCoder: &empty})
+		require.NoError(t, err)
+	})
+
+	t.Run("nil validator disables validation", func(t *testing.T) {
+		svc.SetModelValidator(nil)
+		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "t6", Type: "task", Priority: "medium",
+			ModelCoder: "anything/goes",
+		})
+		require.NoError(t, err)
+	})
+}

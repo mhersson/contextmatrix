@@ -184,6 +184,9 @@ func trimActivityLog(log []board.ActivityEntry) []board.ActivityEntry {
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
 var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 
+// ErrInvalidModelPin indicates a model pin slug is not in the served catalog.
+var ErrInvalidModelPin = fmt.Errorf("model pin not in catalog")
+
 // ErrSourceImmutable is returned when an update attempts to change a card's source after creation.
 var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
 
@@ -441,6 +444,14 @@ func (s *CardService) buildNewCardFromInput(
 	// persisted card all see the same canonical form.
 	dependsOn := normalizeIDs(input.DependsOn)
 
+	if err := s.validateModelPins(ctx,
+		pinChange{"model_orchestrator", input.ModelOrchestrator, ""},
+		pinChange{"model_coder", input.ModelCoder, ""},
+		pinChange{"model_reviewer", input.ModelReviewer, ""},
+	); err != nil {
+		return nil, err
+	}
+
 	now := s.clk.Now()
 	card := &board.Card{
 		ID:                  cardID,
@@ -654,6 +665,14 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 			return err
 		}
 
+		if err := s.validateModelPins(ctx,
+			pinChange{"model_orchestrator", input.ModelOrchestrator, card.ModelOrchestrator},
+			pinChange{"model_coder", input.ModelCoder, card.ModelCoder},
+			pinChange{"model_reviewer", input.ModelReviewer, card.ModelReviewer},
+		); err != nil {
+			return err
+		}
+
 		oldState := card.State
 		stateChanged := input.State != oldState
 
@@ -809,6 +828,24 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		// Validate skill names before applying any mutations.
 		if err := validateSkillNames(input.Skills); err != nil {
+			return err
+		}
+
+		pins := make([]pinChange, 0, 3)
+
+		if input.ModelOrchestrator != nil {
+			pins = append(pins, pinChange{"model_orchestrator", *input.ModelOrchestrator, card.ModelOrchestrator})
+		}
+
+		if input.ModelCoder != nil {
+			pins = append(pins, pinChange{"model_coder", *input.ModelCoder, card.ModelCoder})
+		}
+
+		if input.ModelReviewer != nil {
+			pins = append(pins, pinChange{"model_reviewer", *input.ModelReviewer, card.ModelReviewer})
+		}
+
+		if err := s.validateModelPins(ctx, pins...); err != nil {
 			return err
 		}
 
@@ -1525,6 +1562,34 @@ func validateFieldLimits(title, body string, labels []string) error {
 	for _, l := range labels {
 		if len(l) > maxLabelLen {
 			return fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
+		}
+	}
+
+	return nil
+}
+
+// pinChange pairs a pin field's incoming value with the stored value so
+// validation can skip unchanged pins.
+type pinChange struct {
+	field, newVal, oldVal string
+}
+
+// validateModelPins rejects pin values that are not in the served model
+// catalog. Only non-empty values that differ from the stored value are
+// checked, so a pre-existing pin (delisted model, unlisted vendor) never
+// blocks an unrelated card update. No-op when no validator is wired.
+func (s *CardService) validateModelPins(ctx context.Context, pins ...pinChange) error {
+	if s.modelValidator == nil {
+		return nil
+	}
+
+	for _, p := range pins {
+		if p.newVal == "" || p.newVal == p.oldVal {
+			continue
+		}
+
+		if !s.modelValidator(ctx, p.newVal) {
+			return fmt.Errorf("validate card: %s %q: %w", p.field, p.newVal, ErrInvalidModelPin)
 		}
 	}
 
