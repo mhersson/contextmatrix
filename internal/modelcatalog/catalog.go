@@ -179,6 +179,11 @@ type ServedModel struct {
 // openrouter/auto and operator favorites); the endpoint leg is served
 // unfiltered because the operator already curates it. Sorted by slug. Nil on
 // a nil receiver or when no catalog has ever been fetched.
+//
+// Like Rate, a stale cache triggers a synchronous network refresh under b.mu.
+// Callers on write paths (card-pin validation via Validate) accept this
+// bounded stall: at most one fetch per TTL, or one per refreshFailureCooldown
+// during a provider outage.
 func (b *Builder) Served(ctx context.Context) []ServedModel {
 	if b == nil {
 		return nil

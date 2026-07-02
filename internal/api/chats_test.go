@@ -579,7 +579,7 @@ func TestListModels_OpenRouterSource(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "openrouter", body.Source)
-	require.Empty(t, body.Models, "openrouter mode returns no allowlist; the frontend pulls OpenRouter live")
+	require.Empty(t, body.Models, "openrouter mode returns an empty list when no catalog builder is wired")
 	require.Equal(t, "anthropic/claude-sonnet-4", body.Default)
 }
 
