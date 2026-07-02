@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,11 @@ type Builder struct {
 	stemMap         map[string]string
 	priors          map[string]PriorOverride
 
+	// favorites are operator-configured slugs (flattened across tiers/roles).
+	// They pass the Served() vendor screen even when their vendor is not
+	// allowlisted — the operator explicitly trusts them.
+	favorites []string
+
 	mu       sync.Mutex
 	cached   []protocol.CandidateModel
 	cachedAt time.Time
@@ -59,6 +65,12 @@ func WithEndpoint(baseURL, apiKey string, stemMap map[string]string, priors map[
 		b.stemMap = stemMap
 		b.priors = priors
 	}
+}
+
+// WithFavorites registers operator-configured favorite slugs; they pass the
+// Served() vendor screen regardless of vendor.
+func WithFavorites(favs []string) BuilderOption {
+	return func(b *Builder) { b.favorites = favs }
 }
 
 // NewBuilder constructs a Builder. floor<=0 defaults to 0.65; ttl<=0 to 6h.
@@ -154,6 +166,62 @@ func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion flo
 	}
 
 	return e.PromptPrice, e.CompletionPrice, true
+}
+
+// ServedModel is one entry of the picker/validation model set.
+type ServedModel struct {
+	Slug          string
+	ContextWindow int
+}
+
+// Served returns the picker/validation model set, refreshing if stale. On the
+// OpenRouter leg the raw catalog is vendor-screened (allowlist prefixes, plus
+// openrouter/auto and operator favorites); the endpoint leg is served
+// unfiltered because the operator already curates it. Sorted by slug. Nil on
+// a nil receiver or when no catalog has ever been fetched.
+func (b *Builder) Served(ctx context.Context) []ServedModel {
+	if b == nil {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	if len(b.lastCatalog) == 0 {
+		return nil
+	}
+
+	screen := b.endpointBaseURL == ""
+
+	var allowed map[string]bool
+	if screen {
+		allowed = allowedORPrefixes(b.allowlist)
+	}
+
+	favs := make(map[string]bool, len(b.favorites))
+	for _, f := range b.favorites {
+		favs[f] = true
+	}
+
+	out := make([]ServedModel, 0, len(b.lastCatalog))
+
+	for slug, e := range b.lastCatalog {
+		if screen && !servedSlugAllowed(slug, allowed, favs) {
+			continue
+		}
+
+		out = append(out, ServedModel{Slug: slug, ContextWindow: e.ContextWindow})
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+
+	return out
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
