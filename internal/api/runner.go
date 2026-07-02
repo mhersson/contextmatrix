@@ -55,7 +55,6 @@ type runnerHandlers struct {
 	runner            TaskBackend          // nil when no task backend is configured
 	backendCfg        config.BackendConfig // resolved task-backend entry (Name set); zero value when no task backend is configured
 	mcpAPIKey         string
-	port              int
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
 
