@@ -388,6 +388,37 @@ func TestAdminCredentials_ValidationErrors(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 }
 
+// TestDeleteCredential_NoProjectService_GuardSkipped covers adminHandlers'
+// nil-safe wiring: adminTestServer (via newAuthTestServer) never sets
+// RouterConfig.Service, so listProjectConfigs must stay nil rather than
+// binding a method value on a nil *service.CardService — which would compile
+// and assign fine but panic on the first call. Delete must fall back to the
+// pre-S5 behavior (no guard) instead of 500ing.
+func TestDeleteCredential_NoProjectService_GuardSkipped(t *testing.T) {
+	server, admin, _ := adminTestServer(t)
+
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
+		jsonBody(t, map[string]any{"name": "no-svc-pat", "kind": "pat", "secret": "ghp_zzz"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	del, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/admin/credentials/no-svc-pat", nil)
+	del.Header.Set("X-Requested-With", "contextmatrix")
+	del.AddCookie(admin)
+
+	delResp, err := http.DefaultClient.Do(del)
+	require.NoError(t, err)
+
+	_ = delResp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+}
+
 // TestAdminCredentials_GitHubRejection overrides the auth.Service's checker
 // (set up in newAuthTestServer) to exercise the 422 GitHub-rejection path
 // over HTTP. adminTestServer wraps newAuthTestServer but doesn't return the

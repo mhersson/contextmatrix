@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // adminHandlers maps auth.Service admin operations onto /api/admin/*.
@@ -15,6 +17,11 @@ import (
 // authenticated the caller; this adds the role check.
 type adminHandlers struct {
 	svc *auth.Service
+	// listProjectConfigs backs deleteCredential's bound-project guard; wired
+	// from cfg.Service.ListProjects in NewRouter. nil when no card service is
+	// configured (narrow-scope test routers) — the guard is then skipped
+	// rather than dereferencing a nil *service.CardService.
+	listProjectConfigs func(ctx context.Context) ([]board.ProjectConfig, error)
 }
 
 // requireAdmin returns the acting admin, or writes 403 and returns nil.

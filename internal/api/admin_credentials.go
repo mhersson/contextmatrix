@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/auth"
@@ -190,13 +191,40 @@ func (h *adminHandlers) putCredential(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteCredential handles DELETE /api/admin/credentials/{name}.
-// NOTE(S5): must gain the bound-project 409 guard when bindings land.
 func (h *adminHandlers) deleteCredential(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
 
-	if err := h.svc.DeleteCredential(r.Context(), r.PathValue("name")); err != nil {
+	name := r.PathValue("name")
+
+	// Refuse to delete a credential that projects are bound to — the admin
+	// rebinds them first. 409 lists the blockers by name.
+	if h.listProjectConfigs != nil {
+		configs, err := h.listProjectConfigs(r.Context())
+		if err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		var bound []string
+
+		for _, cfg := range configs {
+			if cfg.GitHubCredential == name {
+				bound = append(bound, cfg.Name)
+			}
+		}
+
+		if len(bound) > 0 {
+			writeError(w, http.StatusConflict, ErrCodeValidationError,
+				"credential is bound to projects", "rebind first: "+strings.Join(bound, ", "))
+
+			return
+		}
+	}
+
+	if err := h.svc.DeleteCredential(r.Context(), name); err != nil {
 		writeCredentialError(w, r, err)
 
 		return

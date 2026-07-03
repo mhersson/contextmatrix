@@ -308,6 +308,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/auth/password", authh.changePassword)
 
 		adh := &adminHandlers{svc: cfg.AuthService}
+		if cfg.Service != nil {
+			// Method-value note: cfg.Service.ListProjects on a nil *CardService
+			// would still bind to a non-nil func value that panics on call — so
+			// this must stay behind the nil check, not become an unconditional
+			// assignment.
+			adh.listProjectConfigs = cfg.Service.ListProjects
+		}
+
 		mux.HandleFunc("GET /api/admin/users", adh.listUsers)
 		mux.HandleFunc("POST /api/admin/users", adh.createUser)
 		mux.HandleFunc("PATCH /api/admin/users/{username}", adh.patchUser)

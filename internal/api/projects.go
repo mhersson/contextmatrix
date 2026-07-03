@@ -155,6 +155,12 @@ func (h *projectHandlers) getProjectDashboard(w http.ResponseWriter, r *http.Req
 
 // createProject handles POST /api/projects.
 func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) {
+	if h.authEnabled {
+		if requireAdmin(w, r) == nil {
+			return
+		}
+	}
+
 	var req createProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
@@ -195,6 +201,12 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 
 // updateProject handles PUT /api/projects/{project}.
 func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) {
+	if h.authEnabled {
+		if requireAdmin(w, r) == nil {
+			return
+		}
+	}
+
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
@@ -286,6 +298,12 @@ type recalculateCostsResponse struct {
 
 // recalculateCosts handles POST /api/projects/{project}/recalculate-costs.
 func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Request) {
+	if h.authEnabled {
+		if requireAdmin(w, r) == nil {
+			return
+		}
+	}
+
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
@@ -321,6 +339,12 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 
 // deleteProject handles DELETE /api/projects/{project}.
 func (h *projectHandlers) deleteProject(w http.ResponseWriter, r *http.Request) {
+	if h.authEnabled {
+		if requireAdmin(w, r) == nil {
+			return
+		}
+	}
+
 	projectName := r.PathValue("project")
 	if projectName == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project name required", "")
