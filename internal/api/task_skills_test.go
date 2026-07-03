@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -729,4 +730,128 @@ func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// --- task-skills-source instance token (best-effort, no binding) ---
+//
+// task-skills is instance-scoped, not project-scoped, so it mints from
+// RouterConfig.GitHubTokenProvider directly — never providerForProject.
+// Unlike git-credentials (fail-closed on a broken project binding), a mint
+// failure here is best-effort: there is no binding to be wrong about, so the
+// response still succeeds with the token fields simply omitted.
+
+// TestGetTaskSkillsSource_InstanceProvider_IncludesToken asserts the runner
+// variant attaches token + token_expires_at when the instance provider mints
+// successfully.
+func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	router := NewRouter(RouterConfig{
+		Service:             svc,
+		Bus:                 bus,
+		Runner:              runnerClient,
+		BackendCfg:          config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		GitHubTokenProvider: &fakeTokenProvider{token: "ghs_instance", expiresAt: fakeExpiry},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	path := "/api/runner/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body taskSkillsSourceResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "ghs_instance", body.Token)
+	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), body.TokenExpiresAt)
+}
+
+// TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort asserts the
+// best-effort asymmetry: a mint failure never fails the request — the
+// response is still 200, just without the token fields.
+func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	router := NewRouter(RouterConfig{
+		Service:             svc,
+		Bus:                 bus,
+		Runner:              runnerClient,
+		BackendCfg:          config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		GitHubTokenProvider: &fakeTokenProvider{err: errors.New("github api returned status 401")},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	path := "/api/runner/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "mint failure must not fail the whole response")
+
+	var body taskSkillsSourceResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Empty(t, body.Token)
+	assert.Empty(t, body.TokenExpiresAt)
+}
+
+// TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken mirrors the
+// runner-variant token test for the dedicated chat backend callback.
+func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	router := NewRouter(RouterConfig{
+		Service:             svc,
+		Bus:                 bus,
+		ChatBackendCfg:      config.BackendConfig{APIKey: testChatBackendAPIKey, Name: config.BackendNameChat},
+		GitHubTokenProvider: &fakeTokenProvider{token: "ghs_chat_instance", expiresAt: fakeExpiry},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	path := "/api/chat/task-skills-source"
+	sig, ts := protocol.SignRequestHeaders(testChatBackendAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body taskSkillsSourceResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "ghs_chat_instance", body.Token)
+	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), body.TokenExpiresAt)
 }

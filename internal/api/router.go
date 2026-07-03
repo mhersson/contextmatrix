@@ -359,6 +359,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,
 		llmEndpoint:            cfg.LLMEndpoint,
+		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -388,6 +389,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
+		mux.HandleFunc("GET "+cb+"/git-credentials", rh.getGitCredentials)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
@@ -458,6 +460,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			replayCache:            runner.NewSignatureCache(),
 			taskSkillsDir:          cfg.TaskSkillsDir,
 			taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
+			instanceTokenProvider:  cfg.GitHubTokenProvider,
 		}
 		mux.HandleFunc("GET "+cfg.ChatBackendCfg.CallbackPath()+"/task-skills-source", cbh.getTaskSkillsSource)
 	}

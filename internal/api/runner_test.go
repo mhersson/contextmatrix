@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -3401,4 +3402,316 @@ func TestMergeFavorites(t *testing.T) {
 			assert.NotEmpty(t, fr.Role)
 		}
 	})
+}
+
+// --- GET /api/runner/git-credentials ---
+//
+// Long runs outlive ~1h GitHub App installation tokens; the runner calls this
+// mid-run to re-mint a fresh project-scoped git token. HMAC-signed like every
+// backend callback, and gated on the card actually running — no free token
+// faucet. Unlike task-skills-source (best-effort, instance-scoped), this is
+// fail-closed on a broken project binding: never falls back to the instance
+// credential.
+
+// setupGitCredentialsEndpoint creates a card in project "test-project",
+// optionally sets its runner_status, and wires providerForProject. An empty
+// runnerStatus leaves the card in its just-created state (RunnerStatus ""),
+// exercising the not-running rejection path.
+func setupGitCredentialsEndpoint(
+	t *testing.T,
+	runnerStatus string,
+	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error),
+) (server *httptest.Server, cardID string, cleanup func()) {
+	t.Helper()
+
+	svc, bus, svcCleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Long runner", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	if runnerStatus != "" {
+		_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, runnerStatus, "test setup")
+		require.NoError(t, err)
+	}
+
+	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	router := NewRouter(RouterConfig{
+		Service:            svc,
+		Bus:                bus,
+		Runner:             runnerClient,
+		BackendCfg:         config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		ProviderForProject: providerForProject,
+	})
+
+	srv := httptest.NewServer(router)
+
+	return srv, card.ID, func() {
+		srv.Close()
+		svcCleanup()
+	}
+}
+
+func TestGetGitCredentials_RunningCard_ReturnsFreshToken(t *testing.T) {
+	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	fakeProvider := &fakeTokenProvider{token: "ghs_refreshed", expiresAt: fakeExpiry}
+
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "https://api.github.com", nil
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "ghs_refreshed", body["token"])
+	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), body["expires_at"])
+}
+
+func TestGetGitCredentials_PATZeroExpiry_ExpiresAtOmitted(t *testing.T) {
+	fakeProvider := &fakeTokenProvider{token: "pat-token", expiresAt: time.Time{}}
+
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "pat-token", body["token"])
+	_, hasExpiry := body["expires_at"]
+	assert.False(t, hasExpiry, "zero-value expiry must be omitted, never formatted as 0001-01-01...")
+}
+
+func TestGetGitCredentials_NotRunning_Conflict(t *testing.T) {
+	fakeProvider := &fakeTokenProvider{token: "ghs_unused"}
+
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "", // never started; RunnerStatus stays ""
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+}
+
+func TestGetGitCredentials_UnknownCard_NotFound(t *testing.T) {
+	server, _, cleanup := setupGitCredentialsEndpoint(t, "running", nil)
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=TEST-999"
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeCardNotFound, apiErr.Code)
+}
+
+func TestGetGitCredentials_BadSignature_Forbidden(t *testing.T) {
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running", nil)
+	defer cleanup()
+
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	req, _ := http.NewRequest("GET",
+		server.URL+"/api/runner/git-credentials?project=test-project&card_id="+cardID, nil)
+	req.Header.Set("X-Signature-256", "sha256=0000000000000000000000000000000000000000000000000000000000000000")
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeInvalidSignature, apiErr.Code)
+}
+
+func TestGetGitCredentials_Unsigned_Forbidden(t *testing.T) {
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running", nil)
+	defer cleanup()
+
+	req, _ := http.NewRequest("GET",
+		server.URL+"/api/runner/git-credentials?project=test-project&card_id="+cardID, nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestGetGitCredentials_BrokenBinding_Conflict is the fail-closed guarantee:
+// a broken/unresolvable project credential binding rejects with 409 and never
+// falls back to an instance credential. No GitHubTokenProvider is configured
+// on this router at all — a silent fallback would show up as 200, not 409.
+func TestGetGitCredentials_BrokenBinding_Conflict(t *testing.T) {
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return nil, "", auth.ErrCredentialUnavailable
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+	assert.Equal(t, "project credential unavailable", apiErr.Error)
+}
+
+func TestGetGitCredentials_GenerateTokenFails_BadGateway(t *testing.T) {
+	fakeProvider := &fakeTokenProvider{err: errors.New("request token: github api returned status 401")}
+
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeInternalError, apiErr.Code)
+}
+
+func TestGetGitCredentials_MissingParams_BadRequest(t *testing.T) {
+	server, _, cleanup := setupGitCredentialsEndpoint(t, "running", nil)
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project"
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+}
+
+func TestGetGitCredentials_RunnerDisabled_NotFound(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "No runner", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Runner intentionally nil — route must not be registered.
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + card.ID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

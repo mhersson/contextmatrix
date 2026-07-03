@@ -85,6 +85,13 @@ type runnerHandlers struct {
 	// fall back to their own local config.
 	llmEndpoint *protocol.LLMEndpoint
 
+	// instanceTokenProvider mints the instance-scoped git credential attached
+	// to task-skills-source responses. Unlike providerForProject (per-project,
+	// fail-closed on a broken binding), this is the flat instance provider —
+	// task-skills is never project-scoped, so there is no binding to fail
+	// closed on. nil disables the token fields (pre-token-authority behavior).
+	instanceTokenProvider githubauth.TokenGenerator
+
 	// healthCache memoises /runner/health responses so concurrent browser tabs
 	// don't each fire a fresh probe at the runner — and so a runner outage
 	// doesn't cause every refresh to block for the full per-request timeout.
@@ -820,8 +827,42 @@ func (h *runnerHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Requ
 	}
 
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
+	})
+}
+
+// mintInstanceToken best-effort mints an instance-scoped git token for a
+// task-skills-source response. See the asymmetry comment on
+// taskSkillsSourceResponse: unlike getGitCredentials (fail-closed on a broken
+// project binding), this never fails the request — a nil provider or a mint
+// error just returns empty strings, and the caller falls back to its own
+// configured credential during the compat window.
+//
+// err is only ever a githubauth provider error (JWT/HTTP-status class
+// messages, never the token itself), so logging "error", err here is safe —
+// mirrors the class-only logging already used for provider errors elsewhere
+// in this file.
+func mintInstanceToken(ctx context.Context, provider githubauth.TokenGenerator) (token, expiresAt string) {
+	if provider == nil {
+		return "", ""
+	}
+
+	tok, exp, err := provider.GenerateToken(ctx)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("failed to mint instance token for task-skills-source; continuing without it",
+			"error", err)
+
+		return "", ""
+	}
+
+	if !exp.IsZero() {
+		expiresAt = exp.UTC().Format(time.RFC3339)
+	}
+
+	return tok, expiresAt
 }
 
 // chatBackendHandlers serves the HMAC-signed callbacks the dedicated chat
@@ -834,6 +875,11 @@ type chatBackendHandlers struct {
 	replayCache            *runner.SignatureCache
 	taskSkillsDir          string
 	taskSkillsGitRemoteURL string
+
+	// instanceTokenProvider mirrors runnerHandlers.instanceTokenProvider —
+	// same instance-scoped, best-effort mint for the chat variant's
+	// task-skills-source response.
+	instanceTokenProvider githubauth.TokenGenerator
 }
 
 // getTaskSkillsSource serves GET /api/chat/task-skills-source — the chat service
@@ -845,8 +891,76 @@ func (h *chatBackendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http
 	}
 
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
+	})
+}
+
+// getGitCredentials handles GET /api/<backend>/git-credentials — re-mints the
+// project-scoped git token for a running card. Long runs outlive ~1h GitHub
+// App installation tokens, so the backend calls this mid-run to refresh.
+// HMAC-signed like every backend callback.
+//
+// Fail-closed on the project binding, mirroring rejectRunForCredentialFailure:
+// a broken/unresolvable providerForProject NEVER falls back to the instance
+// credential — unlike task-skills-source (mintInstanceToken), which is
+// deliberately best-effort because it has no binding to be wrong about.
+func (h *runnerHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
+	if !h.authenticateRunnerGet(w, r) {
+		return
+	}
+
+	project := r.URL.Query().Get("project")
+	cardID := r.URL.Query().Get("card_id")
+
+	if project == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card_id required", "")
+
+		return
+	}
+
+	// No free token faucet: the card must exist and be actively running.
+	card, err := h.svc.GetCard(r.Context(), project, strings.ToUpper(cardID))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	if card.RunnerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "card is not running", "")
+
+		return
+	}
+
+	if h.providerForProject == nil {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", "")
+
+		return
+	}
+
+	provider, _, err := h.providerForProject(r.Context(), project)
+	if err != nil {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", sanitizeErrorDetails(err))
+
+		return
+	}
+
+	token, expiresAt, err := provider.GenerateToken(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, ErrCodeInternalError, "token mint failed", sanitizeErrorDetails(err))
+
+		return
+	}
+
+	resp := map[string]string{"token": token}
+	if !expiresAt.IsZero() {
+		resp["expires_at"] = expiresAt.UTC().Format(time.RFC3339)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // extractBackendSignature performs shared header validation for backend HMAC
