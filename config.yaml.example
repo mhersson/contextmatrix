@@ -103,6 +103,15 @@ theme: "everforest"
 # "openrouter" it defaults to the canonical OpenRouter models URL and can
 # usually be omitted.
 #
+# This config is also forwarded verbatim to the active task/chat backend as
+# the `llm_endpoint` wire field on every trigger / chat-start call (see
+# docs/api-reference.md's Runner Endpoints section) — one admin-managed key,
+# rotated in one place. It rides along whenever type is set, regardless of
+# api_key: a keyless "openrouter" config (api_key left empty, as above) still
+# sends the backend a populated object — {type, base_url, api_key: ""} — not
+# a missing field. llm_endpoint is omitted from the payload only when this
+# whole block is left unset (type == "").
+#
 # Env: CONTEXTMATRIX_LLM_ENDPOINT_TYPE
 #      CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL
 #      CONTEXTMATRIX_LLM_ENDPOINT_API_KEY
@@ -439,8 +448,8 @@ auth:
   #   logs a one-time bootstrap URL; whoever opens it creates the first
   #   admin account. NOTE: the runner backend cannot be enabled in this
   #   mode (it is deprecate-frozen; use the agent backend).
-  # "none" — single-user, zero-login: exactly the pre-multi-user behavior.
-  #   For laptop installs and easy testing.
+  # "none" — single-tenant, zero-login: no user accounts, no sessions, no
+  #   credential pool. For laptop installs and easy testing.
   # Env: CONTEXTMATRIX_AUTH_MODE
   mode: multi
 
