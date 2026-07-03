@@ -86,6 +86,14 @@ func llmEndpointFromConfig(e config.LLMEndpointConfig) *protocol.LLMEndpoint {
 }
 
 func main() {
+	// `contextmatrix auth <subcommand>` is a set of operator escape hatches
+	// (admin recovery, master-key rotation) that run to completion and exit
+	// without starting the server. Any other invocation falls through to the
+	// unchanged server path below.
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		os.Exit(runAuthCLI(os.Args[2:]))
+	}
+
 	configPath := flag.String("config", "", "path to config file")
 
 	flag.Parse()
