@@ -262,3 +262,76 @@ describe('auth endpoints', () => {
   });
 });
 
+describe('admin endpoints', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('adminCreateUser posts to /admin/users and returns the created user plus invite', async () => {
+    const mockResponse = {
+      user: {
+        username: 'alice',
+        display_name: 'Alice',
+        is_admin: false,
+        disabled: false,
+        has_password: false,
+      },
+      invite: {
+        token: 'tok-abc123',
+        purpose: 'invite',
+        expires_at: '2026-07-10T00:00:00Z',
+      },
+    };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(mockResponse, 201));
+
+    const result = await api.adminCreateUser({ username: 'alice' });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/users');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ username: 'alice' });
+    expect(result).toEqual(mockResponse);
+    expect(result.invite.token).toBe('tok-abc123');
+  });
+
+  it('adminPatchUser sends only the fields present in the patch', async () => {
+    const updatedUser = {
+      username: 'bob',
+      display_name: 'Bob',
+      is_admin: true,
+      disabled: false,
+      has_password: true,
+    };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(updatedUser));
+
+    const result = await api.adminPatchUser('bob', { is_admin: true });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/users/bob');
+    expect(init.method).toBe('PATCH');
+    // Only the supplied field should be present on the wire — display_name
+    // and disabled were omitted by the caller and must not appear as
+    // explicit nulls/undefined keys in the JSON body.
+    expect(JSON.parse(init.body as string)).toEqual({ is_admin: true });
+    expect(result).toEqual(updatedUser);
+  });
+
+  it('adminDeleteCredential issues a DELETE request to /admin/credentials/{name}', async () => {
+    // A 204 response cannot carry a body per the Fetch spec — construct it
+    // directly rather than through makeResponse (which always JSON-encodes).
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+
+    const result = await api.adminDeleteCredential('gh-main');
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/credentials/gh-main');
+    expect(init.method).toBe('DELETE');
+    expect(result).toBeUndefined();
+  });
+});
+

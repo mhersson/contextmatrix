@@ -391,6 +391,48 @@ export interface RedeemTokenInput {
   password: string;
 }
 
+// Admin — user and credential management (multi-user mode, admin-only).
+export interface AdminUser {
+  username: string;
+  display_name: string;
+  is_admin: boolean;
+  disabled: boolean;
+  has_password: boolean;
+  last_login_at?: string;
+}
+
+export interface InviteInfo {
+  token: string;
+  purpose: 'invite' | 'reset';
+  expires_at: string;
+}
+
+export interface CredentialInfo {
+  name: string;
+  kind: 'pat' | 'app';
+  host: string;
+  api_base_url: string;
+  app_id: number;
+  installation_id: number;
+  created_by: string;
+  disabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_used_at?: string;
+}
+
+// Request-only input — carries the plaintext secret up to the server. Never
+// mirrored back in CredentialInfo (the response type has no secret field).
+export interface CreateCredentialInput {
+  name: string;
+  kind: 'pat' | 'app';
+  host?: string;
+  api_base_url?: string;
+  app_id?: number;
+  installation_id?: number;
+  secret: string;
+}
+
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {
