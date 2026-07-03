@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -22,6 +24,11 @@ type branchHandlers struct {
 	githubAPIBaseURL string
 	allowedHosts     []string
 	newBranchClient  func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
+	// providerForProject resolves the token provider per request, by
+	// project (credential binding support). nil preserves the fixed
+	// provider/githubAPIBaseURL fallback above — the pre-binding behavior
+	// used by tests that don't wire it.
+	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 }
 
 // listBranches handles GET /api/projects/{project}/branches.
@@ -49,7 +56,29 @@ func (h *branchHandlers) listBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := h.newBranchClient(h.provider, h.githubAPIBaseURL)
+	provider := h.provider
+	apiBaseURL := h.githubAPIBaseURL
+
+	if h.providerForProject != nil {
+		resolvedProvider, resolvedAPIBase, err := h.providerForProject(r.Context(), projectName)
+		if err != nil {
+			if errors.Is(err, auth.ErrCredentialUnavailable) {
+				writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
+					"project credential unavailable", "")
+
+				return
+			}
+
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		provider = resolvedProvider
+		apiBaseURL = resolvedAPIBase
+	}
+
+	client := h.newBranchClient(provider, apiBaseURL)
 
 	branches, err := client.FetchBranches(r.Context(), owner, repo)
 	if err != nil {

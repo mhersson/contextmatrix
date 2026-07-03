@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -181,7 +182,7 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
 	require.NoError(t, err)
 
-	imported, err := syncer.syncProject(ctx, cfg, "testorg", "testrepo")
+	imported, err := syncer.syncProject(ctx, cfg, client, "testorg", "testrepo")
 	require.NoError(t, err)
 	assert.Equal(t, 2, imported)
 
@@ -237,7 +238,7 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	// First sync: creates the card.
-	imported, err := syncer.syncProject(ctx, cfg, "testorg", "testrepo")
+	imported, err := syncer.syncProject(ctx, cfg, client, "testorg", "testrepo")
 	require.NoError(t, err)
 	assert.Equal(t, 1, imported)
 
@@ -246,7 +247,7 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second sync: same issue, should be skipped.
-	imported, err = syncer.syncProject(ctx, cfg, "testorg", "testrepo")
+	imported, err = syncer.syncProject(ctx, cfg, client, "testorg", "testrepo")
 	require.NoError(t, err)
 	assert.Equal(t, 0, imported)
 
@@ -307,7 +308,7 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
 	require.NoError(t, err)
 
-	imported, err := syncer.syncProject(ctx, cfg, "o", "r")
+	imported, err := syncer.syncProject(ctx, cfg, client, "o", "r")
 	require.NoError(t, err)
 	assert.Equal(t, 1, imported)
 
@@ -316,4 +317,105 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	require.Len(t, cards, 1)
 	assert.Equal(t, "bug", cards[0].Type)
 	assert.Equal(t, "high", cards[0].Priority)
+}
+
+// TestSyncAll_SetClientFor_SkipsProjectOnResolveError asserts that when a
+// per-project client resolver is installed via SetClientFor, a resolution
+// error for one project is logged and that project is skipped for the
+// cycle — it must not panic, and it must not prevent other projects from
+// syncing normally (fail-closed: a broken binding never falls back to the
+// syncer's constructor-injected static client).
+func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {
+	boardsDir := t.TempDir()
+
+	makeProject := func(name string) {
+		projectDir := filepath.Join(boardsDir, name)
+		require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+
+		cfg := &board.ProjectConfig{
+			Name:       name,
+			Prefix:     "P",
+			NextID:     1,
+			Repo:       "git@github.com:testorg/" + name + ".git",
+			States:     []string{"todo", "in_progress", "review", "done", "stalled", "not_planned"},
+			Types:      []string{"task"},
+			Priorities: []string{"medium"},
+			Transitions: map[string][]string{
+				"todo":        {"in_progress", "not_planned"},
+				"in_progress": {"review", "todo"},
+				"review":      {"done", "in_progress"},
+				"done":        {},
+				"stalled":     {"todo"},
+				"not_planned": {"todo"},
+			},
+			GitHub: &board.GitHubImportConfig{
+				ImportIssues: true,
+				Owner:        "testorg",
+				Repo:         name,
+			},
+		}
+		require.NoError(t, board.SaveProjectConfig(projectDir, cfg))
+	}
+
+	makeProject("proj-a")
+	makeProject("proj-b")
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	git, err := gitops.NewManager(boardsDir, "", "ssh", nil)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+
+	issues := []Issue{
+		{Number: 1, Title: "Issue for proj-b", HTMLURL: "https://github.com/testorg/proj-b/issues/1"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		_ = json.NewEncoder(w).Encode(issues)
+	}))
+	defer srv.Close()
+
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+
+	okClient := NewClientWithBaseURL(p, srv.URL)
+
+	// Constructor-injected static client is deliberately nil: it must never
+	// be used as a fallback for a broken binding, and a working SetClientFor
+	// resolution for proj-b must not depend on it either.
+	syncer := NewSyncer(svc, store, nil, boardsDir, 5*time.Minute, []string{"github.com"})
+
+	var resolvedFor []string
+
+	syncer.SetClientFor(func(_ context.Context, cfg *board.ProjectConfig) (*Client, error) {
+		resolvedFor = append(resolvedFor, cfg.Name)
+
+		if cfg.Name == "proj-a" {
+			return nil, errors.New("credential unavailable")
+		}
+
+		return okClient, nil
+	})
+
+	ctx := context.Background()
+
+	require.NotPanics(t, func() {
+		syncer.syncAll(ctx)
+	})
+
+	assert.ElementsMatch(t, []string{"proj-a", "proj-b"}, resolvedFor)
+
+	cardsA, err := store.ListCards(ctx, "proj-a", storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, cardsA, "proj-a's resolution error must skip the project, not panic or fall back")
+
+	cardsB, err := store.ListCards(ctx, "proj-b", storage.CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, cardsB, 1, "proj-b must still sync normally despite proj-a's failure")
+	assert.Equal(t, "Issue for proj-b", cardsB[0].Title)
 }

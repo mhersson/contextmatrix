@@ -180,6 +180,12 @@ type RouterConfig struct {
 	// validating .board.yaml github_credential bindings on project update.
 	// nil in none mode (mirrors AuthService's nil-in-none-mode contract).
 	CredentialExists func(ctx context.Context, name string) (bool, error)
+	// ProviderForProject resolves the token provider for a project's GitHub
+	// operations: the project's binding when set (fail-closed on a broken
+	// one), else the instance provider. Never nil in production — main.go
+	// wires it in both auth modes; nil in tests preserves the old
+	// fixed-provider path.
+	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -229,11 +235,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authMode:    cfg.AuthMode,
 	}
 	bh := &branchHandlers{
-		svc:              cfg.Service,
-		provider:         cfg.GitHubTokenProvider,
-		githubAPIBaseURL: cfg.GitHubAPIBaseURL,
-		allowedHosts:     cfg.GitHubAllowedHosts,
-		newBranchClient:  defaultBranchClient,
+		svc:                cfg.Service,
+		provider:           cfg.GitHubTokenProvider,
+		githubAPIBaseURL:   cfg.GitHubAPIBaseURL,
+		allowedHosts:       cfg.GitHubAllowedHosts,
+		newBranchClient:    defaultBranchClient,
+		providerForProject: cfg.ProviderForProject,
 	}
 
 	// Health check
