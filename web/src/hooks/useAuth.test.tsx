@@ -72,6 +72,57 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(screen.getByText('multi|anonymous|-')).toBeInTheDocument());
   });
 
+  it('retries a network-shaped app-config failure and resolves once the retry succeeds', async () => {
+    mocks.getAppConfig
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
+    mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: '', is_admin: false });
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText('multi|authenticated|alice')).toBeInTheDocument());
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries an infra-shaped UNKNOWN_ERROR app-config failure and resolves once the retry succeeds', async () => {
+    mocks.getAppConfig
+      .mockRejectedValueOnce({ error: 'Bad Gateway', code: 'UNKNOWN_ERROR' })
+      .mockRejectedValueOnce({ error: 'Bad Gateway', code: 'UNKNOWN_ERROR' })
+      .mockResolvedValueOnce({ theme: 'everforest', version: 'x', auth_mode: 'none' });
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText('none|authenticated|-')).toBeInTheDocument());
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(3);
+  });
+
+  it('falls back to none only after all 3 retry attempts are exhausted', async () => {
+    mocks.getAppConfig.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText('none|authenticated|-')).toBeInTheDocument());
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a structured non-transient app-config error — falls back to none immediately', async () => {
+    mocks.getAppConfig.mockRejectedValue({ error: 'nope', code: 'SOME_REAL_ERROR' });
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText('none|authenticated|-')).toBeInTheDocument());
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('a clean success does not trigger any retry', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText('none|authenticated|-')).toBeInTheDocument());
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+  });
+
   it('logout flips to anonymous even when the API call rejects, without throwing', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
     mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: '', is_admin: false });

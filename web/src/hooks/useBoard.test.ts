@@ -7,13 +7,22 @@ import { SSEProvider } from './useSSEBus';
 import { api } from '../api/client';
 import type { Card, ProjectConfig } from '../types';
 
-vi.mock('../api/client', () => ({
-  api: {
-    getProject: vi.fn(),
-    getCards: vi.fn(),
-    getCard: vi.fn(),
-  },
-}));
+// useSSEBus (exercised here via the real SSEProvider, see `wrapper` below)
+// imports SESSION_EXPIRED_EVENT from this module, so the mock factory must
+// preserve real exports via importOriginal rather than replacing the module
+// wholesale — otherwise the named import resolves to nothing and importing
+// useSSEBus throws.
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>();
+  return {
+    ...actual,
+    api: {
+      getProject: vi.fn(),
+      getCards: vi.fn(),
+      getCard: vi.fn(),
+    },
+  };
+});
 
 // ---- EventSource mock (mirrors useSSEBus.test.tsx) ---------------------------
 //
@@ -23,6 +32,7 @@ vi.mock('../api/client', () => ({
 
 interface MockES {
   url: string;
+  readyState: number;
   onopen: ((ev: Event) => void) | null;
   onmessage: ((ev: MessageEvent) => void) | null;
   onerror: ((ev: Event) => void) | null;
@@ -35,7 +45,16 @@ interface MockES {
 let instances: MockES[] = [];
 
 class MockEventSource implements MockES {
+  // Mirrors the real EventSource readyState constants (spec values 0/1/2).
+  // useSSEBus's onerror reads es.readyState === EventSource.CLOSED to
+  // detect a dead session; this suite only ever models a transient network
+  // outage (readyState stays CONNECTING), never a session-death close.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+
   url: string;
+  readyState: number = MockEventSource.CONNECTING;
   onopen: ((ev: Event) => void) | null = null;
   onmessage: ((ev: MessageEvent) => void) | null = null;
   onerror: ((ev: Event) => void) | null = null;
@@ -51,6 +70,7 @@ class MockEventSource implements MockES {
   }
 
   _triggerOpen() {
+    this.readyState = MockEventSource.OPEN;
     this.onopen?.(new Event('open'));
   }
 

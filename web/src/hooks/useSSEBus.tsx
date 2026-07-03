@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { SESSION_EXPIRED_EVENT } from '../api/client';
 import type { BoardEvent } from '../types';
 
 const MAX_RECONNECT_DELAY = 30000;
@@ -127,9 +128,24 @@ export function SSEProvider({ children }: SSEProviderProps) {
     };
 
     es.onerror = () => {
+      // EventSource can't read HTTP status codes, but readyState at the
+      // moment onerror fires distinguishes a dead session from a transient
+      // drop: the server closing the stream (e.g. 401 once the session has
+      // expired) leaves readyState CLOSED with no browser-level retry,
+      // while a network blip leaves it CONNECTING (the browser is already
+      // retrying). Must be read before es.close() below, which itself
+      // forces readyState to CLOSED. An intentional close (unmount, our own
+      // reconnect churn) never calls this handler at all, so this can't
+      // misfire during teardown.
+      const sessionExpired = es.readyState === EventSource.CLOSED;
+
       setConnected(false);
       es.close();
       eventSourceRef.current = null;
+
+      if (sessionExpired) {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
 
       const delay = reconnectDelayRef.current;
       setError(`Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);

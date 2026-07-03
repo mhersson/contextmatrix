@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { SSEProvider, useSSEBus } from './useSSEBus';
+import { SESSION_EXPIRED_EVENT } from '../api/client';
 import type { BoardEvent } from '../types';
 import { useEffect } from 'react';
 
@@ -8,6 +9,7 @@ import { useEffect } from 'react';
 
 interface MockES {
   url: string;
+  readyState: number;
   onopen: ((ev: Event) => void) | null;
   onmessage: ((ev: MessageEvent) => void) | null;
   onerror: ((ev: Event) => void) | null;
@@ -21,7 +23,15 @@ interface MockES {
 let instances: MockES[] = [];
 
 class MockEventSource implements MockES {
+  // Mirrors the real EventSource readyState constants (spec values 0/1/2) so
+  // production code's `es.readyState === EventSource.CLOSED` comparisons
+  // work against this mock once it's installed as globalThis.EventSource.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+
   url: string;
+  readyState: number = MockEventSource.CONNECTING;
   onopen: ((ev: Event) => void) | null = null;
   onmessage: ((ev: MessageEvent) => void) | null = null;
   onerror: ((ev: Event) => void) | null = null;
@@ -37,6 +47,7 @@ class MockEventSource implements MockES {
   }
 
   _triggerOpen() {
+    this.readyState = MockEventSource.OPEN;
     this.onopen?.(new Event('open'));
   }
 
@@ -544,5 +555,80 @@ describe('reconnect epoch', () => {
       latestInstance()._triggerOpen();
     });
     expect(captured.epoch).toBe(2);
+  });
+});
+
+// ── 5. Session-loss detection on onerror ──────────────────────────────────────
+//
+// EventSource can't read HTTP status codes, but the browser exposes the
+// distinction indirectly via readyState at the moment onerror fires: a 401
+// closes the stream for good (readyState CLOSED, browser does not retry on
+// its own), while a transient network drop leaves it CONNECTING (browser
+// auto-retries). useSSEBus layers its own exponential-backoff reconnect on
+// top in both cases, but only the CLOSED case means the session is dead.
+
+describe('session-expired dispatch', () => {
+  it('dispatches SESSION_EXPIRED_EVENT when onerror fires with readyState CLOSED', () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+
+    act(() => {
+      renderWithProvider(() => {});
+    });
+
+    act(() => {
+      latestInstance().readyState = MockEventSource.CLOSED;
+      latestInstance()._triggerError();
+    });
+
+    expect(fired).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it('does not dispatch SESSION_EXPIRED_EVENT when onerror fires with readyState CONNECTING, and still reconnects', () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+
+    act(() => {
+      renderWithProvider(() => {});
+    });
+
+    act(() => {
+      latestInstance().readyState = MockEventSource.CONNECTING;
+      latestInstance()._triggerError();
+    });
+
+    expect(fired).not.toHaveBeenCalled();
+    expect(instances).toHaveLength(1); // reconnect not fired yet
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2); // reconnected after the usual 1 s backoff
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it('does not dispatch SESSION_EXPIRED_EVENT on intentional teardown (provider unmount)', () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+
+    let utils!: ReturnType<typeof renderWithProvider>;
+    act(() => {
+      utils = renderWithProvider(() => {});
+    });
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    act(() => {
+      utils.unmount();
+    });
+
+    expect(fired).not.toHaveBeenCalled();
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
   });
 });
