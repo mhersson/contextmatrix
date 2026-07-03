@@ -159,6 +159,27 @@ func jsonBody(t *testing.T, v any) *bytes.Reader {
 	return bytes.NewReader(data)
 }
 
+// jsonDecode decodes a response body into v and closes it.
+func jsonDecode(resp *http.Response, v any) error {
+	defer resp.Body.Close()
+
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// timeNow is a small shim so admin tests don't import "time" just to stamp
+// CreateUser/SetPasswordHash calls.
+func timeNow() time.Time {
+	return time.Now()
+}
+
+// authHashForTest wraps auth.HashPassword for tests that seed a user's
+// password directly via the store.
+func authHashForTest(t *testing.T, password string) (string, error) {
+	t.Helper()
+
+	return auth.HashPassword(password)
+}
+
 func TestAuthJourney_LoginSessionLogout(t *testing.T) {
 	server, _, _ := newAuthTestServer(t)
 
