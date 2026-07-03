@@ -19,7 +19,7 @@ Read these when working on the relevant area:
 
 | Document                                                       | Contents                                                                                                                                                                                                                         |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)                 | Component responsibilities, data flow, git repo scope, file layout, **trust model** (single-tenant, no auth — read before any security/auth review).                                                                             |
+| [`docs/architecture.md`](docs/architecture.md)                 | Component responsibilities, data flow, git repo scope, file layout, **trust model** (auth-mode dependent: `none` = single-tenant no-auth, `multi` = real auth — read before any security/auth review).                           |
 | [`docs/agent-workflow.md`](docs/agent-workflow.md)             | Agent orchestration model, skill files, slash commands, workflow steps, blocker recovery. Read when working on MCP, skills, or agent coordination. § Task skills: two-channel design, guard/permit, description convention.      |
 | [`docs/data-model.md`](docs/data-model.md)                     | Domain rules (full detail), card file format, Go type definitions, board config format. Read when modifying card parsing, state machine, or API validation.                                                                      |
 | [`docs/api-reference.md`](docs/api-reference.md)               | REST endpoints, agent identification, error format, response codes. Read when modifying or consuming API handlers.                                                                                                               |
@@ -30,8 +30,16 @@ Read these when working on the relevant area:
 
 ## Trust model (read this before any auth/identity review)
 
-ContextMatrix is a **single-tenant, no-auth** coordination tool. There are no
-user accounts, no logins, no per-user permissions. The deployment story is
+ContextMatrix has two authentication postures, chosen by `auth.mode`
+(`CONTEXTMATRIX_AUTH_MODE` env override; `config.yaml`'s `auth.mode`).
+**`multi` is the default** when `auth.mode` is unset — real login, sessions,
+and an admin role. `none` is CM's zero-login, single-tenant
+behavior; pick it for laptop/dev use. The two modes have materially different
+security properties — confirm the live `auth.mode` before assuming either one.
+
+### `auth.mode: none` — single-tenant, no auth (the laptop/dev choice)
+
+No user accounts, no logins, no per-user permissions. The deployment story is
 "loopback or behind a network ACL" (see `docs/api-reference.md` on the admin
 listener — same posture). If you can reach the API, you are trusted.
 
@@ -49,7 +57,7 @@ have distinct claim identities. We do **not** prompt users for usernames —
 that's pointless theatre on a tool with no auth, and the user has rejected that
 pattern explicitly.
 
-**Don't re-flag these as security issues:**
+**Don't re-flag these as security issues (none mode):**
 
 - The `human:web` REST fallback when `X-Agent-ID` is absent on write endpoints
   where the UI is the only legitimate caller.
@@ -60,20 +68,88 @@ pattern explicitly.
 - The browser-generated agent ID being "spoofable." Spoofing it accomplishes
   nothing — there is no permission gradient to escalate into.
 
-**Where identity gates DO matter:**
+**Where identity gates DO matter (none mode):**
 
 - MCP tools that gate on `human:` prefix (e.g., `promote_to_autonomous`).
   Reason: MCP is the agent interface, so an agent caller would lack the prefix;
   the gate enforces a workflow contract ("only humans promote"), not a security
   boundary. The prefix check is intentionally weak (any `human:anything`
-  passes).
+  passes) — true in both modes, since MCP never gained a session concept.
 - Card-claim / heartbeat / release endpoints check that the supplied
   `X-Agent-ID` matches `assigned_agent`. This prevents two agents from stepping
-  on each other, not unauthorized access.
+  on each other, not unauthorized access — a malicious caller can send any
+  value it likes. (In multi mode this same check becomes real enforcement;
+  see below.)
 - GitHub authentication via the shared `githubauth` module — that's real auth
-  against an external system; do not weaken or bypass.
+  against an external system in every mode; do not weaken or bypass.
 
-When in doubt: **"UI = human, case closed."**
+### `auth.mode: multi` — real authentication (the config default; team/internet-facing)
+
+Login is required for essentially the whole API, not just writes: the session
+guard (`internal/api/auth.go`) rejects any non-exempt request with no valid
+session, regardless of HTTP method. The only exemptions are `/healthz`,
+`/readyz`, `/mcp`, `/api/auth/*`, `/api/app/config` (serves a slim pre-login
+payload), and the HMAC-signed backend-callback prefixes (`/api/runner/*`,
+`/api/agent/*`, `/api/chat/*`, `/api/v1/*`). Users, sessions, one-time tokens,
+and the GitHub credential pool live in `auth.db`. On first start with zero
+users, the server logs a one-time bootstrap URL; opening it creates the first
+admin account — a real account with a real username, not theatre.
+
+- **Sessions:** passwords are argon2id-hashed (`internal/auth/password.go`). A
+  session cookie carries a random 256-bit token; only its SHA-256 hash is ever
+  persisted (`internal/auth/token.go`), so a stolen `auth.db` yields no usable
+  session. The cookie is HttpOnly + SameSite=Lax always, `Secure` whenever the
+  request arrived over TLS, and slides its expiry forward on use (default
+  30-day idle TTL). Multi mode expects TLS termination in front (reverse
+  proxy/ingress) — session cookies and one-time links must not cross an
+  untrusted network in the clear; CM does not enforce this itself.
+- **Identity:** the session middleware derives `human:<username>` and it
+  **always wins** over any `X-Agent-ID` header a browser sends
+  (`extractAgentID` in `internal/api/agents.go`) — a logged-in user cannot
+  claim a different identity by header. This is what upgrades the
+  card-claim/heartbeat/release ownership check (above) from a courtesy into
+  real enforcement: another authenticated user genuinely cannot forge your
+  claim identity. `X-Agent-ID` is consulted only when there is no session
+  (machine channels, or none mode).
+- **Admin role** is a narrower gate layered on top of login, not a
+  replacement for it. `requireAdmin` (403 `FORBIDDEN` for a non-admin) gates
+  user management (`/api/admin/users*`), the GitHub credential pool
+  (`/api/admin/credentials*`), and project management (create/update/delete,
+  recalculate-costs). Ordinary card work — claim, update, transition — needs
+  only a session, any role. At least one active admin must always exist;
+  demoting or disabling the last one is refused.
+- **GitHub credential pool:** admins register named credentials (App or PAT);
+  secrets are AES-256-GCM-encrypted at rest under a key derived from the auth
+  master key (auto-generated 0600 file — point it at real secret management
+  in production). A project's `.board.yaml` `github_credential` field binds it
+  to one pool entry, scoping that project's GitHub operations to that
+  credential; a broken binding fails closed rather than silently falling back.
+  Unbound projects keep using the instance-wide `githubauth` provider, same as
+  none mode.
+
+### Both modes — the machine channels don't change
+
+- **MCP** is Bearer-token auth (`mcp_api_key` config), independent of
+  `auth.mode`.
+- **Backend webhooks** (runner/agent callbacks) are HMAC-signed, independent
+  of `auth.mode`.
+- **`/healthz` and `/readyz`** are open in both modes.
+- **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only
+  in both modes.
+- **The CSRF gate** (`X-Requested-With: contextmatrix`) runs unconditionally
+  in both modes — a separate defense from the session guard, not replaced
+  by it.
+- **MCP's `create_project` / `update_project` / `delete_project` are NOT
+  behind the admin gate, in either mode.** MCP is the Bearer-keyed machine
+  channel — there is no admin/role concept in MCP at all, for any tool. This
+  is safe: the `update_project` MCP tool's input has no `github_credential`
+  field, so it structurally cannot touch credential bindings — there is no
+  privilege-escalation path from "holds the MCP bearer key" to "controls the
+  credential pool."
+- **UI = human** holds in both modes: an unauthenticated human behind the
+  CSRF gate in `none`; an authenticated, session-bound human in `multi`.
+
+When in doubt: check `auth.mode` first — the rest of this section forks on it.
 
 ## Architecture
 
