@@ -566,7 +566,7 @@ func observe(next http.Handler) http.Handler {
 
 		attrs := []any{
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", redactPath(r.URL.Path),
 			"status", rw.statusCode,
 			"duration_ms", dur.Milliseconds(),
 		}
@@ -602,6 +602,17 @@ func observe(next http.Handler) http.Handler {
 		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, pattern, strconv.Itoa(rw.statusCode)).Inc()
 		metrics.HTTPRequestDuration.WithLabelValues(r.Method, pattern).Observe(dur.Seconds())
 	})
+}
+
+// redactPath masks path segments that carry secrets. One-time tokens travel
+// in the URL (/api/auth/token/<raw>); the raw value must never reach a log
+// line. Metrics are unaffected — they label by r.Pattern, not the raw path.
+func redactPath(path string) string {
+	if strings.HasPrefix(path, "/api/auth/token/") {
+		return "/api/auth/token/[redacted]"
+	}
+
+	return path
 }
 
 // chain applies middleware in order (first middleware is outermost).

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,6 +213,24 @@ func TestLogin_RehashesWeakHash(t *testing.T) {
 	require.NotNil(t, got.PasswordHash)
 	assert.NotEqual(t, weak, *got.PasswordHash, "weak hash upgraded on successful login")
 	assert.False(t, NeedsRehash(*got.PasswordHash))
+}
+
+func TestLogin_OverlongUsernameRejectedBeforeLimiter(t *testing.T) {
+	svc, store, _ := newTestService(t)
+	ctx := context.Background()
+
+	seedUser(t, svc, store, "alice", "correct horse battery", false)
+
+	long := strings.Repeat("a", 300)
+
+	_, _, err := svc.Login(ctx, long, "whatever12", "1.2.3.4")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+
+	svc.limiter.mu.Lock()
+	n := len(svc.limiter.entries)
+	svc.limiter.mu.Unlock()
+
+	assert.Zero(t, n, "overlong usernames must never become limiter keys")
 }
 
 // weakTestHash builds a valid argon2id PHC string with weaker-than-current

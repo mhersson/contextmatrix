@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -422,4 +423,25 @@ func TestAuthJourney_BootstrapOverHTTP(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
 	assert.Equal(t, "admin", user.Username)
 	assert.True(t, user.IsAdmin)
+}
+
+func TestObserve_RedactsTokenPaths(t *testing.T) {
+	var buf bytes.Buffer
+
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	prev := slog.Default()
+
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	server, _, _ := newAuthTestServer(t)
+
+	resp, err := http.Get(server.URL + "/api/auth/token/super-secret-raw-token")
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "super-secret-raw-token", "raw one-time tokens must not reach log lines")
+	assert.Contains(t, logs, "/api/auth/token/[redacted]")
 }
