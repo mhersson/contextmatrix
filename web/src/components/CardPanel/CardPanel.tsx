@@ -23,7 +23,7 @@ interface CardPanelProps {
   onClaim: (agentId: string) => Promise<void>;
   onRelease: (agentId: string) => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
-  currentAgentId: string;
+  currentAgentId: string | null;
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
 }
@@ -89,6 +89,11 @@ export function CardPanel(props: CardPanelProps) {
     useBranches(card.project, !!config.remote_execution?.enabled);
 
   const handleClaim = useCallback(async () => {
+    // currentAgentId is null in multi mode (identity comes from the session,
+    // not a client-generated id) — the claim button no-ops rather than
+    // sending a null agent_id. Wiring session-derived claim identity is
+    // tracked separately.
+    if (!currentAgentId) return;
     await onClaim(currentAgentId);
   }, [currentAgentId, onClaim]);
 

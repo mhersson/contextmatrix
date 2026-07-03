@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useContext, createContext } 
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { api } from '../api/client';
+import { useOptionalAuth } from './useAuth';
 
 type Theme = 'dark' | 'light';
 type Palette = 'everforest' | 'radix' | 'catppuccin';
@@ -105,6 +106,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [taskBackend, setTaskBackend] = useState('');
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
 
+  // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
+  // (wired in a later task), and pre-existing tests render ThemeProvider
+  // standalone. useOptionalAuth() returns null in both cases instead of
+  // throwing.
+  const user = useOptionalAuth()?.user ?? null;
+
   useEffect(() => {
     safeSet(STORAGE_KEY, theme);
     applyTheme(theme);
@@ -132,7 +139,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
-  }, []);
+    // Refetch after login: the pre-login multi-mode payload is slim
+    // (theme/version/auth_mode only); task_backend and favorites arrive
+    // only on the authenticated fetch.
+  }, [user?.username]);
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));

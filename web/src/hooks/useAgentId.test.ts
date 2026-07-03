@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useAgentId } from './useAgentId';
+import { api } from '../api/client';
 
 const STORAGE_KEY = 'contextmatrix-agent-id';
 const ID_PATTERN = /^human:web-[a-f0-9]{8}$/;
@@ -33,16 +34,34 @@ beforeEach(() => {
 
 describe('useAgentId', () => {
   it('generates a fresh id and persists it when storage is empty', () => {
-    const { result } = renderHook(() => useAgentId());
+    const { result } = renderHook(() => useAgentId(true));
     expect(result.current.agentId).toMatch(ID_PATTERN);
     expect(localStorageMock.getItem(STORAGE_KEY)).toBe(result.current.agentId);
   });
 
   it('preserves an existing localStorage id across mounts', () => {
     localStorageMock.setItem(STORAGE_KEY, 'human:web-abcdef12');
-    const { result } = renderHook(() => useAgentId());
+    const { result } = renderHook(() => useAgentId(true));
     expect(result.current.agentId).toBe('human:web-abcdef12');
   });
+});
+
+it('disabled: generates nothing, stores nothing, clears the client id', () => {
+  localStorage.clear();
+  const setAgentId = vi.spyOn(api, 'setAgentId');
+
+  const { result } = renderHook(() => useAgentId(false));
+
+  expect(result.current.agentId).toBeNull();
+  expect(localStorage.getItem('contextmatrix-agent-id')).toBeNull();
+  expect(setAgentId).toHaveBeenCalledWith(null);
+});
+
+it('enabled keeps the existing behavior', () => {
+  localStorage.clear();
+
+  const { result } = renderHook(() => useAgentId(true));
+  expect(result.current.agentId).toMatch(/^human:web-[0-9a-f]{8}$/);
 });
 
 describe('useAgentId localStorage resilience', () => {
@@ -50,7 +69,7 @@ describe('useAgentId localStorage resilience', () => {
     localStorageMock.getItem.mockImplementationOnce(() => {
       throw new Error('quota');
     });
-    const { result } = renderHook(() => useAgentId());
+    const { result } = renderHook(() => useAgentId(true));
     expect(result.current.agentId).toMatch(ID_PATTERN);
   });
 
@@ -58,7 +77,7 @@ describe('useAgentId localStorage resilience', () => {
     localStorageMock.setItem.mockImplementationOnce(() => {
       throw new Error('quota');
     });
-    const { result } = renderHook(() => useAgentId());
+    const { result } = renderHook(() => useAgentId(true));
     expect(result.current.agentId).toMatch(ID_PATTERN);
   });
 
@@ -69,8 +88,8 @@ describe('useAgentId localStorage resilience', () => {
     localStorageMock.setItem.mockImplementation(() => {
       throw new Error('disabled');
     });
-    expect(() => renderHook(() => useAgentId())).not.toThrow();
-    const { result } = renderHook(() => useAgentId());
+    expect(() => renderHook(() => useAgentId(true))).not.toThrow();
+    const { result } = renderHook(() => useAgentId(true));
     expect(result.current.agentId).toMatch(ID_PATTERN);
   });
 });

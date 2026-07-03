@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, isAPIError } from './client';
+import { api, isAPIError, SESSION_EXPIRED_EVENT } from './client';
 import type { Card, APIError } from '../types';
 
 const baseCard: Card = {
@@ -197,6 +197,68 @@ describe('api.promoteCardToAutonomous', () => {
 
     expect(isAPIError(caught)).toBe(true);
     expect((caught as APIError).code).toBe('RUNNER_DISABLED');
+  });
+});
+
+describe('auth endpoints', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('login POSTs credentials and returns the user', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ username: 'alice', display_name: 'Alice', is_admin: true })
+    );
+
+    const user = await api.login('alice', 'pw1234567890');
+
+    expect(user.username).toBe('alice');
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/auth/login');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ username: 'alice', password: 'pw1234567890' });
+  });
+
+  it('redeemToken POSTs to the token path', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeResponse({ username: 'carol', display_name: '', is_admin: false })
+    );
+
+    await api.redeemToken('tok-raw', { password: 'pw1234567890' });
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/auth/token/tok-raw');
+  });
+
+  it('dispatches session-expired on 401 from a non-auth path', async () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeErrorResponse('UNAUTHORIZED', 'authentication required', 401)
+    );
+
+    await expect(api.getProjects()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(fired).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it('does NOT dispatch session-expired for auth-path 401s', async () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      makeErrorResponse('UNAUTHORIZED', 'invalid credentials', 401)
+    );
+    await expect(api.login('alice', 'wrong')).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    fetchSpy.mockResolvedValue(makeErrorResponse('UNAUTHORIZED', 'authentication required', 401));
+    await expect(api.getAuthSession()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    expect(fired).not.toHaveBeenCalled();
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
   });
 });
 

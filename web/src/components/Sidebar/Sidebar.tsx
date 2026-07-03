@@ -7,6 +7,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
+import { UserMenu } from './UserMenu';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -154,7 +155,8 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         )}
       </nav>
 
-      <div className="px-3 py-3 border-t" style={{ borderColor: 'var(--bg3)' }}>
+      <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>
+        <UserMenu />
         <button
           onClick={onNewProject}
           className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors hover:opacity-80"

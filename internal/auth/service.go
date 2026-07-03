@@ -73,6 +73,16 @@ func (s *Service) IdleTTL() time.Duration { return s.idleTTL }
 // stored). Failures are uniform ErrInvalidCredentials; repeated failures per
 // account+IP earn a RateLimitedError.
 func (s *Service) Login(ctx context.Context, username, password, clientIP string) (*authstore.User, string, error) {
+	// Bound the username before it becomes a limiter key — the rule caps
+	// usernames at 32 chars, and unbounded attacker-chosen keys would grow
+	// the limiter map. Burn comparable time so the early reject is not a
+	// username-length oracle either.
+	if len(authstore.NormalizeUsername(username)) > 32 {
+		_, _ = VerifyPassword(password, s.timingDummyHash())
+
+		return nil, "", ErrInvalidCredentials
+	}
+
 	key := authstore.NormalizeUsername(username) + "|" + clientIP
 
 	if retry, ok := s.limiter.Allow(key); !ok {
