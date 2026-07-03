@@ -2501,6 +2501,61 @@ func TestUpdateProject(t *testing.T) {
 	}
 }
 
+// TestUpdateProject_GitHubCredentialRoundTrip exercises the *string pointer
+// semantics for GitHubCredential (nil = preserve, "" = clear, value = set)
+// and confirms the value actually persists to .board.yaml on disk — not just
+// the in-memory store cache — by reloading it with board.LoadProjectConfig.
+func TestUpdateProject_GitHubCredentialRoundTrip(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	projectDir := filepath.Join(tmpDir, "boards", "test-project")
+
+	ctx := context.Background()
+
+	baseInput := func(cred *string) UpdateProjectInput {
+		return UpdateProjectInput{
+			States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+			Types:      []string{"task", "bug", "feature"},
+			Priorities: []string{"low", "medium", "high"},
+			Transitions: map[string][]string{
+				"todo":        {"in_progress"},
+				"in_progress": {"done", "todo"},
+				"done":        {"todo"},
+				"stalled":     {"todo", "in_progress"},
+				"not_planned": {"todo"},
+			},
+			GitHubCredential: cred,
+		}
+	}
+
+	newCred := "acme-pat"
+
+	// Set.
+	cfg, err := svc.UpdateProject(ctx, "test-project", baseInput(&newCred))
+	require.NoError(t, err)
+	assert.Equal(t, "acme-pat", cfg.GitHubCredential)
+
+	reloaded, err := board.LoadProjectConfig(projectDir)
+	require.NoError(t, err)
+	assert.Equal(t, "acme-pat", reloaded.GitHubCredential, "value must round-trip through .board.yaml on disk")
+
+	// Preserve: nil pointer leaves the existing value untouched.
+	cfg, err = svc.UpdateProject(ctx, "test-project", baseInput(nil))
+	require.NoError(t, err)
+	assert.Equal(t, "acme-pat", cfg.GitHubCredential, "nil pointer must preserve the existing value")
+
+	// Clear: non-nil empty string clears it.
+	empty := ""
+	cfg, err = svc.UpdateProject(ctx, "test-project", baseInput(&empty))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.GitHubCredential, "empty string must clear the value")
+
+	reloaded, err = board.LoadProjectConfig(projectDir)
+	require.NoError(t, err)
+	assert.Empty(t, reloaded.GitHubCredential, "clear must round-trip through .board.yaml on disk")
+}
+
 func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

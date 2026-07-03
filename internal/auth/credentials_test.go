@@ -121,6 +121,30 @@ func TestListCredentials_SecretsZeroed(t *testing.T) {
 	assert.Nil(t, creds[0].EncryptedSecret, "list strips even the ciphertext")
 }
 
+func TestCredentialExists(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "acme-pat", Kind: authstore.CredentialKindPAT, Secret: "s"}, "human:root"))
+
+	exists, err := svc.CredentialExists(ctx, "acme-pat")
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	exists, err = svc.CredentialExists(ctx, "does-not-exist")
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	// Disabled entries still count as existing — the binding target must
+	// exist; whether it's usable is a runtime resolution concern.
+	require.NoError(t, svc.SetCredentialDisabled(ctx, "acme-pat", true))
+
+	exists, err = svc.CredentialExists(ctx, "acme-pat")
+	require.NoError(t, err)
+	assert.True(t, exists, "disabled credentials still count as existing")
+}
+
 func TestUpdateCredentialMetadata_ReValidates(t *testing.T) {
 	svc, _, checked := credService(t)
 	ctx := context.Background()

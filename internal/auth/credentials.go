@@ -165,6 +165,23 @@ func (s *Service) DeleteCredential(ctx context.Context, name string) error {
 	return s.store.DeleteCredential(ctx, name)
 }
 
+// CredentialExists reports whether a pool entry with this name exists.
+// Disabled entries still count as existing — .board.yaml bindings validate
+// against the name space, not current usability; a disabled credential is a
+// runtime resolution failure (fail-closed), not an invalid binding.
+func (s *Service) CredentialExists(ctx context.Context, name string) (bool, error) {
+	_, err := s.store.CredentialByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, authstore.ErrNotFound) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
+}
+
 // ListCredentials returns pool entries with even the ciphertext stripped —
 // no caller of this method has any business holding encrypted bytes.
 func (s *Service) ListCredentials(ctx context.Context) ([]*authstore.Credential, error) {

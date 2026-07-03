@@ -41,6 +41,11 @@ type UpdateProjectInput struct {
 	Priorities  []string
 	Transitions map[string][]string
 	GitHub      *board.GitHubImportConfig
+	// GitHubCredential uses pointer-presence semantics (matches GitHub above):
+	//   nil pointer   — preserve the existing value
+	//   non-nil ""    — clear the binding (fall back to the instance credential)
+	//   non-nil value — set the binding to this pool entry name
+	GitHubCredential *string
 	// DefaultSkills uses wholesale-PUT semantics (replaces existing):
 	//   nil pointer       — clear (mount the full task-skills set)
 	//   non-nil empty     — mount no skills
@@ -217,6 +222,10 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	cfg.Transitions = input.Transitions
 	if input.GitHub != nil {
 		cfg.GitHub = input.GitHub
+	}
+
+	if input.GitHubCredential != nil {
+		cfg.GitHubCredential = *input.GitHubCredential
 	}
 
 	// DefaultSkills follows wholesale PUT semantics (matches cards' PUT

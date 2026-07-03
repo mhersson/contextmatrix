@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -22,13 +23,14 @@ type createProjectRequest struct {
 
 // updateProjectRequest is the JSON body for PUT /api/projects/{project}.
 type updateProjectRequest struct {
-	Repo          string                    `json:"repo,omitempty"`
-	States        []string                  `json:"states"`
-	Types         []string                  `json:"types"`
-	Priorities    []string                  `json:"priorities"`
-	Transitions   map[string][]string       `json:"transitions"`
-	GitHub        *board.GitHubImportConfig `json:"github,omitempty"`
-	DefaultSkills *[]string                 `json:"default_skills,omitempty"`
+	Repo             string                    `json:"repo,omitempty"`
+	States           []string                  `json:"states"`
+	Types            []string                  `json:"types"`
+	Priorities       []string                  `json:"priorities"`
+	Transitions      map[string][]string       `json:"transitions"`
+	GitHub           *board.GitHubImportConfig `json:"github,omitempty"`
+	DefaultSkills    *[]string                 `json:"default_skills,omitempty"`
+	GitHubCredential *string                   `json:"github_credential"`
 }
 
 // projectHandlers contains handlers for project-related endpoints.
@@ -36,6 +38,13 @@ type projectHandlers struct {
 	svc           *service.CardService
 	runnerEnabled bool
 	taskSkills    *taskSkillsLister
+	// authEnabled mirrors NewRouter's cfg.AuthService != nil signal — the
+	// existing multi-vs-none-mode distinction, not a new one. When false,
+	// github_credential bindings are rejected outright (fail-closed).
+	authEnabled bool
+	// credentialExists looks up a name in the instance credential pool; nil
+	// in none mode (authEnabled is false, so it is never called).
+	credentialExists func(ctx context.Context, name string) (bool, error)
 }
 
 // effectiveRemoteExecution returns a cloned project config with remote_execution.enabled
@@ -218,14 +227,42 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Validate github_credential: reference-only, must resolve within the
+	// instance credential pool in multi mode. In none mode a real binding is
+	// rejected outright rather than silently ignored — a named-but-broken
+	// credential binding must never quietly fall back to the instance
+	// credential.
+	if req.GitHubCredential != nil && *req.GitHubCredential != "" {
+		if !h.authEnabled {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
+				"credential bindings require multi-user mode", "")
+
+			return
+		}
+
+		exists, err := h.credentialExists(r.Context(), *req.GitHubCredential)
+		if err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		if !exists {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "unknown credential", "")
+
+			return
+		}
+	}
+
 	cfg, err := h.svc.UpdateProject(r.Context(), projectName, service.UpdateProjectInput{
-		Repo:          req.Repo,
-		States:        req.States,
-		Types:         req.Types,
-		Priorities:    req.Priorities,
-		Transitions:   req.Transitions,
-		GitHub:        req.GitHub,
-		DefaultSkills: req.DefaultSkills,
+		Repo:             req.Repo,
+		States:           req.States,
+		Types:            req.Types,
+		Priorities:       req.Priorities,
+		Transitions:      req.Transitions,
+		GitHub:           req.GitHub,
+		DefaultSkills:    req.DefaultSkills,
+		GitHubCredential: req.GitHubCredential,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)

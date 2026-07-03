@@ -38,21 +38,26 @@ type GitHubImportConfig struct {
 // ProjectConfig represents the configuration of a project board.
 // Stored in boards/{project}/.board.yaml.
 type ProjectConfig struct {
-	Name            string                   `yaml:"name" json:"name"`
-	DisplayName     string                   `yaml:"display_name,omitempty" json:"display_name,omitempty"`
-	Prefix          string                   `yaml:"prefix" json:"prefix"`
-	NextID          int                      `yaml:"next_id" json:"next_id"`
-	Repo            string                   `yaml:"repo,omitempty" json:"repo,omitempty"`
-	Repos           []Repo                   `yaml:"repos,omitempty" json:"repos,omitempty"`
-	States          []string                 `yaml:"states" json:"states"`
-	Types           []string                 `yaml:"types" json:"types"`
-	Priorities      []string                 `yaml:"priorities" json:"priorities"`
-	Transitions     map[string][]string      `yaml:"transitions" json:"transitions"`
-	RemoteExecution *RemoteExecutionConfig   `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
-	GitHub          *GitHubImportConfig      `yaml:"github,omitempty"           json:"github,omitempty"`
-	DefaultSkills   *[]string                `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
-	Favorites       map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
-	Templates       map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
+	Name        string `yaml:"name" json:"name"`
+	DisplayName string `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Prefix      string `yaml:"prefix" json:"prefix"`
+	NextID      int    `yaml:"next_id" json:"next_id"`
+	Repo        string `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Repos       []Repo `yaml:"repos,omitempty" json:"repos,omitempty"`
+	// GitHubCredential names an instance credential-pool entry that all
+	// GitHub operations for this project use (multi-user mode). Empty means
+	// the instance github.* credential — the pre-multi-user behavior. A
+	// reference only; never secret material.
+	GitHubCredential string                   `yaml:"github_credential,omitempty" json:"github_credential,omitempty"`
+	States           []string                 `yaml:"states" json:"states"`
+	Types            []string                 `yaml:"types" json:"types"`
+	Priorities       []string                 `yaml:"priorities" json:"priorities"`
+	Transitions      map[string][]string      `yaml:"transitions" json:"transitions"`
+	RemoteExecution  *RemoteExecutionConfig   `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
+	GitHub           *GitHubImportConfig      `yaml:"github,omitempty"           json:"github,omitempty"`
+	DefaultSkills    *[]string                `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
+	Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
+	Templates        map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
 }
 
 var (

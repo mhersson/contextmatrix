@@ -562,6 +562,10 @@ func main() {
 		routerCfg.Catalog = catalogBuilder
 	}
 
+	if authSvc != nil {
+		routerCfg.CredentialExists = authSvc.CredentialExists
+	}
+
 	if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
 		toViews := func(eps []modelcatalog.EndpointModel) []api.EndpointModelView {
 			out := make([]api.EndpointModelView, len(eps))

@@ -176,6 +176,10 @@ type RouterConfig struct {
 	// AuthMode is surfaced in GET /api/app/config ("multi"/"none"); empty
 	// is reported as "none".
 	AuthMode string
+	// CredentialExists looks up a name in the instance credential pool, for
+	// validating .board.yaml github_credential bindings on project update.
+	// nil in none mode (mirrors AuthService's nil-in-none-mode contract).
+	CredentialExists func(ctx context.Context, name string) (bool, error)
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -205,7 +209,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	taskSkillsLister := newTaskSkillsLister(cfg.TaskSkillsDir)
 	tsh := &taskSkillHandlers{lister: taskSkillsLister}
 
-	ph := &projectHandlers{svc: cfg.Service, runnerEnabled: cfg.Runner != nil, taskSkills: taskSkillsLister}
+	ph := &projectHandlers{
+		svc:              cfg.Service,
+		runnerEnabled:    cfg.Runner != nil,
+		taskSkills:       taskSkillsLister,
+		authEnabled:      cfg.AuthService != nil,
+		credentialExists: cfg.CredentialExists,
+	}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
 	ah := &agentHandlers{svc: cfg.Service}
 	acth := &activityHandlers{svc: cfg.Service}
