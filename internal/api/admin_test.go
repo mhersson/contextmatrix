@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -241,4 +244,132 @@ func TestAdminUsers_ErrorMappings(t *testing.T) {
 		require.NoError(t, jsonDecode(resp, &apiErr))
 		assert.Equal(t, ErrCodeUserNotFound, apiErr.Code)
 	})
+}
+
+func TestAdminCredentials_Journey(t *testing.T) {
+	server, admin, bob := adminTestServer(t)
+
+	// Non-admin: 403.
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/admin/credentials", nil)
+	req.AddCookie(bob)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Create (checker is stubbed to success in newAuthTestServer's service —
+	// see Step 3 note below).
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
+		jsonBody(t, map[string]any{"name": "acme-pat", "kind": "pat", "secret": "ghp_zzz"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(body))
+	assert.NotContains(t, string(body), "ghp_zzz", "no response ever carries a secret")
+
+	// List: metadata only.
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/admin/credentials", nil)
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	body, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	assert.Contains(t, string(body), `"acme-pat"`)
+	assert.NotContains(t, string(body), "ghp_zzz")
+	assert.NotContains(t, string(body), "secret", "no secret-shaped field in list responses")
+
+	// Rotate via PUT with secret.
+	req, _ = http.NewRequest(http.MethodPut, server.URL+"/api/admin/credentials/acme-pat",
+		jsonBody(t, map[string]any{"secret": "ghp_new"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Disable, then delete.
+	req, _ = http.NewRequest(http.MethodPut, server.URL+"/api/admin/credentials/acme-pat",
+		jsonBody(t, map[string]any{"disabled": true}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	req, _ = http.NewRequest(http.MethodDelete, server.URL+"/api/admin/credentials/acme-pat", nil)
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
+func TestAdminCredentials_ValidationErrors(t *testing.T) {
+	server, admin, _ := adminTestServer(t)
+
+	// Shape error → 422.
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
+		jsonBody(t, map[string]any{"name": "Bad Name", "kind": "pat", "secret": "x"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}
+
+// TestAdminCredentials_GitHubRejection overrides the auth.Service's checker
+// (set up in newAuthTestServer) to exercise the 422 GitHub-rejection path
+// over HTTP. adminTestServer wraps newAuthTestServer but doesn't return the
+// svc handle, so this test drives newAuthTestServer directly and seeds its
+// own admin session.
+func TestAdminCredentials_GitHubRejection(t *testing.T) {
+	server, svc, _ := newAuthTestServer(t)
+
+	svc.SetCredentialChecker(func(context.Context, auth.CredentialInput) error {
+		return assert.AnError
+	})
+
+	adminCookie := login(t, server, "root", "root password1")
+
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
+		jsonBody(t, map[string]any{"name": "rejected-pat", "kind": "pat", "secret": "ghp_bad"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(adminCookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, string(body))
+	assert.NotContains(t, string(body), "ghp_bad", "no response ever carries a secret, even on rejection")
 }

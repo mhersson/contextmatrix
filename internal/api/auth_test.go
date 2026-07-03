@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -34,6 +36,15 @@ func newAuthTestServer(t *testing.T) (*httptest.Server, *auth.Service, *authstor
 	hash, err := auth.HashPassword("root password1")
 	require.NoError(t, err)
 	require.NoError(t, store.SetPasswordHash(t.Context(), u.ID, hash, time.Now()))
+
+	// Credential-pool wiring: a random 32-byte subkey and a success-stub
+	// GitHub checker, so admin-credential HTTP tests never touch the network.
+	// Additive only — no existing behavior/assertion depends on this.
+	credKey := make([]byte, 32)
+	_, err = rand.Read(credKey)
+	require.NoError(t, err)
+	svc.SetCredentialKey(credKey)
+	svc.SetCredentialChecker(func(context.Context, auth.CredentialInput) error { return nil })
 
 	// TaskSkillsDir gives us a cheap session-gated GET route
 	// (GET /api/task-skills) without wiring the full card service.

@@ -282,7 +282,7 @@ func main() {
 	var authSvc *auth.Service
 
 	if cfg.Auth.Mode == config.AuthModeMulti {
-		_, keyCreated, err := auth.LoadOrCreateMasterKey(cfg.Auth.MasterKeyFile)
+		masterKey, keyCreated, err := auth.LoadOrCreateMasterKey(cfg.Auth.MasterKeyFile)
 		if err != nil {
 			slog.Error("failed to load auth master key", "path", cfg.Auth.MasterKeyFile, "error", err)
 			cancel()
@@ -313,6 +313,15 @@ func main() {
 		}
 
 		authSvc = auth.NewService(authStore, idleTTL)
+
+		credKey, err := auth.DeriveKey(masterKey, auth.KeyPurposeCredentials)
+		if err != nil {
+			slog.Error("failed to derive credential key", "error", err)
+			cancel()
+			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		}
+
+		authSvc.SetCredentialKey(credKey)
 
 		// First-start bootstrap: with zero users nobody can log in, so mint
 		// a one-time admin-creation link and print it. Re-issued on every

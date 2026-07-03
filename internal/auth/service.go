@@ -53,6 +53,9 @@ type Service struct {
 
 	dummyOnce sync.Once
 	dummyHash string
+
+	credKey   []byte
+	credCheck CredentialChecker
 }
 
 // NewService wires a Service on the real clock.

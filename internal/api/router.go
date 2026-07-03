@@ -295,6 +295,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/admin/users", adh.createUser)
 		mux.HandleFunc("PATCH /api/admin/users/{username}", adh.patchUser)
 		mux.HandleFunc("POST /api/admin/users/{username}/invite", adh.regenerateLink)
+
+		mux.HandleFunc("GET /api/admin/credentials", adh.listCredentials)
+		mux.HandleFunc("POST /api/admin/credentials", adh.createCredential)
+		mux.HandleFunc("PUT /api/admin/credentials/{name}", adh.putCredential)
+		mux.HandleFunc("DELETE /api/admin/credentials/{name}", adh.deleteCredential)
 	}
 
 	// Task-skills (used by project default + per-card skill selectors in the UI)
