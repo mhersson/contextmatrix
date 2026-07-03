@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -186,6 +187,11 @@ type RouterConfig struct {
 	// wires it in both auth modes; nil in tests preserves the old
 	// fixed-provider path.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
+	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
+	// runner/agent trigger payload (single admin-managed key, rotated in one
+	// place). nil when llm_endpoint is unset — backends then fall back to
+	// their own local config, matching pre-token-authority behavior.
+	LLMEndpoint *protocol.LLMEndpoint
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -351,6 +357,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		blacklist:              cfg.Blacklist,
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
+		providerForProject:     cfg.ProviderForProject,
+		llmEndpoint:            cfg.LLMEndpoint,
+		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
@@ -380,6 +389,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
 		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
+		mux.HandleFunc("GET "+cb+"/git-credentials", rh.getGitCredentials)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
@@ -450,6 +460,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			replayCache:            runner.NewSignatureCache(),
 			taskSkillsDir:          cfg.TaskSkillsDir,
 			taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
+			instanceTokenProvider:  cfg.GitHubTokenProvider,
 		}
 		mux.HandleFunc("GET "+cfg.ChatBackendCfg.CallbackPath()+"/task-skills-source", cbh.getTaskSkillsSource)
 	}

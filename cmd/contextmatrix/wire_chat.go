@@ -68,6 +68,7 @@ func wireChat(
 		DefaultModel:       chatDefaultModel,
 		PrimerPath:         primerPath,
 		Pricer:             svc,
+		LLMEndpoint:        llmEndpointFromConfig(cfg.LLMEndpoint),
 		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {

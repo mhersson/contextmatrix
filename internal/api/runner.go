@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -71,6 +72,25 @@ type runnerHandlers struct {
 	// replayed HMAC signatures. Populated at construction time; non-nil
 	// whenever a runner API key is configured.
 	replayCache *runner.SignatureCache
+
+	// providerForProject resolves the project-scoped git-token provider used
+	// to mint the trigger payload's GitToken: the project's credential
+	// binding when set (fail-closed on a broken one), else the instance
+	// provider. nil preserves pre-token-authority behavior — no GitToken is
+	// attached and the trigger is never rejected on its account.
+	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
+
+	// llmEndpoint is the CM-provisioned inference endpoint attached to every
+	// trigger payload. nil when llm_endpoint is unconfigured — backends then
+	// fall back to their own local config.
+	llmEndpoint *protocol.LLMEndpoint
+
+	// instanceTokenProvider mints the instance-scoped git credential attached
+	// to task-skills-source responses. Unlike providerForProject (per-project,
+	// fail-closed on a broken binding), this is the flat instance provider —
+	// task-skills is never project-scoped, so there is no binding to fail
+	// closed on. nil disables the token fields (pre-token-authority behavior).
+	instanceTokenProvider githubauth.TokenGenerator
 
 	// healthCache memoises /runner/health responses so concurrent browser tabs
 	// don't each fire a fresh probe at the runner — and so a runner outage
@@ -279,6 +299,29 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Mint the project-scoped git token. Fail closed: a broken binding
+	// rejects the run — never the instance credential by accident.
+	if h.providerForProject != nil {
+		provider, _, providerErr := h.providerForProject(r.Context(), project)
+		if providerErr != nil {
+			h.rejectRunForCredentialFailure(w, r, project, id, providerErr)
+
+			return
+		}
+
+		token, expiresAt, tokenErr := provider.GenerateToken(r.Context())
+		if tokenErr != nil {
+			h.rejectRunForCredentialFailure(w, r, project, id, tokenErr)
+
+			return
+		}
+
+		payload.GitToken = token
+		payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
+	}
+
+	payload.LLMEndpoint = h.llmEndpoint
+
 	// Send trigger webhook.
 	if err := h.runner.Trigger(r.Context(), payload); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner webhook failed", "card_id", id, "project", project, "error", err)
@@ -299,6 +342,47 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusAccepted, card)
+}
+
+// rejectRunForCredentialFailure writes the fail-closed 409 response for a
+// broken or unresolvable project git-token provider (either providerForProject
+// itself failed, or the resolved provider's GenerateToken call did).
+//
+// runCard has already set runner_status to "queued" by this point, so the
+// rejection first reverts it to "failed" — mirroring the webhook-failure
+// revert below (context.WithoutCancel so a client disconnect cannot strand
+// the rollback). Without the revert, the already-queued guard at the top of
+// runCard would 409 every future trigger of this card until a manual stop.
+// The revert runs before the activity append so the run-rejected trace stays
+// the most recent entry (UpdateRunnerStatus appends its own runner_status
+// entry). Both writes are best-effort: failures are logged but never change
+// the 409 response, since the caller has already been told the run was
+// rejected.
+//
+// err is only ever a credential-resolution error from internal/auth (embeds
+// the credential/project name, never secret material) or a githubauth
+// provider error (JWT/HTTP-status class messages, never the token or key);
+// sanitizeErrorDetails additionally scrubs any transport/filesystem-path
+// leakage, so it is safe to surface as the error's details field here.
+func (h *runnerHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r *http.Request, project, id string, err error) {
+	revertCtx := context.WithoutCancel(r.Context())
+	if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
+		"trigger rejected: project credential unavailable"); revertErr != nil {
+		ctxlog.Logger(r.Context()).Error("failed to revert runner status after credential failure",
+			"card_id", id, "project", project, "error", revertErr)
+	}
+
+	if _, logErr := h.svc.AddLogEntry(revertCtx, project, id, board.ActivityEntry{
+		Agent:   "system",
+		Action:  "run-rejected",
+		Message: fmt.Sprintf("run rejected: project credential unavailable (%s)", project),
+	}); logErr != nil {
+		ctxlog.Logger(r.Context()).Error("failed to record run-rejected activity entry",
+			"card_id", id, "project", project, "error", logErr)
+	}
+
+	writeError(w, http.StatusConflict, ErrCodeValidationError,
+		"project credential unavailable", sanitizeErrorDetails(err))
 }
 
 // maxMessageContentSize is the maximum allowed byte length for a human message.
@@ -738,8 +822,50 @@ func (h *runnerHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Requ
 	}
 
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
+	})
+}
+
+// mintInstanceToken best-effort mints an instance-scoped git token for a
+// task-skills-source response. See the asymmetry comment on
+// taskSkillsSourceResponse: unlike getGitCredentials (fail-closed on a broken
+// project binding), this never fails the request — a nil provider or a mint
+// error just returns empty strings, and the caller falls back to its own
+// configured credential during the compat window.
+//
+// err is only ever a githubauth provider error (JWT/HTTP-status class
+// messages, never the token itself), so logging "error", err here is safe —
+// mirrors the class-only logging already used for provider errors elsewhere
+// in this file.
+func mintInstanceToken(ctx context.Context, provider githubauth.TokenGenerator) (token, expiresAt string) {
+	if provider == nil {
+		return "", ""
+	}
+
+	tok, exp, err := provider.GenerateToken(ctx)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("failed to mint instance token for task-skills-source; continuing without it",
+			"error", err)
+
+		return "", ""
+	}
+
+	return tok, tokenExpiryString(exp)
+}
+
+// tokenExpiryString formats a minted token's expiry for the wire. Zero and
+// far-future sentinel expiries (githubauth's PATProvider reports year 9999 —
+// a PAT has no server-managed TTL) are omitted entirely: an absent expiry
+// means "do not schedule a refresh", which is exactly the PAT semantic.
+func tokenExpiryString(t time.Time) string {
+	if t.IsZero() || t.Year() >= 9000 {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }
 
 // chatBackendHandlers serves the HMAC-signed callbacks the dedicated chat
@@ -752,6 +878,11 @@ type chatBackendHandlers struct {
 	replayCache            *runner.SignatureCache
 	taskSkillsDir          string
 	taskSkillsGitRemoteURL string
+
+	// instanceTokenProvider mirrors runnerHandlers.instanceTokenProvider —
+	// same instance-scoped, best-effort mint for the chat variant's
+	// task-skills-source response.
+	instanceTokenProvider githubauth.TokenGenerator
 }
 
 // getTaskSkillsSource serves GET /api/chat/task-skills-source — the chat service
@@ -763,8 +894,76 @@ func (h *chatBackendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http
 	}
 
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
+	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{GitRemoteURL: url, Ref: ref})
+	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
+	})
+}
+
+// getGitCredentials handles GET /api/<backend>/git-credentials — re-mints the
+// project-scoped git token for a running card. Long runs outlive ~1h GitHub
+// App installation tokens, so the backend calls this mid-run to refresh.
+// HMAC-signed like every backend callback.
+//
+// Fail-closed on the project binding, mirroring rejectRunForCredentialFailure:
+// a broken/unresolvable providerForProject NEVER falls back to the instance
+// credential — unlike task-skills-source (mintInstanceToken), which is
+// deliberately best-effort because it has no binding to be wrong about.
+func (h *runnerHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
+	if !h.authenticateRunnerGet(w, r) {
+		return
+	}
+
+	project := r.URL.Query().Get("project")
+	cardID := r.URL.Query().Get("card_id")
+
+	if project == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card_id required", "")
+
+		return
+	}
+
+	// No free token faucet: the card must exist and be actively running.
+	card, err := h.svc.GetCard(r.Context(), project, strings.ToUpper(cardID))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	if card.RunnerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "card is not running", "")
+
+		return
+	}
+
+	if h.providerForProject == nil {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", "")
+
+		return
+	}
+
+	provider, _, err := h.providerForProject(r.Context(), project)
+	if err != nil {
+		writeError(w, http.StatusConflict, ErrCodeValidationError, "project credential unavailable", sanitizeErrorDetails(err))
+
+		return
+	}
+
+	token, expiresAt, err := provider.GenerateToken(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, ErrCodeInternalError, "token mint failed", sanitizeErrorDetails(err))
+
+		return
+	}
+
+	resp := map[string]string{"token": token}
+	if s := tokenExpiryString(expiresAt); s != "" {
+		resp["expires_at"] = s
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // extractBackendSignature performs shared header validation for backend HMAC

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
@@ -2094,6 +2095,67 @@ func TestManager_OpenCold_PassesPrimerToRunner_Fresh(t *testing.T) {
 	assert.Equal(t, "ORIENT", runner.lastOpts.Primer,
 		"fresh cold-open must pass primer content to StartChat")
 	assert.Nil(t, runner.lastOpts.Resume, "fresh session has no resume")
+}
+
+// --- llm_endpoint provisioning tests ---
+
+func TestManager_OpenCold_PassesLLMEndpointToRunner(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	endpoint := &protocol.LLMEndpoint{
+		Type:    "openrouter",
+		BaseURL: "https://openrouter.ai/api/v1",
+		APIKey:  "sk-test-key",
+	}
+	mgr := chat.NewManager(chat.Config{
+		Store:       store,
+		Backend:     runner,
+		Clock:       clock.Real(),
+		IdleTTL:     time.Hour,
+		LLMEndpoint: endpoint,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	require.NotNil(t, runner.lastOpts.LLMEndpoint, "configured Manager.LLMEndpoint must reach StartChatOpts")
+	assert.Equal(t, *endpoint, *runner.lastOpts.LLMEndpoint)
+}
+
+func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Nil(t, runner.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
 }
 
 func TestManager_OpenCold_PassesPrimerToRunner_Resume(t *testing.T) {

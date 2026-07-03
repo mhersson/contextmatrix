@@ -22,9 +22,19 @@ import (
 
 // taskSkillsSourceResponse is the pointer the agent backend fetches to clone the
 // task-skills repo itself — CM stays the single source of truth.
+//
+// Token/TokenExpiresAt are an instance-scoped git credential minted
+// best-effort alongside the pointer, so the backend's clone doesn't need its
+// own separately configured credential. This is deliberately NOT fail-closed
+// the way GET .../git-credentials is: task-skills is instance-scoped, not
+// project-scoped, so there is no binding that can be "broken" — a mint
+// failure just omits these fields and the caller falls back to its own
+// configured credential during the compat window.
 type taskSkillsSourceResponse struct {
-	GitRemoteURL string `json:"git_remote_url"`
-	Ref          string `json:"ref"`
+	GitRemoteURL   string `json:"git_remote_url"`
+	Ref            string `json:"ref"`
+	Token          string `json:"token,omitempty"`
+	TokenExpiresAt string `json:"token_expires_at,omitempty"`
 }
 
 // taskSkillsSource derives the task-skills pointer from CM's configured dir: the

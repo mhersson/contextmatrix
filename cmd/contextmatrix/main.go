@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	protocol "github.com/mhersson/contextmatrix-protocol"
 
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/auth"
@@ -65,6 +66,23 @@ func buildVersion() string {
 	}
 
 	return buildTime
+}
+
+// llmEndpointFromConfig converts the on-disk llm_endpoint config into the
+// wire-shape *protocol.LLMEndpoint carried on trigger/chat-start payloads.
+// Nil when unconfigured (Type == "") so downstream consumers can treat
+// "no endpoint" and "empty struct" identically. APIKey rides along on the
+// returned value — never log it; log Type/BaseURL only if logging at all.
+func llmEndpointFromConfig(e config.LLMEndpointConfig) *protocol.LLMEndpoint {
+	if e.Type == "" {
+		return nil
+	}
+
+	return &protocol.LLMEndpoint{
+		Type:    e.Type,
+		BaseURL: e.BaseURL,
+		APIKey:  e.APIKey,
+	}
 }
 
 func main() {
@@ -609,6 +627,7 @@ func main() {
 		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
+		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
