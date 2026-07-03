@@ -19,9 +19,16 @@ import type {
   ModelCatalogResponse,
   ActivityFeedResponse,
   RunnerHealth,
+  SessionUser,
+  TokenInfo,
+  RedeemTokenInput,
 } from '../types';
 
 const BASE_URL = '/api';
+
+// Fired (on window) when any non-auth request gets a 401 — the session
+// died under us. AuthProvider listens and flips the app back to login.
+export const SESSION_EXPIRED_EVENT = 'cm:session-expired';
 
 // Default timeout for all requests: 30 seconds. Callers may supply their own
 // AbortSignal via options.signal; the two signals are combined with
@@ -95,6 +102,15 @@ class APIClient {
           code: 'UNKNOWN_ERROR',
         };
       }
+
+      if (
+        response.status === 401 &&
+        error.code === 'UNAUTHORIZED' &&
+        !path.startsWith('/auth/')
+      ) {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
+
       throw error;
     }
 
@@ -244,6 +260,40 @@ class APIClient {
   // App config
   async getAppConfig(): Promise<AppConfig> {
     return this.request<AppConfig>('/app/config');
+  }
+
+  // Auth
+  async getAuthSession(): Promise<SessionUser> {
+    return this.request<SessionUser>('/auth/session');
+  }
+
+  async login(username: string, password: string): Promise<SessionUser> {
+    return this.request<SessionUser>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  async logout(): Promise<void> {
+    return this.request<void>('/auth/logout', { method: 'POST' });
+  }
+
+  async inspectToken(token: string): Promise<TokenInfo> {
+    return this.request<TokenInfo>(`/auth/token/${encodeURIComponent(token)}`);
+  }
+
+  async redeemToken(token: string, input: RedeemTokenInput): Promise<SessionUser> {
+    return this.request<SessionUser>(`/auth/token/${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    return this.request<void>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
   }
 
   // Task skills (project default + per-card selectors)

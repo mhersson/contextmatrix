@@ -349,9 +349,18 @@ export interface LogEntry {
   kind?: string;
 }
 
+export type AuthMode = 'multi' | 'none';
+
 export interface AppConfig {
   theme: 'everforest' | 'radix' | 'catppuccin';
   version: string;
+  /**
+   * Active auth mode: "multi" (login required) or "none" (single-tenant,
+   * no auth). Absent on servers older than the multi-user rollout — treat
+   * as "none". The slim pre-login shape (unauthenticated multi-mode
+   * response) omits task_backend/favorites, hence both are optional below.
+   */
+  auth_mode?: AuthMode;
   /**
    * Active task-execution backend: "runner" or "agent" (may be "" when no
    * task backend is configured). Drives which automation controls render.
@@ -363,6 +372,23 @@ export interface AppConfig {
    * has favorites configured. Tiers with only ByRole slugs are excluded.
    */
   favorites?: Record<string, string[]>;
+}
+
+export interface SessionUser {
+  username: string;
+  display_name: string;
+  is_admin: boolean;
+}
+
+export interface TokenInfo {
+  purpose: 'bootstrap' | 'invite' | 'reset';
+  username: string;
+}
+
+export interface RedeemTokenInput {
+  username?: string;
+  display_name?: string;
+  password: string;
 }
 
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
