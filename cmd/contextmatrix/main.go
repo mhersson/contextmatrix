@@ -379,14 +379,22 @@ func main() {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
 		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, ghAPIBase)
 		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
-		ghSyncer.SetClientFor(func(ctx context.Context, pcfg *board.ProjectConfig) (*ghimport.Client, error) {
-			provider, apiBase, err := providerForProject(ctx, pcfg.Name)
-			if err != nil {
-				return nil, err
-			}
 
-			return ghimport.NewClientWithBaseURL(provider, apiBase), nil
-		})
+		// Credential bindings only exist when auth is enabled — .board.yaml
+		// bindings are validated against authSvc's credential pool, which is
+		// nil in auth.mode "none". Leave clientFor unset (nil seam) there so
+		// sync cycles keep using the constructor-injected static client.
+		if authSvc != nil {
+			ghSyncer.SetClientFor(func(ctx context.Context, pcfg *board.ProjectConfig) (*ghimport.Client, error) {
+				provider, apiBase, err := providerForProject(ctx, pcfg.Name)
+				if err != nil {
+					return nil, err
+				}
+
+				return ghimport.NewClientWithBaseURL(provider, apiBase), nil
+			})
+		}
+
 		ghSyncer.Start(ctx)
 		slog.Info("github issue sync enabled", "interval", syncInterval)
 	}
