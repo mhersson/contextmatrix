@@ -122,3 +122,29 @@ func TestConsumeOneTimeToken_Concurrent(t *testing.T) {
 
 	assert.Equal(t, 1, successes, "exactly one concurrent redemption may win")
 }
+
+func TestDeleteExpiredOneTimeTokens(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	uid := createTestUser(t, store, "alice")
+
+	require.NoError(t, store.CreateOneTimeToken(ctx, "old-unused", authstore.TokenPurposeInvite, &uid, testNow, testNow.Add(time.Hour)))
+	require.NoError(t, store.CreateOneTimeToken(ctx, "fresh", authstore.TokenPurposeInvite, &uid, testNow, testNow.Add(72*time.Hour)))
+	require.NoError(t, store.CreateOneTimeToken(ctx, "old-used", authstore.TokenPurposeReset, &uid, testNow, testNow.Add(time.Hour)))
+
+	_, err := store.ConsumeOneTimeToken(ctx, "old-used", testNow.Add(time.Minute))
+	require.NoError(t, err)
+
+	n, err := store.DeleteExpiredOneTimeTokens(ctx, testNow.Add(2*time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "only the expired UNUSED token is swept")
+
+	_, err = store.OneTimeTokenByHash(ctx, "old-unused")
+	require.ErrorIs(t, err, authstore.ErrNotFound)
+
+	_, err = store.OneTimeTokenByHash(ctx, "fresh")
+	require.NoError(t, err)
+
+	_, err = store.OneTimeTokenByHash(ctx, "old-used")
+	assert.NoError(t, err, "redeemed tokens are kept as audit trail")
+}
