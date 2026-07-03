@@ -237,6 +237,46 @@ func TestTokenProviderFor_CacheAndInvalidation(t *testing.T) {
 	assert.Equal(t, "two", tok)
 }
 
+// TestTokenProviderFor_SameSecondRotationInvalidatesCache pins the race from
+// putCredential: metadata-update then secret-rotate as two sequential writes
+// in one request, landing within the same whole-second UpdatedAt tick. A
+// cache keyed on UpdatedAt alone would serve the pre-rotation secret forever
+// since the entry never sees a timestamp change. Uses newTestService
+// directly (frozen clock, no per-read auto-advance) so both writes land on
+// literally the same instant — the worst case of the same-second collision.
+func TestTokenProviderFor_SameSecondRotationInvalidatesCache(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+	svc.SetCredentialKey(key)
+
+	svc.SetCredentialChecker(func(context.Context, CredentialInput) error { return nil })
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "same-second", Kind: authstore.CredentialKindPAT, Secret: "one"}, "human:root"))
+
+	p1, _, _, err := svc.TokenProviderFor(ctx, "same-second")
+	require.NoError(t, err)
+
+	tok1, _, err := p1.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "one", tok1, "cache warmed with the original secret")
+
+	// Rotate under the frozen clock: UpdatedAt does not change at all, let
+	// alone in a way distinguishable from the first write.
+	require.NoError(t, svc.RotateCredentialSecret(ctx, "same-second", "two"))
+
+	p2, _, _, err := svc.TokenProviderFor(ctx, "same-second")
+	require.NoError(t, err)
+
+	tok2, _, err := p2.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "two", tok2, "post-rotation resolve must serve the new secret, not the stale cache entry")
+}
+
 func TestTokenProviderFor_Unavailable(t *testing.T) {
 	svc, _, _ := credService(t)
 	ctx := context.Background()

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -297,9 +298,15 @@ func CheckCredentialAgainstGitHub(ctx context.Context, in CredentialInput) error
 }
 
 // providerCacheEntry pins a built provider to the credential generation it
-// was built from. UpdatedAt in the key makes rotation self-invalidating.
+// was built from. authstore's UpdatedAt is whole-second granularity, and a
+// single admin request can do a metadata update followed by a secret rotate
+// as two sequential writes landing in the same second (see putCredential in
+// internal/api/admin_credentials.go) — so UpdatedAt alone is NOT sufficient
+// to make rotation self-invalidating. secretFP (a fingerprint of the
+// encrypted secret) closes that gap: a cache hit requires both to match.
 type providerCacheEntry struct {
 	updatedAt time.Time
+	secretFP  [32]byte
 	provider  githubauth.TokenGenerator
 	apiBase   string
 	host      string
@@ -316,8 +323,10 @@ func (s *Service) TokenProviderFor(ctx context.Context, name string) (githubauth
 		return nil, "", "", fmt.Errorf("%w: %s", ErrCredentialUnavailable, name)
 	}
 
+	secretFP := sha256.Sum256(stored.EncryptedSecret)
+
 	s.providerMu.Lock()
-	if e, ok := s.providers[name]; ok && e.updatedAt.Equal(stored.UpdatedAt) {
+	if e, ok := s.providers[name]; ok && e.updatedAt.Equal(stored.UpdatedAt) && e.secretFP == secretFP {
 		s.providerMu.Unlock()
 
 		return e.provider, e.apiBase, e.host, nil
@@ -355,7 +364,7 @@ func (s *Service) TokenProviderFor(ctx context.Context, name string) (githubauth
 
 	s.providerMu.Lock()
 	s.providers[name] = providerCacheEntry{
-		updatedAt: stored.UpdatedAt, provider: provider, apiBase: apiBase, host: stored.Host,
+		updatedAt: stored.UpdatedAt, secretFP: secretFP, provider: provider, apiBase: apiBase, host: stored.Host,
 	}
 	s.providerMu.Unlock()
 
