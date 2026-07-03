@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -71,6 +72,18 @@ type runnerHandlers struct {
 	// replayed HMAC signatures. Populated at construction time; non-nil
 	// whenever a runner API key is configured.
 	replayCache *runner.SignatureCache
+
+	// providerForProject resolves the project-scoped git-token provider used
+	// to mint the trigger payload's GitToken: the project's credential
+	// binding when set (fail-closed on a broken one), else the instance
+	// provider. nil preserves pre-token-authority behavior — no GitToken is
+	// attached and the trigger is never rejected on its account.
+	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
+
+	// llmEndpoint is the CM-provisioned inference endpoint attached to every
+	// trigger payload. nil when llm_endpoint is unconfigured — backends then
+	// fall back to their own local config.
+	llmEndpoint *protocol.LLMEndpoint
 
 	// healthCache memoises /runner/health responses so concurrent browser tabs
 	// don't each fire a fresh probe at the runner — and so a runner outage
@@ -279,6 +292,34 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Mint the project-scoped git token. Fail closed: a broken binding
+	// rejects the run — never the instance credential by accident.
+	if h.providerForProject != nil {
+		provider, _, providerErr := h.providerForProject(r.Context(), project)
+		if providerErr != nil {
+			h.rejectRunForCredentialFailure(w, r, project, id, providerErr)
+
+			return
+		}
+
+		token, expiresAt, tokenErr := provider.GenerateToken(r.Context())
+		if tokenErr != nil {
+			h.rejectRunForCredentialFailure(w, r, project, id, tokenErr)
+
+			return
+		}
+
+		payload.GitToken = token
+		// PAT-backed providers report a sentinel/zero expiry (no server-managed
+		// TTL); omit the field entirely rather than wire out the Go zero value
+		// ("0001-01-01T00:00:00Z").
+		if !expiresAt.IsZero() {
+			payload.GitTokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+		}
+	}
+
+	payload.LLMEndpoint = h.llmEndpoint
+
 	// Send trigger webhook.
 	if err := h.runner.Trigger(r.Context(), payload); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner webhook failed", "card_id", id, "project", project, "error", err)
@@ -299,6 +340,47 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusAccepted, card)
+}
+
+// rejectRunForCredentialFailure writes the fail-closed 409 response for a
+// broken or unresolvable project git-token provider (either providerForProject
+// itself failed, or the resolved provider's GenerateToken call did).
+//
+// runCard has already set runner_status to "queued" by this point, so the
+// rejection first reverts it to "failed" — mirroring the webhook-failure
+// revert below (context.WithoutCancel so a client disconnect cannot strand
+// the rollback). Without the revert, the already-queued guard at the top of
+// runCard would 409 every future trigger of this card until a manual stop.
+// The revert runs before the activity append so the run-rejected trace stays
+// the most recent entry (UpdateRunnerStatus appends its own runner_status
+// entry). Both writes are best-effort: failures are logged but never change
+// the 409 response, since the caller has already been told the run was
+// rejected.
+//
+// err is only ever a credential-resolution error from internal/auth (embeds
+// the credential/project name, never secret material) or a githubauth
+// provider error (JWT/HTTP-status class messages, never the token or key);
+// sanitizeErrorDetails additionally scrubs any transport/filesystem-path
+// leakage, so it is safe to surface as the error's details field here.
+func (h *runnerHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r *http.Request, project, id string, err error) {
+	revertCtx := context.WithoutCancel(r.Context())
+	if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
+		"trigger rejected: project credential unavailable"); revertErr != nil {
+		ctxlog.Logger(r.Context()).Error("failed to revert runner status after credential failure",
+			"card_id", id, "project", project, "error", revertErr)
+	}
+
+	if _, logErr := h.svc.AddLogEntry(revertCtx, project, id, board.ActivityEntry{
+		Agent:   "system",
+		Action:  "run-rejected",
+		Message: fmt.Sprintf("run rejected: project credential unavailable (%s)", project),
+	}); logErr != nil {
+		ctxlog.Logger(r.Context()).Error("failed to record run-rejected activity entry",
+			"card_id", id, "project", project, "error", logErr)
+	}
+
+	writeError(w, http.StatusConflict, ErrCodeValidationError,
+		"project credential unavailable", sanitizeErrorDetails(err))
 }
 
 // maxMessageContentSize is the maximum allowed byte length for a human message.

@@ -19,7 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -27,6 +29,18 @@ import (
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
+
+// fakeTokenProvider is a githubauth.TokenGenerator test double for exercising
+// runCard's project-scoped git-token minting without a real GitHub App/PAT.
+type fakeTokenProvider struct {
+	token     string
+	expiresAt time.Time
+	err       error
+}
+
+func (f *fakeTokenProvider) GenerateToken(_ context.Context) (string, time.Time, error) {
+	return f.token, f.expiresAt, f.err
+}
 
 // signHMACAt computes the same HMAC-SHA256 signature protocol.SignRequestHeaders
 // produces, but lets the test specify the timestamp so we can exercise the
@@ -564,6 +578,363 @@ remote_execution:
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeRunnerDisabled, apiErr.Code)
+}
+
+// --- Trigger minting: project git token + LLM endpoint (S6b token authority) ---
+
+// TestRunCard_ProviderForProject_MintsGitToken asserts that when
+// ProviderForProject is wired, runCard resolves a token provider for the
+// project and attaches the minted token + its RFC3339 expiry to the trigger
+// payload sent to the backend.
+func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	fakeProvider := &fakeTokenProvider{token: "ghs_faketoken", expiresAt: fakeExpiry}
+
+	var gotProject string
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: func(_ context.Context, project string) (githubauth.TokenGenerator, string, error) {
+			gotProject = project
+
+			return fakeProvider, "https://api.github.com", nil
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, "test-project", gotProject)
+	assert.Equal(t, "ghs_faketoken", receivedPayload.GitToken)
+	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), receivedPayload.GitTokenExpiresAt)
+}
+
+// TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted asserts that a
+// provider returning a zero time.Time (the PAT-style "no server-managed TTL"
+// case) leaves GitTokenExpiresAt empty rather than formatting the Go zero
+// value ("0001-01-01T00:00:00Z") onto the wire.
+func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	fakeProvider := &fakeTokenProvider{token: "pat-token", expiresAt: time.Time{}}
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, "pat-token", receivedPayload.GitToken)
+	assert.Empty(t, receivedPayload.GitTokenExpiresAt,
+		"zero-value expiry must be omitted, never formatted as 0001-01-01...")
+}
+
+// TestRunCard_ProviderForProject_CredentialUnavailable asserts the fail-closed
+// contract: a broken/unresolvable project credential binding rejects the
+// trigger with 409, records a visible activity-log entry on the card, and
+// NEVER calls the backend client (no silent fallback to an instance
+// credential).
+func TestRunCard_ProviderForProject_CredentialUnavailable(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var backendCalled atomic.Bool
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled.Store(true)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return nil, "", auth.ErrCredentialUnavailable
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+	assert.Equal(t, "project credential unavailable", apiErr.Error)
+
+	assert.False(t, backendCalled.Load(), "backend client must never be called when credential minting fails")
+
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, updated.ActivityLog)
+
+	last := updated.ActivityLog[len(updated.ActivityLog)-1]
+	assert.Equal(t, "system", last.Agent)
+	assert.Equal(t, "run rejected: project credential unavailable (test-project)", last.Message)
+
+	// runCard set runner_status to "queued" before minting; the rejection must
+	// revert it to "failed" (mirroring the webhook-failure path) or the
+	// already-queued guard would 409 every future trigger of this card.
+	assert.Equal(t, "failed", updated.RunnerStatus,
+		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+}
+
+// TestRunCard_ProviderForProject_GenerateTokenFails covers the second
+// fail-closed branch: the provider resolves but minting the token itself
+// errors (e.g. GitHub App exchange failure). Same 409 + activity-log
+// treatment as an unresolvable provider.
+func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var backendCalled atomic.Bool
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled.Store(true)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	fakeProvider := &fakeTokenProvider{err: fmt.Errorf("request token: github api returned status 401")}
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+
+	assert.False(t, backendCalled.Load(), "backend client must never be called when token minting fails")
+
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, updated.ActivityLog)
+
+	last := updated.ActivityLog[len(updated.ActivityLog)-1]
+	assert.Equal(t, "system", last.Agent)
+	assert.Equal(t, "run rejected: project credential unavailable (test-project)", last.Message)
+
+	// Same revert contract as the provider-resolution failure: the card must
+	// not be left stuck in "queued" after the 409.
+	assert.Equal(t, "failed", updated.RunnerStatus,
+		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+}
+
+// TestRunCard_NoProviderForProject_BackwardsCompat asserts that when
+// ProviderForProject is not wired (pre-token-authority configs, and most
+// existing tests), runCard neither attaches a git token nor rejects the
+// trigger — the payload goes out exactly as it did before token authority.
+func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	// No ProviderForProject set.
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Empty(t, receivedPayload.GitToken)
+	assert.Empty(t, receivedPayload.GitTokenExpiresAt)
+	assert.Nil(t, receivedPayload.LLMEndpoint)
+
+	// No credential rejection means no activity entry was added by this path.
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	for _, entry := range updated.ActivityLog {
+		assert.NotEqual(t, "run-rejected", entry.Action)
+	}
+}
+
+// TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that a configured
+// RouterConfig.LLMEndpoint is attached to every trigger payload verbatim.
+func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	endpoint := &protocol.LLMEndpoint{Type: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKey: "sk-test-key"}
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg:  config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		LLMEndpoint: endpoint,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	require.NotNil(t, receivedPayload.LLMEndpoint)
+	assert.Equal(t, *endpoint, *receivedPayload.LLMEndpoint)
 }
 
 // --- POST /api/projects/{project}/cards/{id}/stop ---
