@@ -153,6 +153,51 @@ func TestAdminUsers_LastAdmin409(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
+// TestAdminUsers_PatchMultiFieldNoPartialApply sends a combined PATCH
+// (display_name + is_admin:false) for the last active admin and asserts the
+// whole request is refused (409) AND that the display_name field was not
+// persisted despite appearing earlier in the struct field order than
+// is_admin. Covers the pre-flight block in patchUser that evaluates the
+// whole patch before applying any field.
+func TestAdminUsers_PatchMultiFieldNoPartialApply(t *testing.T) {
+	server, admin, _ := adminTestServer(t)
+
+	req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/admin/users/root",
+		jsonBody(t, map[string]any{"display_name": "Should Not Stick", "is_admin": false}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	// Confirm display_name was not persisted: fetch the user list and check
+	// root's display name is still the seeded value.
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/admin/users", nil)
+	req.AddCookie(admin)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	var list []adminUserResponse
+
+	require.NoError(t, jsonDecode(resp, &list))
+
+	var root *adminUserResponse
+
+	for i := range list {
+		if list[i].Username == "root" {
+			root = &list[i]
+		}
+	}
+
+	require.NotNil(t, root, "root user missing from list")
+	assert.Equal(t, "Root", root.DisplayName, "display_name must not be persisted when the combined patch is refused")
+	assert.True(t, root.IsAdmin, "is_admin must not be persisted when the combined patch is refused")
+}
+
 func TestAdminUsers_ErrorMappings(t *testing.T) {
 	server, admin, _ := adminTestServer(t)
 
@@ -341,6 +386,37 @@ func TestAdminCredentials_ValidationErrors(t *testing.T) {
 
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}
+
+// TestDeleteCredential_NoProjectService_GuardSkipped covers adminHandlers'
+// nil-safe wiring: adminTestServer (via newAuthTestServer) never sets
+// RouterConfig.Service, so listProjectConfigs must stay nil rather than
+// binding a method value on a nil *service.CardService — which would compile
+// and assign fine but panic on the first call. Delete must fall back to the
+// pre-S5 behavior (no guard) instead of 500ing.
+func TestDeleteCredential_NoProjectService_GuardSkipped(t *testing.T) {
+	server, admin, _ := adminTestServer(t)
+
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
+		jsonBody(t, map[string]any{"name": "no-svc-pat", "kind": "pat", "secret": "ghp_zzz"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.AddCookie(admin)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	del, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/admin/credentials/no-svc-pat", nil)
+	del.Header.Set("X-Requested-With", "contextmatrix")
+	del.AddCookie(admin)
+
+	delResp, err := http.DefaultClient.Do(del)
+	require.NoError(t, err)
+
+	_ = delResp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
 }
 
 // TestAdminCredentials_GitHubRejection overrides the auth.Service's checker

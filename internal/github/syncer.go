@@ -25,6 +25,10 @@ type Syncer struct {
 	allowedHosts []string
 	clk          clock.Clock
 	wg           sync.WaitGroup
+	// clientFor resolves a per-project GitHub client (credential binding
+	// support). nil (the default) keeps every project on the
+	// constructor-injected static client. Set via SetClientFor.
+	clientFor func(ctx context.Context, cfg *board.ProjectConfig) (*Client, error)
 }
 
 // NewSyncer creates a new GitHub issue syncer.
@@ -45,6 +49,16 @@ func NewSyncer(
 		allowedHosts: allowedHosts,
 		clk:          clock.Real(),
 	}
+}
+
+// SetClientFor installs a per-project GitHub client resolver. When set,
+// syncAll resolves the client for each project (by its credential binding)
+// just before syncing it; a resolution error is logged and that project is
+// skipped for the cycle — other projects keep syncing. Nil (the default)
+// keeps every project on the constructor-injected static client, unchanged
+// (none mode / no seam configured).
+func (s *Syncer) SetClientFor(f func(ctx context.Context, cfg *board.ProjectConfig) (*Client, error)) {
+	s.clientFor = f
 }
 
 // Start launches the periodic sync goroutine.
@@ -115,7 +129,25 @@ func (s *Syncer) syncAll(ctx context.Context) {
 			continue
 		}
 
-		imported, err := s.syncProject(ctx, &cfg, owner, repo)
+		client := s.client
+
+		if s.clientFor != nil {
+			resolved, err := s.clientFor(ctx, &cfg)
+			if err != nil {
+				// Fail closed: a broken per-project credential binding must
+				// never fall back to the syncer's static client. Log the
+				// project and error only — TokenProviderFor's error text
+				// carries the credential name, never secret material.
+				slog.Warn("github sync: resolve client for project; skipping for this cycle",
+					"project", cfg.Name, "error", err)
+
+				continue
+			}
+
+			client = resolved
+		}
+
+		imported, err := s.syncProject(ctx, &cfg, client, owner, repo)
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
 				// Rate-limit is per-host (or per-installation token) so a
@@ -147,8 +179,8 @@ func (s *Syncer) syncAll(ctx context.Context) {
 	}
 }
 
-func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, owner, repo string) (int, error) {
-	issues, err := s.client.FetchOpenIssues(ctx, owner, repo, cfg.GitHub.Labels)
+func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, client *Client, owner, repo string) (int, error) {
+	issues, err := client.FetchOpenIssues(ctx, owner, repo, cfg.GitHub.Labels)
 	if err != nil && !errors.Is(err, ErrRateLimited) {
 		return 0, fmt.Errorf("fetch issues: %w", err)
 	}

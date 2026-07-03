@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,19 @@ func credService(t *testing.T) (*Service, *authstore.Store, *[]CredentialInput) 
 	t.Helper()
 
 	svc, store, _ := newTestService(t)
+
+	// Advance the clock by a second on every read: authstore truncates
+	// UpdatedAt to whole seconds, and TokenProviderFor's cache is keyed on
+	// (name, UpdatedAt) — sequential writes in a test (e.g. create then
+	// rotate) must observe distinct timestamps for that self-invalidation
+	// contract to be testable against the otherwise-frozen test clock.
+	clock := svcNow
+	svc.now = func() time.Time {
+		now := clock
+		clock = clock.Add(time.Second)
+
+		return now
+	}
 
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
@@ -121,10 +135,159 @@ func TestListCredentials_SecretsZeroed(t *testing.T) {
 	assert.Nil(t, creds[0].EncryptedSecret, "list strips even the ciphertext")
 }
 
+func TestCredentialExists(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "acme-pat", Kind: authstore.CredentialKindPAT, Secret: "s"}, "human:root"))
+
+	exists, err := svc.CredentialExists(ctx, "acme-pat")
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	exists, err = svc.CredentialExists(ctx, "does-not-exist")
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	// Disabled entries still count as existing — the binding target must
+	// exist; whether it's usable is a runtime resolution concern.
+	require.NoError(t, svc.SetCredentialDisabled(ctx, "acme-pat", true))
+
+	exists, err = svc.CredentialExists(ctx, "acme-pat")
+	require.NoError(t, err)
+	assert.True(t, exists, "disabled credentials still count as existing")
+}
+
+func TestUpdateCredentialMetadata_ReValidates(t *testing.T) {
+	svc, _, checked := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "meta", Kind: authstore.CredentialKindPAT, Secret: "sekret"}, "human:root"))
+	require.Len(t, *checked, 1)
+
+	// Metadata change re-runs the checker with the DECRYPTED stored secret
+	// and the merged metadata — a host change can invalidate a credential.
+	require.NoError(t, svc.UpdateCredentialMetadata(ctx, "meta", "ghe.example", "", 0, 0))
+	require.Len(t, *checked, 2)
+	assert.Equal(t, "sekret", (*checked)[1].Secret, "checker sees the stored secret")
+	assert.Equal(t, "ghe.example", (*checked)[1].Host, "checker sees the new metadata")
+
+	svc.SetCredentialChecker(func(context.Context, CredentialInput) error {
+		return errors.New("nope")
+	})
+
+	err := svc.UpdateCredentialMetadata(ctx, "meta", "other.example", "", 0, 0)
+	require.ErrorIs(t, err, ErrCredentialRejected, "rejected metadata change is not persisted")
+
+	creds, err := svc.ListCredentials(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "ghe.example", creds[0].Host)
+}
+
 func TestCredentialOps_NoKey(t *testing.T) {
 	svc, _, _ := newTestService(t) // no SetCredentialKey
 
 	err := svc.CreateCredential(context.Background(),
 		CredentialInput{Name: "x", Kind: authstore.CredentialKindPAT, Secret: "s"}, "human:root")
 	assert.ErrorIs(t, err, ErrNoCredentialKey)
+}
+
+func TestTokenProviderFor_PAT(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "p", Kind: authstore.CredentialKindPAT, Host: "ghe.example", Secret: "tok-123"}, "human:root"))
+
+	provider, apiBase, host, err := svc.TokenProviderFor(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.ghe.example", apiBase)
+	assert.Equal(t, "ghe.example", host)
+
+	tok, _, err := provider.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "tok-123", tok, "PAT providers hand back the decrypted token")
+}
+
+func TestTokenProviderFor_CacheAndInvalidation(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "c", Kind: authstore.CredentialKindPAT, Secret: "one"}, "human:root"))
+
+	p1, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+
+	p2, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+	assert.Same(t, p1, p2, "same generation → cached provider instance")
+
+	// Rotation bumps UpdatedAt → new provider with the new secret.
+	require.NoError(t, svc.RotateCredentialSecret(ctx, "c", "two"))
+
+	p3, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+	assert.NotSame(t, p1, p3)
+
+	tok, _, err := p3.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "two", tok)
+}
+
+// TestTokenProviderFor_SameSecondRotationInvalidatesCache pins the race from
+// putCredential: metadata-update then secret-rotate as two sequential writes
+// in one request, landing within the same whole-second UpdatedAt tick. A
+// cache keyed on UpdatedAt alone would serve the pre-rotation secret forever
+// since the entry never sees a timestamp change. Uses newTestService
+// directly (frozen clock, no per-read auto-advance) so both writes land on
+// literally the same instant — the worst case of the same-second collision.
+func TestTokenProviderFor_SameSecondRotationInvalidatesCache(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+	svc.SetCredentialKey(key)
+
+	svc.SetCredentialChecker(func(context.Context, CredentialInput) error { return nil })
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "same-second", Kind: authstore.CredentialKindPAT, Secret: "one"}, "human:root"))
+
+	p1, _, _, err := svc.TokenProviderFor(ctx, "same-second")
+	require.NoError(t, err)
+
+	tok1, _, err := p1.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "one", tok1, "cache warmed with the original secret")
+
+	// Rotate under the frozen clock: UpdatedAt does not change at all, let
+	// alone in a way distinguishable from the first write.
+	require.NoError(t, svc.RotateCredentialSecret(ctx, "same-second", "two"))
+
+	p2, _, _, err := svc.TokenProviderFor(ctx, "same-second")
+	require.NoError(t, err)
+
+	tok2, _, err := p2.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "two", tok2, "post-rotation resolve must serve the new secret, not the stale cache entry")
+}
+
+func TestTokenProviderFor_Unavailable(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	_, _, _, err := svc.TokenProviderFor(ctx, "ghost")
+	require.ErrorIs(t, err, ErrCredentialUnavailable)
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "off", Kind: authstore.CredentialKindPAT, Secret: "x"}, "human:root"))
+	require.NoError(t, svc.SetCredentialDisabled(ctx, "off", true))
+
+	_, _, _, err = svc.TokenProviderFor(ctx, "off")
+	assert.ErrorIs(t, err, ErrCredentialUnavailable, "disabled entries fail closed")
 }

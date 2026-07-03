@@ -43,7 +43,10 @@ func (s *Service) SetUserDisplayName(ctx context.Context, username, displayName 
 	return s.store.SetDisplayName(ctx, user.ID, displayName, s.now())
 }
 
-// SetUserAdmin toggles the admin flag, refusing to demote the last active admin.
+// SetUserAdmin toggles the admin flag, refusing to demote the last active
+// admin. The dangerous direction (demoting an active admin) routes through
+// the guarded store update so the check and the write are atomic — closing
+// the race where two concurrent demotes both pass a prior count check.
 func (s *Service) SetUserAdmin(ctx context.Context, username string, isAdmin bool) error {
 	user, err := s.store.UserByUsername(ctx, username)
 	if err != nil {
@@ -51,9 +54,15 @@ func (s *Service) SetUserAdmin(ctx context.Context, username string, isAdmin boo
 	}
 
 	if !isAdmin && user.IsAdmin && !user.Disabled {
-		if err := s.guardNotLastAdmin(ctx); err != nil {
+		if err := s.store.SetAdminGuarded(ctx, user.ID, s.now()); err != nil {
+			if errors.Is(err, authstore.ErrLastAdminStore) {
+				return ErrLastAdmin
+			}
+
 			return err
 		}
+
+		return nil
 	}
 
 	return s.store.SetAdmin(ctx, user.ID, isAdmin, s.now())
@@ -61,7 +70,9 @@ func (s *Service) SetUserAdmin(ctx context.Context, username string, isAdmin boo
 
 // SetUserDisabled toggles the disabled flag. Disabling deletes the user's
 // sessions immediately (they are logged out mid-flight) and refuses to
-// disable the last active admin. Re-enabling never resurrects sessions.
+// disable the last active admin. Re-enabling never resurrects sessions. The
+// dangerous direction (disabling an active admin) routes through the guarded
+// store update — see SetUserAdmin.
 func (s *Service) SetUserDisabled(ctx context.Context, username string, disabled bool) error {
 	user, err := s.store.UserByUsername(ctx, username)
 	if err != nil {
@@ -69,12 +80,14 @@ func (s *Service) SetUserDisabled(ctx context.Context, username string, disabled
 	}
 
 	if disabled && user.IsAdmin && !user.Disabled {
-		if err := s.guardNotLastAdmin(ctx); err != nil {
+		if err := s.store.SetDisabledGuarded(ctx, user.ID, s.now()); err != nil {
+			if errors.Is(err, authstore.ErrLastAdminStore) {
+				return ErrLastAdmin
+			}
+
 			return err
 		}
-	}
-
-	if err := s.store.SetDisabled(ctx, user.ID, disabled, s.now()); err != nil {
+	} else if err := s.store.SetDisabled(ctx, user.ID, disabled, s.now()); err != nil {
 		return err
 	}
 
@@ -107,7 +120,14 @@ func (s *Service) RegenerateLink(ctx context.Context, username string) (string, 
 	return raw, authstore.TokenPurposeReset, err
 }
 
-func (s *Service) guardNotLastAdmin(ctx context.Context) error {
+// UserByUsername exposes a read for the API layer's pre-flight checks.
+func (s *Service) UserByUsername(ctx context.Context, username string) (*authstore.User, error) {
+	return s.store.UserByUsername(ctx, username)
+}
+
+// CheckNotLastAdmin reports ErrLastAdmin when only one active admin exists.
+// Advisory pre-flight — the guarded store updates remain the real barrier.
+func (s *Service) CheckNotLastAdmin(ctx context.Context) error {
 	n, err := s.store.CountActiveAdmins(ctx)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // adminHandlers maps auth.Service admin operations onto /api/admin/*.
@@ -15,6 +17,11 @@ import (
 // authenticated the caller; this adds the role check.
 type adminHandlers struct {
 	svc *auth.Service
+	// listProjectConfigs backs deleteCredential's bound-project guard; wired
+	// from cfg.Service.ListProjects in NewRouter. nil when no card service is
+	// configured (narrow-scope test routers) — the guard is then skipped
+	// rather than dereferencing a nil *service.CardService.
+	listProjectConfigs func(ctx context.Context) ([]board.ProjectConfig, error)
 }
 
 // requireAdmin returns the acting admin, or writes 403 and returns nil.
@@ -132,6 +139,25 @@ func (h *adminHandlers) patchUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
 
 		return
+	}
+
+	// Evaluate the whole patch before applying any field, so a mid-patch
+	// last-admin refusal cannot leave earlier fields persisted.
+	if (req.IsAdmin != nil && !*req.IsAdmin) || (req.Disabled != nil && *req.Disabled) {
+		target, err := h.svc.UserByUsername(r.Context(), username)
+		if err != nil {
+			writeAdminUserError(w, r, err)
+
+			return
+		}
+
+		if target.IsAdmin && !target.Disabled {
+			if err := h.svc.CheckNotLastAdmin(r.Context()); err != nil {
+				writeAdminUserError(w, r, err)
+
+				return
+			}
+		}
 	}
 
 	apply := func(err error) bool {

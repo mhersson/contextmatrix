@@ -240,45 +240,14 @@ func main() {
 	// Initialize git sync
 	syncer := wireGitSync(ctx, cfg, git, store, svc, bus)
 
-	// Start GitHub issue syncer if configured
-	var ghSyncer *ghimport.Syncer
-
-	if cfg.GitHub.IssueImporting.Enabled {
-		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
-		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, cfg.GitHub.ResolvedAPIBaseURL())
-		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
-		ghSyncer.Start(ctx)
-		slog.Info("github issue sync enabled", "interval", syncInterval)
-	}
-
-	// Images: SQLite blob store for paste/drop screenshot uploads.
-	imageStore, err := images.Open(cfg.Images.DBPath)
-	if err != nil {
-		slog.Error("failed to open image store", "path", cfg.Images.DBPath, "error", err)
-		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
-	}
-	defer imageStore.Close()
-
-	slog.Info("image store opened", "path", cfg.Images.DBPath)
-
-	// Op store: shared operational SQLite DB. Holds the chat schema (sessions,
-	// messages, cost archive) and the model blacklist in one ops.db — the chat
-	// manager, MCP report_incapable_model, and the runCard blacklist reader all
-	// use this single store.
-	opStore, err := opsqlite.Open(cfg.OpStore.DBPath)
-	if err != nil {
-		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
-		cancel()
-		os.Exit(1) //nolint:gocritic // cancel called explicitly above
-	}
-	defer opStore.Close()
-
-	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
-
 	// Multi-user auth: master key, auth.db, service, bootstrap link, janitor.
 	// In auth.mode "none" every one of these stays nil/off and the router
 	// behaves exactly as single-user CM always has.
+	//
+	// Declared and resolved before the GitHub issue syncer below so that
+	// providerForProject (which closes over authSvc) never races the
+	// syncer's background goroutine: authSvc is fully set — nil or not —
+	// before ghSyncer.Start(ctx) ever runs.
 	var authSvc *auth.Service
 
 	if cfg.Auth.Mode == config.AuthModeMulti {
@@ -372,6 +341,88 @@ func main() {
 
 		slog.Info("multi-user auth enabled", "session_idle_ttl", idleTTL)
 	}
+
+	// ghAPIBase is the instance-wide GitHub API base URL — the fallback used
+	// by providerForProject whenever a project has no credential binding, or
+	// the instance runs in auth.mode "none".
+	ghAPIBase := cfg.GitHub.ResolvedAPIBaseURL()
+
+	// providerForProject resolves the token provider for a project's GitHub
+	// operations: the project's binding when set (fail-closed on a broken
+	// one), else the instance provider. Used by both branch listing and
+	// GitHub issue sync below. authSvc is fully resolved by this point (see
+	// comment above), so this closure is race-free even though the issue
+	// syncer's background goroutine may invoke it concurrently with later
+	// startup code.
+	providerForProject := func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error) {
+		pcfg, err := svc.GetProject(ctx, project)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if pcfg.GitHubCredential == "" || authSvc == nil {
+			return tokenProvider, ghAPIBase, nil // instance credential — pre-binding behavior
+		}
+
+		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, pcfg.GitHubCredential)
+		if err != nil {
+			return nil, "", err // FAIL CLOSED: broken binding never falls back
+		}
+
+		return provider, apiBase, nil
+	}
+
+	// Start GitHub issue syncer if configured
+	var ghSyncer *ghimport.Syncer
+
+	if cfg.GitHub.IssueImporting.Enabled {
+		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
+		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, ghAPIBase)
+		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
+
+		// Credential bindings only exist when auth is enabled — .board.yaml
+		// bindings are validated against authSvc's credential pool, which is
+		// nil in auth.mode "none". Leave clientFor unset (nil seam) there so
+		// sync cycles keep using the constructor-injected static client.
+		if authSvc != nil {
+			ghSyncer.SetClientFor(func(ctx context.Context, pcfg *board.ProjectConfig) (*ghimport.Client, error) {
+				provider, apiBase, err := providerForProject(ctx, pcfg.Name)
+				if err != nil {
+					return nil, err
+				}
+
+				return ghimport.NewClientWithBaseURL(provider, apiBase), nil
+			})
+		}
+
+		ghSyncer.Start(ctx)
+		slog.Info("github issue sync enabled", "interval", syncInterval)
+	}
+
+	// Images: SQLite blob store for paste/drop screenshot uploads.
+	imageStore, err := images.Open(cfg.Images.DBPath)
+	if err != nil {
+		slog.Error("failed to open image store", "path", cfg.Images.DBPath, "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+	defer imageStore.Close()
+
+	slog.Info("image store opened", "path", cfg.Images.DBPath)
+
+	// Op store: shared operational SQLite DB. Holds the chat schema (sessions,
+	// messages, cost archive) and the model blacklist in one ops.db — the chat
+	// manager, MCP report_incapable_model, and the runCard blacklist reader all
+	// use this single store.
+	opStore, err := opsqlite.Open(cfg.OpStore.DBPath)
+	if err != nil {
+		slog.Error("failed to open op store", "path", cfg.OpStore.DBPath, "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+	defer opStore.Close()
+
+	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
@@ -540,8 +591,9 @@ func main() {
 		GitHubTokenProvider:    tokenProvider,
 		TaskSkillsDir:          cfg.TaskSkills.Dir,
 		TaskSkillsGitRemoteURL: cfg.TaskSkills.GitRemoteURL,
-		GitHubAPIBaseURL:       cfg.GitHub.ResolvedAPIBaseURL(),
+		GitHubAPIBaseURL:       ghAPIBase,
 		GitHubAllowedHosts:     cfg.GitHub.AllowedHosts(),
+		ProviderForProject:     providerForProject,
 		SessionManager:         sessionMgr,
 		Theme:                  cfg.Theme,
 		Version:                buildVersion(),
@@ -560,6 +612,10 @@ func main() {
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
+	}
+
+	if authSvc != nil {
+		routerCfg.CredentialExists = authSvc.CredentialExists
 	}
 
 	if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {

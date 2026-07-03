@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +21,10 @@ var (
 	ErrCredentialRejected = errors.New("auth: credential rejected by GitHub")
 	ErrNoCredentialKey    = errors.New("auth: credential key not configured")
 )
+
+// ErrCredentialUnavailable — missing, disabled, or undecryptable pool entry.
+// Callers fail closed: never substitute the instance credential.
+var ErrCredentialUnavailable = errors.New("auth: credential unavailable")
 
 // CredentialInput is a create/rotate submission. Secret is plaintext in
 // memory only — it is encrypted before storage and never returned.
@@ -121,8 +127,35 @@ func (s *Service) RotateCredentialSecret(ctx context.Context, name, secret strin
 	return s.store.UpdateCredentialSecret(ctx, name, blob, s.now())
 }
 
-// UpdateCredentialMetadata edits the non-secret fields.
+// UpdateCredentialMetadata edits the non-secret fields, re-validating the
+// credential against GitHub with the DECRYPTED stored secret and the merged
+// metadata — a host or installation change can silently invalidate an entry
+// otherwise.
 func (s *Service) UpdateCredentialMetadata(ctx context.Context, name, host, apiBaseURL string, appID, installationID int64) error {
+	if s.credKey == nil {
+		return ErrNoCredentialKey
+	}
+
+	stored, err := s.store.CredentialByName(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	secret, err := DecryptSecret(s.credKey, stored.EncryptedSecret)
+	if err != nil {
+		return err
+	}
+
+	in := CredentialInput{
+		Name: stored.Name, Kind: stored.Kind, Host: host,
+		APIBaseURL: apiBaseURL, AppID: appID, InstallationID: installationID,
+		Secret: string(secret),
+	}
+
+	if err := s.checker()(ctx, in); err != nil {
+		return fmt.Errorf("%w: %s", ErrCredentialRejected, err.Error())
+	}
+
 	return s.store.UpdateCredentialMetadata(ctx, name, host, apiBaseURL, appID, installationID, s.now())
 }
 
@@ -136,6 +169,23 @@ func (s *Service) SetCredentialDisabled(ctx context.Context, name string, disabl
 // the bound projects) while any project references the name.
 func (s *Service) DeleteCredential(ctx context.Context, name string) error {
 	return s.store.DeleteCredential(ctx, name)
+}
+
+// CredentialExists reports whether a pool entry with this name exists.
+// Disabled entries still count as existing — .board.yaml bindings validate
+// against the name space, not current usability; a disabled credential is a
+// runtime resolution failure (fail-closed), not an invalid binding.
+func (s *Service) CredentialExists(ctx context.Context, name string) (bool, error) {
+	_, err := s.store.CredentialByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, authstore.ErrNotFound) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
 }
 
 // ListCredentials returns pool entries with even the ciphertext stripped —
@@ -245,4 +295,78 @@ func CheckCredentialAgainstGitHub(ctx context.Context, in CredentialInput) error
 	default:
 		return fmt.Errorf("unknown kind %q", in.Kind)
 	}
+}
+
+// providerCacheEntry pins a built provider to the credential generation it
+// was built from. authstore's UpdatedAt is whole-second granularity, and a
+// single admin request can do a metadata update followed by a secret rotate
+// as two sequential writes landing in the same second (see putCredential in
+// internal/api/admin_credentials.go) — so UpdatedAt alone is NOT sufficient
+// to make rotation self-invalidating. secretFP (a fingerprint of the
+// encrypted secret) closes that gap: a cache hit requires both to match.
+type providerCacheEntry struct {
+	updatedAt time.Time
+	secretFP  [32]byte
+	provider  githubauth.TokenGenerator
+	apiBase   string
+	host      string
+}
+
+// TokenProviderFor resolves a pool entry into a ready, cached token provider.
+func (s *Service) TokenProviderFor(ctx context.Context, name string) (githubauth.TokenGenerator, string, string, error) {
+	if s.credKey == nil {
+		return nil, "", "", ErrNoCredentialKey
+	}
+
+	stored, err := s.store.CredentialByName(ctx, name)
+	if err != nil || stored.Disabled {
+		return nil, "", "", fmt.Errorf("%w: %s", ErrCredentialUnavailable, name)
+	}
+
+	secretFP := sha256.Sum256(stored.EncryptedSecret)
+
+	s.providerMu.Lock()
+	if e, ok := s.providers[name]; ok && e.updatedAt.Equal(stored.UpdatedAt) && e.secretFP == secretFP {
+		s.providerMu.Unlock()
+
+		return e.provider, e.apiBase, e.host, nil
+	}
+	s.providerMu.Unlock()
+
+	secret, err := DecryptSecret(s.credKey, stored.EncryptedSecret)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %s: decrypt failed", ErrCredentialUnavailable, name)
+	}
+
+	apiBase := credAPIBase(CredentialInput{Host: stored.Host, APIBaseURL: stored.APIBaseURL})
+
+	var inner githubauth.TokenGenerator
+
+	switch stored.Kind {
+	case authstore.CredentialKindPAT:
+		inner, err = githubauth.NewPATProvider(string(secret))
+	case authstore.CredentialKindApp:
+		var key *rsa.PrivateKey
+
+		key, err = jwt.ParseRSAPrivateKeyFromPEM(secret)
+		if err == nil {
+			inner, err = githubauth.NewAppProviderWithKey(stored.AppID, stored.InstallationID, key, apiBase)
+		}
+	default:
+		err = fmt.Errorf("unknown kind %q", stored.Kind)
+	}
+
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %s: %s", ErrCredentialUnavailable, name, err.Error())
+	}
+
+	provider := githubauth.NewCachingProvider(inner)
+
+	s.providerMu.Lock()
+	s.providers[name] = providerCacheEntry{
+		updatedAt: stored.UpdatedAt, secretFP: secretFP, provider: provider, apiBase: apiBase, host: stored.Host,
+	}
+	s.providerMu.Unlock()
+
+	return provider, apiBase, stored.Host, nil
 }
