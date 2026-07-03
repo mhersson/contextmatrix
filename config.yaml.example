@@ -432,6 +432,37 @@ images:
 #   # Default: $XDG_STATE_HOME/contextmatrix/ops.db
 #   db_path: ""
 
+# Multi-user authentication.
+auth:
+  # "multi" (default) — login required. Users, sessions, and the GitHub
+  #   credential pool live in auth.db. On first start with zero users, CM
+  #   logs a one-time bootstrap URL; whoever opens it creates the first
+  #   admin account. NOTE: the runner backend cannot be enabled in this
+  #   mode (it is deprecate-frozen; use the agent backend).
+  # "none" — single-user, zero-login: exactly the pre-multi-user behavior.
+  #   For laptop installs and easy testing.
+  # Env: CONTEXTMATRIX_AUTH_MODE
+  mode: multi
+
+  # Hex-encoded 32-byte master key file encrypting credential secrets at
+  # rest. Auto-generated (0600) with a prominent log line when missing —
+  # production deployments should mount a secret and point this at it.
+  # Generate one manually with: openssl rand -hex 32 > master.key
+  # Default: $XDG_STATE_HOME/contextmatrix/master.key
+  # Env: CONTEXTMATRIX_AUTH_MASTER_KEY_FILE
+  master_key_file: ""
+
+  # Sliding session lifetime — renewed on activity, so this is "log in
+  # again after this long idle", not an absolute cap.
+  # Default: 720h (30 days)
+  # Env: CONTEXTMATRIX_AUTH_SESSION_IDLE_TTL
+  session_idle_ttl: "720h"
+
+  # SQLite database for users, sessions, one-time tokens, and credentials.
+  # Default: $XDG_STATE_HOME/contextmatrix/auth.db
+  # Env: CONTEXTMATRIX_AUTH_DB_PATH
+  db_path: ""
+
 # GitHub authentication and integration.
 # Used for boards git, task-skills git, issue importing, and branch listing.
 github:
