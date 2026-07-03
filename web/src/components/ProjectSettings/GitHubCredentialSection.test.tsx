@@ -86,6 +86,15 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
     expect(screen.queryByText(/credential no longer exists/i)).not.toBeInTheDocument();
   });
 
+  it('shows the fetch-error text but suppresses the stale-binding warning when the pool fetch fails', async () => {
+    mocks.adminListCredentials.mockRejectedValue({ error: 'network unreachable' });
+
+    render(<GitHubCredentialSection value="acme-pat" onChange={vi.fn()} readOnly={false} />);
+
+    expect(await screen.findByText('network unreachable')).toBeInTheDocument();
+    expect(screen.queryByText(/credential no longer exists/i)).not.toBeInTheDocument();
+  });
+
   it('calls onChange with the newly selected credential name', async () => {
     mocks.adminListCredentials.mockResolvedValue([credential({ name: 'acme-pat' })]);
     const onChange = vi.fn();

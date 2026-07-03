@@ -71,7 +71,7 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
     );
   }
 
-  const isMissing = !loading && value !== '' && !credentials.some((c) => c.name === value);
+  const isMissing = !loading && !error && value !== '' && !credentials.some((c) => c.name === value);
 
   return (
     <div>
