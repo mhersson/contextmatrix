@@ -40,9 +40,9 @@ vi.mock('../../hooks/useSync', () => ({
   })),
 }));
 
-vi.mock('../../hooks/useAgentId', () => ({
-  useAgentId: vi.fn(() => ({
-    agentId: 'human:web-test1234',
+vi.mock('../../hooks/useIdentity', () => ({
+  useIdentity: vi.fn(() => ({
+    identity: 'human:web-test1234',
   })),
 }));
 
