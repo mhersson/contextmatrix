@@ -29,6 +29,15 @@ const NewProjectWizard = lazy(() =>
 const NotFound = lazy(() =>
   import('./components/NotFound').then((m) => ({ default: m.NotFound }))
 );
+const AdminUsersPage = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminUsersPage }))
+);
+const AdminCredentialsPage = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminCredentialsPage }))
+);
+const AdminGuard = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
+);
 
 /** Minimal placeholder shown while a lazy-loaded route chunk is being fetched. */
 function AppShellSkeleton() {
@@ -76,6 +85,8 @@ function AppInner() {
                       <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
                       <Route path="chat" element={<ChatPage />} />
                       <Route path="chat/:id" element={<ChatPage />} />
+                      <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
+                      <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </Suspense>
