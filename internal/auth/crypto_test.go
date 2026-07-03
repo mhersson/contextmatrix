@@ -73,3 +73,17 @@ func TestEncryptSecret_BadKeyLength(t *testing.T) {
 	_, err := auth.EncryptSecret([]byte("short"), []byte("x"))
 	assert.Error(t, err)
 }
+
+func TestEncryptSecret_RejectsNon256BitKeys(t *testing.T) {
+	// aes.NewCipher accepts 16/24-byte keys (AES-128/192). The helpers must
+	// not silently downgrade — only 32 bytes (AES-256) is valid.
+	for _, n := range []int{16, 24} {
+		key := make([]byte, n)
+
+		_, err := auth.EncryptSecret(key, []byte("x"))
+		require.Error(t, err, "key length %d must be rejected", n)
+
+		_, err = auth.DecryptSecret(key, []byte("xxxxxxxxxxxxxxxx"))
+		assert.Error(t, err, "key length %d must be rejected", n)
+	}
+}

@@ -2061,12 +2061,15 @@ github:
 
 // validBackendsBlock is the canonical backends YAML block: a single enabled
 // runner entry. Used by the "valid runner entry" case and by
-// TestBackendsConfigDefaults.
+// TestBackendsConfigDefaults. auth.mode is pinned to "none" because the
+// runner backend is deprecate-frozen under the "multi" default.
 const validBackendsBlock = `
 backends:
   runner:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
+auth:
+  mode: none
 `
 
 func TestBackendsConfigValidation(t *testing.T) {
@@ -2087,6 +2090,8 @@ backends:
   runner:
     url: http://localhost:9090
     api_key: "short"
+auth:
+  mode: none
 `,
 			wantErr: "api_key",
 		},
@@ -2097,6 +2102,8 @@ backends:
   runner:
     url: ""
     api_key: "0123456789abcdef0123456789abcdef"
+auth:
+  mode: none
 `,
 			wantErr: "url",
 		},
@@ -2136,6 +2143,8 @@ backends:
   agent:
     url: http://localhost:9091
     api_key: "0123456789abcdef0123456789abcdef"
+auth:
+  mode: none
 `,
 			wantErr: "mutually exclusive",
 		},
@@ -2150,6 +2159,8 @@ backends:
   chat:
     url: http://localhost:9092
     api_key: "0123456789abcdef0123456789abcdef"
+auth:
+  mode: none
 `,
 			wantErr: "mutually exclusive",
 		},
@@ -2165,6 +2176,8 @@ backends:
     enabled: false
   chat:
     enabled: false
+auth:
+  mode: none
 `,
 			wantErr: "",
 		},
@@ -2194,6 +2207,8 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
   agent:
     enabled: false
+auth:
+  mode: none
 `,
 			wantErr: "",
 		},
@@ -2254,6 +2269,8 @@ backends:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
     default_model: "deepseek/deepseek-v4-flash"
+auth:
+  mode: none
 `,
 			wantErr: "default_model",
 		},
@@ -2306,6 +2323,8 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     orchestrator_sonnet_model: "claude-sonnet-4-6"
     orchestrator_opus_model: "claude-opus-4-8"
+auth:
+  mode: none
 `,
 			wantErr: "",
 		},
@@ -2483,6 +2502,8 @@ func TestBackendsRoleDerivation(t *testing.T) {
   runner:
     url: http://r:9090
     api_key: "` + apiKey + `"
+auth:
+  mode: none
 `,
 			wantTaskName: "runner", wantTaskOK: true,
 			wantChatName: "runner", wantChatOK: true,
@@ -2575,6 +2596,8 @@ func TestTaskBackendServesChat(t *testing.T) {
   runner:
     url: http://r:9090
     api_key: "` + apiKey + `"
+auth:
+  mode: none
 `,
 			want: true,
 		},
@@ -2746,6 +2769,78 @@ backends:
 	assert.Contains(t, err.Error(), "default_model")
 }
 
+func TestValidate_Auth(t *testing.T) {
+	base := func() *Config {
+		c := defaults()
+		c.Boards.Dir = "/tmp/boards"
+		c.GitHub.AuthMode = "pat"
+		c.GitHub.PAT.Token = "x"
+		applyAuthDefaults(c)
+
+		return c
+	}
+
+	t.Run("default mode is multi", func(t *testing.T) {
+		c := base()
+		require.NoError(t, c.Validate())
+		assert.Equal(t, AuthModeMulti, c.Auth.Mode)
+	})
+
+	t.Run("none is accepted", func(t *testing.T) {
+		c := base()
+		c.Auth.Mode = AuthModeNone
+		assert.NoError(t, c.Validate())
+	})
+
+	t.Run("unknown mode rejected", func(t *testing.T) {
+		c := base()
+		c.Auth.Mode = "both"
+		assert.ErrorContains(t, c.Validate(), "auth.mode")
+	})
+
+	t.Run("bad ttl rejected", func(t *testing.T) {
+		c := base()
+		c.Auth.SessionIdleTTL = "soon"
+		assert.ErrorContains(t, c.Validate(), "auth.session_idle_ttl")
+	})
+
+	t.Run("non-positive ttl rejected", func(t *testing.T) {
+		c := base()
+		c.Auth.SessionIdleTTL = "0s"
+		assert.ErrorContains(t, c.Validate(), "auth.session_idle_ttl")
+	})
+
+	t.Run("multi plus enabled runner is a startup error", func(t *testing.T) {
+		c := base()
+		c.Backends = map[string]BackendConfig{
+			BackendNameRunner: {URL: "http://localhost:9090", APIKey: strings.Repeat("k", 32)},
+		}
+		applyBackendDefaults(c)
+
+		err := c.Validate()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "runner")
+		assert.ErrorContains(t, err, "auth.mode")
+	})
+
+	t.Run("none plus runner still works", func(t *testing.T) {
+		c := base()
+		c.Auth.Mode = AuthModeNone
+		c.Backends = map[string]BackendConfig{
+			BackendNameRunner: {URL: "http://localhost:9090", APIKey: strings.Repeat("k", 32)},
+		}
+		applyBackendDefaults(c)
+		assert.NoError(t, c.Validate())
+	})
+
+	t.Run("defaults fill paths", func(t *testing.T) {
+		c := base()
+		assert.Contains(t, c.Auth.DBPath, "auth.db")
+		assert.Contains(t, c.Auth.MasterKeyFile, "master.key")
+		assert.Equal(t, "720h", c.Auth.SessionIdleTTL)
+	})
+}
+
 func TestBackendEnvEnabled(t *testing.T) {
 	apiKey := strings.Repeat("k", 32)
 	dir := t.TempDir()
@@ -2782,6 +2877,8 @@ backends:
     enabled: false
     url: http://localhost:9090
     api_key: "` + apiKey + `"
+auth:
+  mode: none
 `
 	path := writeConfigFile(t, dir, yaml)
 
@@ -2843,6 +2940,7 @@ func TestBackendEnvOnlyConfiguration(t *testing.T) {
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_URL", "http://env-only:9090")
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_API_KEY", strings.Repeat("e", 32))
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "true")
+	t.Setenv("CONTEXTMATRIX_AUTH_MODE", "none")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -2887,6 +2985,7 @@ func TestBackendEnvOnlyIncompleteErrors(t *testing.T) {
 	path := writeConfigFile(t, dir, minValidBase(boardsDir))
 
 	t.Setenv("CONTEXTMATRIX_BACKEND_RUNNER_ENABLED", "true")
+	t.Setenv("CONTEXTMATRIX_AUTH_MODE", "none")
 
 	_, err := Load(path)
 	require.Error(t, err)
@@ -2935,6 +3034,8 @@ backends:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
     reconcile_interval: "soon"
+auth:
+  mode: none
 `
 	path := writeConfigFile(t, dir, yaml)
 

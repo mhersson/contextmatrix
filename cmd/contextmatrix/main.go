@@ -25,6 +25,8 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/auth"
+	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -274,6 +276,94 @@ func main() {
 
 	slog.Info("op store opened", "path", cfg.OpStore.DBPath)
 
+	// Multi-user auth: master key, auth.db, service, bootstrap link, janitor.
+	// In auth.mode "none" every one of these stays nil/off and the router
+	// behaves exactly as single-user CM always has.
+	var authSvc *auth.Service
+
+	if cfg.Auth.Mode == config.AuthModeMulti {
+		_, keyCreated, err := auth.LoadOrCreateMasterKey(cfg.Auth.MasterKeyFile)
+		if err != nil {
+			slog.Error("failed to load auth master key", "path", cfg.Auth.MasterKeyFile, "error", err)
+			cancel()
+			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		}
+
+		if keyCreated {
+			slog.Warn("auth: master key AUTO-GENERATED — move this file into real secret management",
+				"path", cfg.Auth.MasterKeyFile)
+		}
+
+		authStore, err := authstore.Open(cfg.Auth.DBPath)
+		if err != nil {
+			slog.Error("failed to open auth store", "path", cfg.Auth.DBPath, "error", err)
+			cancel()
+			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		}
+		defer authStore.Close()
+
+		slog.Info("auth store opened", "path", cfg.Auth.DBPath)
+
+		idleTTL, err := cfg.SessionIdleTTLDuration()
+		if err != nil {
+			// Unreachable: Validate() parses it. Belt and suspenders.
+			slog.Error("invalid auth.session_idle_ttl", "error", err)
+			cancel()
+			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		}
+
+		authSvc = auth.NewService(authStore, idleTTL)
+
+		// First-start bootstrap: with zero users nobody can log in, so mint
+		// a one-time admin-creation link and print it. Re-issued on every
+		// zero-user start; redemption re-checks the zero-user invariant.
+		users, err := authStore.ListUsers(ctx)
+		if err != nil {
+			slog.Error("failed to check for existing users", "error", err)
+			cancel()
+			os.Exit(1) //nolint:gocritic // cancel called explicitly above
+		}
+
+		if len(users) == 0 {
+			bootstrapToken, err := authSvc.IssueBootstrapToken(ctx)
+			if err != nil {
+				slog.Error("failed to issue bootstrap token", "error", err)
+				cancel()
+				os.Exit(1) //nolint:gocritic // cancel called explicitly above
+			}
+
+			slog.Info("=======================================================================")
+			slog.Info("auth: no users exist yet — create the first admin account by opening:")
+			slog.Info("auth: bootstrap link", "path", "/auth/token/"+bootstrapToken)
+			slog.Info("auth: (prefix with this server's URL; the link is valid for 48h)")
+			slog.Info("=======================================================================")
+		}
+
+		// Janitor: hourly sweep of expired sessions and unused expired
+		// one-time tokens.
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if n, err := authStore.DeleteExpiredSessions(ctx, time.Now()); err == nil && n > 0 {
+						slog.Debug("auth janitor: swept expired sessions", "count", n)
+					}
+
+					if n, err := authStore.DeleteExpiredOneTimeTokens(ctx, time.Now()); err == nil && n > 0 {
+						slog.Debug("auth janitor: swept expired tokens", "count", n)
+					}
+				}
+			}
+		}()
+
+		slog.Info("multi-user auth enabled", "session_idle_ttl", idleTTL)
+	}
+
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
@@ -456,6 +546,8 @@ func main() {
 		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil
 		ServedModelsSource:     servedModelsSource,  // "" when catalogBuilder == nil
 		ValidateChatModel:      validateChatModelFn, // nil when catalogBuilder == nil
+		AuthService:            authSvc,
+		AuthMode:               cfg.Auth.Mode,
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder

@@ -78,6 +78,13 @@ const (
 // allowlisting. Order is stable (runner, agent, chat) for error messages.
 var allowedBackendNames = []string{BackendNameRunner, BackendNameAgent, BackendNameChat}
 
+// Auth modes. AuthModeMulti (the default) requires login; AuthModeNone is
+// the single-user zero-login behavior CM always had.
+const (
+	AuthModeMulti = "multi"
+	AuthModeNone  = "none"
+)
+
 // backendEnvSuffixes are the per-entry CONTEXTMATRIX_BACKEND_<NAME>_* env
 // var suffixes. applyEnvOverrides reads each one; checkBackendEnvKeys
 // allowlists the same set — keep the two in sync via this list.
@@ -258,6 +265,20 @@ type OpStoreConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
+// AuthConfig controls multi-user authentication.
+type AuthConfig struct {
+	// Mode is "multi" (default: login required, sessions, admin role) or
+	// "none" (single-user, no login — exactly the pre-multi-user behavior).
+	Mode string `yaml:"mode"`
+	// MasterKeyFile is the hex-encoded 32-byte key that encrypts credential
+	// secrets at rest. Auto-generated (0600) when absent.
+	MasterKeyFile string `yaml:"master_key_file"`
+	// SessionIdleTTL is the sliding session lifetime (renewed on use).
+	SessionIdleTTL string `yaml:"session_idle_ttl"`
+	// DBPath is the auth.db SQLite file (users, sessions, tokens, credentials).
+	DBPath string `yaml:"db_path"`
+}
+
 // ChatConfig configures the global chat panel feature. Chat data is persisted
 // in the shared operational store (op_store.db_path), not a separate DB.
 type ChatConfig struct {
@@ -335,6 +356,7 @@ type Config struct {
 	Chat          ChatConfig               `yaml:"chat"`
 	Images        ImagesConfig             `yaml:"images"`
 	OpStore       OpStoreConfig            `yaml:"op_store"`
+	Auth          AuthConfig               `yaml:"auth"`
 }
 
 // defaults returns a Config with default values.
@@ -358,6 +380,10 @@ func defaults() *Config {
 		LogLevel:             "info",
 		AdminPort:            0,
 		AdminBindAddr:        "127.0.0.1",
+		Auth: AuthConfig{
+			Mode:           AuthModeMulti,
+			SessionIdleTTL: "720h",
+		},
 	}
 }
 
@@ -451,6 +477,29 @@ func (c *Config) Validate() error {
 		if interval < 5*time.Minute {
 			return fmt.Errorf("github.issue_importing.sync_interval must be at least 5m, got %s", c.GitHub.IssueImporting.SyncInterval)
 		}
+	}
+
+	applyAuthDefaults(c)
+
+	switch c.Auth.Mode {
+	case AuthModeMulti, AuthModeNone:
+	default:
+		return fmt.Errorf("auth.mode must be %q or %q (got %q)", AuthModeMulti, AuthModeNone, c.Auth.Mode)
+	}
+
+	if d, err := time.ParseDuration(c.Auth.SessionIdleTTL); err != nil {
+		return fmt.Errorf("invalid auth.session_idle_ttl %q: %w", c.Auth.SessionIdleTTL, err)
+	} else if d <= 0 {
+		return fmt.Errorf("auth.session_idle_ttl must be positive (got %s)", d)
+	}
+
+	// A missing "runner" key returns a zero-value BackendConfig whose
+	// Enabled pointer is nil, and IsEnabled() treats nil as enabled — so
+	// map presence must be checked too (same gotcha guarded against by
+	// hasRunner in the runner/agent/chat exclusivity check below).
+	if runner, declared := c.Backends[BackendNameRunner]; c.Auth.Mode == AuthModeMulti && declared && runner.IsEnabled() {
+		return fmt.Errorf("backends.runner is not supported when auth.mode is %q (the runner backend is deprecate-frozen): "+
+			"switch the task backend to \"agent\" or set auth.mode: %q for single-user operation", AuthModeMulti, AuthModeNone)
 	}
 
 	// applyBackendDefaults fills per-entry knob defaults for backends that
@@ -703,6 +752,7 @@ func Load(path string) (*Config, error) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
 			applyOpStoreDefaults(cfg)
+			applyAuthDefaults(cfg)
 			applyBackendDefaults(cfg)
 
 			if err := applyEnvOverrides(cfg); err != nil {
@@ -737,6 +787,7 @@ func Load(path string) (*Config, error) {
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
+	applyAuthDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -789,6 +840,20 @@ func resolvePaths(cfg *Config, configPath string) error {
 		cfg.TaskSkills.Dir = filepath.Join(filepath.Dir(configPath), "task-skills")
 	}
 
+	authDB, err := expandTilde(cfg.Auth.DBPath)
+	if err != nil {
+		return err
+	}
+
+	cfg.Auth.DBPath = authDB
+
+	masterKey, err := expandTilde(cfg.Auth.MasterKeyFile)
+	if err != nil {
+		return err
+	}
+
+	cfg.Auth.MasterKeyFile = masterKey
+
 	return nil
 }
 
@@ -818,6 +883,27 @@ func applyImagesDefaults(cfg *Config) {
 func applyOpStoreDefaults(cfg *Config) {
 	if cfg.OpStore.DBPath == "" {
 		cfg.OpStore.DBPath = defaultSQLiteDBPath("ops.db")
+	}
+}
+
+// applyAuthDefaults sets Auth fields that were not supplied by YAML. The
+// mode default is set here (not only in defaults()) so callers that build a
+// Config by hand and then Validate still land on multi.
+func applyAuthDefaults(cfg *Config) {
+	if cfg.Auth.Mode == "" {
+		cfg.Auth.Mode = AuthModeMulti
+	}
+
+	if cfg.Auth.SessionIdleTTL == "" {
+		cfg.Auth.SessionIdleTTL = "720h"
+	}
+
+	if cfg.Auth.DBPath == "" {
+		cfg.Auth.DBPath = defaultSQLiteDBPath("auth.db")
+	}
+
+	if cfg.Auth.MasterKeyFile == "" {
+		cfg.Auth.MasterKeyFile = defaultSQLiteDBPath("master.key")
 	}
 }
 
@@ -1084,6 +1170,22 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.OpStore.DBPath = v
 	}
 
+	if v := os.Getenv("CONTEXTMATRIX_AUTH_MODE"); v != "" {
+		cfg.Auth.Mode = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_AUTH_MASTER_KEY_FILE"); v != "" {
+		cfg.Auth.MasterKeyFile = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_AUTH_SESSION_IDLE_TTL"); v != "" {
+		cfg.Auth.SessionIdleTTL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_AUTH_DB_PATH"); v != "" {
+		cfg.Auth.DBPath = v
+	}
+
 	if v := os.Getenv("CONTEXTMATRIX_CHAT_IDLE_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.Chat.IdleTTL = d
@@ -1231,6 +1333,11 @@ func checkBackendEnvKeys() error {
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
 func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
+}
+
+// SessionIdleTTLDuration parses the sliding session lifetime.
+func (c *Config) SessionIdleTTLDuration() (time.Duration, error) {
+	return time.ParseDuration(c.Auth.SessionIdleTTL)
 }
 
 // StalledCheckIntervalDuration parses StalledCheckInterval as a

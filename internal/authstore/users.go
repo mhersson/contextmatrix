@@ -34,6 +34,12 @@ func NormalizeUsername(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
 
+// ValidUsername reports whether an already-normalized username matches the
+// locked username rule.
+func ValidUsername(username string) bool {
+	return usernameRe.MatchString(username)
+}
+
 // CreateUser inserts a new account. The username is normalized (lowercased,
 // trimmed) and validated; duplicates return ErrDuplicate.
 func (s *Store) CreateUser(ctx context.Context, username, displayName string, isAdmin bool, now time.Time) (*User, error) {

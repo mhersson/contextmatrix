@@ -132,3 +132,16 @@ func (s *Store) InvalidateTokensForUser(ctx context.Context, userID int64, purpo
 
 	return res.RowsAffected()
 }
+
+// DeleteExpiredOneTimeTokens sweeps unused tokens whose expiry has passed.
+// Redeemed tokens are kept — used_at is the audit trail of who got in how.
+func (s *Store) DeleteExpiredOneTimeTokens(ctx context.Context, now time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM one_time_tokens WHERE used_at IS NULL AND expires_at <= ?`, toUnix(now),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("authstore: delete expired tokens: %w", err)
+	}
+
+	return res.RowsAffected()
+}
