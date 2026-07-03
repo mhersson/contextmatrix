@@ -56,15 +56,19 @@ type Service struct {
 
 	credKey   []byte
 	credCheck CredentialChecker
+
+	providerMu sync.Mutex
+	providers  map[string]providerCacheEntry
 }
 
 // NewService wires a Service on the real clock.
 func NewService(store *authstore.Store, idleTTL time.Duration) *Service {
 	return &Service{
-		store:   store,
-		idleTTL: idleTTL,
-		limiter: NewLimiter(),
-		now:     time.Now,
+		store:     store,
+		idleTTL:   idleTTL,
+		limiter:   NewLimiter(),
+		now:       time.Now,
+		providers: make(map[string]providerCacheEntry),
 	}
 }
 

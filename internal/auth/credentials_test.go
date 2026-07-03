@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,19 @@ func credService(t *testing.T) (*Service, *authstore.Store, *[]CredentialInput) 
 	t.Helper()
 
 	svc, store, _ := newTestService(t)
+
+	// Advance the clock by a second on every read: authstore truncates
+	// UpdatedAt to whole seconds, and TokenProviderFor's cache is keyed on
+	// (name, UpdatedAt) — sequential writes in a test (e.g. create then
+	// rotate) must observe distinct timestamps for that self-invalidation
+	// contract to be testable against the otherwise-frozen test clock.
+	clock := svcNow
+	svc.now = func() time.Time {
+		now := clock
+		clock = clock.Add(time.Second)
+
+		return now
+	}
 
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
@@ -178,4 +192,62 @@ func TestCredentialOps_NoKey(t *testing.T) {
 	err := svc.CreateCredential(context.Background(),
 		CredentialInput{Name: "x", Kind: authstore.CredentialKindPAT, Secret: "s"}, "human:root")
 	assert.ErrorIs(t, err, ErrNoCredentialKey)
+}
+
+func TestTokenProviderFor_PAT(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "p", Kind: authstore.CredentialKindPAT, Host: "ghe.example", Secret: "tok-123"}, "human:root"))
+
+	provider, apiBase, host, err := svc.TokenProviderFor(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.ghe.example", apiBase)
+	assert.Equal(t, "ghe.example", host)
+
+	tok, _, err := provider.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "tok-123", tok, "PAT providers hand back the decrypted token")
+}
+
+func TestTokenProviderFor_CacheAndInvalidation(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "c", Kind: authstore.CredentialKindPAT, Secret: "one"}, "human:root"))
+
+	p1, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+
+	p2, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+	assert.Same(t, p1, p2, "same generation → cached provider instance")
+
+	// Rotation bumps UpdatedAt → new provider with the new secret.
+	require.NoError(t, svc.RotateCredentialSecret(ctx, "c", "two"))
+
+	p3, _, _, err := svc.TokenProviderFor(ctx, "c")
+	require.NoError(t, err)
+	assert.NotSame(t, p1, p3)
+
+	tok, _, err := p3.GenerateToken(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "two", tok)
+}
+
+func TestTokenProviderFor_Unavailable(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	_, _, _, err := svc.TokenProviderFor(ctx, "ghost")
+	require.ErrorIs(t, err, ErrCredentialUnavailable)
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "off", Kind: authstore.CredentialKindPAT, Secret: "x"}, "human:root"))
+	require.NoError(t, svc.SetCredentialDisabled(ctx, "off", true))
+
+	_, _, _, err = svc.TokenProviderFor(ctx, "off")
+	assert.ErrorIs(t, err, ErrCredentialUnavailable, "disabled entries fail closed")
 }

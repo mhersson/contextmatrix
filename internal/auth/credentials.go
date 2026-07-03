@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +20,10 @@ var (
 	ErrCredentialRejected = errors.New("auth: credential rejected by GitHub")
 	ErrNoCredentialKey    = errors.New("auth: credential key not configured")
 )
+
+// ErrCredentialUnavailable — missing, disabled, or undecryptable pool entry.
+// Callers fail closed: never substitute the instance credential.
+var ErrCredentialUnavailable = errors.New("auth: credential unavailable")
 
 // CredentialInput is a create/rotate submission. Secret is plaintext in
 // memory only — it is encrypted before storage and never returned.
@@ -289,4 +294,70 @@ func CheckCredentialAgainstGitHub(ctx context.Context, in CredentialInput) error
 	default:
 		return fmt.Errorf("unknown kind %q", in.Kind)
 	}
+}
+
+// providerCacheEntry pins a built provider to the credential generation it
+// was built from. UpdatedAt in the key makes rotation self-invalidating.
+type providerCacheEntry struct {
+	updatedAt time.Time
+	provider  githubauth.TokenGenerator
+	apiBase   string
+	host      string
+}
+
+// TokenProviderFor resolves a pool entry into a ready, cached token provider.
+func (s *Service) TokenProviderFor(ctx context.Context, name string) (githubauth.TokenGenerator, string, string, error) {
+	if s.credKey == nil {
+		return nil, "", "", ErrNoCredentialKey
+	}
+
+	stored, err := s.store.CredentialByName(ctx, name)
+	if err != nil || stored.Disabled {
+		return nil, "", "", fmt.Errorf("%w: %s", ErrCredentialUnavailable, name)
+	}
+
+	s.providerMu.Lock()
+	if e, ok := s.providers[name]; ok && e.updatedAt.Equal(stored.UpdatedAt) {
+		s.providerMu.Unlock()
+
+		return e.provider, e.apiBase, e.host, nil
+	}
+	s.providerMu.Unlock()
+
+	secret, err := DecryptSecret(s.credKey, stored.EncryptedSecret)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %s: decrypt failed", ErrCredentialUnavailable, name)
+	}
+
+	apiBase := credAPIBase(CredentialInput{Host: stored.Host, APIBaseURL: stored.APIBaseURL})
+
+	var inner githubauth.TokenGenerator
+
+	switch stored.Kind {
+	case authstore.CredentialKindPAT:
+		inner, err = githubauth.NewPATProvider(string(secret))
+	case authstore.CredentialKindApp:
+		var key *rsa.PrivateKey
+
+		key, err = jwt.ParseRSAPrivateKeyFromPEM(secret)
+		if err == nil {
+			inner, err = githubauth.NewAppProviderWithKey(stored.AppID, stored.InstallationID, key, apiBase)
+		}
+	default:
+		err = fmt.Errorf("unknown kind %q", stored.Kind)
+	}
+
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%w: %s: %s", ErrCredentialUnavailable, name, err.Error())
+	}
+
+	provider := githubauth.NewCachingProvider(inner)
+
+	s.providerMu.Lock()
+	s.providers[name] = providerCacheEntry{
+		updatedAt: stored.UpdatedAt, provider: provider, apiBase: apiBase, host: stored.Host,
+	}
+	s.providerMu.Unlock()
+
+	return provider, apiBase, stored.Host, nil
 }
