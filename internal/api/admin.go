@@ -134,6 +134,25 @@ func (h *adminHandlers) patchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Evaluate the whole patch before applying any field, so a mid-patch
+	// last-admin refusal cannot leave earlier fields persisted.
+	if (req.IsAdmin != nil && !*req.IsAdmin) || (req.Disabled != nil && *req.Disabled) {
+		target, err := h.svc.UserByUsername(r.Context(), username)
+		if err != nil {
+			writeAdminUserError(w, r, err)
+
+			return
+		}
+
+		if target.IsAdmin && !target.Disabled {
+			if err := h.svc.CheckNotLastAdmin(r.Context()); err != nil {
+				writeAdminUserError(w, r, err)
+
+				return
+			}
+		}
+	}
+
 	apply := func(err error) bool {
 		if err != nil {
 			writeAdminUserError(w, r, err)

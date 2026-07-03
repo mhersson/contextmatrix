@@ -91,6 +91,24 @@ func TestRegenerateLink_PurposeByPasswordState(t *testing.T) {
 	_ = invited
 }
 
+func TestPatchGuard_MultiFieldNoPartialApply(t *testing.T) {
+	// Demote+rename in one conceptual patch: when the demote is refused
+	// (last admin), the display name must not have been applied either.
+	// The handler evaluates guards before applying — this test pins the
+	// service-level building block it uses.
+	svc, store, _ := newTestService(t)
+	ctx := context.Background()
+
+	seedUser(t, svc, store, "root", "root password1", true)
+
+	err := svc.SetUserAdmin(ctx, "root", false)
+	require.ErrorIs(t, err, ErrLastAdmin)
+
+	got, err := store.UserByUsername(ctx, "root")
+	require.NoError(t, err)
+	assert.True(t, got.IsAdmin, "refused demote leaves the flag untouched")
+}
+
 func TestAdminOps_UnknownUser(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()

@@ -210,3 +210,54 @@ func TestCreateFirstAdmin_Concurrent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, users, 1)
 }
+
+func TestSetAdminGuarded_Concurrent(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	a, err := store.CreateUser(ctx, "a", "", true, testNow)
+	require.NoError(t, err)
+
+	b, err := store.CreateUser(ctx, "b", "", true, testNow)
+	require.NoError(t, err)
+
+	// Two concurrent demotes of the only two admins: at most one may win.
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		successes int
+	)
+
+	for _, id := range []int64{a.ID, b.ID} {
+		wg.Add(1)
+
+		go func(uid int64) {
+			defer wg.Done()
+
+			if err := store.SetAdminGuarded(ctx, uid, testNow); err == nil {
+				mu.Lock()
+				successes++
+				mu.Unlock()
+			}
+		}(id)
+	}
+
+	wg.Wait()
+
+	assert.LessOrEqual(t, successes, 1, "guarded demote can never strand zero admins")
+
+	n, err := store.CountActiveAdmins(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, n, 1)
+}
+
+func TestSetAdminGuarded_LastAdminRefused(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	only, err := store.CreateUser(ctx, "only", "", true, testNow)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, store.SetAdminGuarded(ctx, only.ID, testNow), authstore.ErrLastAdminStore)
+	require.ErrorIs(t, store.SetDisabledGuarded(ctx, only.ID, testNow), authstore.ErrLastAdminStore)
+}

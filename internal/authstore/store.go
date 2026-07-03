@@ -26,6 +26,7 @@ var (
 	ErrTokenExpired      = errors.New("authstore: token expired")
 	ErrInvalidUsername   = errors.New("authstore: invalid username")
 	ErrNotBootstrappable = errors.New("authstore: users already exist")
+	ErrLastAdminStore    = errors.New("authstore: last active admin")
 )
 
 // Store is the SQLite-backed multi-user state store.

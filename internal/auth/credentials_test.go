@@ -121,6 +121,33 @@ func TestListCredentials_SecretsZeroed(t *testing.T) {
 	assert.Nil(t, creds[0].EncryptedSecret, "list strips even the ciphertext")
 }
 
+func TestUpdateCredentialMetadata_ReValidates(t *testing.T) {
+	svc, _, checked := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "meta", Kind: authstore.CredentialKindPAT, Secret: "sekret"}, "human:root"))
+	require.Len(t, *checked, 1)
+
+	// Metadata change re-runs the checker with the DECRYPTED stored secret
+	// and the merged metadata — a host change can invalidate a credential.
+	require.NoError(t, svc.UpdateCredentialMetadata(ctx, "meta", "ghe.example", "", 0, 0))
+	require.Len(t, *checked, 2)
+	assert.Equal(t, "sekret", (*checked)[1].Secret, "checker sees the stored secret")
+	assert.Equal(t, "ghe.example", (*checked)[1].Host, "checker sees the new metadata")
+
+	svc.SetCredentialChecker(func(context.Context, CredentialInput) error {
+		return errors.New("nope")
+	})
+
+	err := svc.UpdateCredentialMetadata(ctx, "meta", "other.example", "", 0, 0)
+	require.ErrorIs(t, err, ErrCredentialRejected, "rejected metadata change is not persisted")
+
+	creds, err := svc.ListCredentials(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "ghe.example", creds[0].Host)
+}
+
 func TestCredentialOps_NoKey(t *testing.T) {
 	svc, _, _ := newTestService(t) // no SetCredentialKey
 

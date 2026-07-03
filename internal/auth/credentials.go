@@ -121,8 +121,35 @@ func (s *Service) RotateCredentialSecret(ctx context.Context, name, secret strin
 	return s.store.UpdateCredentialSecret(ctx, name, blob, s.now())
 }
 
-// UpdateCredentialMetadata edits the non-secret fields.
+// UpdateCredentialMetadata edits the non-secret fields, re-validating the
+// credential against GitHub with the DECRYPTED stored secret and the merged
+// metadata — a host or installation change can silently invalidate an entry
+// otherwise.
 func (s *Service) UpdateCredentialMetadata(ctx context.Context, name, host, apiBaseURL string, appID, installationID int64) error {
+	if s.credKey == nil {
+		return ErrNoCredentialKey
+	}
+
+	stored, err := s.store.CredentialByName(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	secret, err := DecryptSecret(s.credKey, stored.EncryptedSecret)
+	if err != nil {
+		return err
+	}
+
+	in := CredentialInput{
+		Name: stored.Name, Kind: stored.Kind, Host: host,
+		APIBaseURL: apiBaseURL, AppID: appID, InstallationID: installationID,
+		Secret: string(secret),
+	}
+
+	if err := s.checker()(ctx, in); err != nil {
+		return fmt.Errorf("%w: %s", ErrCredentialRejected, err.Error())
+	}
+
 	return s.store.UpdateCredentialMetadata(ctx, name, host, apiBaseURL, appID, installationID, s.now())
 }
 

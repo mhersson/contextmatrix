@@ -185,6 +185,47 @@ func (s *Store) CountActiveAdmins(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// SetAdminGuarded demotes an admin only if at least one OTHER active admin
+// exists — the guard and the write are one statement, so concurrent demotes
+// cannot strand the instance with zero admins.
+func (s *Store) SetAdminGuarded(ctx context.Context, id int64, now time.Time) error {
+	return s.guardedAdminUpdate(ctx, id, `is_admin = 0`, now)
+}
+
+// SetDisabledGuarded disables an admin under the same atomic guard.
+func (s *Store) SetDisabledGuarded(ctx context.Context, id int64, now time.Time) error {
+	return s.guardedAdminUpdate(ctx, id, `disabled = 1`, now)
+}
+
+func (s *Store) guardedAdminUpdate(ctx context.Context, id int64, setClause string, now time.Time) error {
+	// nolint:gosec // setClause is an internal constant built by callers above, not user input
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET `+setClause+`, updated_at = ?
+		 WHERE id = ?
+		   AND (SELECT COUNT(*) FROM users WHERE is_admin = 1 AND disabled = 0 AND id != ?) >= 1`,
+		toUnix(now), id, id,
+	)
+	if err != nil {
+		return fmt.Errorf("authstore: guarded admin update: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("authstore: guarded admin update rows: %w", err)
+	}
+
+	if n == 0 {
+		// Either the user does not exist or they are the last active admin.
+		if _, lookupErr := s.UserByID(ctx, id); lookupErr != nil {
+			return lookupErr
+		}
+
+		return ErrLastAdminStore
+	}
+
+	return nil
+}
+
 const userSelect = `SELECT id, username, display_name, password_hash, is_admin, disabled, created_at, updated_at, last_login_at FROM users`
 
 // rowScanner covers both *sql.Row and *sql.Rows.

@@ -89,10 +89,9 @@ export function CardPanel(props: CardPanelProps) {
     useBranches(card.project, !!config.remote_execution?.enabled);
 
   const handleClaim = useCallback(async () => {
-    // currentAgentId is null in multi mode (identity comes from the session,
-    // not a client-generated id) — the claim button no-ops rather than
-    // sending a null agent_id. Wiring session-derived claim identity is
-    // tracked separately.
+    // currentAgentId is the unified identity (session-derived in multi mode,
+    // localStorage id in none mode). Null only while logged out behind the
+    // gate — unreachable in practice; the guard is just type narrowing.
     if (!currentAgentId) return;
     await onClaim(currentAgentId);
   }, [currentAgentId, onClaim]);
