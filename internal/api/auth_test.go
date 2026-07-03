@@ -337,6 +337,58 @@ func TestAuthJourney_ChangePassword(t *testing.T) {
 	login(t, server, "root", "brand new password1")
 }
 
+func TestAppConfig_AuthModeGating(t *testing.T) {
+	server, _, _ := newAuthTestServer(t)
+
+	// Unauthenticated: slim shape.
+	resp, err := http.Get(server.URL + "/api/app/config")
+	require.NoError(t, err)
+
+	var slim map[string]any
+
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&slim))
+	_ = resp.Body.Close()
+
+	assert.Equal(t, "multi", slim["auth_mode"])
+	assert.Contains(t, slim, "theme")
+	assert.NotContains(t, slim, "task_backend", "full payload requires a session")
+
+	// Authenticated: full shape.
+	cookie := login(t, server, "root", "root password1")
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/app/config", nil)
+	req.AddCookie(cookie)
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	var full map[string]any
+
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&full))
+	_ = resp.Body.Close()
+
+	assert.Contains(t, full, "task_backend")
+	assert.Equal(t, "multi", full["auth_mode"])
+}
+
+func TestAppConfig_NoneModeUnchanged(t *testing.T) {
+	router := NewRouter(RouterConfig{Theme: "everforest"})
+	server := httptest.NewServer(router)
+
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/app/config")
+	require.NoError(t, err)
+
+	var body map[string]any
+
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	_ = resp.Body.Close()
+
+	assert.Equal(t, "none", body["auth_mode"])
+	assert.Contains(t, body, "task_backend", "none mode serves the full payload as today")
+}
+
 func TestAuthJourney_BootstrapOverHTTP(t *testing.T) {
 	// Fresh store with ZERO users — the bootstrap situation.
 	store, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))

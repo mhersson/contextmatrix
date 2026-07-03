@@ -14,13 +14,30 @@ type appConfigHandlers struct {
 	// from the agent backend's TierFavorites.All lists. Key = tier name,
 	// value = slug list. Nil / empty = no favorites configured.
 	favorites map[string][]string
+	// authMode is "multi" or "none" ("" reported as "none"). In multi mode
+	// the full payload requires a session; unauthenticated callers get only
+	// what the login page needs.
+	authMode string
 }
 
 type appConfigResponse struct {
 	Theme       string              `json:"theme"`
 	Version     string              `json:"version"`
+	AuthMode    string              `json:"auth_mode"`
 	TaskBackend string              `json:"task_backend"`
 	Favorites   map[string][]string `json:"favorites,omitempty"`
+}
+
+// appConfigSlimResponse is served to unauthenticated callers in multi mode:
+// only what the login page needs. task_backend and favorites must be
+// genuinely absent from the JSON, not just empty — a shared struct with an
+// `omitempty` tag on TaskBackend can't distinguish "not configured" (still
+// full payload, e.g. none mode with no backend wired) from "not permitted to
+// see" (slim payload), since both collapse to the zero value.
+type appConfigSlimResponse struct {
+	Theme    string `json:"theme"`
+	Version  string `json:"version"`
+	AuthMode string `json:"auth_mode"`
 }
 
 // extractFavorites flattens TierFavorites.All slugs from the backend's per-tier
@@ -46,10 +63,26 @@ func extractFavorites(src map[string]board.TierFavorites) map[string][]string {
 	return out
 }
 
-func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, _ *http.Request) {
+func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request) {
+	mode := h.authMode
+	if mode == "" {
+		mode = "none"
+	}
+
+	// Multi mode without a session: the full payload (backend, favorites)
+	// requires a session. The guard soft-resolves sessions on this exempt
+	// path, so the context tells us whether the caller is logged in.
+	if mode == "multi" && sessionUserFromContext(r.Context()) == nil {
+		writeJSON(w, http.StatusOK, appConfigSlimResponse{Theme: h.theme, Version: h.version, AuthMode: mode})
+
+		return
+	}
+
+	// None mode, or an authenticated caller in multi mode: full, as always.
 	writeJSON(w, http.StatusOK, appConfigResponse{
 		Theme:       h.theme,
 		Version:     h.version,
+		AuthMode:    mode,
 		TaskBackend: h.taskBackend,
 		Favorites:   h.favorites,
 	})

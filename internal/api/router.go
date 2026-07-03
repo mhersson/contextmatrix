@@ -207,6 +207,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		version:     cfg.Version,
 		taskBackend: cfg.BackendCfg.Name,
 		favorites:   extractFavorites(cfg.BackendCfg.Favorites),
+		authMode:    cfg.AuthMode,
 	}
 	bh := &branchHandlers{
 		svc:              cfg.Service,
