@@ -81,6 +81,15 @@ const (
 	ErrCodeUnauthorized = "UNAUTHORIZED"
 	ErrCodeRateLimited  = "RATE_LIMITED"
 
+	// FORBIDDEN → 403: authenticated but lacking rights (non-admin on an
+	// admin route). Distinct from AGENT_MISMATCH (card-claim ownership).
+	ErrCodeForbidden = "FORBIDDEN"
+
+	// USER_NOT_FOUND → 404: unknown username on an admin user-management
+	// route. Deliberately distinct from ErrCodeCardNotFound — no card-flavored
+	// code should leak into the auth/admin surface (brief's adaptation note).
+	ErrCodeUserNotFound = "USER_NOT_FOUND"
+
 	// Image upload + retrieval. Status mapping:
 	//   IMAGE_NOT_FOUND        → 404 (unknown id or malformed id segment)
 	//   IMAGE_UNSUPPORTED      → 415 (format not in png/jpeg/gif/webp)
@@ -280,6 +289,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/auth/token/{token}", authh.inspectToken)
 		mux.HandleFunc("POST /api/auth/token/{token}", authh.redeemToken)
 		mux.HandleFunc("POST /api/auth/password", authh.changePassword)
+
+		adh := &adminHandlers{svc: cfg.AuthService}
+		mux.HandleFunc("GET /api/admin/users", adh.listUsers)
+		mux.HandleFunc("POST /api/admin/users", adh.createUser)
+		mux.HandleFunc("PATCH /api/admin/users/{username}", adh.patchUser)
+		mux.HandleFunc("POST /api/admin/users/{username}/invite", adh.regenerateLink)
+
+		mux.HandleFunc("GET /api/admin/credentials", adh.listCredentials)
+		mux.HandleFunc("POST /api/admin/credentials", adh.createCredential)
+		mux.HandleFunc("PUT /api/admin/credentials/{name}", adh.putCredential)
+		mux.HandleFunc("DELETE /api/admin/credentials/{name}", adh.deleteCredential)
 	}
 
 	// Task-skills (used by project default + per-card skill selectors in the UI)

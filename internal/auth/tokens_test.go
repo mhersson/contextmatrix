@@ -191,3 +191,26 @@ func TestChangePassword(t *testing.T) {
 	_, _, err = svc.Login(ctx, "alice", "new password123", "1.2.3.4")
 	assert.NoError(t, err)
 }
+
+func TestBootstrap_CrossTokenRace(t *testing.T) {
+	// Two DIFFERENT outstanding bootstrap tokens (restart re-issues) must not
+	// mint two admins: the store-level guard is atomic with the insert.
+	svc, store, _ := newTestService(t)
+	ctx := context.Background()
+
+	raw1, err := svc.IssueBootstrapToken(ctx)
+	require.NoError(t, err)
+
+	raw2, err := svc.IssueBootstrapToken(ctx)
+	require.NoError(t, err)
+
+	_, _, err = svc.RedeemBootstrap(ctx, raw1, "first", "", "a strong password")
+	require.NoError(t, err)
+
+	_, _, err = svc.RedeemBootstrap(ctx, raw2, "second", "", "a strong password")
+	require.ErrorIs(t, err, ErrNotBootstrappable)
+
+	users, err := store.ListUsers(ctx)
+	require.NoError(t, err)
+	assert.Len(t, users, 1)
+}

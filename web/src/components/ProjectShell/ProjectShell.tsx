@@ -3,8 +3,7 @@ import { useTimeoutRef } from '../../hooks/useTimeoutRef';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
-import { useAgentId } from '../../hooks/useAgentId';
-import { useOptionalAuth } from '../../hooks/useAuth';
+import { useIdentity } from '../../hooks/useIdentity';
 import { useCardActions } from '../../hooks/useCardActions';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useProjects } from '../../hooks/useProjects';
@@ -45,14 +44,7 @@ export function ProjectShell() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { showToast } = useToast();
-  // useOptionalAuth (not useAuth) so ProjectShell still renders in tests that
-  // mount it without an AuthProvider — see deviation note in task-6-report.md.
-  // AuthProvider is unconditionally mounted at the App root, so in production
-  // auth is never null here; `auth?.mode !== 'multi'` is equivalent to the
-  // brief's `mode === 'none'` for every reachable production state (it also
-  // covers the pre-config-fetch default of 'none' the same way).
-  const auth = useOptionalAuth();
-  const { agentId } = useAgentId(auth?.mode !== 'multi');
+  const { identity } = useIdentity();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -251,7 +243,7 @@ export function ProjectShell() {
                       connected={connected}
                       activityEntries={activity.entries}
                       activityBackfillLoaded={activity.backfillLoaded}
-                      currentAgent={agentId}
+                      currentAgent={identity}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
@@ -318,7 +310,7 @@ export function ProjectShell() {
             onClose={() => setSelectedCard(null)} onSave={handleCardSave}
             onDelete={handleCardDelete}
             onClaim={handleClaim} onRelease={handleRelease}
-            onSubtaskClick={handleSubtaskClick} currentAgentId={agentId}
+            onSubtaskClick={handleSubtaskClick} currentAgentId={identity}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
           />
         </ErrorBoundary>

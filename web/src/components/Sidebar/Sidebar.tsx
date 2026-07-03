@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useTheme } from '../../hooks/useTheme';
+import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
 import { ProjectCard } from './ProjectCard';
@@ -19,6 +20,8 @@ interface SidebarProps {
 export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects } = useProjects();
   const { version } = useTheme();
+  const auth = useOptionalAuth();
+  const isAdmin = Boolean(auth?.user?.is_admin);
   const [collapsed, setCollapsed] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const sortedProjects = useMemo(
@@ -154,6 +157,45 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
           </div>
         )}
       </nav>
+
+      {isAdmin && (
+        <nav aria-label="Admin" className="px-2 py-2 border-t" style={{ borderColor: 'var(--bg3)' }}>
+          <div
+            className="px-3 pb-1 text-xs font-semibold tracking-wide"
+            style={{ color: 'var(--grey0)' }}
+          >
+            ADMIN
+          </div>
+          <NavLink to="/admin/users" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
+            {({ isActive }) => (
+              <div
+                className="px-3 py-2 rounded text-sm transition-colors"
+                style={{
+                  backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
+                  color: isActive ? 'var(--fg)' : 'var(--grey2)',
+                }}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                Users
+              </div>
+            )}
+          </NavLink>
+          <NavLink to="/admin/credentials" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
+            {({ isActive }) => (
+              <div
+                className="px-3 py-2 rounded text-sm transition-colors"
+                style={{
+                  backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
+                  color: isActive ? 'var(--fg)' : 'var(--grey2)',
+                }}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                Credentials
+              </div>
+            )}
+          </NavLink>
+        </nav>
+      )}
 
       <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>
         <UserMenu />

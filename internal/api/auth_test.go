@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -34,6 +36,15 @@ func newAuthTestServer(t *testing.T) (*httptest.Server, *auth.Service, *authstor
 	hash, err := auth.HashPassword("root password1")
 	require.NoError(t, err)
 	require.NoError(t, store.SetPasswordHash(t.Context(), u.ID, hash, time.Now()))
+
+	// Credential-pool wiring: a random 32-byte subkey and a success-stub
+	// GitHub checker, so admin-credential HTTP tests never touch the network.
+	// Additive only — no existing behavior/assertion depends on this.
+	credKey := make([]byte, 32)
+	_, err = rand.Read(credKey)
+	require.NoError(t, err)
+	svc.SetCredentialKey(credKey)
+	svc.SetCredentialChecker(func(context.Context, auth.CredentialInput) error { return nil })
 
 	// TaskSkillsDir gives us a cheap session-gated GET route
 	// (GET /api/task-skills) without wiring the full card service.
@@ -157,6 +168,27 @@ func jsonBody(t *testing.T, v any) *bytes.Reader {
 	require.NoError(t, err)
 
 	return bytes.NewReader(data)
+}
+
+// jsonDecode decodes a response body into v and closes it.
+func jsonDecode(resp *http.Response, v any) error {
+	defer resp.Body.Close()
+
+	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// timeNow is a small shim so admin tests don't import "time" just to stamp
+// CreateUser/SetPasswordHash calls.
+func timeNow() time.Time {
+	return time.Now()
+}
+
+// authHashForTest wraps auth.HashPassword for tests that seed a user's
+// password directly via the store.
+func authHashForTest(t *testing.T, password string) (string, error) {
+	t.Helper()
+
+	return auth.HashPassword(password)
 }
 
 func TestAuthJourney_LoginSessionLogout(t *testing.T) {

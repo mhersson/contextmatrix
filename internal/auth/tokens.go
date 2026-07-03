@@ -111,23 +111,18 @@ func (s *Service) RedeemBootstrap(ctx context.Context, rawToken, username, displ
 		return nil, "", authstore.ErrInvalidUsername
 	}
 
-	users, err := s.store.ListUsers(ctx)
-	if err != nil {
-		return nil, "", err
-	}
-
-	if len(users) > 0 {
-		return nil, "", ErrNotBootstrappable
-	}
-
 	if _, err := s.store.ConsumeOneTimeToken(ctx, HashToken(rawToken), s.now()); err != nil {
 		return nil, "", mapStoreTokenErr(err)
 	}
 
 	now := s.now()
 
-	user, err := s.store.CreateUser(ctx, normalized, displayName, true, now)
+	user, err := s.store.CreateFirstAdmin(ctx, normalized, displayName, now)
 	if err != nil {
+		if errors.Is(err, authstore.ErrNotBootstrappable) {
+			return nil, "", ErrNotBootstrappable
+		}
+
 		return nil, "", err
 	}
 

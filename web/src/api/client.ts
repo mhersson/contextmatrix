@@ -22,6 +22,10 @@ import type {
   SessionUser,
   TokenInfo,
   RedeemTokenInput,
+  AdminUser,
+  InviteInfo,
+  CredentialInfo,
+  CreateCredentialInput,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -294,6 +298,51 @@ class APIClient {
       method: 'POST',
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     });
+  }
+
+  // Admin
+  async adminListUsers(): Promise<AdminUser[]> {
+    return this.request<AdminUser[]>('/admin/users');
+  }
+
+  async adminCreateUser(input: { username: string; display_name?: string; is_admin?: boolean }): Promise<{ user: AdminUser; invite: InviteInfo }> {
+    return this.request<{ user: AdminUser; invite: InviteInfo }>('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async adminPatchUser(username: string, patch: { display_name?: string; is_admin?: boolean; disabled?: boolean }): Promise<AdminUser> {
+    return this.request<AdminUser>(`/admin/users/${encodeURIComponent(username)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async adminRegenerateLink(username: string): Promise<InviteInfo> {
+    return this.request<InviteInfo>(`/admin/users/${encodeURIComponent(username)}/invite`, { method: 'POST' });
+  }
+
+  async adminListCredentials(): Promise<CredentialInfo[]> {
+    return this.request<CredentialInfo[]>('/admin/credentials');
+  }
+
+  async adminCreateCredential(input: CreateCredentialInput): Promise<CredentialInfo> {
+    return this.request<CredentialInfo>('/admin/credentials', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async adminUpdateCredential(name: string, patch: { secret?: string; host?: string; api_base_url?: string; app_id?: number; installation_id?: number; disabled?: boolean }): Promise<CredentialInfo> {
+    return this.request<CredentialInfo>(`/admin/credentials/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async adminDeleteCredential(name: string): Promise<void> {
+    return this.request<void>(`/admin/credentials/${encodeURIComponent(name)}`, { method: 'DELETE' });
   }
 
   // Task skills (project default + per-card selectors)

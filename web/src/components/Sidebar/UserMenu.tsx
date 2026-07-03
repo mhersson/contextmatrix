@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
 
@@ -16,6 +16,30 @@ export function UserMenu() {
   const auth = useOptionalAuth();
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
 
   if (!auth || auth.mode !== 'multi' || !auth.user) return null;
 
@@ -24,9 +48,11 @@ export function UserMenu() {
   const label = user.display_name || user.username;
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-sm"
         style={{ color: 'var(--grey2)', backgroundColor: open ? 'var(--bg2)' : 'transparent' }}
         title={`Signed in as ${user.username}${user.is_admin ? ' (admin)' : ''}`}
@@ -43,10 +69,12 @@ export function UserMenu() {
 
       {open && (
         <div
+          role="menu"
           className="absolute bottom-full left-0 right-0 mb-1 rounded border overflow-hidden z-10"
           style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)' }}
         >
           <button
+            role="menuitem"
             onClick={() => {
               setOpen(false);
               setChangeOpen(true);
@@ -57,6 +85,7 @@ export function UserMenu() {
             Change password
           </button>
           <button
+            role="menuitem"
             onClick={() => void logout()}
             className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
             style={{ color: 'var(--red)' }}
