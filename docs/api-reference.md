@@ -1019,10 +1019,49 @@ backend's `api_key`), the same scheme as `/autonomous`. Returns the task-skills
 repo pointer the agent backend clones for itself:
 
 ```json
-{ "git_remote_url": "https://github.com/org/task-skills.git", "ref": "main" }
+{
+  "git_remote_url": "https://github.com/org/task-skills.git",
+  "ref": "main",
+  "token": "ghs_...",
+  "token_expires_at": "2026-07-05T13:00:00Z"
+}
 ```
 
+`token` is a clone credential minted from the instance `github.*` credential
+(the task-skills repo is instance-scoped, never bound to a project pool
+entry). It is best-effort: when minting fails, the response carries only the
+pointer and the backend falls back to its own credential. `token_expires_at`
+is RFC3339 and absent for PAT-backed credentials (no server-managed TTL —
+absent means "do not schedule a refresh"). The chat-backend variant at
+`GET /api/chat/task-skills-source` returns the same shape.
+
 Only registered when a task backend is configured.
+
+### GET /api/<name>/git-credentials
+
+Backend-callback endpoint at the derived path (e.g.
+`/api/agent/git-credentials`), HMAC-signed like `task-skills-source`. Re-mints
+the project-scoped git token mid-run — App installation tokens live ~1h while
+card runs can go far longer.
+
+Query parameters: `project` and `card_id` (both required). The card must exist
+and have `runner_status: running` — a non-running card gets 409, so the
+endpoint is not a free token faucet. The token is minted from the project's
+`github_credential` binding (or the instance credential when unbound); a
+broken binding fails closed with 409, never the instance credential.
+
+```json
+{ "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
+```
+
+`expires_at` is absent for PAT-backed credentials (same omission semantics as
+`token_expires_at` above; the key names differ because the two responses are
+different shapes — consumers read each endpoint's own key).
+
+Trigger-time minting: `POST .../cards/{id}/run` populates
+`TriggerPayload.git_token` / `git_token_expires_at` / `llm_endpoint` the same
+way; a broken binding rejects the run with 409, reverts the card's runner
+status, and appends a card activity entry.
 
 ## Chat Endpoints
 

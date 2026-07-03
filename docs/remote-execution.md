@@ -149,9 +149,25 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
   "base_branch": "develop",
   "interactive": false,
   "model": "claude-sonnet-4-6",
-  "task_skills": ["go-development", "documentation"]
+  "task_skills": ["go-development", "documentation"],
+  "git_token": "ghs_...",
+  "git_token_expires_at": "2026-07-05T13:00:00Z",
+  "llm_endpoint": { "type": "openrouter", "base_url": "", "api_key": "sk-..." }
 }
 ```
+
+`git_token` is a short-lived credential for the project repo, minted by CM
+from the project's `github_credential` binding (or the instance `github.*`
+credential when unbound). A broken binding rejects the run with 409 before any
+webhook is sent — CM never substitutes the instance credential for a named
+binding. `git_token_expires_at` is RFC3339 and absent for PAT-backed
+credentials (absent = no refresh needed); App-backed tokens live ~1h, and
+backends re-mint mid-run via `GET /api/<name>/git-credentials` (see
+`docs/api-reference.md`). `llm_endpoint` carries CM's `llm_endpoint` config
+(type, base_url, api_key) so the inference key is administered in one place;
+it is omitted when CM has no endpoint configured. All three fields are
+protocol v0.5.0 additions — backends that predate them ignore the extra JSON
+and keep using their local configuration.
 
 `model` is always populated by CM from config. When the card's
 `use_opus_orchestrator` flag is `true`, CM sends the backend's
