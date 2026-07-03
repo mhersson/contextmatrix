@@ -291,3 +291,19 @@ func TestTokenProviderFor_Unavailable(t *testing.T) {
 	_, _, _, err = svc.TokenProviderFor(ctx, "off")
 	assert.ErrorIs(t, err, ErrCredentialUnavailable, "disabled entries fail closed")
 }
+
+func TestTokenProviderFor_WarmCacheThenDisable(t *testing.T) {
+	svc, _, _ := credService(t)
+	ctx := context.Background()
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "warm", Kind: authstore.CredentialKindPAT, Secret: "s"}, "human:root"))
+
+	_, _, _, err := svc.TokenProviderFor(ctx, "warm")
+	require.NoError(t, err, "cache warmed")
+
+	require.NoError(t, svc.SetCredentialDisabled(ctx, "warm", true))
+
+	_, _, _, err = svc.TokenProviderFor(ctx, "warm")
+	assert.ErrorIs(t, err, ErrCredentialUnavailable, "disable wins over a warm cache")
+}
