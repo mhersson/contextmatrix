@@ -71,4 +71,32 @@ describe('AuthProvider', () => {
 
     await waitFor(() => expect(screen.getByText('multi|anonymous|-')).toBeInTheDocument());
   });
+
+  it('logout flips to anonymous even when the API call rejects, without throwing', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
+    mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: '', is_admin: false });
+    mocks.logout.mockRejectedValue(new Error('session already dead'));
+
+    function LogoutProbe() {
+      const { mode, status, user, logout } = useAuth();
+      return (
+        <div>
+          <div>{`${mode}|${status}|${user?.username ?? '-'}`}</div>
+          <button onClick={() => void logout()}>logout</button>
+        </div>
+      );
+    }
+
+    render(<AuthProvider><LogoutProbe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText('multi|authenticated|alice')).toBeInTheDocument());
+
+    await act(async () => {
+      screen.getByText('logout').click();
+      // Flush the rejected api.logout() promise before asserting.
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByText('multi|anonymous|-')).toBeInTheDocument());
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+  });
 });

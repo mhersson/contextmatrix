@@ -80,8 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Best-effort: the state flip below is the contract. A failed request
+    // (e.g. session already dead) must not surface as an unhandled
+    // rejection to callers that fire-and-forget (`void logout()`).
     try {
       await api.logout();
+    } catch {
+      // ignore — state flip in finally still runs
     } finally {
       setUserState(null);
       setStatus('anonymous');
