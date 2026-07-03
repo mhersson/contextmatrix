@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat/transcript"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
@@ -81,6 +82,12 @@ type StartChatOpts struct {
 	// Empty string means "no primer" — runner skips the write. Sourced
 	// from workflow-skills/chat-mode.md on each cold open.
 	Primer string
+	// LLMEndpoint is the CM-provisioned inference endpoint configuration
+	// forwarded to the chat backend verbatim. Nil means "the backend falls
+	// back to its own local llm_endpoint config" (pre-multi-user behavior).
+	// Treat as a secret carrier: never log this value or the opts struct
+	// as a whole — LLMEndpoint.APIKey rides along.
+	LLMEndpoint *protocol.LLMEndpoint
 }
 
 // Config carries Manager dependencies.
@@ -128,6 +135,13 @@ type Config struct {
 	// Pricer is used to compute token costs for chat sessions. Optional:
 	// nil means cost computation is skipped.
 	Pricer Pricer
+
+	// LLMEndpoint is the CM-provisioned inference endpoint configuration
+	// attached to every chat-start payload. Nil when llm_endpoint is
+	// unconfigured — the chat backend then falls back to its own local
+	// config (pre-multi-user behavior). Production wires this from
+	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
+	LLMEndpoint *protocol.LLMEndpoint
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -146,6 +160,10 @@ type Manager struct {
 	defaultModel       string
 	primerPath         string
 	pricer             Pricer
+	// llmEndpoint is the CM-provisioned inference endpoint configuration
+	// forwarded to every chat-start payload. Treat as a secret carrier:
+	// never log this value — llmEndpoint.APIKey rides along.
+	llmEndpoint *protocol.LLMEndpoint
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -231,6 +249,7 @@ func NewManager(cfg Config) *Manager {
 		defaultModel:       cfg.DefaultModel,
 		primerPath:         cfg.PrimerPath,
 		pricer:             cfg.Pricer,
+		llmEndpoint:        cfg.LLMEndpoint,
 		seqMap:             make(map[string]int64),
 		titled:             make(map[string]bool),
 		consumers:          make(map[string]*consumerHandle),
@@ -1266,12 +1285,13 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		"has_primer", primer != "")
 
 	return StartChatOpts{
-		SessionID: sess.ID,
-		Project:   sess.Project,
-		RepoURL:   repoURL,
-		Model:     model,
-		Resume:    resume,
-		Primer:    primer,
+		SessionID:   sess.ID,
+		Project:     sess.Project,
+		RepoURL:     repoURL,
+		Model:       model,
+		Resume:      resume,
+		Primer:      primer,
+		LLMEndpoint: m.llmEndpoint,
 	}, nil
 }
 

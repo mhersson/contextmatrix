@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat"
 )
 
@@ -105,6 +106,46 @@ func TestRunnerClient_StartChat_MarshalsPrimer(t *testing.T) {
 
 	_, present := received["primer"]
 	assert.False(t, present, "primer field must be omitted when empty (omitempty)")
+}
+
+func TestRunnerClient_StartChat_MarshalsLLMEndpoint(t *testing.T) {
+	var received map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &received)
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "container_id": "c-1"})
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	// Case 1: LLMEndpoint set → JSON contains "llm_endpoint" with the configured fields.
+	_, err := rc.StartChat(context.Background(), chat.StartChatOpts{
+		SessionID: "S1",
+		LLMEndpoint: &protocol.LLMEndpoint{
+			Type:    "openrouter",
+			BaseURL: "https://openrouter.ai/api/v1",
+			APIKey:  "sk-test-key",
+		},
+	})
+	require.NoError(t, err)
+
+	endpoint, ok := received["llm_endpoint"].(map[string]any)
+	require.True(t, ok, "llm_endpoint should be present in payload")
+	assert.Equal(t, "openrouter", endpoint["type"])
+	assert.Equal(t, "https://openrouter.ai/api/v1", endpoint["base_url"])
+	assert.Equal(t, "sk-test-key", endpoint["api_key"])
+
+	// Case 2: LLMEndpoint nil → "llm_endpoint" omitted from JSON.
+	received = nil
+	_, err = rc.StartChat(context.Background(), chat.StartChatOpts{SessionID: "S2"})
+	require.NoError(t, err)
+
+	_, present := received["llm_endpoint"]
+	assert.False(t, present, "llm_endpoint field must be omitted when nil (omitempty)")
 }
 
 func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
