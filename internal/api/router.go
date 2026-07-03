@@ -673,7 +673,7 @@ func recovery(next http.Handler) http.Handler {
 				ctxlog.Logger(r.Context()).Error("panic recovered",
 					"error", err,
 					"stack", string(debug.Stack()),
-					"path", r.URL.Path,
+					"path", redactPath(r.URL.Path),
 				)
 				writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
 			}
