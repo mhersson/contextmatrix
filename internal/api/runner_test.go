@@ -3515,6 +3515,40 @@ func TestGetGitCredentials_PATZeroExpiry_ExpiresAtOmitted(t *testing.T) {
 	assert.False(t, hasExpiry, "zero-value expiry must be omitted, never formatted as 0001-01-01...")
 }
 
+func TestGetGitCredentials_PATSentinelExpiry_ExpiresAtOmitted(t *testing.T) {
+	// githubauth's PATProvider reports year 9999, not zero — the far-future
+	// sentinel must be omitted from the wire the same way (absent = "do not
+	// schedule a refresh", the PAT semantic).
+	sentinel := time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
+	fakeProvider := &fakeTokenProvider{token: "pat-token", expiresAt: sentinel}
+
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
+		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
+			return fakeProvider, "", nil
+		})
+	defer cleanup()
+
+	path := "/api/runner/git-credentials?project=test-project&card_id=" + cardID
+	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+path, nil)
+	req.Header.Set("X-Signature-256", sig)
+	req.Header.Set("X-Webhook-Timestamp", ts)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "pat-token", body["token"])
+	_, hasExpiry := body["expires_at"]
+	assert.False(t, hasExpiry, "year-9999 sentinel expiry must be omitted like zero")
+}
+
 func TestGetGitCredentials_NotRunning_Conflict(t *testing.T) {
 	fakeProvider := &fakeTokenProvider{token: "ghs_unused"}
 

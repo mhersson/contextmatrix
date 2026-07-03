@@ -317,12 +317,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		}
 
 		payload.GitToken = token
-		// PAT-backed providers report a sentinel/zero expiry (no server-managed
-		// TTL); omit the field entirely rather than wire out the Go zero value
-		// ("0001-01-01T00:00:00Z").
-		if !expiresAt.IsZero() {
-			payload.GitTokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
-		}
+		payload.GitTokenExpiresAt = tokenExpiryString(expiresAt)
 	}
 
 	payload.LLMEndpoint = h.llmEndpoint
@@ -858,11 +853,19 @@ func mintInstanceToken(ctx context.Context, provider githubauth.TokenGenerator) 
 		return "", ""
 	}
 
-	if !exp.IsZero() {
-		expiresAt = exp.UTC().Format(time.RFC3339)
+	return tok, tokenExpiryString(exp)
+}
+
+// tokenExpiryString formats a minted token's expiry for the wire. Zero and
+// far-future sentinel expiries (githubauth's PATProvider reports year 9999 —
+// a PAT has no server-managed TTL) are omitted entirely: an absent expiry
+// means "do not schedule a refresh", which is exactly the PAT semantic.
+func tokenExpiryString(t time.Time) string {
+	if t.IsZero() || t.Year() >= 9000 {
+		return ""
 	}
 
-	return tok, expiresAt
+	return t.UTC().Format(time.RFC3339)
 }
 
 // chatBackendHandlers serves the HMAC-signed callbacks the dedicated chat
@@ -956,8 +959,8 @@ func (h *runnerHandlers) getGitCredentials(w http.ResponseWriter, r *http.Reques
 	}
 
 	resp := map[string]string{"token": token}
-	if !expiresAt.IsZero() {
-		resp["expires_at"] = expiresAt.UTC().Format(time.RFC3339)
+	if s := tokenExpiryString(expiresAt); s != "" {
+		resp["expires_at"] = s
 	}
 
 	writeJSON(w, http.StatusOK, resp)
