@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -23,6 +25,7 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
+	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -831,6 +834,246 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 	// not be left stuck in "queued" after the 409.
 	assert.Equal(t, "failed", updated.RunnerStatus,
 		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+}
+
+// TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance
+// hardens the fail-closed contract from a stronger angle than
+// TestRunCard_ProviderForProject_CredentialUnavailable above: that test's
+// injected ProviderForProject unconditionally returns an error, so it proves
+// the handler reacts correctly to a resolution failure but never gives
+// resolution an actual working instance provider it could have (wrongly)
+// substituted. This test wires a resolver — mirroring
+// cmd/contextmatrix/main.go's providerForProject — around a real
+// *auth.Service holding a genuinely resolvable credential, plus a genuinely
+// working instance-level fallback provider, then proves both halves of the
+// contract in the same setup: the broken binding still 409s and never
+// reaches the runner backend, AND the very same resolver hands back the
+// instance provider for an unbound project — so the 409 is not an artifact
+// of "nothing here ever works".
+//
+// The resolution logic itself is no longer only a hand-typed replica here:
+// cmd/contextmatrix/provider.go extracts it into the named
+// newProviderForProject, directly covered by TestNewProviderForProject in
+// cmd/contextmatrix/provider_test.go. This test stays to pin the
+// handler-side half of the contract that a resolver-only test cannot reach:
+// a resolution error 409s, never calls the runner backend, and reverts
+// runner_status to failed — i.e. runCard applies no fallback of its own on
+// top of whatever the resolver returns.
+func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Real credential-pool Service, seeded with one genuinely resolvable
+	// credential — rules out "TokenProviderFor always errors regardless of
+	// input" as a false explanation for the 409 asserted below.
+	authStore, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))
+	require.NoError(t, err)
+
+	defer func() { _ = authStore.Close() }()
+
+	authSvc := auth.NewService(authStore, time.Hour)
+
+	credKey := make([]byte, 32)
+	_, err = rand.Read(credKey)
+	require.NoError(t, err)
+	authSvc.SetCredentialKey(credKey)
+	authSvc.SetCredentialChecker(func(context.Context, auth.CredentialInput) error { return nil })
+
+	require.NoError(t, authSvc.CreateCredential(ctx, auth.CredentialInput{
+		Name: "good-cred", Kind: authstore.CredentialKindPAT, Secret: "good-secret",
+	}, "human:root"))
+
+	_, _, _, err = authSvc.TokenProviderFor(ctx, "good-cred")
+	require.NoError(t, err, "sanity: this authSvc genuinely resolves a real credential")
+
+	// The instance-level fallback: healthy and reachable, but must never be
+	// substituted for test-project's broken binding below.
+	instanceProvider := &fakeTokenProvider{token: "instance-token"}
+
+	const instanceAPIBase = "https://instance.example/api"
+
+	// Mirrors cmd/contextmatrix/main.go's providerForProject: the project's
+	// binding wins when set (fail-closed on a broken one), else the instance
+	// provider. test-project is bound to a name never registered above — a
+	// typo'd binding, or a credential deleted after the .board.yaml binding
+	// was made.
+	resolver := func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error) {
+		credName := ""
+		if project == "test-project" {
+			credName = "broken-cred"
+		}
+
+		if credName == "" {
+			return instanceProvider, instanceAPIBase, nil
+		}
+
+		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, credName)
+		if err != nil {
+			return nil, "", err
+		}
+
+		return provider, apiBase, nil
+	}
+
+	// Contrast first: the same resolver DOES hand back the instance provider
+	// for a project with no binding — proving the fallback path is genuinely
+	// reachable in this exact setup, not merely unwired.
+	unboundProvider, unboundAPIBase, err := resolver(ctx, "unbound-project")
+	require.NoError(t, err)
+	assert.Same(t, instanceProvider, unboundProvider, "unbound project resolves to the instance provider")
+	assert.Equal(t, instanceAPIBase, unboundAPIBase)
+
+	var backendCalled atomic.Bool
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled.Store(true)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg:         config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: resolver,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	assert.False(t, backendCalled.Load(),
+		"backend must never be called — a broken binding must not fall back to the working instance credential")
+
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", updated.RunnerStatus,
+		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+}
+
+// TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider hardens the
+// "none mode" branch of the fail-closed contract: mirrors
+// cmd/contextmatrix/main.go's providerForProject closure with authSvc == nil
+// (auth.mode "none" — no credential pool exists at all) and proves the
+// resolver returns the instance provider without ever dereferencing the nil
+// credential service. A missing or reordered nil-guard here would
+// nil-pointer-panic on every run trigger in a none-mode deployment.
+// test-project carries a (would-be) binding so the assertion exercises the
+// "authSvc == nil" arm of the guard specifically, not the already-covered
+// "no binding configured" arm.
+//
+// The nil-guard logic itself is directly covered by TestNewProviderForProject
+// (cmd/contextmatrix/provider_test.go), which exercises the real
+// newProviderForProject constructor rather than this mirrored resolver. This
+// test stays to pin the handler-side half: the resolved instance provider's
+// token actually reaches the runner backend's trigger payload (202, not just
+// "no panic").
+func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var authSvc *auth.Service // nil: auth.mode "none" — no credential pool at all
+
+	instanceProvider := &fakeTokenProvider{token: "instance-token"}
+
+	const instanceAPIBase = "https://instance.example/api"
+
+	// Mirrors cmd/contextmatrix/main.go's providerForProject. test-project
+	// carries a (would-be) binding so the "authSvc == nil" half of the OR
+	// guard is what actually decides the outcome below, not the "no binding"
+	// half.
+	resolver := func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error) {
+		credName := ""
+		if project == "test-project" {
+			credName = "some-bound-credential"
+		}
+
+		if credName == "" || authSvc == nil {
+			return instanceProvider, instanceAPIBase, nil
+		}
+
+		// Unreachable while the guard above holds — a nil authSvc here would
+		// nil-pointer-panic inside TokenProviderFor.
+		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, credName)
+		if err != nil {
+			return nil, "", err
+		}
+
+		return provider, apiBase, nil
+	}
+
+	var (
+		directProvider githubauth.TokenGenerator
+		directAPIBase  string
+		directErr      error
+	)
+
+	require.NotPanics(t, func() {
+		directProvider, directAPIBase, directErr = resolver(ctx, "test-project")
+	}, "nil auth service must never be dereferenced")
+
+	require.NoError(t, directErr)
+	assert.Same(t, instanceProvider, directProvider,
+		"nil auth service must resolve to the instance provider, not error")
+	assert.Equal(t, instanceAPIBase, directAPIBase)
+
+	// End to end: the trigger-mint path (runCard) actually uses this
+	// resolver's result — the token that reaches the wire is the instance
+	// provider's token.
+	var receivedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg:         config.BackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj", Name: "runner"},
+		ProviderForProject: resolver,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, "instance-token", receivedPayload.GitToken)
 }
 
 // TestRunCard_NoProviderForProject_BackwardsCompat asserts that when
