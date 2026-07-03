@@ -69,6 +69,46 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName string, is
 	return s.UserByID(ctx, id)
 }
 
+// CreateFirstAdmin inserts the bootstrap admin if and only if the users
+// table is empty. The guarded INSERT…SELECT makes the zero-user check atomic
+// with the insert — two concurrent bootstrap redemptions cannot both win.
+func (s *Store) CreateFirstAdmin(ctx context.Context, username, displayName string, now time.Time) (*User, error) {
+	username = NormalizeUsername(username)
+	if !usernameRe.MatchString(username) {
+		return nil, ErrInvalidUsername
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (username, display_name, is_admin, disabled, created_at, updated_at)
+		SELECT ?, ?, 1, 0, ?, ?
+		WHERE (SELECT COUNT(*) FROM users) = 0`,
+		username, displayName, toUnix(now), toUnix(now),
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrDuplicate
+		}
+
+		return nil, fmt.Errorf("authstore: create first admin: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("authstore: create first admin rows: %w", err)
+	}
+
+	if n == 0 {
+		return nil, ErrNotBootstrappable
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("authstore: create first admin id: %w", err)
+	}
+
+	return s.UserByID(ctx, id)
+}
+
 // UserByID fetches one user by primary key.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx, userSelect+` WHERE id = ?`, id))

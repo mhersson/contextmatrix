@@ -2,6 +2,8 @@ package authstore_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,4 +161,52 @@ func TestCountActiveAdmins(t *testing.T) {
 	n, err = store.CountActiveAdmins(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
+}
+
+func TestCreateFirstAdmin_AtomicZeroUserGuard(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	u, err := store.CreateFirstAdmin(ctx, "Root", "The Root", testNow)
+	require.NoError(t, err)
+	assert.Equal(t, "root", u.Username)
+	assert.True(t, u.IsAdmin)
+
+	_, err = store.CreateFirstAdmin(ctx, "second", "", testNow)
+	assert.ErrorIs(t, err, authstore.ErrNotBootstrappable)
+}
+
+func TestCreateFirstAdmin_Concurrent(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	const goroutines = 8
+
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		successes int
+	)
+
+	for i := range goroutines {
+		wg.Add(1)
+
+		go func(n int) {
+			defer wg.Done()
+
+			if _, err := store.CreateFirstAdmin(ctx, fmt.Sprintf("admin%d", n), "", testNow); err == nil {
+				mu.Lock()
+				successes++
+				mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, 1, successes, "exactly one concurrent bootstrap may win")
+
+	users, err := store.ListUsers(ctx)
+	require.NoError(t, err)
+	assert.Len(t, users, 1)
 }

@@ -20,11 +20,12 @@ import (
 
 // Sentinel errors shared by all entity files in this package.
 var (
-	ErrNotFound        = errors.New("authstore: not found")
-	ErrDuplicate       = errors.New("authstore: already exists")
-	ErrTokenSpent      = errors.New("authstore: token already used")
-	ErrTokenExpired    = errors.New("authstore: token expired")
-	ErrInvalidUsername = errors.New("authstore: invalid username")
+	ErrNotFound          = errors.New("authstore: not found")
+	ErrDuplicate         = errors.New("authstore: already exists")
+	ErrTokenSpent        = errors.New("authstore: token already used")
+	ErrTokenExpired      = errors.New("authstore: token expired")
+	ErrInvalidUsername   = errors.New("authstore: invalid username")
+	ErrNotBootstrappable = errors.New("authstore: users already exist")
 )
 
 // Store is the SQLite-backed multi-user state store.
