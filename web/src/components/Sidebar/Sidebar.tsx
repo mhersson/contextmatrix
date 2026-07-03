@@ -22,6 +22,10 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
   const { version } = useTheme();
   const auth = useOptionalAuth();
   const isAdmin = Boolean(auth?.user?.is_admin);
+  // UX honesty, not a security boundary — the API 403s a non-admin project
+  // create anyway (multi mode is admin-gated). None mode (auth?.mode !==
+  // 'multi', including no AuthProvider at all) always shows the button.
+  const canCreateProject = !(auth?.mode === 'multi' && !isAdmin);
   const [collapsed, setCollapsed] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const sortedProjects = useMemo(
@@ -199,16 +203,18 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
 
       <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>
         <UserMenu />
-        <button
-          onClick={onNewProject}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors hover:opacity-80"
-          style={{ backgroundColor: 'var(--bg1)', color: 'var(--green)' }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Project
-        </button>
+        {canCreateProject && (
+          <button
+            onClick={onNewProject}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors hover:opacity-80"
+            style={{ backgroundColor: 'var(--bg1)', color: 'var(--green)' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Project
+          </button>
+        )}
       </div>
     </>
   );

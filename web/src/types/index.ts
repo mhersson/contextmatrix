@@ -109,6 +109,11 @@ export interface ProjectConfig {
   //   []               — mount no skills (cards override per-card if needed)
   //   [name, ...]      — constrain cards to listed skills
   default_skills?: string[] | null;
+  /**
+   * Reference-only instance credential-pool entry name (multi-user mode).
+   * Empty/absent means the instance `github.*` config default applies.
+   */
+  github_credential?: string;
 }
 
 export interface CardFilter {
@@ -314,6 +319,12 @@ export interface UpdateProjectInput {
   transitions: Record<string, string[]>;
   github?: GitHubImportConfig;
   default_skills?: string[] | null;
+  /**
+   * Pointer-application semantics on the server: key omitted (undefined)
+   * preserves the current binding; "" clears it back to the instance
+   * default; a name sets/replaces it (422 if unknown, multi mode only).
+   */
+  github_credential?: string;
 }
 
 export interface StopAllResponse {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { useOncePerKeyToast } from '../../hooks/useOncePerKeyToast';
+import { useOptionalAuth } from '../../hooks/useAuth';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useSSEBus } from '../../hooks/useSSEBus';
@@ -30,6 +31,11 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
   const { summaries, errors, loading, refresh } = useProjectSummariesContext();
   const { subscribe } = useSSEBus();
   const { showToast } = useToast();
+
+  // UX honesty, not a security boundary — the API 403s a non-admin project
+  // create anyway (multi mode is admin-gated). Mirrors Sidebar's gating.
+  const auth = useOptionalAuth();
+  const canCreateProject = !(auth?.mode === 'multi' && !auth?.user?.is_admin);
 
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -166,6 +172,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
           onRefresh={handleRefresh}
           onNewProject={handleNewProject}
           refreshing={refreshing}
+          showNewProject={canCreateProject}
         />
         <div className="apd-section-pad">
           <KpiRow

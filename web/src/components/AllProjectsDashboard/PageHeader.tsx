@@ -4,6 +4,8 @@ interface PageHeaderProps {
   onRefresh: () => void;
   onNewProject: () => void;
   refreshing: boolean;
+  /** UX honesty: hidden for non-admins in multi mode (API 403s anyway). Defaults to visible. */
+  showNewProject?: boolean;
 }
 
 export function PageHeader({
@@ -12,6 +14,7 @@ export function PageHeader({
   onRefresh,
   onNewProject,
   refreshing,
+  showNewProject = true,
 }: PageHeaderProps) {
   return (
     <header className="apd-page-header">
@@ -56,30 +59,32 @@ export function PageHeader({
           </svg>
           {refreshing ? 'Refreshing' : 'Refresh'}
         </button>
-        <button
-          type="button"
-          onClick={onNewProject}
-          className="apd-chip apd-chip-primary"
-          style={{
-            color: 'var(--green)',
-            backgroundColor: 'var(--bg-green)',
-            borderColor: 'transparent',
-          }}
-        >
-          <svg
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.6}
-            strokeLinecap="round"
-            width={13}
-            height={13}
-            aria-hidden="true"
+        {showNewProject && (
+          <button
+            type="button"
+            onClick={onNewProject}
+            className="apd-chip apd-chip-primary"
+            style={{
+              color: 'var(--green)',
+              backgroundColor: 'var(--bg-green)',
+              borderColor: 'transparent',
+            }}
           >
-            <path d="M7 3v8M3 7h8" />
-          </svg>
-          New project
-        </button>
+            <svg
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.6}
+              strokeLinecap="round"
+              width={13}
+              height={13}
+              aria-hidden="true"
+            >
+              <path d="M7 3v8M3 7h8" />
+            </svg>
+            New project
+          </button>
+        )}
       </div>
     </header>
   );

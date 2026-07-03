@@ -1,7 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useId } from 'react';
 import { api, isAPIError } from '../../api/client';
+import { useOptionalAuth } from '../../hooks/useAuth';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
+import { GitHubCredentialSection } from './GitHubCredentialSection';
 import { GitHubImportSection } from './GitHubImportSection';
 import { RepoListSection } from './RepoListSection';
 import { StateTransitionEditor } from './StateTransitionEditor';
@@ -31,6 +33,14 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Mirrors UserMenu/Sidebar's useOptionalAuth pattern — mode defaults to
+  // 'none' and isAdmin to false when rendered without an AuthProvider (e.g.
+  // in isolated tests), matching none-mode behavior.
+  const auth = useOptionalAuth();
+  const mode = auth?.mode ?? 'none';
+  const isAdmin = Boolean(auth?.user?.is_admin);
+  const readOnly = mode === 'multi' && !isAdmin;
+
   const repoId = useId();
 
   const [repo, setRepo] = useState('');
@@ -44,6 +54,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
   const [remoteExecution, setRemoteExecution] = useState<RemoteExecutionConfig>(emptyRemoteExecution);
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
+  const [githubCredential, setGithubCredential] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -81,6 +92,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setGitHub(cfg.github ?? emptyGitHub);
         setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
         setDefaultSkills(cfg.default_skills ?? null);
+        setGithubCredential(cfg.github_credential ?? '');
         setCardCount(count);
         setLoading(false);
       })
@@ -123,9 +135,22 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
       ghToString(github) !== ghToString(config.github) ||
       reToString(remoteExecution) !== reToString(config.remote_execution) ||
-      JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills)
+      JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills) ||
+      githubCredential !== (config.github_credential ?? '')
     );
-  }, [config, repo, states, types, priorities, transitions, github, remoteExecution, defaultSkills, serializeTransitions]);
+  }, [
+    config,
+    repo,
+    states,
+    types,
+    priorities,
+    transitions,
+    github,
+    remoteExecution,
+    defaultSkills,
+    githubCredential,
+    serializeTransitions,
+  ]);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -139,6 +164,23 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         transitions,
         github: github.import_issues ? github : { import_issues: false },
         default_skills: defaultSkills,
+        // Multi-mode only — omitting the key entirely in none mode keeps
+        // the request body byte-identical to pre-binding behavior (none
+        // mode also rejects a non-empty binding server-side, fail-closed).
+        //
+        // Within multi mode, only include the key when the value actually
+        // changed from the loaded config. UpdateProjectInput.github_credential
+        // has pointer semantics server-side: omitted = preserve, "" = clear,
+        // name = set (re-validated against the pool, 422 if unknown). Always
+        // sending it would force server-side re-validation on every save,
+        // including saves that don't touch the binding at all — which fails
+        // with 422 whenever the current binding has gone stale (its pool
+        // entry was deleted), exactly the scenario GitHubCredentialSection's
+        // warning exists for. Comparing against the loaded config preserves
+        // "save without touching it" even for a stale binding.
+        ...(mode === 'multi' && githubCredential !== (config?.github_credential ?? '')
+          ? { github_credential: githubCredential }
+          : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -152,7 +194,23 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     } finally {
       setIsSaving(false);
     }
-  }, [isDirty, isSaving, repo, states, types, priorities, transitions, github, defaultSkills, project, onUpdated, showToast]);
+  }, [
+    isDirty,
+    isSaving,
+    repo,
+    states,
+    types,
+    priorities,
+    transitions,
+    github,
+    defaultSkills,
+    githubCredential,
+    mode,
+    config,
+    project,
+    onUpdated,
+    showToast,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (isDeleting) return;
@@ -218,17 +276,19 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         >
           Project Settings
         </h2>
-        <button
-          onClick={handleSave}
-          disabled={!isDirty || isSaving}
-          className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-            isDirty
-              ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
-              : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
-          }`}
-        >
-          {isSaving ? 'Saving...' : 'Save'}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={handleSave}
+            disabled={!isDirty || isSaving}
+            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+              isDirty
+                ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
+                : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
+            }`}
+          >
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+        )}
       </div>
 
       {/* Read-only fields */}
@@ -247,125 +307,144 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         </div>
       </div>
 
-      {/* Repo */}
-      <div>
-        <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL</label>
-        <input
-          id={repoId}
-          type="text"
-          value={repo}
-          onChange={(e) => setRepo(e.target.value)}
-          placeholder="git@github.com:org/repo.git"
-          className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-          style={inputStyle}
-        />
-      </div>
+      {/*
+        readOnly (non-admin, multi mode) freezes every control below via
+        native fieldset[disabled] propagation to descendant form elements
+        (input/select/button/textarea) — every editable control here is a
+        native form element, so this covers them without per-section changes.
+        `contents` removes the fieldset's own box so it doesn't affect layout.
+      */}
+      <fieldset disabled={readOnly} className="contents">
+        {/* Repo */}
+        <div>
+          <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL</label>
+          <input
+            id={repoId}
+            type="text"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            placeholder="git@github.com:org/repo.git"
+            className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
+            style={inputStyle}
+          />
+        </div>
 
-      {/* States / Types / Priorities */}
-      <RepoListSection
-        states={states}
-        newState={newState}
-        setNewState={setNewState}
-        onAddState={() => {
-          const trimmed = newState.trim();
-          if (trimmed && !states.includes(trimmed)) {
-            setStates(prev => [...prev, trimmed]);
-            setTransitions(prev => (trimmed in prev ? prev : { ...prev, [trimmed]: [] }));
-            setNewState('');
-          }
-        }}
-        onRemoveState={removeState}
-        types={types}
-        newType={newType}
-        setNewType={setNewType}
-        onAddType={() => {
-          const trimmed = newType.trim();
-          if (trimmed && !types.includes(trimmed)) {
-            setTypes(prev => [...prev, trimmed]);
-            setNewType('');
-          }
-        }}
-        onRemoveType={(v) => setTypes(prev => prev.filter(x => x !== v))}
-        priorities={priorities}
-        newPriority={newPriority}
-        setNewPriority={setNewPriority}
-        onAddPriority={() => {
-          const trimmed = newPriority.trim();
-          if (trimmed && !priorities.includes(trimmed)) {
-            setPriorities(prev => [...prev, trimmed]);
-            setNewPriority('');
-          }
-        }}
-        onRemovePriority={(v) => setPriorities(prev => prev.filter(x => x !== v))}
-        inputStyle={inputStyle}
-      />
-
-      {/* State transition matrix */}
-      <StateTransitionEditor
-        states={states}
-        transitions={transitions}
-        onChange={setTransitions}
-        inputStyle={inputStyle}
-      />
-
-      {/* Default task skills */}
-      <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
-
-      {/* Remote Execution */}
-      <RemoteExecutionSection
-        value={remoteExecution}
-        onChange={setRemoteExecution}
-        inputStyle={inputStyle}
-      />
-
-      {/* GitHub Issue Import */}
-      <GitHubImportSection
-        github={github}
-        onChange={setGitHub}
-        types={types}
-        priorities={priorities}
-        inputStyle={inputStyle}
-      />
-
-      {/* Danger zone */}
-      <div className="pt-4 border-t" style={{ borderColor: 'var(--bg3)' }}>
-        <h3 className="section-eyebrow mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
-        {cardCount > 0 ? (
-          <p className="text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-            Cannot delete this project — it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.
-          </p>
-        ) : null}
-        {confirmDelete ? (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDelete}
-              disabled={isDeleting || cardCount > 0}
-              className="px-3 py-1.5 rounded text-sm font-medium transition-colors"
-              style={{ backgroundColor: 'var(--red)', color: 'var(--bg-dim)' }}
-            >
-              {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-3 py-1.5 rounded text-sm text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={cardCount > 0}
-            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              cardCount > 0
-                ? 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
-                : 'bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90'
-            }`}
-          >
-            Delete Project
-          </button>
+        {/*
+          GitHub credential binding — multi-user mode only. Bindings are a
+          multi-mode feature (the API rejects a non-empty binding in none
+          mode), so the section is not rendered at all in none mode; that
+          keeps none-mode settings byte-identical to pre-binding behavior.
+        */}
+        {mode === 'multi' && (
+          <GitHubCredentialSection value={githubCredential} onChange={setGithubCredential} readOnly={readOnly} />
         )}
-      </div>
+
+        {/* States / Types / Priorities */}
+        <RepoListSection
+          states={states}
+          newState={newState}
+          setNewState={setNewState}
+          onAddState={() => {
+            const trimmed = newState.trim();
+            if (trimmed && !states.includes(trimmed)) {
+              setStates(prev => [...prev, trimmed]);
+              setTransitions(prev => (trimmed in prev ? prev : { ...prev, [trimmed]: [] }));
+              setNewState('');
+            }
+          }}
+          onRemoveState={removeState}
+          types={types}
+          newType={newType}
+          setNewType={setNewType}
+          onAddType={() => {
+            const trimmed = newType.trim();
+            if (trimmed && !types.includes(trimmed)) {
+              setTypes(prev => [...prev, trimmed]);
+              setNewType('');
+            }
+          }}
+          onRemoveType={(v) => setTypes(prev => prev.filter(x => x !== v))}
+          priorities={priorities}
+          newPriority={newPriority}
+          setNewPriority={setNewPriority}
+          onAddPriority={() => {
+            const trimmed = newPriority.trim();
+            if (trimmed && !priorities.includes(trimmed)) {
+              setPriorities(prev => [...prev, trimmed]);
+              setNewPriority('');
+            }
+          }}
+          onRemovePriority={(v) => setPriorities(prev => prev.filter(x => x !== v))}
+          inputStyle={inputStyle}
+        />
+
+        {/* State transition matrix */}
+        <StateTransitionEditor
+          states={states}
+          transitions={transitions}
+          onChange={setTransitions}
+          inputStyle={inputStyle}
+        />
+
+        {/* Default task skills */}
+        <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
+
+        {/* Remote Execution */}
+        <RemoteExecutionSection
+          value={remoteExecution}
+          onChange={setRemoteExecution}
+          inputStyle={inputStyle}
+        />
+
+        {/* GitHub Issue Import */}
+        <GitHubImportSection
+          github={github}
+          onChange={setGitHub}
+          types={types}
+          priorities={priorities}
+          inputStyle={inputStyle}
+        />
+
+        {/* Danger zone */}
+        <div className="pt-4 border-t" style={{ borderColor: 'var(--bg3)' }}>
+          <h3 className="section-eyebrow mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
+          {cardCount > 0 ? (
+            <p className="text-xs mb-2" style={{ color: 'var(--grey1)' }}>
+              Cannot delete this project — it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.
+            </p>
+          ) : null}
+          {confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting || cardCount > 0}
+                className="px-3 py-1.5 rounded text-sm font-medium transition-colors"
+                style={{ backgroundColor: 'var(--red)', color: 'var(--bg-dim)' }}
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-3 py-1.5 rounded text-sm text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              disabled={cardCount > 0}
+              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                cardCount > 0
+                  ? 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
+                  : 'bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90'
+              }`}
+            >
+              Delete Project
+            </button>
+          )}
+        </div>
+      </fieldset>
     </div>
   );
 }
