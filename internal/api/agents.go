@@ -88,12 +88,15 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, card)
 }
 
-// extractAgentID returns the trimmed X-Agent-ID header. It is the sole source
-// of agent identity on agent endpoints. The previous body-field fallback was
-// removed because it bypassed the human:-prefix gate enforced elsewhere
-// (cards.go callers read only the header): a request with no header but
-// agent_id="human:alice" in body would claim as Alice while later mutation
-// checks would reject the same caller.
+// extractAgentID returns the caller identity. In multi-user mode the session
+// middleware stamps "human:<username>" into the request context and that
+// ALWAYS wins — a browser cannot claim a different identity via header. The
+// X-Agent-ID header remains the sole source on machine channels and in
+// single-user mode (where no session middleware runs).
 func extractAgentID(r *http.Request) string {
+	if id := identityFromContext(r.Context()); id != "" {
+		return id
+	}
+
 	return strings.TrimSpace(r.Header.Get("X-Agent-ID"))
 }

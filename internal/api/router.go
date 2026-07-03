@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -74,6 +75,11 @@ const (
 	// been reached; the client should back off and retry later. Mirrors the
 	// per-session ErrCodeTooManyChats used by the chat hub.
 	ErrCodeTooManySubscribers = "TOO_MANY_SUBSCRIBERS"
+
+	// Multi-user auth. UNAUTHORIZED → 401 (no/expired session; the SPA
+	// redirects to login). RATE_LIMITED → 429 with a Retry-After header.
+	ErrCodeUnauthorized = "UNAUTHORIZED"
+	ErrCodeRateLimited  = "RATE_LIMITED"
 
 	// Image upload + retrieval. Status mapping:
 	//   IMAGE_NOT_FOUND        → 404 (unknown id or malformed id segment)
@@ -152,6 +158,15 @@ type RouterConfig struct {
 	// ValidateChatModel, when non-nil, reports whether a model slug is in the
 	// served set (fail-open on an empty catalog).
 	ValidateChatModel func(context.Context, string) bool
+
+	// AuthService enables multi-user mode: the session guard middleware and
+	// the /api/auth/* routes are installed only when it is non-nil. A nil
+	// AuthService leaves the router byte-for-byte identical to single-user
+	// CM — that is the auth.mode "none" guarantee.
+	AuthService *auth.Service
+	// AuthMode is surfaced in GET /api/app/config ("multi"/"none"); empty
+	// is reported as "none".
+	AuthMode string
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -206,7 +221,20 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Readiness check
 	rdhz := &readinessHandlers{svc: cfg.Service}
-	mux.HandleFunc("GET /readyz", rdhz.handleReadyz)
+
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Service == nil {
+			// No card service wired — a router built for narrower coverage
+			// (e.g. auth-only or task-skills-only tests) has nothing to
+			// report on, so readiness trivially holds rather than panicking
+			// on a nil svc inside handleReadyz.
+			writeJSON(w, http.StatusOK, readyzResponse{Status: "ok"})
+
+			return
+		}
+
+		rdhz.handleReadyz(w, r)
+	})
 
 	// SSE events
 	mux.HandleFunc("GET /api/events", eh.streamEvents)
@@ -241,6 +269,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
+
+	// Auth routes — only in multi mode.
+	if cfg.AuthService != nil {
+		authh := &authHandlers{svc: cfg.AuthService}
+		mux.HandleFunc("POST /api/auth/login", authh.login)
+		mux.HandleFunc("POST /api/auth/logout", authh.logout)
+		mux.HandleFunc("GET /api/auth/session", authh.getSession)
+		mux.HandleFunc("GET /api/auth/token/{token}", authh.inspectToken)
+		mux.HandleFunc("POST /api/auth/token/{token}", authh.redeemToken)
+		mux.HandleFunc("POST /api/auth/password", authh.changePassword)
+	}
 
 	// Task-skills (used by project default + per-card skill selectors in the UI)
 	mux.HandleFunc("GET /api/task-skills", tsh.listTaskSkills)
@@ -422,6 +461,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit, csrfGuard}
 	if cfg.CORSOrigin != "" {
 		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit, csrfGuard}
+	}
+
+	// Session guard sits innermost — just outside the mux — so machine
+	// channels and probes are exempted with the same path logic as the CSRF
+	// guard, and every gated handler sees the identity context.
+	if cfg.AuthService != nil {
+		middlewares = append(middlewares, sessionGuard(cfg.AuthService))
 	}
 
 	return chain(mux, middlewares...)
