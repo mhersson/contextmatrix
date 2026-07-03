@@ -69,15 +69,12 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 // toUnix converts a time to the stored UTC unix-seconds representation.
-// nolint:unused // used by other entity files in this package (tasks 6-9)
 func toUnix(t time.Time) int64 { return t.UTC().Unix() }
 
 // fromUnix converts stored unix seconds back to a UTC time.
-// nolint:unused // used by other entity files in this package (tasks 6-9)
 func fromUnix(n int64) time.Time { return time.Unix(n, 0).UTC() }
 
 // fromNullUnix converts a nullable stored timestamp to *time.Time.
-// nolint:unused // used by other entity files in this package (tasks 6-9)
 func fromNullUnix(n sql.NullInt64) *time.Time {
 	if !n.Valid {
 		return nil

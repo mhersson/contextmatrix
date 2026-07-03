@@ -53,6 +53,10 @@ func DecryptSecret(key, blob []byte) ([]byte, error) {
 }
 
 func newGCM(key []byte) (cipher.AEAD, error) {
+	if len(key) != 32 {
+		return nil, fmt.Errorf("auth: encryption key must be 32 bytes, got %d", len(key))
+	}
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("auth: cipher: %w", err)
