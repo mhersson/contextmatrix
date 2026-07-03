@@ -4,11 +4,13 @@ import { SSEProvider } from './hooks/useSSEBus';
 import { ProjectsProvider } from './hooks/useProjects';
 import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';
 import { ThemeProvider } from './hooks/useTheme';
+import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
+import { AuthGate } from './components/Auth';
 import type { ProjectConfig } from './types';
 
 // Lazy-load top-level routes so the initial bundle only contains the shell.
@@ -100,11 +102,15 @@ function AppInner() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <MobileSidebarProvider>
-        <AppInner />
-      </MobileSidebarProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider>
+        <AuthGate>
+          <MobileSidebarProvider>
+            <AppInner />
+          </MobileSidebarProvider>
+        </AuthGate>
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
 

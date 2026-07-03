@@ -40,8 +40,10 @@ function safeSet(key: string, value: string): void {
   }
 }
 
-export function useAgentId() {
-  const [agentId] = useState<string>(() => {
+export function useAgentId(enabled: boolean) {
+  const [agentId] = useState<string | null>(() => {
+    if (!enabled) return null;
+
     const existing = safeGet(STORAGE_KEY);
     if (existing) return existing;
 
