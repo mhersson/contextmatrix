@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { CREDENTIAL_KIND_LABEL } from '../../lib/credentialLabels';
 
 interface CredentialFieldsProps {
   mode: 'create' | 'rotate';
@@ -69,7 +70,7 @@ export function CredentialFields({
                   : { backgroundColor: 'var(--bg3)', color: 'var(--grey1)' }
               }
             >
-              {k === 'pat' ? 'GitHub PAT' : 'GitHub App'}
+              {CREDENTIAL_KIND_LABEL[k]}
             </button>
           ))}
         </div>

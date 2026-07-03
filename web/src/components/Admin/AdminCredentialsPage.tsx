@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../api/client';
-import type { APIError, CredentialInfo } from '../../types';
+import { api, isAPIError } from '../../api/client';
+import type { CredentialInfo } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { CredentialModal } from './CredentialModal';
 import { CredentialsTable } from './CredentialsTable';
@@ -12,8 +12,7 @@ interface PendingConfirm {
 }
 
 function errorMessage(err: unknown, fallback: string): string {
-  const apiErr = err as APIError;
-  return apiErr?.error || fallback;
+  return isAPIError(err) ? err.error : fallback;
 }
 
 /** Admin-only Credentials page: list, create/rotate (via CredentialModal),

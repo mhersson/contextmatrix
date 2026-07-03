@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { api } from '../../api/client';
+import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import type { APIError, CreateCredentialInput, CredentialInfo } from '../../types';
+import type { CreateCredentialInput, CredentialInfo } from '../../types';
 import { CredentialFields } from './CredentialFields';
 
 interface CredentialModalProps {
@@ -94,9 +94,13 @@ export function CredentialModal({ open, mode, existing, onClose, onSaved }: Cred
       onSaved();
       onClose();
     } catch (err) {
-      const apiErr = err as APIError;
-      setError(apiErr?.error || 'Failed to save credential.');
-      setDetails(apiErr?.details ?? null);
+      if (isAPIError(err)) {
+        setError(err.error);
+        setDetails(err.details ?? null);
+      } else {
+        setError('Failed to save credential.');
+        setDetails(null);
+      }
     } finally {
       setBusy(false);
     }

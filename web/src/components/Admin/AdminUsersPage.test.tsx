@@ -55,6 +55,17 @@ describe('AdminUsersPage — list', () => {
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.getByText(/invite pending/i)).toBeInTheDocument();
   });
+
+  it('falls back to a generic message when adminListUsers rejects with a non-APIError shape', async () => {
+    // Malformed rejection: `.error` exists but isn't a string, so it must
+    // fail the isAPIError guard and fall back rather than leak through.
+    mocks.adminListUsers.mockRejectedValue({ error: 12345 });
+
+    render(<AdminUsersPage />);
+
+    expect(await screen.findByText('Failed to load users.')).toBeInTheDocument();
+    expect(screen.queryByText('12345')).not.toBeInTheDocument();
+  });
 });
 
 describe('AdminUsersPage — create flow', () => {

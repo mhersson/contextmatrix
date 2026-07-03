@@ -1,4 +1,5 @@
 import { chipTint } from '../../lib/chip';
+import { CREDENTIAL_KIND_LABEL } from '../../lib/credentialLabels';
 import type { CredentialInfo } from '../../types';
 
 interface CredentialTableRowProps {
@@ -24,7 +25,7 @@ export function CredentialTableRow({ credential, onRotate, onToggleDisabled, onD
       <td className="px-4 py-2 font-mono">{credential.name}</td>
       <td className="px-4 py-2">
         <span className="chip-pill" style={chipTint(credential.kind === 'app' ? 'var(--purple)' : 'var(--aqua)')}>
-          {credential.kind === 'app' ? 'GitHub App' : 'PAT'}
+          {CREDENTIAL_KIND_LABEL[credential.kind]}
         </span>
       </td>
       <td className="px-4 py-2" style={{ color: 'var(--grey1)' }}>

@@ -95,6 +95,17 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
     expect(screen.queryByText(/credential no longer exists/i)).not.toBeInTheDocument();
   });
 
+  it('falls back to a generic message when the pool fetch rejects with a non-APIError shape', async () => {
+    // Malformed rejection: `.error` exists but isn't a string, so it must
+    // fail the isAPIError guard and fall back rather than leak through.
+    mocks.adminListCredentials.mockRejectedValue({ error: 12345 });
+
+    render(<GitHubCredentialSection value="" onChange={vi.fn()} readOnly={false} />);
+
+    expect(await screen.findByText('Failed to load credentials')).toBeInTheDocument();
+    expect(screen.queryByText('12345')).not.toBeInTheDocument();
+  });
+
   it('calls onChange with the newly selected credential name', async () => {
     mocks.adminListCredentials.mockResolvedValue([credential({ name: 'acme-pat' })]);
     const onChange = vi.fn();
