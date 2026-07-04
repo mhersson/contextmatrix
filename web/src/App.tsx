@@ -35,6 +35,9 @@ const AdminUsersPage = lazy(() =>
 const AdminCredentialsPage = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminCredentialsPage }))
 );
+const AdminChatsPage = lazy(() =>
+  import('./components/Admin').then((m) => ({ default: m.AdminChatsPage }))
+);
 const AdminGuard = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
 );
@@ -87,6 +90,7 @@ function AppInner() {
                       <Route path="chat/:id" element={<ChatPage />} />
                       <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
                       <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
+                      <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </Suspense>

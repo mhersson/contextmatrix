@@ -345,6 +345,18 @@ class APIClient {
     return this.request<void>(`/admin/credentials/${encodeURIComponent(name)}`, { method: 'DELETE' });
   }
 
+  async adminListChats(): Promise<ChatSession[]> {
+    return this.request<ChatSession[]>('/admin/chats');
+  }
+
+  async adminEndChat(id: string): Promise<ChatSession> {
+    return this.request<ChatSession>(`/admin/chats/${encodeURIComponent(id)}/end`, { method: 'POST' });
+  }
+
+  async adminDeleteChat(id: string): Promise<void> {
+    return this.request<void>(`/admin/chats/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
   // Task skills (project default + per-card selectors)
   async getTaskSkills(): Promise<TaskSkillSummary[]> {
     const resp = await this.request<{ skills: TaskSkillSummary[] }>('/task-skills');
