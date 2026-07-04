@@ -2,13 +2,25 @@
 
 ## Trust model
 
-ContextMatrix is **single-tenant and unauthenticated by design**. There are no
-user accounts, no logins, no per-user permissions, no session tokens. Deployment
-assumes loopback or a trusted-network ACL (firewall, NetworkPolicy, service-mesh
-rule) — same posture as the admin/debug listener documented in
-`docs/api-reference.md`.
+ContextMatrix has two authentication postures, controlled by `auth.mode` in
+config (`AuthConfig` in `internal/config/config.go`; env
+`CONTEXTMATRIX_AUTH_MODE`). **`multi` is the default** when the field is left
+unset (`applyAuthDefaults`); **`none`** is CM's single-tenant,
+zero-login behavior. The router-level switch is a nil vs. non-nil
+`*auth.Service`: `RouterConfig.AuthService == nil` skips every auth route, the
+session-guard middleware, and the admin routes entirely, leaving the router
+byte-for-byte identical to single-user CM (`internal/api/router.go`
+documents this as "the auth.mode 'none' guarantee"). The two modes have
+materially different security properties — the material below is organized by
+mode, then by what stays constant across both.
 
-The implications for code review:
+**`auth.mode: none` is single-tenant and unauthenticated by design.** There
+are no user accounts, no logins, no per-user permissions, no session tokens.
+Deployment assumes loopback or a trusted-network ACL (firewall,
+NetworkPolicy, service-mesh rule) — same posture as the admin/debug listener
+documented in `docs/api-reference.md`.
+
+The implications for code review, in none mode:
 
 **Identity is not authentication.** The `X-Agent-ID` header tags writes for
 audit purposes — boards-repo commit author, activity-log entries,
@@ -19,60 +31,210 @@ there is no permission gradient to escalate into.
 **The web UI auto-generates a per-browser identity.**
 `web/src/hooks/useAgentId.ts` mints `human:web-<8 hex chars>` on first visit,
 persists it in localStorage, and wires it into every API request via
-`api.setAgentId`. We do **not** prompt users for usernames — there is nothing to
-authenticate them against, so a prompt is theatre. Per-browser uniqueness
-prevents two tabs/users from accidentally releasing each other's card claims;
-that is the only reason a unique-per-browser id is needed.
+`api.setAgentId`. `useIdentity` (`web/src/hooks/useIdentity.ts`) only invokes
+this hook when the auth mode is `none`; in multi mode it derives identity from
+the logged-in session instead (below). We do **not** prompt users for
+usernames in none mode — there is nothing to authenticate them against, so a
+prompt is theatre. Per-browser uniqueness prevents two tabs/users from
+accidentally releasing each other's card claims; that is the only reason a
+unique-per-browser id is needed.
 
 **REST writes that require an identity but receive none fall back to a marker
 identity.** `internal/api/runner.go` falls back to `human:api` for the
-human-only runner endpoints. These markers are honest ("this came from the web
-UI / direct API call by an unspecified human") and they preserve write
-functionality without inventing fake usernames.
+human-only runner endpoints; `agentIDForChat` in `internal/api/chats.go` falls
+back to `human:web`. These markers are honest ("this came from the web UI /
+direct API call by an unspecified human") and they preserve write
+functionality without inventing fake usernames. In multi mode both fallbacks
+are unreachable dead code on the routes that use them — the session guard has
+already rejected any request with no session before the handler runs (below).
 
 **Where identity gates do exist, they enforce workflow contracts, not access
-control:**
+control (in none mode):**
 
 - **Card claim / heartbeat / release**: the supplied `X-Agent-ID` must match
   `assigned_agent`. This stops two agents from accidentally clobbering each
   other's claim — it does not stop a malicious caller (who can simply send the
-  matching value).
+  matching value). In multi mode the identity comes from the session instead
+  of a spoofable header, so this same check becomes real ownership enforcement
+  (below).
 - **MCP human-only tools** (`promote_to_autonomous`): the `agent_id` argument
   must start with `human:`. The check rejects callers that follow the agent
   convention of using a non-human identifier (e.g. `agent-foo`); a malicious
   caller can pass `human:anything` and the gate yields. The intent is to encode
-  "this operation is part of the human workflow," not to prevent forgery.
+  "this operation is part of the human workflow," not to prevent forgery —
+  true in multi mode too, since MCP never gained a session concept.
 - **Human-only operations on cards** (e.g. flipping `autonomous: true` via
   `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
   `human:` prefix check, same intent. The REST handler in
   `internal/api/runner.go` falls back to `human:api` when `X-Agent-ID` is absent
-  so the service-layer gate still passes for direct API calls.
+  so the service-layer gate still passes for direct API calls in none mode (in
+  multi mode the session identity already satisfies it).
 
-**Where real authentication does exist:**
+**`auth.mode: multi` adds real authentication: login, sessions, and an admin
+role.** Users, sessions, one-time tokens, and the GitHub credential pool are
+persisted in `auth.db` (`internal/authstore`). On first start with zero users,
+`main.go` issues a one-time bootstrap token and logs the redemption URL;
+opening it creates the first admin account.
 
-- **MCP Bearer token** (`mcp_api_key` config) for clients connecting over the
-  network. Optional for loopback deployments.
-- **Runner webhook HMAC** (shared secret in config) for the
-  `contextmatrix-runner` callback into the server. The runner is on a different
-  host; the secret prevents arbitrary network callers from injecting status
-  updates.
+**The session guard gates almost the entire API, not just writes.**
+`sessionGuard` (`internal/api/auth.go`) runs on every request in multi mode
+and rejects any request with no valid session unless the path is exempt
+(`sessionExempt`): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*`,
+`/api/app/config` (serves a slim payload pre-login), and the HMAC-signed
+backend-callback prefixes (`/api/runner/*`, `/api/agent/*`, `/api/chat/*`,
+`/api/v1/*` — with `/api/runner/logs` and `/api/runner/health` explicitly
+carved back out of the exemption because they are browser-facing despite the
+prefix). Board reads (`GET /api/projects`, `GET /api/events`, and so on)
+require a session exactly like writes do; multi mode makes no read/write
+distinction.
+
+**Sessions.** Passwords are hashed with argon2id, with parameters embedded in
+the stored hash so they can be strengthened later without a migration
+(`internal/auth/password.go`). A session is a random 256-bit token; only its
+SHA-256 hash is ever persisted (`internal/auth/token.go`), so a stolen
+`auth.db` yields no usable session. The cookie (`cm_session`) is `HttpOnly` +
+`SameSite=Lax` always, and `Secure` whenever the request arrived over TLS
+directly or via `X-Forwarded-Proto` (`requestIsTLS`). Sessions idle past a
+5-minute threshold get a sliding renewal to `now + session_idle_ttl` (default
+720h / 30 days) on the next validated request. Because cookies and the
+bootstrap/invite/reset links carry bearer-equivalent secrets, multi mode
+expects TLS termination in front (reverse proxy or ingress) so they never
+cross an untrusted network in the clear — CM does not enforce this at the
+application layer.
+
+**Identity is derived from the session and is authoritative.**
+`withSessionIdentity` stamps `human:<username>` into the request context;
+`extractAgentID` (`internal/api/agents.go`) checks the context first and only
+falls back to the `X-Agent-ID` header when there is no session — so a
+logged-in browser cannot claim a different identity by header. This is what
+upgrades the card-claim/heartbeat/release ownership check (above) from a
+courtesy into real enforcement in multi mode: another authenticated user
+genuinely cannot forge your claim identity.
+
+**The admin role is a narrower gate layered on top of login, not a
+replacement for it.** A user record carries `is_admin`. `requireAdmin`
+(`internal/api/admin.go`) returns 403 `FORBIDDEN` for a logged-in non-admin and
+gates: user management (`GET`/`POST /api/admin/users`,
+`PATCH /api/admin/users/{username}`, invite regeneration), the GitHub
+credential pool (`GET`/`POST /api/admin/credentials`,
+`PUT`/`DELETE /api/admin/credentials/{name}`), and project management
+(`POST`/`PUT`/`DELETE /api/projects*`,
+`POST /api/projects/{project}/recalculate-costs` — see the `authEnabled` /
+`requireAdmin` calls in `internal/api/projects.go`). Ordinary card work —
+claim, release, update, transition, activity — needs only a valid session, any
+role. The store refuses to demote or disable the last active admin
+(`ErrLastAdmin`), enforced as a guarded atomic update rather than a
+check-then-write race.
+
+**The GitHub credential pool holds encrypted secrets; project bindings scope
+GitHub operations.** Admins register named credentials (GitHub App or PAT) via
+`/api/admin/credentials`; each secret is AES-256-GCM-encrypted
+(`internal/auth/crypto.go`) under a key HKDF-derived from the auth master key
+(`internal/auth/masterkey.go`; `master_key_file` is auto-generated 0600 on
+first start, with a log warning to move it into real secret management). A
+project's `.board.yaml` `github_credential` field binds it to one pool entry;
+`TokenProviderFor` (`internal/auth/credentials.go`) resolves that binding into
+a cached `githubauth.TokenGenerator`, scoping that project's GitHub operations
+(boards push, issue import, branch listing) to the bound credential.
+`newProviderForProject` (`cmd/contextmatrix/provider.go`) builds this
+resolver — `main.go` only wires it (as `providerForProject`) into
+`RouterConfig` and the GitHub-issue-sync path — and it fails closed on a
+broken binding, never silently substituting the instance-wide credential.
+Projects with no binding keep using the instance-wide `githubauth` provider,
+identical to none-mode behavior.
+
+**Operator escape hatches run on the host, outside the HTTP surface
+entirely.** `contextmatrix auth reset-admin <username>` and
+`contextmatrix auth rotate-master-key` (`cmd/contextmatrix/authcli.go`) are
+multi-mode-only CLI subcommands: each loads config the same way the server
+does (`--config` flag, else XDG discovery) and then opens `auth.db` directly.
+Host access to run this binary against the server's config is root trust,
+same posture as any other operator escape hatch. `reset-admin <username>`
+prints a one-time, 48-hour password-reset link for an existing, enabled admin
+— the recovery path when every admin account is locked out. `rotate-master-key`
+re-encrypts the entire credential pool under a freshly generated master key
+inside one `auth.db` transaction: the new key is staged at `<path>.new` before
+the transaction commits, installed over `<path>` once it has committed, and
+the previous key is saved to `<path>.bak` for reference only — restoring it
+does NOT roll the rotation back, since the pool is already re-encrypted under
+the new key by the time the file swap happens. Run both on the host against
+the same config file the running server uses, and restart the server
+afterward so it loads the new key file. Safest is to stop the server first;
+at minimum, do not create or rotate pool credentials through the *live*
+server between `rotate-master-key`'s commit and that restart —
+`SetCredentialKey` (`cmd/contextmatrix/main.go`) wires the HKDF-derived
+credential key into `auth.Service` once, at startup, so a running process
+keeps encrypting under the OLD key regardless of what the CLI does to the key
+file. `CreateCredential` and `RotateCredentialSecret`
+(`internal/auth/credentials.go`) only ever encrypt — they never decrypt
+existing pool data — so such a write still succeeds in the moment; it just
+produces a pool entry that fails to decrypt once the server is restarted and
+starts reading the rest of the (now-rotated) pool under the new key.
+
+**What stays constant across both modes — the machine channels:**
+
+- **MCP Bearer token** (`mcp_api_key` config) gates `/mcp`, independent of
+  `auth.mode`. Optional for loopback deployments; set it whenever `/mcp` is
+  reachable over a network, in either mode.
+- **Runner webhook HMAC** (shared secret in config) authenticates
+  `contextmatrix-runner` / `contextmatrix-agent` callbacks into the server,
+  independent of `auth.mode`. The backend is on a different host; the secret
+  prevents arbitrary network callers from injecting status updates.
+- **`/healthz` and `/readyz`** are open in both modes (`sessionExempt` lists
+  them explicitly; there is no session guard at all in none mode).
+- **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only
+  in both modes — see `docs/api-reference.md`.
+- **The CSRF gate** (`csrfGuard` in `internal/api/router.go`, requiring
+  `X-Requested-With: contextmatrix`) is unconditional middleware in both
+  modes, independent of session auth — it defends against cross-origin
+  browser requests, a separate concern from the session guard's defense
+  against unauthenticated ones.
 - **GitHub authentication** via the shared
-  `github.com/mhersson/contextmatrix-githubauth` module (App or PAT). Real auth
-  against an external system; do not weaken or bypass.
+  `github.com/mhersson/contextmatrix-githubauth` module (App or PAT) is real
+  auth against an external system in every mode; do not weaken or bypass.
+
+**MCP's project-management tools are NOT behind the admin gate, in either
+mode — this is not a gap.** `create_project`, `update_project`, and
+`delete_project` (`internal/mcp/tools_projects.go`) call `CardService`
+directly with no role check; MCP has no admin/role concept at all, for any
+tool — the Bearer-key check on `/mcp` is the only gate, uniform across every
+tool. This is safe because `updateProjectToolInput` (same file) has no
+`github_credential` field, so the MCP `update_project` tool cannot touch
+credential bindings by construction — there is no privilege-escalation path
+from "holds the MCP bearer key" to "controls the credential pool." Contrast
+the REST `PUT /api/projects/{project}` handler, which does accept
+`github_credential` and is admin-gated in multi mode
+(`internal/api/projects.go`).
+
+**"UI = human" holds in both modes, with different strength.** In `none` mode
+the web UI is operated by an unauthenticated human behind the CSRF gate — a
+convention, not a proof. In `multi` mode the UI is operated by an
+authenticated, session-bound human — a proof.
 
 **What to do during a code review:**
 
-- Treat any "missing X-Agent-ID is a security hole" or "fabricated human:web is
-  identity spoofing" finding as **out of scope** — it's the documented trust
-  model. If the deployment posture is wrong (CM exposed publicly without a
-  network gate), that's an ops concern, not a code-fix concern.
-- The MCP human-only checks are workflow gates; do not propose tightening them
-  to "real" auth without changing the trust model first.
-- The browser-generated agent ID is intentional. Do not propose adding a
-  username prompt, OAuth, session cookies, or per-user permissions; those belong
-  to a future multi-tenant CM, not this one.
-- `githubauth` is the one place where real authentication matters.
-  Token-handling code there should be reviewed strictly.
+- In `none` mode: treat any "missing X-Agent-ID is a security hole" or
+  "fabricated human:web is identity spoofing" finding as **out of scope** —
+  it's the documented trust model there. If the deployment posture is wrong
+  (CM exposed publicly without a network gate), that's an ops concern, not a
+  code-fix concern.
+- In `multi` mode: a state-changing or read request reaching a handler without
+  a valid session is a real bug — `sessionGuard` should have rejected it
+  upstream. A new user-management, credential-pool, or project-management
+  route that skips `requireAdmin` is a real finding; a new card-scoped route
+  (claim, update, transition, chat) that adds `requireAdmin` is over-gating in
+  the other direction.
+- Do not propose admin-gating the MCP project tools "to match REST" — see
+  above. MCP has no role concept; fixing that would mean redesigning MCP auth
+  entirely, not a one-line change.
+- The MCP human-only checks are workflow gates in every mode; do not propose
+  tightening them to session-backed auth without changing the trust model
+  first.
+- The browser-generated agent ID (none mode) is intentional. Do not propose
+  adding a username prompt, OAuth, or per-user permissions to none mode —
+  that's what multi mode is for.
+- `githubauth` is the one place where real authentication matters in every
+  mode. Token-handling code there should be reviewed strictly.
 
 ## Data flow
 
@@ -310,6 +472,18 @@ and commit completion. The service layer closes that gap on failure:
   GIFs / non-image MIME types. Wired into `api.NewRouter` for `POST /api/images`
   + `GET /api/images/{id}` and into `mcp.NewServer` for the inline image
   attachments on `get_card` / `get_task_context`.
+- **auth.Service** (`internal/auth`): multi-mode authentication. Argon2id
+  password hashing + session issuance/validation (`password.go`, `token.go`),
+  one-time bootstrap/invite/reset tokens (`tokens.go`; 48h TTL), and the GitHub
+  credential-pool crypto (`crypto.go`, `masterkey.go`) — AES-256-GCM secrets
+  under a key HKDF-derived from the auth master key. `TokenProviderFor`
+  resolves a project's `.board.yaml` `github_credential` binding into a cached
+  `githubauth.TokenGenerator`, fail-closed on a broken binding (see Trust
+  model above). Nil (`RouterConfig.AuthService == nil`) in `auth.mode: none`.
+- **authstore.Store** (`internal/authstore`): SQLite persistence backing
+  `auth.Service` — `auth.db` holds the `users`, `sessions`, `one_time_tokens`,
+  and `credentials` tables. No business logic; `auth.Service` is its only
+  caller.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
   `GET /api/runner/logs` has two modes: card-scoped (subscribes to one card's

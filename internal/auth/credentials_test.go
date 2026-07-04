@@ -292,6 +292,120 @@ func TestTokenProviderFor_Unavailable(t *testing.T) {
 	assert.ErrorIs(t, err, ErrCredentialUnavailable, "disabled entries fail closed")
 }
 
+// randomMaster returns a fresh 32-byte master key for rotation tests.
+func randomMaster(t *testing.T) []byte {
+	t.Helper()
+
+	m := make([]byte, 32)
+	_, err := rand.Read(m)
+	require.NoError(t, err)
+
+	return m
+}
+
+// rotateService builds a Service on a frozen clock with the credential subkey
+// derived from master, plus a no-op GitHub checker so CreateCredential never
+// reaches the network.
+func rotateService(t *testing.T, master []byte) (*Service, *authstore.Store) {
+	t.Helper()
+
+	svc, store, _ := newTestService(t)
+
+	key, err := DeriveKey(master, KeyPurposeCredentials)
+	require.NoError(t, err)
+	svc.SetCredentialKey(key)
+
+	svc.SetCredentialChecker(func(context.Context, CredentialInput) error { return nil })
+
+	return svc, store
+}
+
+func TestRotateMasterKey_ReencryptsAllUnderNewKey(t *testing.T) {
+	masterA := randomMaster(t)
+	masterB := randomMaster(t)
+
+	svc, store := rotateService(t, masterA)
+	ctx := context.Background()
+
+	keyA, err := DeriveKey(masterA, KeyPurposeCredentials)
+	require.NoError(t, err)
+	keyB, err := DeriveKey(masterB, KeyPurposeCredentials)
+	require.NoError(t, err)
+
+	// Obviously-fake, per-entry markers so a swap bug (writing one entry's
+	// ciphertext under another's name) surfaces as a decrypt mismatch.
+	markers := map[string]string{
+		"alpha":   "plaintext-alpha",
+		"bravo":   "plaintext-bravo",
+		"charlie": "plaintext-charlie",
+	}
+	for name, marker := range markers {
+		require.NoError(t, svc.CreateCredential(ctx,
+			CredentialInput{Name: name, Kind: authstore.CredentialKindPAT, Secret: marker}, "human:root"))
+	}
+
+	n, err := svc.RotateMasterKey(ctx, masterA, masterB)
+	require.NoError(t, err)
+	assert.Equal(t, len(markers), n, "every pool entry is re-encrypted")
+
+	for name, marker := range markers {
+		stored, err := store.CredentialByName(ctx, name)
+		require.NoError(t, err)
+
+		// Decrypts under the NEW derived key back to its own marker...
+		plain, err := DecryptSecret(keyB, stored.EncryptedSecret)
+		require.NoError(t, err)
+		assert.Equal(t, marker, string(plain), "entry keeps its own plaintext after rotation")
+
+		// ...and authenticated decryption under the OLD key now fails.
+		_, err = DecryptSecret(keyA, stored.EncryptedSecret)
+		assert.ErrorIs(t, err, ErrDecrypt, "old key no longer opens the blob")
+	}
+}
+
+func TestRotateMasterKey_NoCredentials(t *testing.T) {
+	masterA := randomMaster(t)
+	masterB := randomMaster(t)
+
+	svc, _ := rotateService(t, masterA)
+
+	n, err := svc.RotateMasterKey(context.Background(), masterA, masterB)
+	require.NoError(t, err)
+	assert.Zero(t, n, "an empty pool still rotates cleanly")
+}
+
+func TestRotateMasterKey_WrongOldKeyRollsBack(t *testing.T) {
+	masterA := randomMaster(t)
+	masterB := randomMaster(t)
+	masterWrong := randomMaster(t)
+
+	svc, store := rotateService(t, masterA)
+	ctx := context.Background()
+
+	keyA, err := DeriveKey(masterA, KeyPurposeCredentials)
+	require.NoError(t, err)
+	keyB, err := DeriveKey(masterB, KeyPurposeCredentials)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.CreateCredential(ctx,
+		CredentialInput{Name: "keep", Kind: authstore.CredentialKindPAT, Secret: "plaintext-keep"}, "human:root"))
+
+	// decrypt-with-old is the transaction guard: a wrong old key fails on the
+	// first entry and must leave the pool byte-identical (all-or-nothing).
+	_, err = svc.RotateMasterKey(ctx, masterWrong, masterB)
+	require.Error(t, err)
+
+	stored, err := store.CredentialByName(ctx, "keep")
+	require.NoError(t, err)
+
+	plain, err := DecryptSecret(keyA, stored.EncryptedSecret)
+	require.NoError(t, err, "original key still opens the untouched blob")
+	assert.Equal(t, "plaintext-keep", string(plain))
+
+	_, err = DecryptSecret(keyB, stored.EncryptedSecret)
+	assert.ErrorIs(t, err, ErrDecrypt, "nothing was re-encrypted under the new key")
+}
+
 func TestTokenProviderFor_WarmCacheThenDisable(t *testing.T) {
 	svc, _, _ := credService(t)
 	ctx := context.Background()

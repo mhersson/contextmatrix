@@ -1330,6 +1330,15 @@ still applies on top of the server snapshot.
 
 ### ContextMatrix (`config.yaml`)
 
+**`backends.runner` requires `auth.mode: none`.** `auth.mode` defaults to
+`multi`, and CM refuses to start with `backends.runner` enabled under
+`auth.mode: multi` — the runner backend is deprecate-frozen under multi-user
+auth (enforced in `internal/config/config.go`'s `Validate`). Starting from a
+fresh default config, set `auth.mode: none` explicitly before enabling
+`backends.runner` below, or use the `agent` backend instead. `agent` and
+`chat` carry no such restriction — both start normally under
+`auth.mode: multi`.
+
 ```yaml
 # MCP endpoint authentication (optional)
 mcp_api_key: "your-bearer-token"

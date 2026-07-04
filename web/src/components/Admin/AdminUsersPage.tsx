@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../api/client';
-import type { AdminUser, APIError, InviteInfo } from '../../types';
+import { api, isAPIError } from '../../api/client';
+import type { AdminUser, InviteInfo } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { CreateUserModal, type CreateUserInput } from './CreateUserModal';
 import { InviteLinkDialog } from './InviteLinkDialog';
@@ -15,8 +15,7 @@ interface PendingConfirm {
 }
 
 function errorMessage(err: unknown, fallback: string): string {
-  const apiErr = err as APIError;
-  return apiErr?.error || fallback;
+  return isAPIError(err) ? err.error : fallback;
 }
 
 /** Admin-only Users page: list, create (with invite link), and per-row

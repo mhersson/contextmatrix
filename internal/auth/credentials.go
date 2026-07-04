@@ -127,6 +127,37 @@ func (s *Service) RotateCredentialSecret(ctx context.Context, name, secret strin
 	return s.store.UpdateCredentialSecret(ctx, name, blob, s.now())
 }
 
+// RotateMasterKey re-encrypts every credential-pool secret from oldMaster to
+// newMaster inside one authstore transaction (decrypt-with-old →
+// encrypt-with-new, all-or-nothing). Callers pass the 32-byte MASTER keys, not
+// the derived subkeys: this method derives the credential subkey from each via
+// HKDF exactly as server startup does, keeping the derivation purpose inside
+// internal/auth. A wrong oldMaster fails the first decrypt and rolls the whole
+// batch back, so a mistaken key can never corrupt the pool. Returns the number
+// of credentials re-encrypted (0 when the pool is empty). The caller persists
+// newMaster to the key file only after this returns without error.
+func (s *Service) RotateMasterKey(ctx context.Context, oldMaster, newMaster []byte) (int, error) {
+	oldKey, err := DeriveKey(oldMaster, KeyPurposeCredentials)
+	if err != nil {
+		return 0, err
+	}
+
+	newKey, err := DeriveKey(newMaster, KeyPurposeCredentials)
+	if err != nil {
+		return 0, err
+	}
+
+	return s.store.RotateCredentialSecrets(ctx, func(blob []byte) ([]byte, error) {
+		plaintext, err := DecryptSecret(oldKey, blob)
+		if err != nil {
+			// Wrong old key or a corrupt entry — abort the whole rotation.
+			return nil, err
+		}
+
+		return EncryptSecret(newKey, plaintext)
+	})
+}
+
 // UpdateCredentialMetadata edits the non-secret fields, re-validating the
 // credential against GitHub with the DECRYPTED stored secret and the merged
 // metadata — a host or installation change can silently invalidate an entry

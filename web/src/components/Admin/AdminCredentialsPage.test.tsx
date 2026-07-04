@@ -84,6 +84,33 @@ describe('AdminCredentialsPage — list', () => {
     expect(screen.queryByText(LEAKED_SECRET)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(LEAKED_SECRET);
   });
+
+  it('renders friendly kind labels ("PAT" / "GitHub App") rather than raw kind values', async () => {
+    mocks.adminListCredentials.mockResolvedValue([
+      credential({ name: 'github-pat', kind: 'pat' }),
+      credential({ name: 'github-app', kind: 'app', app_id: 1, installation_id: 2 }),
+    ]);
+
+    render(<AdminCredentialsPage />);
+
+    await waitFor(() => expect(screen.getByText('github-pat')).toBeInTheDocument());
+    expect(screen.getByText('PAT')).toBeInTheDocument();
+    expect(screen.getByText('GitHub App')).toBeInTheDocument();
+    // Raw kind strings must never leak as their own table cell text.
+    expect(screen.queryByText('pat')).not.toBeInTheDocument();
+    expect(screen.queryByText('app')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when adminListCredentials rejects with a non-APIError shape', async () => {
+    // Malformed rejection: `.error` exists but isn't a string, so it must
+    // fail the isAPIError guard and fall back rather than leak through.
+    mocks.adminListCredentials.mockRejectedValue({ error: 12345 });
+
+    render(<AdminCredentialsPage />);
+
+    expect(await screen.findByText('Failed to load credentials.')).toBeInTheDocument();
+    expect(screen.queryByText('12345')).not.toBeInTheDocument();
+  });
 });
 
 describe('AdminCredentialsPage — create flow', () => {
@@ -138,5 +165,40 @@ describe('AdminCredentialsPage — create flow', () => {
     await waitFor(() => expect(mocks.adminCreateCredential).toHaveBeenCalled());
     await waitFor(() => expect(within(dialog).getByText(/bad credentials/i)).toBeInTheDocument());
     expect(within(dialog).getByText(/credential rejected by github/i)).toBeInTheDocument();
+  });
+
+  it('shows friendly kind-selector labels ("PAT" / "GitHub App"), not "GitHub PAT"', async () => {
+    mocks.adminListCredentials.mockResolvedValue([]);
+
+    render(<AdminCredentialsPage />);
+
+    await waitFor(() => expect(screen.getByText(/no credentials/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /add credential/i }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('button', { name: 'PAT' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'GitHub App' })).toBeInTheDocument();
+  });
+
+  it('falls back to a generic message and no details when create rejects with a non-APIError shape', async () => {
+    mocks.adminListCredentials.mockResolvedValue([]);
+    // Malformed rejection: neither field is a string, so both must be
+    // rejected by the isAPIError guard rather than rendered verbatim.
+    mocks.adminCreateCredential.mockRejectedValue({ error: 12345, details: 999 });
+
+    render(<AdminCredentialsPage />);
+
+    await waitFor(() => expect(screen.getByText(/no credentials/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /add credential/i }));
+
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/^name$/i), { target: { value: 'bad-pat' } });
+    fireEvent.change(within(dialog).getByLabelText(/secret/i), { target: { value: 'ghp_badtoken' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /add credential|save|create/i }));
+
+    await waitFor(() => expect(mocks.adminCreateCredential).toHaveBeenCalled());
+    await waitFor(() => expect(within(dialog).getByText('Failed to save credential.')).toBeInTheDocument());
+    expect(within(dialog).queryByText('12345')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('999')).not.toBeInTheDocument();
   });
 });

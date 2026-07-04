@@ -410,21 +410,22 @@ type GitHubImportConfig struct {
 }
 
 type ProjectConfig struct {
-    Name             string                 `yaml:"name"                       json:"name"`
-    DisplayName      string                 `yaml:"display_name,omitempty"     json:"display_name,omitempty"`
-    Prefix           string                 `yaml:"prefix"                     json:"prefix"`
-    NextID           int                    `yaml:"next_id"                    json:"next_id"`
-    Repo             string                 `yaml:"repo,omitempty"             json:"repo,omitempty"`               // singular repo; Repos is the multi-repo form and takes precedence
-    Repos            []Repo                 `yaml:"repos,omitempty"            json:"repos,omitempty"`              // multi-repo projects; one entry may be Primary
-    GitHubCredential string                 `yaml:"github_credential,omitempty" json:"github_credential,omitempty"` // instance credential-pool entry name; empty = instance github.* credential
-    States           []string               `yaml:"states"                     json:"states"`
-    Types            []string               `yaml:"types"                      json:"types"`
-    Priorities       []string               `yaml:"priorities"                 json:"priorities"`
-    Transitions      map[string][]string    `yaml:"transitions"                json:"transitions"`
-    RemoteExecution  *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
-    GitHub           *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
-    DefaultSkills    *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"` // nil=full set, []=none, [list]=constrain
-    Templates        map[string]string      `yaml:"-"                          json:"templates,omitempty"`      // loaded from templates/ dir at runtime
+    Name             string                   `yaml:"name"                        json:"name"`
+    DisplayName      string                   `yaml:"display_name,omitempty"      json:"display_name,omitempty"`
+    Prefix           string                   `yaml:"prefix"                      json:"prefix"`
+    NextID           int                      `yaml:"next_id"                     json:"next_id"`
+    Repo             string                   `yaml:"repo,omitempty"              json:"repo,omitempty"`               // singular repo; Repos is the multi-repo form and takes precedence
+    Repos            []Repo                   `yaml:"repos,omitempty"             json:"repos,omitempty"`              // multi-repo projects; one entry may be Primary
+    GitHubCredential string                   `yaml:"github_credential,omitempty" json:"github_credential,omitempty"` // instance credential-pool entry name; empty = instance github.* credential
+    States           []string                 `yaml:"states"                      json:"states"`
+    Types            []string                 `yaml:"types"                       json:"types"`
+    Priorities       []string                 `yaml:"priorities"                  json:"priorities"`
+    Transitions      map[string][]string      `yaml:"transitions"                 json:"transitions"`
+    RemoteExecution  *RemoteExecutionConfig   `yaml:"remote_execution,omitempty"  json:"remote_execution,omitempty"`
+    GitHub           *GitHubImportConfig      `yaml:"github,omitempty"            json:"github,omitempty"`
+    DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"` // nil=full set, []=none, [list]=constrain
+    Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`                        // per-project tier overrides for the agent-backend model selector; merged with global at trigger time
+    Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`      // loaded from templates/ dir at runtime
 }
 ```
 
@@ -434,6 +435,17 @@ derived from `URL` and the first entry auto-promoted to `Primary` when no entry
 sets it; otherwise the singular `Repo` field is synthesised as
 `[]Repo{{URL: Repo, Primary: true}}`. Validation rejects duplicate names,
 missing URLs, or more than one `Primary: true` entry.
+
+`Favorites` holds per-project overrides for the agent-backend leaderboard
+model selector, keyed by complexity tier. Each `board.TierFavorites` value is
+either a bare list of preferred model slugs (applies to every role) or a
+`{coder: [...], reviewer: [...]}` map narrowing to one role — see the
+`favorites:` example in `config.yaml.example`'s `backends.agent` block, which
+documents the same shape for the instance-wide default. `mergeFavorites`
+(`internal/api/runner.go`) combines the backend's global
+`backends.agent.favorites` with a project's `Favorites` at trigger time, with
+project entries taking priority per tier. `json:"-"` — there is no REST
+create/update path for this field; set it by hand-editing `.board.yaml`.
 
 **Immutable fields** (set on creation, never changed): `id`, `project`,
 `created`, `source`. Additionally, `branch_name` is immutable after first
@@ -551,11 +563,13 @@ Name of an instance credential-pool entry used for all of this project's
 GitHub operations (branch listing, issue import sync). Reference only — never
 secret material; the token itself lives in the credential pool and is
 resolved server-side through `TokenProviderFor`. Empty or omitted means the
-instance `github.*` credential is used — the pre-multi-user behavior.
-Validated against the credential pool on `PUT /api/projects/{project}` in
-multi-user mode (unknown name → 422 `VALIDATION_ERROR`); in none mode a
-non-empty binding is rejected outright (422) rather than silently falling back
-to the instance credential.
+project uses the instance-wide `github.*` credential — the only option in
+`auth.mode: none` (there is no credential pool there), and the default for
+unbound projects in `auth.mode: multi` too. Admin-only to set — see
+`PUT /api/projects/{project}` in `docs/api-reference.md`. Validated against
+the credential pool on write in `auth.mode: multi` (unknown name → 422
+`VALIDATION_ERROR`); in `auth.mode: none` a non-empty binding is rejected
+outright (422) rather than silently falling back to the instance credential.
 
 ## Server-side field-length limits
 

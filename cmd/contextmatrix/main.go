@@ -86,6 +86,14 @@ func llmEndpointFromConfig(e config.LLMEndpointConfig) *protocol.LLMEndpoint {
 }
 
 func main() {
+	// `contextmatrix auth <subcommand>` is a set of operator escape hatches
+	// (admin recovery, master-key rotation) that run to completion and exit
+	// without starting the server. Any other invocation falls through to the
+	// unchanged server path below.
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		os.Exit(runAuthCLI(os.Args[2:]))
+	}
+
 	configPath := flag.String("config", "", "path to config file")
 
 	flag.Parse()
@@ -366,29 +374,13 @@ func main() {
 	ghAPIBase := cfg.GitHub.ResolvedAPIBaseURL()
 
 	// providerForProject resolves the token provider for a project's GitHub
-	// operations: the project's binding when set (fail-closed on a broken
-	// one), else the instance provider. Used by both branch listing and
-	// GitHub issue sync below. authSvc is fully resolved by this point (see
-	// comment above), so this closure is race-free even though the issue
-	// syncer's background goroutine may invoke it concurrently with later
-	// startup code.
-	providerForProject := func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error) {
-		pcfg, err := svc.GetProject(ctx, project)
-		if err != nil {
-			return nil, "", err
-		}
-
-		if pcfg.GitHubCredential == "" || authSvc == nil {
-			return tokenProvider, ghAPIBase, nil // instance credential — pre-binding behavior
-		}
-
-		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, pcfg.GitHubCredential)
-		if err != nil {
-			return nil, "", err // FAIL CLOSED: broken binding never falls back
-		}
-
-		return provider, apiBase, nil
-	}
+	// operations. Used by both branch listing and GitHub issue sync below.
+	// authSvc is fully resolved by this point (see comment above), so this
+	// closure is race-free even though the issue syncer's background
+	// goroutine may invoke it concurrently with later startup code. See
+	// newProviderForProject (provider.go) for the resolution logic and its
+	// direct test coverage.
+	providerForProject := newProviderForProject(svc, authSvc, tokenProvider, ghAPIBase)
 
 	// Start GitHub issue syncer if configured
 	var ghSyncer *ghimport.Syncer

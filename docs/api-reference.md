@@ -2,10 +2,10 @@
 
 ```text
 GET    /api/projects
-POST   /api/projects                                     # create project
+POST   /api/projects                                     # create project (admin-only in multi mode)
 GET    /api/projects/{project}
-PUT    /api/projects/{project}                            # update project config
-DELETE /api/projects/{project}                            # delete project (requires 0 cards)
+PUT    /api/projects/{project}                            # update project config (admin-only in multi mode)
+DELETE /api/projects/{project}                            # delete project (requires 0 cards; admin-only in multi mode)
 
 GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=&limit=&cursor=
 POST   /api/projects/{project}/cards
@@ -24,7 +24,7 @@ GET    /api/projects/{project}/branches               # list branches from proje
 GET    /api/projects/{project}/usage                  # aggregated token usage
 GET    /api/projects/{project}/dashboard              # project dashboard metrics
 GET    /api/projects/{project}/activity   ?limit=     # flattened activity-log feed (newest first; cap 500)
-POST   /api/projects/{project}/recalculate-costs      # recalculate token costs
+POST   /api/projects/{project}/recalculate-costs      # recalculate token costs (admin-only in multi mode)
 
 POST   /api/projects/{project}/cards/{id}/run         # trigger remote execution (human-only)
 POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human-only)
@@ -57,7 +57,23 @@ POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
 GET    /api/task-skills                                # list available task skill names
-GET    /api/app/config                                 # server-side app config (theme/palette/version)
+GET    /api/app/config                                 # server-side app config (theme/palette/version/auth_mode; slim pre-login payload in multi mode)
+
+POST   /api/auth/login                                  # session-cookie login (multi mode only)
+POST   /api/auth/logout                                 # clear session (multi mode only)
+GET    /api/auth/session                                # who am I (multi mode only; 401 if not logged in)
+GET    /api/auth/token/{token}                          # inspect a bootstrap/invite/reset token (multi mode only)
+POST   /api/auth/token/{token}                          # redeem token: set password + auto-login (multi mode only)
+POST   /api/auth/password                                # change own password (multi mode only)
+
+GET    /api/admin/users                                 # list accounts (admin-only, multi mode only)
+POST   /api/admin/users                                 # create account + invite link (admin-only, multi mode only)
+PATCH  /api/admin/users/{username}                       # update display_name/is_admin/disabled (admin-only, multi mode only)
+POST   /api/admin/users/{username}/invite                 # regenerate invite/reset link (admin-only, multi mode only)
+GET    /api/admin/credentials                            # list GitHub credential pool metadata (admin-only, multi mode only)
+POST   /api/admin/credentials                            # add a pool credential (admin-only, multi mode only)
+PUT    /api/admin/credentials/{name}                      # rotate secret / update metadata / disable (admin-only, multi mode only)
+DELETE /api/admin/credentials/{name}                      # remove a pool credential (admin-only, multi mode only)
 
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # liveness probe (shallow)
@@ -78,26 +94,36 @@ Neither endpoint is exposed on the main listener. The admin listener has no
 built-in authentication — keep it loopback-only, or gate it with a firewall /
 NetworkPolicy / service-mesh rule.
 
-**Agent identification:** `X-Agent-ID` header is the **sole** source of agent
-identity. It is required on the agent endpoints (`/claim`, `/release`) and on
-any mutation of a claimed card — there the header value must match
-`assigned_agent` (403 on mismatch). It
-is also used to gate human-only fields and human-only endpoints (`/run`,
+**Agent identification:** `X-Agent-ID` header supplies agent identity. It is
+required on the agent endpoints (`/claim`, `/release`) and on any mutation of
+a claimed card — there the header value must match `assigned_agent` (403 on
+mismatch). It also gates human-only fields and human-only endpoints (`/run`,
 `/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
-value beginning with `human:`. Read endpoints, project CRUD,
-sync, branches, app config, task-skills, healthz, and readyz do not require the
-header. Request bodies on agent endpoints do not carry an `agent_id` field; it
-is silently ignored if present.
+value beginning with `human:`. Read endpoints, project CRUD, sync, branches,
+app config, task-skills, healthz, and readyz do not require the header.
+Request bodies on agent endpoints do not carry an `agent_id` field; it is
+silently ignored if present.
 
-**Identity is a tag, not auth.** ContextMatrix is single-tenant and has no auth
-layer below `X-Agent-ID`; spoofing it accomplishes nothing because there is no
-permission gradient to escalate into. The `human:` prefix gates workflow
-contracts (only humans promote), not security boundaries. The web UI generates
-a per-browser identity (`human:web-<8 hex chars>`) and never prompts the
-operator for a username. Routes that act on behalf of the web UI fall back to
-`human:web` or `human:api` when no header is present — intentional, because
-the UI is the only legitimate caller.
-See § Trust model in `CLAUDE.md`.
+In `auth.mode: multi`, a logged-in session's identity (`human:<username>`)
+takes precedence over `X-Agent-ID` on any request that carries a valid session
+cookie; the header is consulted only when there is no session (MCP, HMAC
+backend callbacks, or `auth.mode: none`). This upgrades the claim/release
+ownership check above from a courtesy into real enforcement — see §
+Authentication (multi mode) below.
+
+**Identity is a tag, not auth (`auth.mode: none`).** In `none` mode
+ContextMatrix is single-tenant with no auth layer below `X-Agent-ID`; spoofing
+it accomplishes nothing because there is no permission gradient to escalate
+into. The `human:` prefix gates workflow contracts (only humans promote), not
+security boundaries — true in both modes, since MCP never gained a session
+concept. The web UI generates a per-browser identity (`human:web-<8 hex
+chars>`) and never prompts the operator for a username. Routes that act on
+behalf of the web UI fall back to `human:web` or `human:api` when no header is
+present — intentional, because the UI is the only legitimate caller. In
+`multi` mode these fallbacks are unreachable dead code on session-gated
+routes: the session guard has already rejected any request with no session
+before the fallback would run.
+See § Trust model in `CLAUDE.md` and in `docs/architecture.md`.
 
 **CSRF protection:** every state-changing request on the main listener must
 carry `X-Requested-With: contextmatrix`. The web UI sets this header on every
@@ -138,25 +164,35 @@ otherwise the server generates a UUID. The same id is emitted as the
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
   `GET /api/v1/cards/.../autonomous`)
 - 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
-  `POST /api/chats`)
+  `POST /api/chats`, `POST /api/admin/users`, `POST /api/admin/credentials`)
 - 202: accepted — async endpoint kicked off background work (`POST /run`,
   `/stop`, `/message`, `/promote`, chat `/messages`)
-- 204: deleted (DELETE)
+- 204: deleted (DELETE); also `POST /api/auth/logout`,
+  `POST /api/auth/password`, `DELETE /api/admin/credentials/{name}`
 - 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
   missing CSRF header) — emitted with code `BAD_REQUEST`
+- 401: no/expired session, multi mode only (`UNAUTHORIZED`) — the SPA
+  redirects to the login page
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
   claim attempt (`CARD_NOT_VETTED`), agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
-  runner-side endpoint (`INVALID_SIGNATURE`)
+  runner-side endpoint (`INVALID_SIGNATURE`), authenticated but not admin on
+  an admin-gated route, multi mode only (`FORBIDDEN`)
 - 404: card, project, chat session, or referenced parent not found —
-  parent-not-found uses code `PARENT_NOT_FOUND`
+  parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
+  or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
 - 409: conflict (invalid transition, card already claimed, already-running
-  runner task → `RUNNER_CONFLICT`)
+  runner task → `RUNNER_CONFLICT`); also a bootstrap token redeemed after a
+  user already exists, or an edit that would leave zero active admins
+  (`VALIDATION_ERROR`)
+- 410: one-time token already redeemed or past its 48-hour expiry
+  (`TOKEN_INVALID`)
 - 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
 - 422: semantic validation error — mutation body references an unknown type,
   state, priority, or invalid autonomous combination. Emitted with code
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
-- 429: concurrent chat cap reached (`TOO_MANY_CHATS`)
+- 429: concurrent chat cap reached (`TOO_MANY_CHATS`), or too many failed
+  login attempts for one account+IP (`RATE_LIMITED`, `Retry-After` header set)
 - 502: runner host unreachable (`RUNNER_UNAVAILABLE`)
 - 503: no task backend configured (`RUNNER_DISABLED`), sync disabled
   (`SYNC_DISABLED`), or `/readyz` dependency check failed
@@ -166,6 +202,11 @@ otherwise the server generates a UUID. The same id is emitted as the
 | Code                      | HTTP    | Meaning                                                       |
 | ------------------------- | ------- | ------------------------------------------------------------- |
 | `BAD_REQUEST`             | 400     | malformed input / unknown filter value / CSRF missing         |
+| `UNAUTHORIZED`            | 401     | no/expired session (multi mode); SPA redirects to login       |
+| `FORBIDDEN`               | 403     | authenticated but not admin, on an admin-gated route (multi mode) |
+| `RATE_LIMITED`            | 429     | too many failed logins for one account+IP; `Retry-After` header set |
+| `TOKEN_INVALID`           | 404/410 | one-time token unknown (404), or already redeemed/expired (410) |
+| `USER_NOT_FOUND`          | 404     | unknown username on an admin user-management route            |
 | `PROJECT_NOT_FOUND`       | 404     | project slug does not exist                                   |
 | `CARD_NOT_FOUND`          | 404     | card ID does not exist in the project                         |
 | `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
@@ -198,6 +239,361 @@ clients. The raw error is always logged server-side with the request's
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
 | `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, or `base_branch`. |
+
+## Authentication (multi mode)
+
+`/api/auth/*` and `/api/admin/*` are registered only when `auth.mode: multi`
+(the config default — see the `auth` block in `config.yaml.example`). In
+`auth.mode: none`, `RouterConfig.AuthService` is nil and `NewRouter` skips
+these routes, the admin routes, and the `sessionGuard` middleware entirely —
+the router is byte-for-byte identical to a build with no auth concept, and
+every endpoint documented in this section simply is not registered: a plain
+`404 page not found` (no JSON body), not `401`. See § Trust model in
+`docs/architecture.md` for the full security-review framing; this section
+documents the wire contract.
+
+**Session gate.** `sessionGuard` runs on every request in multi mode and
+rejects any request with no valid session — reads as well as writes, unlike
+none mode's write-only agent-identity checks. Exempt paths (reachable without
+a session): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*` itself,
+`/api/app/config` (serves a slim pre-login payload — see below), and the
+HMAC-signed backend-callback prefixes `/api/runner/*`, `/api/agent/*`,
+`/api/chat/*`, `/api/v1/*` (`/api/runner/logs` and `/api/runner/health` are
+carved back out of that exemption — they are browser-facing despite the
+prefix, so they require a session). `/api/auth/*` being session-exempt at the
+router level does not mean unauthenticated — `GET /api/auth/session` and
+`POST /api/auth/password` check the session themselves and 401 without one.
+
+**Admin gate.** `requireAdmin` layers on top of the session gate. It guards
+every `/api/admin/*` route below, plus four project-management REST call
+sites: `POST /api/projects`, `PUT /api/projects/{project}`,
+`DELETE /api/projects/{project}`, and
+`POST /api/projects/{project}/recalculate-costs`. Ordinary card work — claim,
+release, update, transition, activity — needs only a valid session, any role.
+
+**The 401 / 403 contract:**
+
+| Status | Code           | Meaning                                                                        |
+| ------ | -------------- | ------------------------------------------------------------------------------- |
+| 401    | `UNAUTHORIZED` | No session cookie, or the session is invalid/expired/for a disabled user. The SPA redirects to the login page. |
+| 403    | `FORBIDDEN`    | A valid session exists but the user is not an admin, on an admin-gated route. |
+
+Neither code is returned by `auth.mode: none` — there is no session concept,
+so the code paths that produce them do not run.
+
+**Session cookie:** `cm_session` — `HttpOnly`, `SameSite=Lax` always, `Secure`
+when the request arrived over TLS (directly or via `X-Forwarded-Proto`). The
+value is a random 256-bit token; only its SHA-256 hash is persisted
+server-side, so a stolen `auth.db` yields no usable session. A session idle
+past 5 minutes gets a sliding renewal to `now + auth.session_idle_ttl`
+(default 720h / 30 days) on its next validated request, and the response
+re-sets the cookie with the refreshed `Max-Age`.
+
+**CSRF still applies.** `/api/auth/*` and `/api/admin/*` are ordinary
+state-changing routes — they are **not** in the CSRF-exempt path list (see §
+CSRF protection above). Every non-GET call, including `POST /api/auth/login`
+itself, needs `X-Requested-With: contextmatrix` or it is rejected with 403
+`BAD_REQUEST` before the session/credentials are even checked.
+
+The token-authority endpoints (`GET /api/<name>/task-skills-source`,
+`GET /api/<name>/git-credentials`) are a separate, HMAC-signed machine
+channel documented under § Runner Endpoints below — they are unrelated to the
+session/admin system here and exist in both auth modes.
+
+### POST /api/auth/login
+
+```json
+{ "username": "alice", "password": "correct-horse-battery" }
+```
+
+On success, sets the `cm_session` cookie and returns **200** with the session
+identity:
+
+```json
+{ "username": "alice", "display_name": "Alice Nakamura", "is_admin": true }
+```
+
+Failures are deliberately uniform: an unknown username, a disabled account, a
+wrong password, and an account whose invite was never redeemed (no password
+set) all return the same **401 `UNAUTHORIZED`** ("invalid credentials") — the
+response never discloses whether a username exists.
+
+Repeated failures for the same (normalized username, client IP) pair trip an
+in-memory rate limiter: the first two failures are free, the third blocks for
+1 second, doubling per further failure up to a 5-minute cap. A blocked
+attempt returns **429 `RATE_LIMITED`** with a `Retry-After` header (seconds).
+
+```bash
+curl -i -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: contextmatrix' \
+  -d '{"username":"alice","password":"correct-horse-battery"}'
+```
+
+### POST /api/auth/logout
+
+No request body — deletes the session behind the `cm_session` cookie (if any)
+and clears the cookie. Idempotent: logging out with no session, or an
+already-expired one, still returns **204 No Content**.
+
+### GET /api/auth/session
+
+"Who am I." Router-exempt from the session gate (so the login page can probe
+it without a redirect loop), but the handler enforces auth itself: **401
+`UNAUTHORIZED`** with no valid session, otherwise **200** with the same shape
+as the login response above.
+
+### GET /api/auth/token/{token}
+
+Inspects a one-time token (bootstrap / invite / password-reset link)
+**without consuming it** — the redemption page uses this to render the right
+form before the user submits anything.
+
+```json
+{ "purpose": "invite", "username": "bob" }
+```
+
+`purpose` is `bootstrap`, `invite`, or `reset`. `username` is omitted for
+bootstrap tokens (the account does not exist yet).
+
+**Errors:**
+
+| Status | Code            | When                                                    |
+| ------ | --------------- | ---------------------------------------------------------- |
+| 404    | `TOKEN_INVALID` | Unknown token                                               |
+| 410    | `TOKEN_INVALID` | Token already redeemed                                      |
+| 410    | `TOKEN_INVALID` | Token past its 48-hour expiry (`auth.OneTimeTokenTTL`)      |
+
+### POST /api/auth/token/{token}
+
+Redeems the token: sets a password and logs the user in.
+
+```json
+{ "username": "bob", "display_name": "Bob Okafor", "password": "correct-horse-battery" }
+```
+
+`username` / `display_name` apply only to a `bootstrap` token, where they
+create the first admin account (`is_admin: true` unconditionally — bootstrap
+is refused once any user exists). For `invite` / `reset` tokens only
+`password` is read; redeeming a `reset` token additionally kills every other
+live session for the account.
+
+On success: sets the `cm_session` cookie, returns **200** with the session
+identity (same shape as login). Validation runs **before** the token is
+consumed, so a rejected form does not burn the link.
+
+**Errors:**
+
+| Status | Code               | When                                                                     |
+| ------ | ------------------ | ----------------------------------------------------------------------- |
+| 400    | `BAD_REQUEST`       | Malformed JSON body                                                     |
+| 404    | `TOKEN_INVALID`     | Unknown token                                                           |
+| 409    | `VALIDATION_ERROR`  | Bootstrap token redeemed after a user already exists                    |
+| 410    | `TOKEN_INVALID`     | Token already redeemed or expired                                      |
+| 422    | `VALIDATION_ERROR`  | `password` under 10 characters                                          |
+| 422    | `VALIDATION_ERROR`  | (bootstrap only) username invalid — "1-32 chars: a-z 0-9 . _ -, no leading/trailing punctuation" |
+| 422    | `VALIDATION_ERROR`  | (bootstrap only) username already taken                                |
+
+### POST /api/auth/password
+
+Self-service password change for the logged-in caller. Router-exempt from the
+session gate like `/session` above; the handler enforces auth itself.
+
+```json
+{ "current_password": "correct-horse-battery", "new_password": "another-correct-horse" }
+```
+
+Verifies `current_password`, sets `new_password`, and deletes every other
+session for the account — the session making this call survives. Returns
+**204 No Content**.
+
+**Errors:**
+
+| Status | Code               | When                                          |
+| ------ | ------------------ | ------------------------------------------------ |
+| 401    | `UNAUTHORIZED`     | No session, or `current_password` is wrong        |
+| 422    | `VALIDATION_ERROR` | `new_password` under 10 characters                |
+
+**Admin endpoints.** Every route below additionally requires an admin session
+(**403 `FORBIDDEN`** otherwise — see § Admin gate above).
+
+### GET /api/admin/users
+
+Lists every account, ordered by username.
+
+```json
+[
+  {
+    "username": "alice",
+    "display_name": "Alice Nakamura",
+    "is_admin": true,
+    "disabled": false,
+    "has_password": true,
+    "last_login_at": "2026-07-01T09:12:00Z"
+  }
+]
+```
+
+`has_password` is `false` for a user who has not yet redeemed their invite
+link. `last_login_at` is omitted until the first successful login.
+
+### POST /api/admin/users
+
+Creates an account with no password and mints an invite link.
+
+```json
+{ "username": "bob", "display_name": "Bob Okafor", "is_admin": false }
+```
+
+Response **201**:
+
+```json
+{
+  "user": { "username": "bob", "display_name": "Bob Okafor", "is_admin": false, "disabled": false, "has_password": false },
+  "invite": { "token": "raw-one-time-token", "purpose": "invite", "expires_at": "2026-07-05T12:00:00Z" }
+}
+```
+
+The server does not know its own public address, so it returns the raw token
+rather than a composed link; the admin UI builds the shareable
+`/auth/token/<token>` frontend route from it. The token is valid for 48 hours
+(`auth.OneTimeTokenTTL`) — use `POST /api/admin/users/{username}/invite` to
+mint a replacement if it expires or is lost.
+
+**Errors:** `422 VALIDATION_ERROR` — username already taken, or invalid
+("1-32 chars: a-z 0-9 . _ -, no leading/trailing punctuation").
+
+### PATCH /api/admin/users/{username}
+
+Partial update — only keys present in the body are applied, in the order
+`display_name`, `is_admin`, `disabled`:
+
+```json
+{ "display_name": "Bob O.", "is_admin": true, "disabled": false }
+```
+
+Demoting (`is_admin: false`) or disabling (`disabled: true`) the last active
+admin is refused before any field in the body is applied, so a mid-patch
+refusal never leaves earlier fields written. Disabling a user immediately
+deletes their sessions (they are logged out mid-flight); re-enabling does not
+restore them. Returns **200** with the updated account (same shape as the
+list above).
+
+**Errors:**
+
+| Status | Code               | When                              |
+| ------ | ------------------ | ------------------------------------ |
+| 404    | `USER_NOT_FOUND`   | Unknown username                     |
+| 409    | `VALIDATION_ERROR` | Would leave zero active admins       |
+
+### POST /api/admin/users/{username}/invite
+
+Mints a fresh one-time link, invalidating any earlier unused link of the same
+purpose. Purpose is chosen automatically: `invite` if the account has never
+had a password, `reset` otherwise.
+
+```json
+{ "token": "raw-one-time-token", "purpose": "reset", "expires_at": "2026-07-05T12:00:00Z" }
+```
+
+**Errors:** `404 USER_NOT_FOUND` for an unknown username.
+
+### GET /api/admin/credentials
+
+Lists the GitHub credential pool — metadata only; encrypted secrets never
+leave the server.
+
+```json
+[
+  {
+    "name": "org-app",
+    "kind": "app",
+    "host": "",
+    "api_base_url": "",
+    "app_id": 123456,
+    "installation_id": 78901234,
+    "created_by": "human:alice",
+    "disabled": false,
+    "created_at": "2026-06-01T00:00:00Z",
+    "updated_at": "2026-06-01T00:00:00Z",
+    "last_used_at": "2026-07-02T14:00:00Z"
+  }
+]
+```
+
+`kind` is `app` or `pat`. `last_used_at` is omitted until the credential is
+actually resolved for a token. A project binds to one pool entry via its
+`.board.yaml` `github_credential` field — see `docs/data-model.md`.
+
+### POST /api/admin/credentials
+
+Validates the credential's shape, checks it live against GitHub (an `app`
+entry mints an installation token; a `pat` entry probes `/rate_limit`),
+encrypts the secret, and stores it. A typo'd credential fails here, not days
+later inside an agent run.
+
+```json
+{
+  "name": "org-app",
+  "kind": "app",
+  "host": "",
+  "api_base_url": "",
+  "app_id": 123456,
+  "installation_id": 78901234,
+  "secret": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+}
+```
+
+For `kind: "pat"`, `secret` is the token string and `app_id` /
+`installation_id` are ignored. `name` must be 1-64 chars, a-z 0-9 . _ -, with
+no leading/trailing punctuation. Response **201** with the same shape as the
+list above.
+
+**Errors:**
+
+| Status | Code               | When                                                                       |
+| ------ | ------------------ | --------------------------------------------------------------------------- |
+| 422    | `VALIDATION_ERROR` | Bad shape (name, empty secret, `app` entry missing `app_id`/`installation_id`, key does not parse) |
+| 422    | `VALIDATION_ERROR` | Credential rejected by the live GitHub check                                |
+| 422    | `VALIDATION_ERROR` | `name` already taken                                                        |
+| 500    | `INTERNAL_ERROR`   | Auth master key not configured                                              |
+
+### PUT /api/admin/credentials/{name}
+
+Rotate the secret, update metadata, and/or toggle `disabled` — any subset in
+one call, applied in that order (metadata, then secret, then disabled):
+
+```json
+{ "secret": "ghp_...", "host": "", "api_base_url": "", "disabled": false }
+```
+
+A metadata change (`host` / `api_base_url` / `app_id` / `installation_id`)
+re-validates against GitHub using the **currently stored** secret merged with
+the new metadata, so a host change that would silently break the credential
+is caught here instead of on the next run. Rotating the secret independently
+re-validates the new secret against the stored metadata. Returns **200** with
+the updated credential.
+
+**Errors:**
+
+| Status | Code               | When                                                           |
+| ------ | ------------------ | -------------------------------------------------------------- |
+| 422    | `VALIDATION_ERROR` | Empty `secret` on rotate, or GitHub rejected the credential    |
+| 404    | `VALIDATION_ERROR` | Unknown credential `name`                                      |
+| 500    | `INTERNAL_ERROR`   | Auth master key not configured                                 |
+
+### DELETE /api/admin/credentials/{name}
+
+Refuses to delete a credential that any project's `.board.yaml`
+`github_credential` still references:
+
+```json
+{ "error": "credential is bound to projects", "code": "VALIDATION_ERROR", "details": "rebind first: alpha, beta" }
+```
+
+**409** in that case — rebind the listed projects first. Otherwise **204 No
+Content**, or **404 `VALIDATION_ERROR`** for an unknown `name` (same
+not-found convention as `PUT` above).
 
 ## Health Endpoints
 
@@ -377,16 +773,20 @@ is empty. Used by the Project Settings UI to populate the
 
 ### GET /api/app/config
 
-Returns the server-configured application settings. Unauthenticated — safe for
-public read. Called by the frontend on startup to determine which color palette
-to apply.
+Returns the server-configured application settings. Exempt from the session
+guard in multi mode — the SPA needs `theme` and `auth_mode` before a session
+exists — but an unauthenticated caller in multi mode gets a slimmer payload
+(see below). Called by the frontend on startup to determine which color
+palette to apply and whether to route to the login page.
 
-**Response:**
+**Response — `none` mode (always), or an authenticated caller in `multi`
+mode:**
 
 ```json
 {
   "theme": "everforest",
   "version": "v0.42.0",
+  "auth_mode": "multi",
   "task_backend": "runner",
   "favorites": { "complex": ["anthropic/claude-opus-4.8"] }
 }
@@ -396,15 +796,24 @@ to apply.
 frontend sets `data-palette` on `<html>` to match the theme value;
 `"everforest"` removes the attribute (it is the default CSS block). `version` is
 the build version string the binary was compiled with; it is always present and
-is empty when the binary is built without the version ldflag. `task_backend`
+is empty when the binary is built without the version ldflag. `auth_mode` is
+`"multi"` or `"none"`, matching the configured `auth.mode`. `task_backend`
 is the active task-backend name (`"runner"`, `"agent"`, or `""` when none is
 configured). `favorites` maps each tier to its operator-configured preferred
 model slugs (the leaderboard "favorites as pin presets" surface); the field is
 omitted entirely when no favorites are configured.
 
+**Response — unauthenticated caller in `multi` mode:** `task_backend` and
+`favorites` are not disclosed pre-login, so they are absent from the JSON
+entirely (not sent as zero values):
+
+```json
+{ "theme": "everforest", "version": "v0.42.0", "auth_mode": "multi" }
+```
+
 ```bash
 curl http://localhost:8080/api/app/config
-# → {"theme":"everforest","version":"v0.42.0","task_backend":"runner"}
+# → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"runner"}
 ```
 
 ### GET /api/models
@@ -430,8 +839,10 @@ validation entirely (fail-open).
 
 ### POST /api/projects
 
-Create a new project. Either `name` (slug) or `display_name` (human-readable)
-must be provided; both may be provided together.
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+see § Authentication (multi mode) above. Create a new project. Either `name`
+(slug) or `display_name` (human-readable) must be provided; both may be
+provided together.
 
 **Request body:**
 
@@ -494,10 +905,15 @@ back to displaying `name`.
 
 ### PUT /api/projects/{project}
 
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+see § Authentication (multi mode) above.
+
 Update the project configuration. The update body is a **subset** of
 `POST /api/projects` — `name`, `display_name`, and `prefix` are immutable and
-not accepted here. Two extra fields are available: `github` (GitHub import
-configuration) and `default_skills` (project-wide task-skill fallback).
+not accepted here. Three extra fields are available: `github` (GitHub import
+configuration), `default_skills` (project-wide task-skill fallback), and
+`github_credential` (credential-pool binding for this project's GitHub
+operations).
 
 **Accepted fields:**
 
@@ -513,11 +929,18 @@ configuration) and `default_skills` (project-wide task-skill fallback).
     "...": "..."
   },
   "github": { "...": "..." },
-  "default_skills": ["go-development", "documentation"]
+  "default_skills": ["go-development", "documentation"],
+  "github_credential": "org-app"
 }
 ```
 
 To rename a project or change its prefix, recreate it via `POST /api/projects`.
+
+**`github_credential` field** — binds this project's GitHub operations
+(branch listing, issue import) to one instance credential-pool entry (see
+`GET /api/admin/credentials` above). Full validation rules and both-mode
+behavior are documented in `docs/data-model.md`'s `github_credential` section
+— not repeated here.
 
 **`default_skills` field** — three-state semantics for the project-wide
 task-skill fallback:
@@ -725,9 +1148,10 @@ clients receive at most `limit` entries and refresh by re-fetching.
 
 ### POST /api/projects/{project}/recalculate-costs
 
-Recalculate estimated costs for all cards in a project using current
-`token_costs` rates. Requires `default_model` for cards that have tokens but no
-model recorded.
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+see § Authentication (multi mode) above. Recalculate estimated costs for all
+cards in a project using current `token_costs` rates. Requires
+`default_model` for cards that have tokens but no model recorded.
 
 Cards with a `usage_breakdown`: every bucket with `cost_source: estimated` is
 re-priced from the current rates (stale prices are corrected); buckets with

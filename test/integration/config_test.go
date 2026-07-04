@@ -82,6 +82,12 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T) string {
 	// store, so there is no separate chat db_path.
 	// backends.runner: roles and callback path (/api/runner) are derived from
 	// the entry name; no selector fields or callback_path needed.
+	// auth.mode: none pins these runner-backed scenarios to single-user
+	// operation. The config default is "multi", under which an enabled runner
+	// backend is a startup error (the runner backend is deprecate-frozen), so
+	// the pin is required for the server to boot at all. Multi-mode coverage
+	// lives in multiuser_test.go, which runs an admin-surface-only server with
+	// no task backend.
 	body := fmt.Sprintf(`port: %d
 log_format: text
 log_level: debug
@@ -101,6 +107,8 @@ images:
 %s
 cors_origin: http://127.0.0.1:0
 theme: everforest
+auth:
+  mode: none
 github:
   auth_mode: pat
   pat:

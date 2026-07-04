@@ -1,12 +1,28 @@
 # Integration Tests
 
 `test/integration/` runs end-to-end harness scenarios against real CM and runner
-binaries with a synthetic stub worker. Seven scenarios driven from
-`TestIntegrationHarness` in `scenarios_test.go`: Autonomous, HITL, KillMidRun,
-HeartbeatTimeout, PromoteHITLToAuto, IdleWatchdog, Chat. Each exercises the
-CM↔runner↔worker lifecycle under deterministic conditions; `STUB-DIRECTIVE`
-comments in card bodies inject specific worker behaviours (e.g.
-`hang-after-claim`, `skip-heartbeat`).
+binaries with a synthetic stub worker. Two entry points share the `integration`
+build tag:
+
+- `TestIntegrationHarness` (`scenarios_test.go`) drives seven scenarios —
+  Autonomous, HITL, KillMidRun, HeartbeatTimeout, PromoteHITLToAuto,
+  IdleWatchdog, Chat. Each exercises the CM↔runner↔worker lifecycle under
+  deterministic conditions; `STUB-DIRECTIVE` comments in card bodies inject
+  specific worker behaviours (e.g. `hang-after-claim`, `skip-heartbeat`). Its
+  shared CM config pins `auth.mode: none` (`writeCMConfig` in
+  `config_test.go`): these scenarios enable `backends.runner`, and under the
+  config default (`auth.mode: multi`) an enabled runner backend is a startup
+  error — the runner backend is deprecate-frozen under multi-user auth — so
+  the pin is required for CM to boot at all.
+- `TestMultiUserAdminSurface` (`multiuser_test.go`) is a standalone scenario
+  that boots its own admin-surface-only CM instance in `auth.mode: multi`,
+  with no task backend configured, and exercises the auth + admin HTTP
+  surface end to end over real HTTP: unauthenticated rejection,
+  bootstrap-token redemption, password login, a non-admin user's 401/403
+  contract, and a GitHub credential create + project binding (validated
+  against a local fake GitHub server). It needs no Docker worker, but still
+  runs under the `integration` tag because `TestMain` builds the runner
+  binary and stub image unconditionally for the whole package.
 
 Run: `make test-integration` (~70s including stub image build, requires Docker).
 The Make target runs

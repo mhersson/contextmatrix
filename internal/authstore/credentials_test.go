@@ -2,6 +2,7 @@ package authstore_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,6 +118,75 @@ func TestCredentialMutators_NotFound(t *testing.T) {
 	require.ErrorIs(t, store.UpdateCredentialSecret(ctx, "ghost", []byte("x"), testNow), authstore.ErrNotFound)
 	require.ErrorIs(t, store.SetCredentialDisabled(ctx, "ghost", true, testNow), authstore.ErrNotFound)
 	assert.ErrorIs(t, store.TouchCredentialUsed(ctx, "ghost", testNow), authstore.ErrNotFound)
+}
+
+func TestRotateCredentialSecrets_RewritesAllInOrder(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.CreateCredential(ctx,
+		&authstore.Credential{Name: "a", Kind: authstore.CredentialKindPAT, EncryptedSecret: []byte("one"), CreatedBy: "x"}, testNow))
+	require.NoError(t, store.CreateCredential(ctx,
+		&authstore.Credential{Name: "b", Kind: authstore.CredentialKindPAT, EncryptedSecret: []byte("two"), CreatedBy: "x"}, testNow))
+
+	n, err := store.RotateCredentialSecrets(ctx, func(old []byte) ([]byte, error) {
+		return append([]byte("Z"), old...), nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	ga, err := store.CredentialByName(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, "Zone", string(ga.EncryptedSecret))
+
+	gb, err := store.CredentialByName(ctx, "b")
+	require.NoError(t, err)
+	assert.Equal(t, "Ztwo", string(gb.EncryptedSecret))
+}
+
+func TestRotateCredentialSecrets_Empty(t *testing.T) {
+	store := openTestStore(t)
+
+	n, err := store.RotateCredentialSecrets(context.Background(), func(old []byte) ([]byte, error) {
+		return old, nil
+	})
+	require.NoError(t, err)
+	assert.Zero(t, n)
+}
+
+func TestRotateCredentialSecrets_RollsBackOnCallbackError(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.CreateCredential(ctx,
+		&authstore.Credential{Name: "aaa", Kind: authstore.CredentialKindPAT, EncryptedSecret: []byte("blob-a"), CreatedBy: "x"}, testNow))
+	require.NoError(t, store.CreateCredential(ctx,
+		&authstore.Credential{Name: "bbb", Kind: authstore.CredentialKindPAT, EncryptedSecret: []byte("blob-b"), CreatedBy: "x"}, testNow))
+
+	// The callback rewrites the first entry, then fails on the second — a
+	// genuine mid-loop abort, not a pre-flight rejection. The already-written
+	// first entry must be rolled back too.
+	boom := errors.New("boom")
+	calls := 0
+
+	n, err := store.RotateCredentialSecrets(ctx, func(old []byte) ([]byte, error) {
+		calls++
+		if calls == 2 {
+			return nil, boom
+		}
+
+		return append([]byte("X"), old...), nil
+	})
+	require.ErrorIs(t, err, boom)
+	assert.Zero(t, n)
+
+	ga, err := store.CredentialByName(ctx, "aaa")
+	require.NoError(t, err)
+	assert.Equal(t, "blob-a", string(ga.EncryptedSecret), "first entry rolled back despite being rewritten")
+
+	gb, err := store.CredentialByName(ctx, "bbb")
+	require.NoError(t, err)
+	assert.Equal(t, "blob-b", string(gb.EncryptedSecret))
 }
 
 func TestDeleteCredential(t *testing.T) {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { api } from '../../api/client';
+import { api, isAPIError } from '../../api/client';
 import type { CredentialInfo } from '../../types';
 
 interface GitHubCredentialSectionProps {
@@ -48,9 +48,9 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
         setCredentials(list);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err?.error ?? 'Failed to load credentials');
+        setError(isAPIError(err) ? err.error : 'Failed to load credentials');
         setLoading(false);
       });
     return () => {

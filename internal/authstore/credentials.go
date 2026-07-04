@@ -148,6 +148,75 @@ func (s *Store) TouchCredentialUsed(ctx context.Context, name string, now time.T
 	return nil
 }
 
+// RotateCredentialSecrets re-encrypts every pool secret inside a single
+// transaction. reencrypt receives each stored ciphertext blob and returns its
+// replacement; the first error it returns — or any failed write — rolls back
+// the whole batch, so the pool is never left half-rotated. It returns the
+// number of entries rewritten. updated_at is deliberately not bumped: rotation
+// re-wraps the same secret under a new key, it is not a metadata edit.
+//
+// The store stays crypto-agnostic — the decrypt-with-old/encrypt-with-new logic
+// lives in the reencrypt closure (internal/auth). All rows are read into memory
+// before any UPDATE runs so the single-connection transaction never interleaves
+// an open query with a write.
+func (s *Store) RotateCredentialSecrets(ctx context.Context, reencrypt func(oldSecret []byte) ([]byte, error)) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("authstore: begin rotate: %w", err)
+	}
+
+	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
+
+	rows, err := tx.QueryContext(ctx, `SELECT name, encrypted_secret FROM credentials ORDER BY name`)
+	if err != nil {
+		return 0, fmt.Errorf("authstore: rotate select: %w", err)
+	}
+
+	type entry struct {
+		name string
+		blob []byte
+	}
+
+	var entries []entry
+
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.name, &e.blob); err != nil {
+			_ = rows.Close()
+
+			return 0, fmt.Errorf("authstore: rotate scan: %w", err)
+		}
+
+		entries = append(entries, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+
+		return 0, fmt.Errorf("authstore: rotate rows: %w", err)
+	}
+
+	_ = rows.Close()
+
+	for _, e := range entries {
+		newBlob, err := reencrypt(e.blob)
+		if err != nil {
+			return 0, fmt.Errorf("authstore: rotate re-encrypt %q: %w", e.name, err)
+		}
+
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE credentials SET encrypted_secret = ? WHERE name = ?`, newBlob, e.name); err != nil {
+			return 0, fmt.Errorf("authstore: rotate update %q: %w", e.name, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("authstore: rotate commit: %w", err)
+	}
+
+	return len(entries), nil
+}
+
 func scanCredential(row rowScanner) (*Credential, error) {
 	var (
 		c                    Credential
