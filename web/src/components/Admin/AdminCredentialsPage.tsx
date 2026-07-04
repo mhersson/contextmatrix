@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, isAPIError } from '../../api/client';
+import { api } from '../../api/client';
+import { errorMessage } from '../../lib/errors';
 import type { CredentialInfo } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { CredentialModal } from './CredentialModal';
@@ -9,10 +10,6 @@ type ConfirmKind = 'disable' | 'delete';
 interface PendingConfirm {
   name: string;
   kind: ConfirmKind;
-}
-
-function errorMessage(err: unknown, fallback: string): string {
-  return isAPIError(err) ? err.error : fallback;
 }
 
 /** Admin-only Credentials page: list, create/rotate (via CredentialModal),

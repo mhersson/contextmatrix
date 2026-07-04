@@ -583,6 +583,16 @@ describe('session-expired dispatch', () => {
 
     expect(fired).toHaveBeenCalledTimes(1);
 
+    // A CLOSED error must still schedule the backoff reconnect: in none mode
+    // the same dispatch is an auth no-op, and the stream has to come back on
+    // its own after e.g. a server restart closes it for good.
+    expect(instances).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2);
+
     window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
   });
 

@@ -30,6 +30,16 @@ function Promoter() {
   );
 }
 
+// The demotion direction of Promoter: same setUser mechanism, admin bit off.
+function Demoter() {
+  const { setUser } = useAuth();
+  return (
+    <button onClick={() => setUser({ username: 'alice', display_name: 'Alice', is_admin: false })}>
+      demote
+    </button>
+  );
+}
+
 beforeEach(() => vi.resetAllMocks());
 
 describe('AdminGuard — live is_admin read', () => {
@@ -81,5 +91,33 @@ describe('AdminGuard — live is_admin read', () => {
     // so this must flip immediately.
     await waitFor(() => expect(screen.getByText('secret admin content')).toBeInTheDocument());
     expect(screen.queryByText('Page not found')).not.toBeInTheDocument();
+  });
+
+  it('reflects a mid-session demotion to non-admin without remounting — content disappears', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
+    mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: 'Alice', is_admin: true });
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <Demoter />
+          <AdminGuard>
+            <div>secret admin content</div>
+          </AdminGuard>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    // Starts out admin: guarded content is visible.
+    await waitFor(() => expect(screen.getByText('secret admin content')).toBeInTheDocument());
+
+    // Same mounted tree, no remount: simulate the session picking up a
+    // server-side demotion (admin bit revoked mid-session).
+    act(() => {
+      screen.getByText('demote').click();
+    });
+
+    await waitFor(() => expect(screen.getByText('Page not found')).toBeInTheDocument());
+    expect(screen.queryByText('secret admin content')).not.toBeInTheDocument();
   });
 });
