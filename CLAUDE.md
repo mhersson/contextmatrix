@@ -321,7 +321,7 @@ Full details with examples: `docs/data-model.md`.
 # Backend
 make build                  # builds binary with embedded frontend
 make run                    # runs on :8080
-make test                   # runs all Go tests
+make test                   # runs all Go tests (fresh-clone safe: stubs web/dist for the embed)
 make test-integration       # real-binary harness (stub worker, ~70s, requires Docker)
 
 # Frontend dev (hot reload, proxies API to :8080)
