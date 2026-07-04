@@ -11,7 +11,11 @@ build: build-frontend
 run: build
 	./contextmatrix
 
+# The stub keeps //go:embed all:dist compilable on fresh clones (web/dist is
+# gitignored and only exists after a frontend build); nothing is committed,
+# and real builds overwrite dist via build-frontend.
 test:
+	@mkdir -p web/dist && touch web/dist/.gitkeep
 	go test ./cmd/... ./internal/...
 
 test-race:
