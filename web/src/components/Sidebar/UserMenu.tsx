@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
 
@@ -12,11 +13,18 @@ import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
  * AuthProvider is unconditionally mounted at the App root, so in production
  * this behaves identically to useAuth.
  */
-export function UserMenu() {
+export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const auth = useOptionalAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const goto = (path: string) => {
+    setOpen(false);
+    onNavigate?.();
+    navigate(path);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -73,6 +81,32 @@ export function UserMenu() {
           className="absolute bottom-full left-0 right-0 mb-1 rounded border overflow-hidden z-10"
           style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)' }}
         >
+          {user.is_admin && (
+            <>
+              <div
+                className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide"
+                style={{ color: 'var(--grey0)' }}
+              >
+                ADMIN
+              </div>
+              {[
+                { label: 'Users', path: '/admin/users' },
+                { label: 'Credentials', path: '/admin/credentials' },
+                { label: 'Chats', path: '/admin/chats' },
+              ].map((item) => (
+                <button
+                  key={item.path}
+                  role="menuitem"
+                  onClick={() => goto(item.path)}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:opacity-80"
+                  style={{ color: 'var(--fg)' }}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
+            </>
+          )}
           <button
             role="menuitem"
             onClick={() => {
