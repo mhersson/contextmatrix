@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import type { APIError, TokenInfo } from '../../types';
@@ -7,13 +7,19 @@ import type { APIError, TokenInfo } from '../../types';
 const MIN_PASSWORD_LENGTH = 10; // mirrors the server rule; server re-validates
 
 /**
- * Redemption page for one-time links (/auth/token/:token). Renders by token
+ * Redemption page for one-time links (/auth/token/<raw>). Renders by token
  * purpose: bootstrap creates the first admin (username + password), invite
  * greets the pre-created user and asks only for a password, reset asks for
  * the new password. Success = logged in, straight into the app.
+ *
+ * The token is derived from the pathname, NOT useParams(): AuthGate renders
+ * this page by path interception above the route tree, so no <Route> ever
+ * matches and useParams() would be empty (the bug that shipped originally —
+ * every redemption 404ed on an empty token).
  */
 export function TokenRedemptionPage() {
-  const { token = '' } = useParams();
+  const location = useLocation();
+  const token = decodeURIComponent(location.pathname.replace(/^\/auth\/token\//, ''));
   const navigate = useNavigate();
   const { setUser } = useAuth();
 
