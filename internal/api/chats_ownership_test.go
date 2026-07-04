@@ -152,3 +152,63 @@ func TestDeleteChat_MissingID_ModeContract(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 }
+
+// TestListChats_ScopedToCallerInMultiMode: the list is force-filtered to
+// the caller; a client-supplied created_by is ignored; legacy rows
+// (owner matching no account) appear for nobody on the regular list.
+func TestListChats_ScopedToCallerInMultiMode(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	seedSession(t, mgr, "human:alice")
+	seedSession(t, mgr, "human:alice")
+	seedSession(t, mgr, "human:bob")
+	seedSession(t, mgr, "human:web-1a2b3c4d") // legacy pre-multi-user row
+
+	alice := asUser(mux, "alice", false)
+
+	for _, path := range []string{"/api/chats", "/api/chats?created_by=human:bob"} {
+		w := httptest.NewRecorder()
+		alice.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var sessions []chat.Session
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&sessions))
+		require.Len(t, sessions, 2, "path %s", path)
+
+		for _, s := range sessions {
+			assert.Equal(t, "human:alice", s.CreatedBy)
+		}
+	}
+}
+
+// TestListChats_NoneModeKeepsClientFilter: without identity the
+// created_by query param keeps its existing client-filter behavior.
+func TestListChats_NoneModeKeepsClientFilter(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	seedSession(t, mgr, "human:alice")
+	seedSession(t, mgr, "human:bob")
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/chats?created_by=human:bob", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var sessions []chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&sessions))
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "human:bob", sessions[0].CreatedBy)
+}
+
+// TestCreateChat_StampsSessionIdentityOverHeader: created_by must be the
+// session identity even when the browser sends a spoofed X-Agent-ID
+// (jsonReq sets X-Agent-ID: human:web-x).
+func TestCreateChat_StampsSessionIdentityOverHeader(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+	alice := asUser(mux, "alice", false)
+
+	w := httptest.NewRecorder()
+	alice.ServeHTTP(w, jsonReq(t, http.MethodPost, "/api/chats", `{"title":"t"}`))
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var sess chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&sess))
+	assert.Equal(t, "human:alice", sess.CreatedBy)
+}

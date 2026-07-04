@@ -159,6 +159,15 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: q.Get("created_by"),
 		Limit:     listChatsDefaultLimit,
 	}
+
+	// Multi mode: the list is always scoped to the caller — a client-
+	// supplied created_by cannot widen or redirect it (silently
+	// overridden; the UI never sends one). None mode keeps the param's
+	// client-filter behavior.
+	if id := identityFromContext(r.Context()); id != "" {
+		f.CreatedBy = id
+	}
+
 	if st := q.Get("status"); st != "" {
 		s, ok := chat.ParseStatus(st)
 		if !ok {
