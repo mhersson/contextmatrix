@@ -2,6 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import type { APIError } from '../../types';
+import { AuthError } from './AuthError';
+import { AuthShell } from './AuthShell';
+import { PasswordInput } from './PasswordInput';
+import { TextInput } from './TextInput';
 
 /** Full-screen login form shown in multi mode when no session exists. */
 export function LoginPage() {
@@ -34,57 +38,24 @@ export function LoginPage() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-dim)' }}>
-      <form
-        onSubmit={submit}
-        className="w-80 rounded-lg p-6 flex flex-col gap-4 border"
-        style={{ backgroundColor: 'var(--bg1)', borderColor: 'var(--bg3)' }}
-      >
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--fg)' }}>
-          ContextMatrix
-        </h1>
+    <AuthShell hint="Lost access? Ask an admin for a reset link.">
+      <h1 className="text-[19px] font-semibold tracking-tight" style={{ color: 'var(--fg)' }}>
+        Sign in
+      </h1>
+      <p className="mt-1 mb-6 text-[13px]" style={{ color: 'var(--grey1)' }}>
+        Use your board account.
+      </p>
 
-        <label className="flex flex-col gap-1 text-sm" style={{ color: 'var(--grey2)' }}>
-          Username
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            autoFocus
-            required
-            className="rounded px-2 py-1.5 border outline-none"
-            style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-          />
-        </label>
+      <form onSubmit={submit}>
+        {error && <AuthError>{error}</AuthError>}
 
-        <label className="flex flex-col gap-1 text-sm" style={{ color: 'var(--grey2)' }}>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-            className="rounded px-2 py-1.5 border outline-none"
-            style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-          />
-        </label>
+        <TextInput label="Username" value={username} onChange={setUsername} autoComplete="username" autoFocus required />
+        <PasswordInput label="Password" value={password} onChange={setPassword} autoComplete="current-password" required />
 
-        {error && (
-          <div className="text-sm" role="alert" style={{ color: 'var(--red)' }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded py-1.5 font-medium disabled:opacity-60"
-          style={{ backgroundColor: 'var(--bg-green)', color: 'var(--green)' }}
-        >
+        <button type="submit" disabled={busy} className="auth-btn mt-1 h-[42px] w-full">
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-    </div>
+    </AuthShell>
   );
 }
