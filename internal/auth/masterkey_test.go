@@ -10,6 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadMasterKey_MissingFileIsNotExistAndNoSideEffect(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "master.key")
+
+	_, err := auth.LoadMasterKey(path)
+	require.ErrorIs(t, err, os.ErrNotExist, "callers distinguish 'no key yet' via os.ErrNotExist")
+
+	_, statErr := os.Stat(path)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "load-only must never create the file")
+}
+
+func TestLoadMasterKey_LoadsExistingKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "master.key")
+	hexKey := "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	require.NoError(t, os.WriteFile(path, []byte(hexKey+"\n"), 0o600))
+
+	key, err := auth.LoadMasterKey(path)
+	require.NoError(t, err)
+	assert.Len(t, key, auth.MasterKeyLen)
+	assert.Equal(t, byte(0x1f), key[31])
+}
+
 func TestLoadOrCreateMasterKey_CreatesThenLoads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "master.key")
 

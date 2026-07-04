@@ -105,6 +105,20 @@ describe('AuthProvider', () => {
     expect(mocks.getAppConfig).toHaveBeenCalledTimes(3);
   });
 
+  it('unmount mid-backoff cancels the retry loop — no stray request fires', async () => {
+    mocks.getAppConfig.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const { unmount } = render(<AuthProvider><Probe /></AuthProvider>);
+
+    // Let the first attempt fail, then unmount inside the 100ms backoff.
+    await waitFor(() => expect(mocks.getAppConfig).toHaveBeenCalledTimes(1));
+    unmount();
+
+    // Wait past every backoff window; the aborted loop must not fire again.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
+  });
+
   it('does not retry a structured non-transient app-config error — falls back to none immediately', async () => {
     mocks.getAppConfig.mockRejectedValue({ error: 'nope', code: 'SOME_REAL_ERROR' });
 

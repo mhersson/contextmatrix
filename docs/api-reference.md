@@ -323,6 +323,12 @@ in-memory rate limiter: the first two failures are free, the third blocks for
 1 second, doubling per further failure up to a 5-minute cap. A blocked
 attempt returns **429 `RATE_LIMITED`** with a `Retry-After` header (seconds).
 
+The client IP is the TCP peer address (`RemoteAddr`); `X-Forwarded-For` is
+deliberately not consulted, since honoring it without a trusted-proxy
+allowlist would let any client spoof its limiter key. Behind a reverse proxy
+all logins therefore share the proxy's IP in limiter keys — the per-account
+half still applies. A trusted-proxy knob is recorded as future work.
+
 ```bash
 curl -i -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \

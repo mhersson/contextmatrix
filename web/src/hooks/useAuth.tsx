@@ -11,8 +11,24 @@ export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 // ~400ms in the worst case before falling back).
 const APP_CONFIG_RETRY_BACKOFFS_MS = [100, 300];
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Resolves after ms, or immediately when the signal aborts mid-wait — the
+// caller decides what abort means (getAppConfigWithRetry stops retrying).
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 // A transient failure is worth retrying; a definite one is not.
@@ -38,7 +54,7 @@ function isTransientAppConfigError(err: unknown): boolean {
   return err.code === 'UNKNOWN_ERROR';
 }
 
-async function getAppConfigWithRetry(): Promise<AppConfig> {
+async function getAppConfigWithRetry(signal?: AbortSignal): Promise<AppConfig> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await api.getAppConfig();
@@ -46,7 +62,10 @@ async function getAppConfigWithRetry(): Promise<AppConfig> {
       if (attempt >= APP_CONFIG_RETRY_BACKOFFS_MS.length || !isTransientAppConfigError(err)) {
         throw err;
       }
-      await sleep(APP_CONFIG_RETRY_BACKOFFS_MS[attempt]);
+      await sleep(APP_CONFIG_RETRY_BACKOFFS_MS[attempt], signal);
+      // Aborted mid-backoff (provider unmounted): surface the last error
+      // instead of firing a stray retry request nobody is waiting for.
+      if (signal?.aborted) throw err;
     }
   }
 }
@@ -75,11 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const cancelled = () => controller.signal.aborted;
 
-    getAppConfigWithRetry()
+    getAppConfigWithRetry(controller.signal)
       .then((config) => {
-        if (cancelled) return;
+        if (cancelled()) return;
 
         const m = config.auth_mode ?? 'none';
         setMode(m);
@@ -93,24 +113,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         api
           .getAuthSession()
           .then((u) => {
-            if (cancelled) return;
+            if (cancelled()) return;
             setUserState(u);
             setStatus('authenticated');
           })
           .catch(() => {
-            if (cancelled) return;
+            if (cancelled()) return;
             setStatus('anonymous');
           });
       })
       .catch(() => {
         // App-config unreachable: fall back to none so the app still tries
         // to render (matching today's behavior when the API is down).
-        if (cancelled) return;
+        if (cancelled()) return;
         setStatus('authenticated');
       });
 
     return () => {
-      cancelled = true;
+      // Aborting also stops the retry loop mid-backoff — no stray request
+      // after unmount.
+      controller.abort();
     };
   }, []);
 

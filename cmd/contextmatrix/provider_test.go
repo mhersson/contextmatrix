@@ -145,7 +145,7 @@ func TestNewProviderForProject(t *testing.T) {
 		assert.NotEqual(t, instanceAPIBase, apiBase)
 	})
 
-	t.Run("GetProject error is propagated without consulting the auth service", func(t *testing.T) {
+	t.Run("GetProject error is propagated and fails closed", func(t *testing.T) {
 		wantErr := errors.New("project lookup boom")
 		projects := fakeProjectGetter{err: wantErr}
 		resolve := newProviderForProject(projects, authSvc, instanceProvider, instanceAPIBase)

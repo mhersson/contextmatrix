@@ -51,11 +51,11 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
 
     expect(await screen.findByRole('option', { name: /instance default/i })).toBeInTheDocument();
     expect(
-      await screen.findByRole('option', { name: /acme-pat — pat, github\.com/i }),
+      await screen.findByRole('option', { name: /acme-pat — PAT, github\.com/ }),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole('option', {
-        name: /acme-app — app, github\.example\.com \(disabled\)/i,
+        name: /acme-app — GitHub App, github\.example\.com \(disabled\)/,
       }),
     ).toBeInTheDocument();
   });
@@ -112,7 +112,7 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
 
     render(<GitHubCredentialSection value="" onChange={onChange} readOnly={false} />);
 
-    await screen.findByRole('option', { name: /acme-pat — pat, github\.com/i });
+    await screen.findByRole('option', { name: /acme-pat — PAT, github\.com/ });
 
     const select = screen.getByRole('combobox') as HTMLSelectElement;
     select.value = 'acme-pat';

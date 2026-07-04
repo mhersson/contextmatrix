@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SESSION_EXPIRED_EVENT } from '../../api/client';
 import { AuthProvider } from '../../hooks/useAuth';
 import { AuthGate } from './AuthGate';
 
@@ -46,6 +47,24 @@ describe('AuthGate', () => {
     await waitFor(() => expect(screen.getByText('THE APP')).toBeInTheDocument());
     expect(mocks.getAuthSession).not.toHaveBeenCalled();
     expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument();
+  });
+
+  it('none mode + SSE CLOSED dispatch keeps the app rendered — no login bounce', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
+
+    renderGate();
+    await waitFor(() => expect(screen.getByText('THE APP')).toBeInTheDocument());
+
+    // What useSSEBus dispatches when the server closes the stream for good
+    // (readyState CLOSED) — in none mode e.g. a server restart, never a dead
+    // session. The provider flips its internal status, but the gate only
+    // bounces to the login page in multi mode.
+    act(() => {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    });
+
+    expect(screen.getByText('THE APP')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
   });
 
   it('multi + anonymous shows the login page, not the app', async () => {

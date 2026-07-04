@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -66,8 +67,8 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	}
 	// The session guard runs before the admin role check, so an admin route
 	// without a session is 401 (unauthenticated), not 403.
-	if status, _ := anon.do(t, http.MethodGet, "/api/admin/users", nil, nil); status != http.StatusUnauthorized {
-		t.Fatalf("unauth GET /api/admin/users: want 401 got %d", status)
+	if status, body := anon.do(t, http.MethodGet, "/api/admin/users", nil, nil); status != http.StatusUnauthorized {
+		t.Fatalf("unauth GET /api/admin/users: want 401 got %d body=%s", status, body)
 	}
 
 	// --- Step 3: bootstrap the first admin, then log in. ---
@@ -91,7 +92,7 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	// Redeem creates the first admin and auto-logs-in (sets the cookie).
 	redeem := map[string]any{"username": mmAdminUser, "display_name": "Harness Admin", "password": mmAdminPass}
 
-	var session sessionResp
+	var session sessionResponse
 	if status, body := admin.do(t, http.MethodPost, "/api/auth/token/"+token, redeem, &session); status != http.StatusOK {
 		t.Fatalf("redeem bootstrap: want 200 got %d body=%s", status, body)
 	}
@@ -101,13 +102,13 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	}
 
 	// Redeeming a spent token is rejected (410 Gone).
-	if status, _ := admin.do(t, http.MethodGet, "/api/auth/token/"+token, nil, nil); status != http.StatusGone {
-		t.Fatalf("inspect spent bootstrap token: want 410 got %d", status)
+	if status, body := admin.do(t, http.MethodGet, "/api/auth/token/"+token, nil, nil); status != http.StatusGone {
+		t.Fatalf("inspect spent bootstrap token: want 410 got %d body=%s", status, body)
 	}
 
 	// Explicit password login proves the login endpoint works; it overwrites
 	// the auto-login cookie with a fresh session on the same jar.
-	var loginSession sessionResp
+	var loginSession sessionResponse
 	if status, body := admin.do(t, http.MethodPost, "/api/auth/login",
 		map[string]any{"username": mmAdminUser, "password": mmAdminPass}, &loginSession); status != http.StatusOK {
 		t.Fatalf("admin login: want 200 got %d body=%s", status, body)
@@ -118,9 +119,9 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	}
 
 	// A bad password is a uniform 401.
-	if status, _ := admin.do(t, http.MethodPost, "/api/auth/login",
+	if status, body := admin.do(t, http.MethodPost, "/api/auth/login",
 		map[string]any{"username": mmAdminUser, "password": "wrong-password"}, nil); status != http.StatusUnauthorized {
-		t.Fatalf("login with wrong password: want 401 got %d", status)
+		t.Fatalf("login with wrong password: want 401 got %d body=%s", status, body)
 	}
 
 	// The gated read that was 401 while logged-out now succeeds.
@@ -128,8 +129,8 @@ func TestMultiUserAdminSurface(t *testing.T) {
 		t.Fatalf("authed GET /api/projects: want 200 got %d body=%s", status, body)
 	}
 
-	if status, _ := admin.do(t, http.MethodGet, "/api/auth/session", nil, nil); status != http.StatusOK {
-		t.Fatalf("GET /api/auth/session: want 200 got %d", status)
+	if status, body := admin.do(t, http.MethodGet, "/api/auth/session", nil, nil); status != http.StatusOK {
+		t.Fatalf("GET /api/auth/session: want 200 got %d body=%s", status, body)
 	}
 
 	// --- Step 4/5: admin user surface + the 401/403 contract. ---
@@ -161,7 +162,7 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	// Bob redeems his invite on his own jar → authenticated, non-admin.
 	bob := newMMClient(t, mc.baseURL)
 
-	var bobSession sessionResp
+	var bobSession sessionResponse
 	if status, body := bob.do(t, http.MethodPost, "/api/auth/token/"+created.Invite.Token,
 		map[string]any{"password": mmSecondPass}, &bobSession); status != http.StatusOK {
 		t.Fatalf("bob redeem invite: want 200 got %d body=%s", status, body)
@@ -173,17 +174,17 @@ func TestMultiUserAdminSurface(t *testing.T) {
 
 	// Bob is authenticated (200 on a gated read) but forbidden (403) on the
 	// admin surface — the role gate, distinct from the session gate.
-	if status, _ := bob.do(t, http.MethodGet, "/api/projects", nil, nil); status != http.StatusOK {
-		t.Fatalf("bob GET /api/projects: want 200 got %d", status)
+	if status, body := bob.do(t, http.MethodGet, "/api/projects", nil, nil); status != http.StatusOK {
+		t.Fatalf("bob GET /api/projects: want 200 got %d body=%s", status, body)
 	}
 
-	if status, _ := bob.do(t, http.MethodGet, "/api/admin/users", nil, nil); status != http.StatusForbidden {
-		t.Fatalf("bob GET /api/admin/users: want 403 got %d", status)
+	if status, body := bob.do(t, http.MethodGet, "/api/admin/users", nil, nil); status != http.StatusForbidden {
+		t.Fatalf("bob GET /api/admin/users: want 403 got %d body=%s", status, body)
 	}
 
-	if status, _ := bob.do(t, http.MethodPost, "/api/admin/credentials",
+	if status, body := bob.do(t, http.MethodPost, "/api/admin/credentials",
 		map[string]any{"name": "nope", "kind": "pat", "secret": "nope"}, nil); status != http.StatusForbidden {
-		t.Fatalf("bob POST /api/admin/credentials: want 403 got %d", status)
+		t.Fatalf("bob POST /api/admin/credentials: want 403 got %d body=%s", status, body)
 	}
 
 	// --- Step 4 (option a): credential create against a local fake GitHub. ---
@@ -196,8 +197,25 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	createCred := map[string]any{
 		"name": mmCredName, "kind": "pat", "api_base_url": fake.URL, "secret": mmCredSecret,
 	}
-	if status, body := admin.do(t, http.MethodPost, "/api/admin/credentials", createCred, nil); status != http.StatusCreated {
-		t.Fatalf("create credential: want 201 got %d body=%s", status, body)
+
+	var createdCred struct {
+		Name      string `json:"name"`
+		Kind      string `json:"kind"`
+		CreatedBy string `json:"created_by"`
+	}
+
+	status, credBody := admin.do(t, http.MethodPost, "/api/admin/credentials", createCred, &createdCred)
+	if status != http.StatusCreated {
+		t.Fatalf("create credential: want 201 got %d body=%s", status, credBody)
+	}
+
+	if createdCred.Name != mmCredName || createdCred.Kind != "pat" {
+		t.Fatalf("create credential 201 body: want name=%q kind=pat got %+v", mmCredName, createdCred)
+	}
+
+	// Secrets are write-only: the created response must never echo one.
+	if strings.Contains(credBody, mmCredSecret) {
+		t.Fatalf("create credential 201 body echoes the secret: %s", credBody)
 	}
 
 	if fake.hits() == 0 {
@@ -248,9 +266,9 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	}
 }
 
-// sessionResp mirrors the JSON shape returned by the auth endpoints
+// sessionResponse mirrors the JSON shape returned by the auth endpoints
 // (login / redeem / session).
-type sessionResp struct {
+type sessionResponse struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	IsAdmin     bool   `json:"is_admin"`

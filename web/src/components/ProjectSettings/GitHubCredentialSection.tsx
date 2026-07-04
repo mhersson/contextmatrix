@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { api, isAPIError } from '../../api/client';
+import { CREDENTIAL_KIND_LABEL } from '../../lib/credentialLabels';
 import type { CredentialInfo } from '../../types';
 
 interface GitHubCredentialSectionProps {
@@ -15,7 +16,7 @@ const INSTANCE_DEFAULT_LABEL = 'Instance default (github.* config)';
 function credentialLabel(c: CredentialInfo): string {
   const host = c.host || 'github.com';
   const suffix = c.disabled ? ' (disabled)' : '';
-  return `${c.name} — ${c.kind}, ${host}${suffix}`;
+  return `${c.name} — ${CREDENTIAL_KIND_LABEL[c.kind]}, ${host}${suffix}`;
 }
 
 /**

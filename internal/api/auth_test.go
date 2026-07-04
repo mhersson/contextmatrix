@@ -478,3 +478,88 @@ func TestObserve_RedactsTokenPaths(t *testing.T) {
 	assert.NotContains(t, logs, "super-secret-raw-token", "raw one-time tokens must not reach log lines")
 	assert.Contains(t, logs, "/api/auth/token/[redacted]")
 }
+
+func TestSessionGuard_ClearsDeadCookie(t *testing.T) {
+	server, svc, _ := newAuthTestServer(t)
+	cookie := login(t, server, "root", "root password1")
+
+	// Kill the session server-side; the browser still holds the cookie.
+	require.NoError(t, svc.Logout(t.Context(), cookie.Value))
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/task-skills", nil)
+	require.NoError(t, err)
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// The 401 must also expire the dead cookie so the browser stops
+	// re-sending (and the guard stops re-validating) the dead value.
+	cleared := false
+
+	for _, c := range resp.Cookies() {
+		if c.Name == "cm_session" {
+			cleared = true
+
+			assert.Empty(t, c.Value)
+			assert.Negative(t, c.MaxAge, "Max-Age must expire the cookie immediately")
+		}
+	}
+
+	assert.True(t, cleared, "401 with a presented dead cookie must clear it")
+}
+
+func TestSessionGuard_CookielessRequestSetsNoCookie(t *testing.T) {
+	server, _, _ := newAuthTestServer(t)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/task-skills", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Empty(t, resp.Cookies(), "a cookieless 401 must not emit Set-Cookie noise")
+}
+
+// TestExtractAgentID_SessionIdentityBeatsHeader pins the multi-mode identity
+// precedence: the session-derived identity always wins over a browser-supplied
+// X-Agent-ID, so a logged-in user cannot claim as someone else by header.
+func TestExtractAgentID_SessionIdentityBeatsHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/claim", nil)
+	req.Header.Set("X-Agent-ID", "human:mallory")
+	req = req.WithContext(withSessionIdentity(req.Context(), &authstore.User{Username: "root"}))
+
+	assert.Equal(t, "human:root", extractAgentID(req))
+}
+
+// TestSessionGuard_IdentityBeatsForgedAgentHeader proves the same precedence
+// through the real middleware composition: sessionGuard stamps the identity
+// from the cookie, and extractAgentID prefers it over the forged header.
+func TestSessionGuard_IdentityBeatsForgedAgentHeader(t *testing.T) {
+	_, svc, _ := newAuthTestServer(t)
+
+	_, raw, err := svc.Login(t.Context(), "root", "root password1", "1.2.3.4")
+	require.NoError(t, err)
+
+	var got string
+
+	guard := sessionGuard(svc)
+	handler := guard(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = extractAgentID(r)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/task-skills", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: raw})
+	req.Header.Set("X-Agent-ID", "human:mallory")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, "human:root", got,
+		"session-derived identity must beat any browser-supplied X-Agent-ID")
+}

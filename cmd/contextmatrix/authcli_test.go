@@ -555,3 +555,48 @@ func TestAuthCLI_RotateMasterKey_NoCredentials(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, hex.EncodeToString(masterA)+"\n", string(newKeyHex))
 }
+
+func TestAuthCLI_RotateMasterKey_RefusesMissingKeyFile(t *testing.T) {
+	cfgPath, _, keyPath := writeAuthConfig(t, "multi")
+
+	var out, errBuf bytes.Buffer
+
+	code := authCLI([]string{"rotate-master-key", "--config", cfgPath}, &out, &errBuf)
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errBuf.String(), "no master key file")
+	assert.Contains(t, errBuf.String(), keyPath)
+
+	// Refusal must be side-effect free: no fresh key conjured at the
+	// configured path, and nothing staged.
+	_, err := os.Stat(keyPath)
+	assert.True(t, os.IsNotExist(err), "refusal must not create a key file")
+
+	_, err = os.Stat(keyPath + ".new")
+	assert.True(t, os.IsNotExist(err), "refusal must not stage a key file")
+}
+
+func TestAuthCLI_ResetAdmin_UsageErrorPrecedesConfigLoad(t *testing.T) {
+	// An empty XDG home makes config discovery fail — the missing-username
+	// usage error must fire before config loading is ever attempted.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errBuf bytes.Buffer
+
+	code := authCLI([]string{"reset-admin"}, &out, &errBuf)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errBuf.String(), "usage:")
+	assert.NotContains(t, errBuf.String(), "no config file found")
+}
+
+func TestAuthCLI_RotateMasterKey_PositionalArgErrorPrecedesConfigLoad(t *testing.T) {
+	// Same precedence contract as reset-admin: the unexpected-argument
+	// error must fire before config loading is ever attempted.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errBuf bytes.Buffer
+
+	code := authCLI([]string{"rotate-master-key", "some-path"}, &out, &errBuf)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errBuf.String(), "some-path")
+	assert.NotContains(t, errBuf.String(), "no config file found")
+}
