@@ -23,7 +23,15 @@ import (
 func writeAuthConfig(t *testing.T, mode string) (cfgPath, dbPath, keyPath string) {
 	t.Helper()
 
-	dir := t.TempDir()
+	return writeAuthConfigAt(t, t.TempDir(), mode)
+}
+
+// writeAuthConfigAt is writeAuthConfig with an explicit target directory, so
+// a test can place a config at an exact path (e.g. one XDG discovery will
+// find) instead of an arbitrary t.TempDir(). dir must already exist.
+func writeAuthConfigAt(t *testing.T, dir, mode string) (cfgPath, dbPath, keyPath string) {
+	t.Helper()
+
 	dbPath = filepath.Join(dir, "auth.db")
 	keyPath = filepath.Join(dir, "master.key")
 	cfgPath = filepath.Join(dir, "config.yaml")
@@ -179,6 +187,36 @@ func TestAuthCLI_ResetAdmin_IssuesResetToken(t *testing.T) {
 	assert.Equal(t, "alice", info.Username)
 }
 
+// TestAuthCLI_ResetAdmin_RejectsMisplacedConfigFlag covers a stdlib flag
+// gotcha: FlagSet.Parse stops at the first non-flag argument, so
+// `reset-admin <username> --config PATH` never parses --config as a flag at
+// all — "--config" and "PATH" land as extra positional arguments instead,
+// and --config is silently dropped. To prove the CLI actually rejects this
+// (rather than merely happening to fail some other way), XDG discovery is
+// pointed at a DIFFERENT config with its own admin "alice": if --config were
+// still silently ignored, the command would succeed against that wrong
+// store instead of the one --config named.
+func TestAuthCLI_ResetAdmin_RejectsMisplacedConfigFlag(t *testing.T) {
+	xdgHome := t.TempDir()
+	cfgDir := filepath.Join(xdgHome, "contextmatrix")
+	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
+	t.Setenv("XDG_CONFIG_HOME", xdgHome)
+
+	_, discoveredDBPath, _ := writeAuthConfigAt(t, cfgDir, "multi")
+	seedUser(t, discoveredDBPath, "alice", true)
+
+	// The config the operator actually intended via --config. Distinct
+	// store, no seeded user — a spurious success against it is easy to spot.
+	cfgPath, _, _ := writeAuthConfig(t, "multi")
+
+	var out, errBuf bytes.Buffer
+
+	code := authCLI([]string{"reset-admin", "alice", "--config", cfgPath}, &out, &errBuf)
+	assert.NotEqual(t, 0, code)
+	assert.Empty(t, out.String(), "must not print a reset link against the wrong (XDG-discovered) config")
+	assert.Contains(t, errBuf.String(), "--config", "error must name the misplaced flag")
+}
+
 func TestAuthCLI_RefusesNoneMode(t *testing.T) {
 	cfgPath, dbPath, _ := writeAuthConfig(t, "none")
 	seedUser(t, dbPath, "alice", true)
@@ -194,6 +232,49 @@ func TestAuthCLI_RefusesNoneMode(t *testing.T) {
 		assert.Empty(t, out.String())
 		assert.Contains(t, strings.ToLower(errBuf.String()), "multi", "args: %v", args)
 	}
+}
+
+// TestAuthCLI_RotateMasterKey_RejectsPositionalArgs covers the same stdlib
+// flag gotcha from the operator's other likely mistake: forgetting --config
+// entirely and passing the path positionally, e.g.
+// `rotate-master-key ./prod.yaml`. FlagSet.Parse stops at the first non-flag
+// argument, so "./prod.yaml" is never read as --config's value — it lands as
+// an ignored positional argument, and *configPath stays empty, falling back
+// to XDG discovery. XDG discovery is pointed at a scratch config here so
+// that, pre-fix, the command would silently succeed against THAT config
+// (mutating its master key) instead of the path the operator actually named
+// — proving the fix stops the command, not merely that "some-path" fails to
+// resolve as a config on its own.
+func TestAuthCLI_RotateMasterKey_RejectsPositionalArgs(t *testing.T) {
+	xdgHome := t.TempDir()
+	cfgDir := filepath.Join(xdgHome, "contextmatrix")
+	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
+	t.Setenv("XDG_CONFIG_HOME", xdgHome)
+
+	_, _, keyPath := writeAuthConfigAt(t, cfgDir, "multi")
+
+	masterA := make([]byte, 32)
+	_, err := rand.Read(masterA)
+	require.NoError(t, err)
+
+	keyContents := []byte(hex.EncodeToString(masterA) + "\n")
+	require.NoError(t, os.WriteFile(keyPath, keyContents, 0o600))
+
+	var out, errBuf bytes.Buffer
+
+	code := authCLI([]string{"rotate-master-key", "some-path"}, &out, &errBuf)
+	assert.NotEqual(t, 0, code)
+	assert.Empty(t, out.String())
+	assert.Contains(t, errBuf.String(), "some-path", "error must name the offending positional argument")
+
+	// Nothing was mutated: the XDG-discovered config's key file survives
+	// byte-for-byte, and no staging file was ever created.
+	after, err := os.ReadFile(keyPath)
+	require.NoError(t, err)
+	assert.Equal(t, keyContents, after, "the discovered config's key file must be untouched")
+
+	_, err = os.Stat(keyPath + ".new")
+	assert.True(t, os.IsNotExist(err), "must not stage a new key file when the command is rejected")
 }
 
 func TestAuthCLI_RotateMasterKey_RoundTrip(t *testing.T) {

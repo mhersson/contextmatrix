@@ -115,6 +115,21 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	// flag.FlagSet stops parsing at the first non-flag argument, so
+	// `reset-admin <username> --config PATH` never parses --config as a
+	// flag at all: it lands here as extra positional arguments (fs.Arg(1)
+	// onward) and would otherwise be silently dropped, leaving --config's
+	// intended value unapplied. Reject rather than guess which argument the
+	// operator meant.
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr,
+			"auth reset-admin: unexpected argument %q after username %q — flags must come before the username "+
+				"(usage: contextmatrix auth reset-admin [--config PATH] <username>)\n",
+			fs.Arg(1), username)
+
+		return 2
+	}
+
 	store, err := authstore.Open(cfg.Auth.DBPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "auth reset-admin: open auth store: %v\n", err)
@@ -203,6 +218,20 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 	cfg, code, ok := loadAuthConfig(fs, args, stderr)
 	if !ok {
 		return code
+	}
+
+	// flag.FlagSet stops parsing at the first non-flag argument, so a
+	// forgotten --config (e.g. `rotate-master-key ./prod.yaml`) leaves the
+	// path sitting here as an ignored positional argument instead of being
+	// applied — silently falling back to XDG config discovery. Reject
+	// rather than rotate the wrong instance's key.
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr,
+			"auth rotate-master-key: unexpected argument %q — rotate-master-key takes no positional arguments "+
+				"(did you mean --config %s?)\n",
+			fs.Arg(0), fs.Arg(0))
+
+		return 2
 	}
 
 	store, err := authstore.Open(cfg.Auth.DBPath)
