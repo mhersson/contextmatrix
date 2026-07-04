@@ -167,6 +167,15 @@ Mauve.
 - Parent ID badge: `--bg-blue` background, `--aqua` text — same palette as the
   active-agent indicator. Only rendered on subtask cards (`card.parent` defined).
 
+## Fonts
+
+Fonts are self-hosted — no CDN at runtime. `@font-face` declarations live in
+`src/fonts.css` (imported at the top of `index.css`); woff2 binaries are stored
+under `public/fonts/<family>/`, emitted to `dist/fonts/` by Vite, and embedded
+into the Go binary via `web/embed.go`. Regenerate via `scripts/fontfetch.py`.
+System font stacks are retained as fallbacks (`ui-sans-serif`, `ui-monospace`,
+`ui-serif`).
+
 ## CardPanel active-session layout
 
 The split layout and session chat are **HITL-only**. Both are gated on a
