@@ -136,10 +136,40 @@ project's `.board.yaml` `github_credential` field binds it to one pool entry;
 `TokenProviderFor` (`internal/auth/credentials.go`) resolves that binding into
 a cached `githubauth.TokenGenerator`, scoping that project's GitHub operations
 (boards push, issue import, branch listing) to the bound credential.
-`providerForProject` in `cmd/contextmatrix/main.go` fails closed on a broken
-binding — it never silently substitutes the instance-wide credential.
+`newProviderForProject` (`cmd/contextmatrix/provider.go`) builds this
+resolver — `main.go` only wires it (as `providerForProject`) into
+`RouterConfig` and the GitHub-issue-sync path — and it fails closed on a
+broken binding, never silently substituting the instance-wide credential.
 Projects with no binding keep using the instance-wide `githubauth` provider,
 identical to none-mode behavior.
+
+**Operator escape hatches run on the host, outside the HTTP surface
+entirely.** `contextmatrix auth reset-admin <username>` and
+`contextmatrix auth rotate-master-key` (`cmd/contextmatrix/authcli.go`) are
+multi-mode-only CLI subcommands: each loads config the same way the server
+does (`--config` flag, else XDG discovery) and then opens `auth.db` directly.
+Host access to run this binary against the server's config is root trust,
+same posture as any other operator escape hatch. `reset-admin <username>`
+prints a one-time, 48-hour password-reset link for an existing, enabled admin
+— the recovery path when every admin account is locked out. `rotate-master-key`
+re-encrypts the entire credential pool under a freshly generated master key
+inside one `auth.db` transaction: the new key is staged at `<path>.new` before
+the transaction commits, installed over `<path>` once it has committed, and
+the previous key is saved to `<path>.bak` for reference only — restoring it
+does NOT roll the rotation back, since the pool is already re-encrypted under
+the new key by the time the file swap happens. Run both on the host against
+the same config file the running server uses, and restart the server
+afterward so it loads the new key file. Safest is to stop the server first;
+at minimum, do not create or rotate pool credentials through the *live*
+server between `rotate-master-key`'s commit and that restart —
+`SetCredentialKey` (`cmd/contextmatrix/main.go`) wires the HKDF-derived
+credential key into `auth.Service` once, at startup, so a running process
+keeps encrypting under the OLD key regardless of what the CLI does to the key
+file. `CreateCredential` and `RotateCredentialSecret`
+(`internal/auth/credentials.go`) only ever encrypt — they never decrypt
+existing pool data — so such a write still succeeds in the moment; it just
+produces a pool entry that fails to decrypt once the server is restarted and
+starts reading the rest of the (now-rotated) pool under the new key.
 
 **What stays constant across both modes — the machine channels:**
 
@@ -442,6 +472,18 @@ and commit completion. The service layer closes that gap on failure:
   GIFs / non-image MIME types. Wired into `api.NewRouter` for `POST /api/images`
   + `GET /api/images/{id}` and into `mcp.NewServer` for the inline image
   attachments on `get_card` / `get_task_context`.
+- **auth.Service** (`internal/auth`): multi-mode authentication. Argon2id
+  password hashing + session issuance/validation (`password.go`, `token.go`),
+  one-time bootstrap/invite/reset tokens (`tokens.go`; 48h TTL), and the GitHub
+  credential-pool crypto (`crypto.go`, `masterkey.go`) — AES-256-GCM secrets
+  under a key HKDF-derived from the auth master key. `TokenProviderFor`
+  resolves a project's `.board.yaml` `github_credential` binding into a cached
+  `githubauth.TokenGenerator`, fail-closed on a broken binding (see Trust
+  model above). Nil (`RouterConfig.AuthService == nil`) in `auth.mode: none`.
+- **authstore.Store** (`internal/authstore`): SQLite persistence backing
+  `auth.Service` — `auth.db` holds the `users`, `sessions`, `one_time_tokens`,
+  and `credentials` tables. No business logic; `auth.Service` is its only
+  caller.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
   `GET /api/runner/logs` has two modes: card-scoped (subscribes to one card's

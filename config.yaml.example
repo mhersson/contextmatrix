@@ -457,6 +457,8 @@ auth:
   # rest. Auto-generated (0600) with a prominent log line when missing —
   # production deployments should mount a secret and point this at it.
   # Generate one manually with: openssl rand -hex 32 > master.key
+  # Rotate with `contextmatrix auth rotate-master-key`; if every admin is
+  # locked out, `contextmatrix auth reset-admin <username>` recovers access.
   # Default: $XDG_STATE_HOME/contextmatrix/master.key
   # Env: CONTEXTMATRIX_AUTH_MASTER_KEY_FILE
   master_key_file: ""
