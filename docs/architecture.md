@@ -126,6 +126,15 @@ role. The store refuses to demote or disable the last active admin
 (`ErrLastAdmin`), enforced as a guarded atomic update rather than a
 check-then-write race.
 
+**Chat sessions are per-user in multi mode:** every session carries `created_by`
+(`human:<username>`) as the owner. The `/api/chats*` surface is owner-scoped:
+`GET /api/chats` lists only the caller's sessions, and every per-ID endpoint
+(get, update, delete, open, end, clear, messages, stream) returns an identical
+404 for foreign and nonexistent IDs — ownership is not leaked. Admins manage
+chats via `/api/admin/chats*` (list all sessions, force-end, delete) — a
+metadata and lifecycle interface with no transcript routes. None mode keeps
+chats unscoped.
+
 **The GitHub credential pool holds encrypted secrets; project bindings scope
 GitHub operations.** Admins register named credentials (GitHub App or PAT) via
 `/api/admin/credentials`; each secret is AES-256-GCM-encrypted

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,20 +129,45 @@ func agentIDForChat(r *http.Request) string {
 	return id
 }
 
-func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+// ownedSession loads the session for the {id} path value and enforces
+// ownership when the caller has an authenticated identity (multi mode; in
+// none mode there is no session identity and no scoping). Unknown IDs and
+// foreign owners produce the identical 404 CHAT_NOT_FOUND response so
+// existence is never leaked. Returns ok=false when a response has already
+// been written.
+func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (chat.Session, bool) {
+	sess, err := h.mgr.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		handleChatError(w, r, err)
 
+		return chat.Session{}, false
+	}
+
+	if id := identityFromContext(r.Context()); id != "" && sess.CreatedBy != id {
+		handleChatError(w, r, chat.ErrSessionNotFound)
+
+		return chat.Session{}, false
+	}
+
+	return sess, true
+}
+
+// parseChatListFilter builds the SessionFilter shared by the user-facing
+// and admin chat lists (project, status, limit with the default/max
+// clamps). Returns ok=false after writing a 400 for invalid values.
+func parseChatListFilter(w http.ResponseWriter, q url.Values) (chat.SessionFilter, bool) {
 	f := chat.SessionFilter{
 		Project:   q.Get("project"),
 		CreatedBy: q.Get("created_by"),
 		Limit:     listChatsDefaultLimit,
 	}
+
 	if st := q.Get("status"); st != "" {
 		s, ok := chat.ParseStatus(st)
 		if !ok {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid status", st)
 
-			return
+			return chat.SessionFilter{}, false
 		}
 
 		f.Status = s
@@ -152,7 +178,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		if err != nil || n < 1 {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid limit", v)
 
-			return
+			return chat.SessionFilter{}, false
 		}
 
 		if n > listChatsMaxLimit {
@@ -160,6 +186,23 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		f.Limit = n
+	}
+
+	return f, true
+}
+
+func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
+	f, ok := parseChatListFilter(w, r.URL.Query())
+	if !ok {
+		return
+	}
+
+	// Multi mode: the list is always scoped to the caller — a client-
+	// supplied created_by cannot widen or redirect it (silently
+	// overridden; the UI never sends one). None mode keeps the param's
+	// client-filter behavior.
+	if id := identityFromContext(r.Context()); id != "" {
+		f.CreatedBy = id
 	}
 
 	sessions, err := h.mgr.ListSessions(r.Context(), f)
@@ -335,10 +378,8 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *chatHandlers) getChat(w http.ResponseWriter, r *http.Request) {
-	sess, err := h.mgr.GetSession(r.Context(), r.PathValue("id"))
-	if err != nil {
-		handleChatError(w, r, err)
-
+	sess, ok := h.ownedSession(w, r)
+	if !ok {
 		return
 	}
 
@@ -346,6 +387,20 @@ func (h *chatHandlers) getChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *chatHandlers) deleteChat(w http.ResponseWriter, r *http.Request) {
+	// Ownership is enforced only for authenticated callers (multi mode) — and
+	// there both missing and foreign IDs must 404 identically (a 204/404
+	// split would leak existence). In none mode there is no identity to
+	// scope on, so the check is skipped entirely; DeleteSession's own
+	// not-found path (it loads the session before deleting) already 404s a
+	// missing ID regardless of mode, so skipping the check here changes
+	// nothing about that outcome — it only means none mode never scopes by
+	// owner.
+	if identityFromContext(r.Context()) != "" {
+		if _, ok := h.ownedSession(w, r); !ok {
+			return
+		}
+	}
+
 	if err := h.mgr.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
 		handleChatError(w, r, err)
 
@@ -356,6 +411,10 @@ func (h *chatHandlers) deleteChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *chatHandlers) openChat(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
 	sess, err := h.mgr.OpenSession(r.Context(), r.PathValue("id"))
 	if err != nil {
 		handleChatError(w, r, err)
@@ -367,6 +426,10 @@ func (h *chatHandlers) openChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
 	id := r.PathValue("id")
 	if err := h.mgr.EndSession(r.Context(), id); err != nil {
 		handleChatError(w, r, err)
@@ -402,6 +465,10 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 //   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed" or "primer_failed")
 //   - everything else           → 500 (via handleChatError)
 func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
 	id := r.PathValue("id")
 	if err := h.mgr.ClearContext(r.Context(), id); err != nil {
 		if errors.Is(err, chat.ErrSessionNotRunning) {
@@ -455,6 +522,10 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, ok := h.ownedSession(w, r); !ok {
+		return
+	}
+
 	msgID, err := h.mgr.SendUserMessage(r.Context(), r.PathValue("id"), body.Content)
 	if err != nil {
 		handleChatError(w, r, err)
@@ -475,9 +546,7 @@ const (
 
 func (h *chatHandlers) listMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := h.mgr.GetSession(r.Context(), id); err != nil {
-		handleChatError(w, r, err)
-
+	if _, ok := h.ownedSession(w, r); !ok {
 		return
 	}
 
@@ -537,10 +606,8 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.mgr.GetSession(r.Context(), r.PathValue("id"))
-	if err != nil {
-		handleChatError(w, r, err)
-
+	sess, ok := h.ownedSession(w, r)
+	if !ok {
 		return
 	}
 
@@ -560,13 +627,11 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// Validate the session exists before subscribing — the hub lazy-creates a
-	// per-session ring buffer + subscriber set on first Subscribe, so an
-	// unguarded handler would let any GET against an unknown id permanently
-	// grow perSess.
-	if _, err := h.mgr.GetSession(r.Context(), id); err != nil {
-		handleChatError(w, r, err)
-
+	// Validate existence AND ownership before subscribing — the hub
+	// lazy-creates a per-session ring buffer + subscriber set on first
+	// Subscribe, so an unguarded handler would let any GET against an
+	// unknown or foreign id permanently grow perSess.
+	if _, ok := h.ownedSession(w, r); !ok {
 		return
 	}
 
@@ -681,14 +746,20 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 }
 
 func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
-	ctxlog.Logger(r.Context()).Error("chat error", "error", err)
+	logger := ctxlog.Logger(r.Context())
 
 	switch {
 	case errors.Is(err, chat.ErrSessionNotFound):
+		// Warn, not Error: in multi mode every foreign-owner probe lands
+		// here by design (ownedSession maps foreign and missing IDs to the
+		// same 404), so this path is routine client behavior, not a fault.
+		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusNotFound, ErrCodeChatNotFound, "chat session not found", "")
 	case errors.Is(err, chat.ErrTooManyConcurrent):
+		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusTooManyRequests, ErrCodeTooManyChats, "concurrent chat limit reached", "")
 	default:
+		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")
 	}
 }

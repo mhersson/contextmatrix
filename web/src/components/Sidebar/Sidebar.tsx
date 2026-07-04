@@ -162,47 +162,8 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         )}
       </nav>
 
-      {isAdmin && (
-        <nav aria-label="Admin" className="px-2 py-2 border-t" style={{ borderColor: 'var(--bg3)' }}>
-          <div
-            className="px-3 pb-1 text-xs font-semibold tracking-wide"
-            style={{ color: 'var(--grey0)' }}
-          >
-            ADMIN
-          </div>
-          <NavLink to="/admin/users" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
-            {({ isActive }) => (
-              <div
-                className="px-3 py-2 rounded text-sm transition-colors"
-                style={{
-                  backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
-                  color: isActive ? 'var(--fg)' : 'var(--grey2)',
-                }}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                Users
-              </div>
-            )}
-          </NavLink>
-          <NavLink to="/admin/credentials" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
-            {({ isActive }) => (
-              <div
-                className="px-3 py-2 rounded text-sm transition-colors"
-                style={{
-                  backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
-                  color: isActive ? 'var(--fg)' : 'var(--grey2)',
-                }}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                Credentials
-              </div>
-            )}
-          </NavLink>
-        </nav>
-      )}
-
       <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>
-        <UserMenu />
+        <UserMenu onNavigate={mobileOpen ? onMobileClose : undefined} />
         {canCreateProject && (
           <button
             onClick={onNewProject}

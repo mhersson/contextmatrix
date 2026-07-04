@@ -595,6 +595,38 @@ Refuses to delete a credential that any project's `.board.yaml`
 Content**, or **404 `VALIDATION_ERROR`** for an unknown `name` (same
 not-found convention as `PUT` above).
 
+### GET /api/admin/chats
+
+Lists every chat session on the instance — no owner scoping. Metadata
+and cost totals only; transcript content is never included. Query
+parameters `project`, `status`, and `limit` (default 500, max 5000)
+mirror `GET /api/chats`; `created_by` is not part of the admin filter
+surface.
+
+**Response:** `200 OK` — array of session objects (same shape as
+`GET /api/chats`).
+
+### POST /api/admin/chats/{id}/end
+
+Force-ends any session regardless of owner — the remedy when a stuck
+active session holds a slot of the global concurrency cap. Same
+semantics and error mapping as `POST /api/chats/{id}/end`; returns the
+updated session.
+
+**Errors:** `404 CHAT_NOT_FOUND` unknown ID · `403 FORBIDDEN` non-admin.
+
+### DELETE /api/admin/chats/{id}
+
+Deletes any session regardless of owner. Unknown IDs return 404 — the
+session is loaded before deletion (existing manager semantics). Cost
+tombstones survive, so dashboard aggregates stay accurate.
+
+**Response:** `204 No Content` · `404 CHAT_NOT_FOUND` unknown ID.
+
+There is deliberately no admin route that returns transcript content
+(no messages, stream, or open) — admin chat management is metadata and
+lifecycle only.
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -1493,6 +1525,17 @@ Project-agnostic chat sessions that share the runner's worker image but use
 long-lived containers instead of card-scoped one-shots. Identity follows the
 same `X-Agent-ID` tagging convention as the rest of the API (see § Trust model
 in `CLAUDE.md`); the web UI defaults to `human:web` when the header is absent.
+
+**Ownership (multi mode):** every chat session is owned by the identity
+that created it (`created_by`, `human:<username>`). The list is
+force-scoped to the caller (`?created_by=` is ignored), and every per-ID
+endpoint returns an identical `404 CHAT_NOT_FOUND` for foreign and
+nonexistent IDs — existence is not leaked. (`DELETE` of a missing ID is
+404 in every mode — existing behavior; the session is loaded before
+deletion.) In `none` mode
+the surface is unscoped and `?created_by=` remains a client-side filter.
+Admin management lives under `/api/admin/chats` (see Authentication
+section) — metadata and lifecycle only.
 
 ### POST /api/chats
 

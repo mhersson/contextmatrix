@@ -1,3 +1,4 @@
+export { AdminChatsPage } from './AdminChatsPage';
 export { AdminCredentialsPage } from './AdminCredentialsPage';
 export { AdminGuard } from './AdminGuard';
 export { AdminUsersPage } from './AdminUsersPage';
