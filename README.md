@@ -147,6 +147,9 @@ another user's password.
 - **Roles** — one flat team plus a single `admin` flag. Admins manage users,
   the GitHub credential pool, and project settings; every logged-in user gets
   the full board: cards, claims, chat, and run triggers.
+- **Private chats** — chat sessions are private to their creator; admins get
+  a metadata-only management view (user menu → Chats) for ending or deleting
+  any session.
 - **Per-project GitHub credentials** — admins register PATs or GitHub Apps
   under **Admin → Credentials** (validated against GitHub on save, encrypted
   at rest); a project's settings bind one entry by name, scoping that

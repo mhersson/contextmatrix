@@ -118,6 +118,15 @@ admin account — a real account with a real username, not theatre.
   recalculate-costs). Ordinary card work — claim, update, transition — needs
   only a session, any role. At least one active admin must always exist;
   demoting or disabling the last one is refused.
+- **Chat sessions are per-user.** `created_by` (`human:<username>`) is
+  the owner. `/api/chats*` is owner-scoped: the list is force-filtered
+  to the caller and every per-ID endpoint returns the identical 404 for
+  foreign and nonexistent IDs. Admins manage chats via
+  `/api/admin/chats*` (list all, end, delete) — metadata + lifecycle
+  only; no admin route returns transcript content (interface-level
+  privacy: ops.db is still readable by whoever holds the host). Legacy
+  sessions whose owner matches no account are admin delete-only. `none`
+  mode keeps chats flat and unscoped.
 - **GitHub credential pool:** admins register named credentials (App or PAT);
   secrets are AES-256-GCM-encrypted at rest under a key derived from the auth
   master key (auto-generated 0600 file — point it at real secret management
