@@ -746,14 +746,20 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 }
 
 func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
-	ctxlog.Logger(r.Context()).Error("chat error", "error", err)
+	logger := ctxlog.Logger(r.Context())
 
 	switch {
 	case errors.Is(err, chat.ErrSessionNotFound):
+		// Warn, not Error: in multi mode every foreign-owner probe lands
+		// here by design (ownedSession maps foreign and missing IDs to the
+		// same 404), so this path is routine client behavior, not a fault.
+		logger.Warn("chat error", "error", err)
 		writeError(w, http.StatusNotFound, ErrCodeChatNotFound, "chat session not found", "")
 	case errors.Is(err, chat.ErrTooManyConcurrent):
+		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusTooManyRequests, ErrCodeTooManyChats, "concurrent chat limit reached", "")
 	default:
+		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")
 	}
 }
