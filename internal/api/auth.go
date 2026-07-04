@@ -95,6 +95,11 @@ func sessionGuard(svc *auth.Service) func(http.Handler) http.Handler {
 					}
 
 					r = r.WithContext(withSessionIdentity(r.Context(), user))
+				} else {
+					// The browser presented a cookie that no longer maps to a
+					// live session — expire it so subsequent requests stop
+					// re-sending (and re-validating) the dead value.
+					clearSessionCookie(w, r)
 				}
 			}
 

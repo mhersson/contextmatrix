@@ -22,10 +22,6 @@ import (
 // ignore it — so the value is nominal.
 const cliServiceIdleTTL = time.Hour
 
-// masterKeyLen is the byte length of a freshly generated master key. Mirrors
-// the format auth.LoadOrCreateMasterKey reads (hex-encoded 32 bytes).
-const masterKeyLen = 32
-
 const authUsage = `usage: contextmatrix auth <subcommand> [flags]
 
 subcommands:
@@ -60,20 +56,16 @@ func authCLI(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// loadAuthConfig registers the shared --config flag on fs, parses args, loads
-// the config, and enforces auth.mode: multi. On any failure it writes to
-// stderr and returns ok=false with the exit code to use.
-func loadAuthConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (cfg *config.Config, code int, ok bool) {
-	configPath := fs.String("config", "", "path to config file (defaults to XDG discovery)")
-
-	if err := fs.Parse(args); err != nil {
-		return nil, 2, false // flag already reported the error to stderr
-	}
-
-	path := *configPath
+// loadAuthConfig loads the config from configPath (empty = XDG discovery) and
+// enforces auth.mode: multi. On any failure it writes to stderr and returns
+// ok=false with the exit code to use. Callers parse flags and validate
+// positional arguments BEFORE calling this, so usage errors take precedence
+// over config problems.
+func loadAuthConfig(name, configPath string, stderr io.Writer) (cfg *config.Config, code int, ok bool) {
+	path := configPath
 	if path == "" {
 		if path = config.FindConfigPath(); path == "" {
-			fmt.Fprintf(stderr, "auth %s: no config file found; use --config to specify a path\n", fs.Name())
+			fmt.Fprintf(stderr, "auth %s: no config file found; use --config to specify a path\n", name)
 
 			return nil, 1, false
 		}
@@ -81,14 +73,14 @@ func loadAuthConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (cfg *con
 
 	loaded, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintf(stderr, "auth %s: load config: %v\n", fs.Name(), err)
+		fmt.Fprintf(stderr, "auth %s: load config: %v\n", name, err)
 
 		return nil, 1, false
 	}
 
 	if loaded.Auth.Mode != config.AuthModeMulti {
 		fmt.Fprintf(stderr, "auth %s: requires auth.mode: %q (current mode: %q)\n",
-			fs.Name(), config.AuthModeMulti, loaded.Auth.Mode)
+			name, config.AuthModeMulti, loaded.Auth.Mode)
 
 		return nil, 1, false
 	}
@@ -103,9 +95,10 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("reset-admin", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	cfg, code, ok := loadAuthConfig(fs, args, stderr)
-	if !ok {
-		return code
+	configPath := fs.String("config", "", "path to config file (defaults to XDG discovery)")
+
+	if err := fs.Parse(args); err != nil {
+		return 2 // flag already reported the error to stderr
 	}
 
 	username := fs.Arg(0)
@@ -128,6 +121,11 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 			fs.Arg(1), username)
 
 		return 2
+	}
+
+	cfg, code, ok := loadAuthConfig(fs.Name(), *configPath, stderr)
+	if !ok {
+		return code
 	}
 
 	store, err := authstore.Open(cfg.Auth.DBPath)
@@ -215,9 +213,10 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("rotate-master-key", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	cfg, code, ok := loadAuthConfig(fs, args, stderr)
-	if !ok {
-		return code
+	configPath := fs.String("config", "", "path to config file (defaults to XDG discovery)")
+
+	if err := fs.Parse(args); err != nil {
+		return 2 // flag already reported the error to stderr
 	}
 
 	// flag.FlagSet stops parsing at the first non-flag argument, so a
@@ -234,6 +233,11 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	cfg, code, ok := loadAuthConfig(fs.Name(), *configPath, stderr)
+	if !ok {
+		return code
+	}
+
 	store, err := authstore.Open(cfg.Auth.DBPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "auth rotate-master-key: open auth store: %v\n", err)
@@ -243,21 +247,24 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 
 	defer func() { _ = store.Close() }()
 
-	oldMaster, created, err := auth.LoadOrCreateMasterKey(cfg.Auth.MasterKeyFile)
+	// Load-only: a rotation must never conjure a key. A missing file here
+	// means the config points somewhere the server has never run (or the
+	// wrong instance entirely) — writing a fresh key would mask that and
+	// leave a stray key file behind, so refuse instead.
+	oldMaster, err := auth.LoadMasterKey(cfg.Auth.MasterKeyFile)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr,
+				"auth rotate-master-key: no master key file at %s — nothing to rotate. The server creates "+
+					"the key on first start in multi mode; check that this config points at the right instance.\n",
+				cfg.Auth.MasterKeyFile)
+
+			return 1
+		}
+
 		fmt.Fprintf(stderr, "auth rotate-master-key: load master key: %v\n", err)
 
 		return 1
-	}
-
-	if created {
-		// No key existed, so nothing was ever encrypted under a prior key.
-		// LoadOrCreateMasterKey just wrote a fresh one — there is nothing to
-		// re-encrypt or roll forward.
-		fmt.Fprintf(stdout, "No existing master key at %s; wrote a fresh one. Nothing to re-encrypt.\n",
-			cfg.Auth.MasterKeyFile)
-
-		return 0
 	}
 
 	ctx := context.Background()
@@ -284,7 +291,7 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	newMaster := make([]byte, masterKeyLen)
+	newMaster := make([]byte, auth.MasterKeyLen)
 	if _, err := rand.Read(newMaster); err != nil {
 		fmt.Fprintf(stderr, "auth rotate-master-key: generate new key: %v\n", err)
 

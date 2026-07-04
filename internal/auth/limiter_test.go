@@ -112,3 +112,25 @@ func TestLimiter_PrunesIdleEntries(t *testing.T) {
 
 	assert.Less(t, n, 100, "idle entries pruned once map exceeded the cap")
 }
+
+func TestLimiter_OverflowingBackoffClampsToCap(t *testing.T) {
+	l, _ := newTestLimiter(time.Unix(1000, 0))
+	key := "alice|1.2.3.4"
+
+	// Sweep the failure count through every shift region: pre-cap, capped
+	// without overflow (shift 9–33), wrapped (34–54, where the shifted value
+	// overflows int64 into an arbitrary signed number), and shifted-to-zero
+	// (≥ 55). Every region must yield a block in (0, limiterMaxBlock].
+	for i := 1; i <= 70; i++ {
+		l.Failure(key)
+
+		if i < limiterFreeFailures {
+			continue
+		}
+
+		retry, ok := l.Allow(key)
+		assert.False(t, ok, "failures=%d must block", i)
+		assert.Greater(t, retry, time.Duration(0), "failures=%d must never yield a non-positive block", i)
+		assert.LessOrEqual(t, retry, limiterMaxBlock, "failures=%d must clamp to the cap", i)
+	}
+}

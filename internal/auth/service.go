@@ -199,7 +199,11 @@ func (s *Service) timingDummyHash() string {
 }
 
 // ClientIP extracts the host part of an addr like "1.2.3.4:5678" for limiter
-// keys. Falls back to the raw string when it does not split.
+// keys. Falls back to the raw string when it does not split. Deliberately the
+// TCP peer, never X-Forwarded-For: honoring that header without a
+// trusted-proxy allowlist would let any client spoof its limiter key. Behind
+// a reverse proxy all logins share the proxy's IP, leaving the per-account
+// half of the key to do the work; a trusted-proxy knob is future work.
 func ClientIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {

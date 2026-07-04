@@ -12,12 +12,31 @@ import (
 	"strings"
 )
 
-const masterKeyLen = 32
+// MasterKeyLen is the byte length of a master key — the format
+// LoadMasterKey reads and LoadOrCreateMasterKey writes (hex-encoded).
+const MasterKeyLen = 32
 
 // KeyPurposeCredentials labels the HKDF derivation for credential-pool
 // encryption. Every future encrypted store gets its own label so purposes
 // never share key material.
 const KeyPurposeCredentials = "credential-encryption" //nolint:gosec
+
+// LoadMasterKey reads a hex-encoded 32-byte master key from path. It never
+// creates anything: a missing file surfaces as an error wrapping
+// os.ErrNotExist so callers can distinguish "no key yet" from a corrupt one.
+func LoadMasterKey(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("auth: read master key: %w", err)
+	}
+
+	decoded, decErr := hex.DecodeString(strings.TrimSpace(string(data)))
+	if decErr != nil || len(decoded) != MasterKeyLen {
+		return nil, fmt.Errorf("auth: master key file %s: want %d hex-encoded bytes", path, MasterKeyLen)
+	}
+
+	return decoded, nil
+}
 
 // LoadOrCreateMasterKey reads a hex-encoded 32-byte master key from path.
 // When the file does not exist it generates a fresh key, creates parent
@@ -25,19 +44,14 @@ const KeyPurposeCredentials = "credential-encryption" //nolint:gosec
 // reports whether a new key was written — callers should log prominently so
 // operators know to move the file into proper secret management.
 func LoadOrCreateMasterKey(path string) (key []byte, created bool, err error) {
-	data, err := os.ReadFile(path)
+	key, err = LoadMasterKey(path)
 
 	switch {
 	case err == nil:
-		decoded, decErr := hex.DecodeString(strings.TrimSpace(string(data)))
-		if decErr != nil || len(decoded) != masterKeyLen {
-			return nil, false, fmt.Errorf("auth: master key file %s: want %d hex-encoded bytes", path, masterKeyLen)
-		}
-
-		return decoded, false, nil
+		return key, false, nil
 
 	case errors.Is(err, os.ErrNotExist):
-		fresh := make([]byte, masterKeyLen)
+		fresh := make([]byte, MasterKeyLen)
 		if _, err := rand.Read(fresh); err != nil {
 			return nil, false, fmt.Errorf("auth: generate master key: %w", err)
 		}
@@ -53,7 +67,7 @@ func LoadOrCreateMasterKey(path string) (key []byte, created bool, err error) {
 		return fresh, true, nil
 
 	default:
-		return nil, false, fmt.Errorf("auth: read master key: %w", err)
+		return nil, false, err
 	}
 }
 
