@@ -443,11 +443,18 @@ func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message 
 		return nil // nothing to commit
 	}
 
-	// Commit with explicit author to match go-git commits.
+	// Commit with explicit author to match go-git commits. The -c flags
+	// supply the COMMITTER identity too: go-git commits use the author
+	// signature for both, but CLI git resolves the committer from config,
+	// which does not exist in sterile environments (worker containers, CI)
+	// and fails the commit with "Committer identity unknown".
 	author := fmt.Sprintf("%s <%s>", m.author.Name, m.author.Email)
 	start := time.Now()
 
-	if err := m.runGit(ctx, "commit", "--author", author, "-m", message); err != nil {
+	if err := m.runGit(ctx,
+		"-c", "user.name="+m.author.Name,
+		"-c", "user.email="+m.author.Email,
+		"commit", "--author", author, "-m", message); err != nil {
 		metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 		return fmt.Errorf("commit: %w", err)

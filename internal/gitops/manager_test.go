@@ -839,6 +839,40 @@ func TestCommitFilesShell(t *testing.T) {
 	assert.Equal(t, "shell@example.com", commit.Author.Email)
 }
 
+func TestCommitFilesShell_NoGlobalGitIdentity(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	// Sterile environments (worker containers, CI) have no global git
+	// config, so the CLI commit cannot fall back to a configured committer
+	// identity — the -c flags on the commit invocation must supply it.
+	// Neutralize the host's config files to reproduce that environment.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	mgr.SetAuthor("Shell User", "shell@example.com")
+
+	err = os.WriteFile(filepath.Join(tmpDir, "init.txt"), []byte("init"), 0o644)
+	require.NoError(t, err)
+	err = mgr.CommitFile(context.Background(), "init.txt", "initial commit")
+	require.NoError(t, err)
+
+	testFile := "shell-test.txt"
+	err = os.WriteFile(filepath.Join(tmpDir, testFile), []byte("shell content"), 0o644)
+	require.NoError(t, err)
+
+	err = mgr.CommitFilesShell(context.Background(), []string{testFile}, "shell commit")
+	require.NoError(t, err, "shell commit must not depend on global git identity")
+
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "shell commit", strings.TrimSpace(msg))
+}
+
 func TestCommitFilesShell_NoChanges(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not found")
