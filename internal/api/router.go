@@ -138,6 +138,14 @@ type RouterConfig struct {
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). Zero value when no dedicated chat backend is configured.
 	ChatBackendCfg config.BackendConfig
+	// ChatWorkerAPIKey is the resolved (precedence-aware: runner-serves-chat
+	// wins, else the dedicated "chat" entry) chat-backend api_key — the same
+	// secret cmd/contextmatrix/wire_chat.go used to mint
+	// StartChatOpts.GitCredentialsToken. GET /api/worker/git-credentials
+	// verifies bearer tokens against this exact value, so mint and verify
+	// never disagree. Empty disables the route (no chat backend, or one with
+	// no configured api_key) regardless of ChatManager.
+	ChatWorkerAPIKey string
 	// ImageStore is required in production — main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
 	// not exercise /api/images may omit it; the routes are then unregistered
@@ -473,6 +481,27 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			instanceTokenProvider:  cfg.GitHubTokenProvider,
 		}
 		mux.HandleFunc("GET "+cfg.ChatBackendCfg.CallbackPath()+"/task-skills-source", cbh.getTaskSkillsSource)
+	}
+
+	// Worker git-credentials: chat workers fetch per-repo git credentials on
+	// demand, authenticated by the deterministic per-session bearer minted at
+	// chat-start (ChatStartPayload.GitCredentialsToken) — not HMAC, not the
+	// session cookie. Registered only when both a chat manager (session
+	// liveness lookup) AND a resolved chat-backend api_key (bearer secret)
+	// are wired; either missing means worker-fetched credentials are not in
+	// play for this deployment.
+	if cfg.ChatManager != nil && cfg.ChatWorkerAPIKey != "" {
+		wch := &workerCredentialsHandlers{
+			chatAPIKey:         cfg.ChatWorkerAPIKey,
+			liveness:           cfg.ChatManager,
+			providerForProject: cfg.ProviderForProject,
+			instanceProvider:   cfg.GitHubTokenProvider,
+		}
+		if cfg.Service != nil {
+			wch.listProjects = cfg.Service.ListProjects
+		}
+
+		mux.HandleFunc("GET /api/worker/git-credentials", wch.getGitCredentials)
 	}
 
 	// bodyLimitOverrides maps a registered mux pattern (e.g.

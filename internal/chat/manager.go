@@ -88,6 +88,13 @@ type StartChatOpts struct {
 	// Treat as a secret carrier: never log this value or the opts struct
 	// as a whole — LLMEndpoint.APIKey rides along.
 	LLMEndpoint *protocol.LLMEndpoint
+	// GitCredentialsToken is the per-session bearer the worker presents to
+	// CM's GET /api/worker/git-credentials endpoint to fetch per-repo git
+	// credentials on demand. Empty when Manager.workerCredentialsToken is
+	// nil (no chat-backend api_key configured, or wiring that predates
+	// worker-fetched credentials). Treat as a secret carrier: never log this
+	// value.
+	GitCredentialsToken string
 }
 
 // Config carries Manager dependencies.
@@ -142,6 +149,16 @@ type Config struct {
 	// config (pre-multi-user behavior). Production wires this from
 	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
 	LLMEndpoint *protocol.LLMEndpoint
+
+	// WorkerCredentialsToken mints the per-session bearer attached to every
+	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "do
+	// not attach a token" — the field stays empty and the worker falls back
+	// to its own local git config (deprecated, pre-worker-fetched-credentials
+	// behavior). Production wires this from a closure over the resolved
+	// chat-backend api_key in cmd/contextmatrix/wire_chat.go — the same key
+	// GET /api/worker/git-credentials verifies against, so mint and verify
+	// never disagree.
+	WorkerCredentialsToken func(sessionID string) string
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -164,6 +181,11 @@ type Manager struct {
 	// forwarded to every chat-start payload. Treat as a secret carrier:
 	// never log this value — llmEndpoint.APIKey rides along.
 	llmEndpoint *protocol.LLMEndpoint
+	// workerCredentialsToken mints the per-session bearer attached to every
+	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "no
+	// token" (no chat-backend api_key configured, or tests that don't
+	// exercise this path).
+	workerCredentialsToken func(sessionID string) string
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -236,27 +258,28 @@ func NewManager(cfg Config) *Manager {
 	}
 
 	return &Manager{
-		store:              cfg.Store,
-		backend:            cfg.Backend,
-		clk:                cfg.Clock,
-		idleTTL:            cfg.IdleTTL,
-		maxConcurrent:      cfg.MaxConcurrent,
-		logger:             cfg.Logger,
-		hub:                cfg.Hub,
-		resolveRepoURL:     cfg.ResolveRepoURL,
-		resumeBudgetTokens: cfg.ResumeBudgetTokens,
-		rehydrationTimeout: cfg.RehydrationTimeout,
-		defaultModel:       cfg.DefaultModel,
-		primerPath:         cfg.PrimerPath,
-		pricer:             cfg.Pricer,
-		llmEndpoint:        cfg.LLMEndpoint,
-		seqMap:             make(map[string]int64),
-		titled:             make(map[string]bool),
-		consumers:          make(map[string]*consumerHandle),
-		sendFailures:       make(map[string]int),
-		rehydrationActive:  make(map[string]bool),
-		appendLocks:        map[string]*sync.Mutex{},
-		statusLocks:        map[string]*sync.Mutex{},
+		store:                  cfg.Store,
+		backend:                cfg.Backend,
+		clk:                    cfg.Clock,
+		idleTTL:                cfg.IdleTTL,
+		maxConcurrent:          cfg.MaxConcurrent,
+		logger:                 cfg.Logger,
+		hub:                    cfg.Hub,
+		resolveRepoURL:         cfg.ResolveRepoURL,
+		resumeBudgetTokens:     cfg.ResumeBudgetTokens,
+		rehydrationTimeout:     cfg.RehydrationTimeout,
+		defaultModel:           cfg.DefaultModel,
+		primerPath:             cfg.PrimerPath,
+		pricer:                 cfg.Pricer,
+		llmEndpoint:            cfg.LLMEndpoint,
+		workerCredentialsToken: cfg.WorkerCredentialsToken,
+		seqMap:                 make(map[string]int64),
+		titled:                 make(map[string]bool),
+		consumers:              make(map[string]*consumerHandle),
+		sendFailures:           make(map[string]int),
+		rehydrationActive:      make(map[string]bool),
+		appendLocks:            map[string]*sync.Mutex{},
+		statusLocks:            map[string]*sync.Mutex{},
 	}
 }
 
@@ -1278,6 +1301,14 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		model = m.defaultModel
 	}
 
+	// Mint the worker git-credentials bearer for this cold open. nil
+	// workerCredentialsToken (no chat-backend api_key configured) leaves the
+	// token empty — the worker then falls back to its own local git config.
+	var gitCredentialsToken string
+	if m.workerCredentialsToken != nil {
+		gitCredentialsToken = m.workerCredentialsToken(sess.ID)
+	}
+
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", repoURL,
 		"model", model, "has_resume", resume != nil,
@@ -1285,13 +1316,14 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		"has_primer", primer != "")
 
 	return StartChatOpts{
-		SessionID:   sess.ID,
-		Project:     sess.Project,
-		RepoURL:     repoURL,
-		Model:       model,
-		Resume:      resume,
-		Primer:      primer,
-		LLMEndpoint: m.llmEndpoint,
+		SessionID:           sess.ID,
+		Project:             sess.Project,
+		RepoURL:             repoURL,
+		Model:               model,
+		Resume:              resume,
+		Primer:              primer,
+		LLMEndpoint:         m.llmEndpoint,
+		GitCredentialsToken: gitCredentialsToken,
 	}, nil
 }
 
@@ -1590,6 +1622,26 @@ func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
 // GetSession returns the persisted session by ID.
 func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
 	return m.store.GetSession(ctx, id)
+}
+
+// SessionLiveness reports whether sessionID currently owns a live runner
+// container: status active, warm-idle, or ending (ending still owns a
+// container mid-teardown). A cold session reports live=false with a nil
+// error. An unknown session id returns ErrSessionNotFound so callers — the
+// worker git-credentials endpoint — can distinguish "doesn't exist" (404)
+// from "exists but cold" (409).
+func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live bool, err error) {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+
+	switch sess.Status {
+	case StatusActive, StatusWarmIdle, StatusEnding:
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 // EndSession transitions a session to cold, stopping the runner container.

@@ -145,6 +145,12 @@ func sessionExempt(r *http.Request) bool {
 		// HMAC-signed backend-callback space (and the backend-called
 		// autonomous check) — machine channels with their own auth.
 		return true
+	case strings.HasPrefix(path, "/api/worker/"):
+		// Bearer-authed worker-callback space (GET /api/worker/git-credentials)
+		// — its own per-session auth, independent of the session cookie.
+		// Mirrors /mcp's treatment: a machine channel with its own auth, not a
+		// browser route.
+		return true
 	}
 
 	return false

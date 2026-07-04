@@ -76,14 +76,15 @@ func NewRunnerClient(cfg RunnerClientConfig) Backend {
 
 func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
 	body, err := json.Marshal(protocol.ChatStartPayload{
-		SessionID:   opts.SessionID,
-		Project:     opts.Project,
-		RepoURL:     opts.RepoURL,
-		MCPAPIKey:   c.mcpAPIKey,
-		Model:       opts.Model,
-		Resume:      opts.Resume,
-		Primer:      opts.Primer,
-		LLMEndpoint: opts.LLMEndpoint,
+		SessionID:           opts.SessionID,
+		Project:             opts.Project,
+		RepoURL:             opts.RepoURL,
+		MCPAPIKey:           c.mcpAPIKey,
+		Model:               opts.Model,
+		Resume:              opts.Resume,
+		Primer:              opts.Primer,
+		LLMEndpoint:         opts.LLMEndpoint,
+		GitCredentialsToken: opts.GitCredentialsToken,
 	})
 	if err != nil {
 		return "", fmt.Errorf("chat: runner: marshal StartChat payload: %w", err)
