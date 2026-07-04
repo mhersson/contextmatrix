@@ -43,9 +43,9 @@
   --blue: #7fbbb3;
   --purple: #d699b6;
 
-  /* Fonts — three webfonts loaded from Google Fonts in index.html. System
-     font stacks are kept as fallbacks so the UI degrades gracefully if the
-     CDN is unreachable. */
+  /* Fonts — self-hosted via @font-face declarations in fonts.css; woff2
+     binaries under public/fonts/<family>/. System font stacks are retained
+     as fallbacks. See fonts.css for details. */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-display: "Fraunces", "Iowan Old Style", Georgia, ui-serif, serif;
   --font-mono: "JetBrains Mono", ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
