@@ -2805,3 +2805,473 @@ input, select, textarea {
   background-color: var(--bg1);
   color: var(--fg);
 }
+
+/* ============================================================
+   Auth screens — AuthShell split layout, fields, vignette.
+   Palette-portable: CSS custom properties only.
+   ============================================================ */
+
+.auth-brand {
+  width: 46%;
+  max-width: 620px;
+  flex-direction: column;
+  background-color: var(--bg0);
+  border-right: 1px solid var(--bg3);
+  padding: 56px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Content sits above the cell backdrop (positioned elements paint later). */
+.auth-brand > :not(.auth-brand-cells) {
+  position: relative;
+}
+
+/* Full-bleed matrix backdrop: hairline 33px cell grid + lit accent cells. */
+.auth-brand-cells {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(color-mix(in oklab, var(--fg) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--fg) 5%, transparent) 1px, transparent 1px);
+  background-size: 33px 33px;
+}
+
+[data-theme='light'] .auth-brand-cells {
+  background-image: linear-gradient(color-mix(in oklab, var(--fg) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--fg) 8%, transparent) 1px, transparent 1px);
+}
+
+.auth-cell {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 3px;
+  background-color: color-mix(in oklab, var(--cell-c) 15%, transparent);
+}
+
+[data-theme='light'] .auth-cell {
+  background-color: color-mix(in oklab, var(--cell-c) 24%, transparent);
+}
+
+.auth-cell--breathe {
+  animation: auth-breathe 6s ease-in-out infinite alternate;
+}
+
+/* Form-panel glow: accent blob top-left, aqua blob bottom-right, drifting
+   slowly. Clipped by this inset layer so the blur never adds scroll area. */
+.auth-glow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.auth-glow-a,
+.auth-glow-b {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+}
+
+.auth-glow-a {
+  width: 620px;
+  height: 480px;
+  left: -14%;
+  top: -18%;
+  background-color: color-mix(in oklab, var(--blue) 8%, transparent);
+  animation: auth-drift-a 17s ease-in-out infinite alternate;
+}
+
+.auth-glow-b {
+  width: 700px;
+  height: 520px;
+  right: -16%;
+  bottom: -22%;
+  background-color: color-mix(in oklab, var(--aqua) 6%, transparent);
+  animation: auth-drift-b 21s ease-in-out infinite alternate;
+}
+
+[data-theme='light'] .auth-glow-a {
+  background-color: color-mix(in oklab, var(--blue) 11%, transparent);
+}
+
+[data-theme='light'] .auth-glow-b {
+  background-color: color-mix(in oklab, var(--aqua) 8%, transparent);
+}
+
+@keyframes auth-drift-a {
+  to {
+    transform: translate(46px, 30px) scale(1.07);
+  }
+}
+
+@keyframes auth-drift-b {
+  to {
+    transform: translate(-40px, -26px) scale(1.05);
+  }
+}
+
+@media (max-width: 1024px) {
+  .auth-brand {
+    padding: 40px;
+  }
+}
+
+.auth-card {
+  background-color: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-radius: 12px;
+  padding: 34px;
+}
+
+.auth-fld {
+  margin-bottom: 15px;
+}
+
+.auth-lab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.auth-lab label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--grey2);
+  letter-spacing: 0.01em;
+}
+
+.auth-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+}
+
+.auth-input {
+  width: 100%;
+  height: 42px;
+  background-color: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 7px;
+  color: var(--fg);
+  font-size: 13.5px;
+  padding: 0 12px;
+  outline: none;
+  transition: border-color 0.13s, box-shadow 0.13s;
+}
+
+.auth-input::placeholder {
+  color: var(--grey0);
+}
+
+.auth-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--blue) 24%, transparent);
+}
+
+.auth-input--pw {
+  padding-right: 42px;
+}
+
+.auth-eye {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--grey1);
+  cursor: pointer;
+  transition: color 0.12s, background-color 0.12s;
+}
+
+.auth-eye:hover {
+  color: var(--fg);
+  background-color: color-mix(in oklab, var(--fg) 9%, transparent);
+}
+
+.auth-eye:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.auth-eye svg {
+  width: 17px;
+  height: 17px;
+}
+
+.auth-btn {
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--blue);
+  color: var(--bg-dim);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: filter 0.12s, transform 0.05s;
+}
+
+[data-theme='light'] .auth-btn {
+  color: var(--bg0);
+}
+
+.auth-btn:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.auth-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-err {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background-color: var(--bg-red);
+  color: var(--red);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-bottom: 15px;
+}
+
+.auth-err svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 1.5px;
+}
+
+.auth-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--grey0);
+}
+
+.auth-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--green);
+  flex: none;
+  animation: auth-breathe 3.2s ease-in-out infinite alternate;
+}
+
+.auth-brandfoot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--grey1);
+}
+
+/* Static anchor dot for the brand caption — a "commit node", deliberately
+   not pulsing: the caption states product facts, not live telemetry. */
+.auth-commitdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--aqua);
+  flex: none;
+}
+
+/* Brand-panel mini-kanban vignette (decorative) */
+.auth-vg-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey1);
+  margin-bottom: 9px;
+  padding: 0 2px;
+}
+
+.auth-vg-label em {
+  font-style: normal;
+  color: var(--grey0);
+}
+
+.auth-vg-chip {
+  height: 38px;
+  background-color: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+}
+
+.auth-vg-chip--agent {
+  border-color: color-mix(in oklab, var(--aqua) 55%, var(--bg3));
+}
+
+.auth-vg-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.auth-vg-bar {
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--bg3);
+  display: inline-block;
+}
+
+.auth-vg-id {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--aqua);
+}
+
+.auth-agentdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--aqua);
+  margin-left: auto;
+  flex: none;
+  position: relative;
+}
+
+.auth-agentdot::after {
+  content: '';
+  position: absolute;
+  inset: -3.5px;
+  border-radius: 50%;
+  border: 1.5px solid var(--aqua);
+  opacity: 0;
+  animation: auth-ping 2.6s ease-out infinite;
+}
+
+/* Ghost chip: hops from doing to done. translate(100%) is one column width;
+   the 12px matches the vignette's gap-3, the 42/46px one chip row (38+8). */
+.auth-vg-ghost {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  animation: auth-hop 7.5s cubic-bezier(0.45, 0.05, 0.35, 1) infinite;
+}
+
+/* Entrance: wordmark first, card +70ms, meta +140ms */
+.auth-rise {
+  animation: auth-rise 0.34s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+.auth-rise-card {
+  animation: auth-rise 0.34s 0.07s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+.auth-rise-meta {
+  animation: auth-rise 0.34s 0.14s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+@keyframes auth-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes auth-breathe {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes auth-ping {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.8;
+  }
+  70%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes auth-hop {
+  0%,
+  55% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(0, -4px);
+    opacity: 1;
+  }
+  76% {
+    transform: translate(calc(100% + 12px), 42px);
+    opacity: 1;
+  }
+  88% {
+    transform: translate(calc(100% + 12px), 46px);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-rise,
+  .auth-rise-card,
+  .auth-rise-meta,
+  .auth-live,
+  .auth-cell--breathe,
+  .auth-glow-a,
+  .auth-glow-b {
+    animation: none;
+  }
+
+  .auth-agentdot::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  /* The ghost chip settles as a plain static second card in the column. */
+  .auth-vg-ghost {
+    animation: none;
+    opacity: 1;
+    position: static;
+  }
+}

@@ -67,6 +67,24 @@ describe('AuthGate', () => {
     await waitFor(() => expect(screen.getByText('THE APP')).toBeInTheDocument());
   });
 
+  it('login page shows the deployment meta line and a password reveal toggle', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: '0.9.3', auth_mode: 'multi' });
+    mocks.getAuthSession.mockRejectedValue({ code: 'UNAUTHORIZED', error: 'authentication required' });
+
+    renderGate();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument());
+    expect(screen.getByText(/multi-user mode/)).toBeInTheDocument();
+    expect(screen.getByText(/v0\.9\.3/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show password' })).toBeInTheDocument();
+
+    // The brand caption states product facts; fabricated live telemetry
+    // ("N agents active") must not reappear, nor filler meta segments.
+    expect(screen.getByText(/every change is a git commit/)).toBeInTheDocument();
+    expect(screen.queryByText(/agents active/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/agents report via MCP/)).not.toBeInTheDocument();
+  });
+
   it('redemption route renders even while anonymous', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
     mocks.getAuthSession.mockRejectedValue({ code: 'UNAUTHORIZED', error: 'authentication required' });

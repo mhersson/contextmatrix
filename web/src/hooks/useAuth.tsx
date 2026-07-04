@@ -55,6 +55,8 @@ interface AuthContextValue {
   mode: AuthMode;
   status: AuthStatus;
   user: SessionUser | null;
+  /** Server version from app config; null until resolved (or when unreachable). */
+  version: string | null;
   setUser: (u: SessionUser) => void;
   logout: () => Promise<void>;
 }
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<AuthMode>('none');
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUserState] = useState<SessionUser | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const m = config.auth_mode ?? 'none';
         setMode(m);
+        setVersion(config.version || null);
 
         if (m !== 'multi') {
           setStatus('authenticated');
@@ -140,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ mode, status, user, setUser, logout }}>
+    <AuthContext.Provider value={{ mode, status, user, version, setUser, logout }}>
       {children}
     </AuthContext.Provider>
   );

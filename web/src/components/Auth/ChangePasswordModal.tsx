@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { APIError } from '../../types';
+import { AuthError } from './AuthError';
+import { PasswordInput } from './PasswordInput';
 
 const MIN_PASSWORD_LENGTH = 10;
 
@@ -103,74 +105,47 @@ export function ChangePasswordModal({ open, onClose }: Props) {
             <p className="text-sm" style={{ color: 'var(--green)' }}>
               Password changed. Your other sessions have been signed out.
             </p>
-            <button
-              onClick={close}
-              className="rounded py-1.5 font-medium self-end px-4"
-              style={{ backgroundColor: 'var(--bg-green)', color: 'var(--green)' }}
-            >
+            <button onClick={close} className="auth-btn h-9 self-end px-4">
               Close
             </button>
           </>
         ) : (
-          <form onSubmit={submit} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-sm" style={{ color: 'var(--grey2)' }}>
-              Current password
-              <input
-                type="password"
-                value={current}
-                onChange={(e) => setCurrent(e.target.value)}
-                autoComplete="current-password"
-                required
-                className="rounded px-2 py-1.5 border outline-none"
-                style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm" style={{ color: 'var(--grey2)' }}>
-              New password (min {MIN_PASSWORD_LENGTH} characters)
-              <input
-                type="password"
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-                autoComplete="new-password"
-                required
-                className="rounded px-2 py-1.5 border outline-none"
-                style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm" style={{ color: 'var(--grey2)' }}>
-              Confirm new password
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                autoComplete="new-password"
-                required
-                className="rounded px-2 py-1.5 border outline-none"
-                style={{ backgroundColor: 'var(--bg0)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-              />
-            </label>
+          <form onSubmit={submit} className="flex flex-col">
+            <PasswordInput
+              label="Current password"
+              value={current}
+              onChange={setCurrent}
+              autoComplete="current-password"
+              required
+            />
+            <PasswordInput
+              label="New password"
+              hint={`min ${MIN_PASSWORD_LENGTH} chars`}
+              value={next}
+              onChange={setNext}
+              autoComplete="new-password"
+              required
+            />
+            <PasswordInput
+              label="Confirm new password"
+              value={confirm}
+              onChange={setConfirm}
+              autoComplete="new-password"
+              required
+            />
 
-            {error && (
-              <div className="text-sm" role="alert" style={{ color: 'var(--red)' }}>
-                {error}
-              </div>
-            )}
+            {error && <AuthError>{error}</AuthError>}
 
             <div className="flex gap-2 justify-end">
               <button
                 type="button"
                 onClick={close}
-                className="rounded py-1.5 px-4"
+                className="rounded-[7px] py-1.5 px-4"
                 style={{ backgroundColor: 'var(--bg3)', color: 'var(--fg)' }}
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded py-1.5 px-4 font-medium disabled:opacity-60"
-                style={{ backgroundColor: 'var(--bg-green)', color: 'var(--green)' }}
-              >
+              <button type="submit" disabled={busy} className="auth-btn h-9 px-4">
                 {busy ? 'Saving…' : 'Change password'}
               </button>
             </div>
