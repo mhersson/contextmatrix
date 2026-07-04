@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -151,21 +152,14 @@ func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (cha
 	return sess, true
 }
 
-func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-
+// parseChatListFilter builds the SessionFilter shared by the user-facing
+// and admin chat lists (project, status, limit with the default/max
+// clamps). Returns ok=false after writing a 400 for invalid values.
+func parseChatListFilter(w http.ResponseWriter, q url.Values) (chat.SessionFilter, bool) {
 	f := chat.SessionFilter{
 		Project:   q.Get("project"),
 		CreatedBy: q.Get("created_by"),
 		Limit:     listChatsDefaultLimit,
-	}
-
-	// Multi mode: the list is always scoped to the caller — a client-
-	// supplied created_by cannot widen or redirect it (silently
-	// overridden; the UI never sends one). None mode keeps the param's
-	// client-filter behavior.
-	if id := identityFromContext(r.Context()); id != "" {
-		f.CreatedBy = id
 	}
 
 	if st := q.Get("status"); st != "" {
@@ -173,7 +167,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid status", st)
 
-			return
+			return chat.SessionFilter{}, false
 		}
 
 		f.Status = s
@@ -184,7 +178,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		if err != nil || n < 1 {
 			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid limit", v)
 
-			return
+			return chat.SessionFilter{}, false
 		}
 
 		if n > listChatsMaxLimit {
@@ -192,6 +186,23 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		f.Limit = n
+	}
+
+	return f, true
+}
+
+func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
+	f, ok := parseChatListFilter(w, r.URL.Query())
+	if !ok {
+		return
+	}
+
+	// Multi mode: the list is always scoped to the caller — a client-
+	// supplied created_by cannot widen or redirect it (silently
+	// overridden; the UI never sends one). None mode keeps the param's
+	// client-filter behavior.
+	if id := identityFromContext(r.Context()); id != "" {
+		f.CreatedBy = id
 	}
 
 	sessions, err := h.mgr.ListSessions(r.Context(), f)

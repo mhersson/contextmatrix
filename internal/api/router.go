@@ -331,6 +331,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/admin/credentials", adh.createCredential)
 		mux.HandleFunc("PUT /api/admin/credentials/{name}", adh.putCredential)
 		mux.HandleFunc("DELETE /api/admin/credentials/{name}", adh.deleteCredential)
+
+		// Chat administration — metadata + lifecycle only; no transcript
+		// routes exist on this surface by design (docs/api-reference.md).
+		// Mirrors the ChatManager gate on the /api/chats block below.
+		if cfg.ChatManager != nil {
+			adminChh := &adminChatHandlers{mgr: cfg.ChatManager}
+			mux.HandleFunc("GET /api/admin/chats", adminChh.listChats)
+			mux.HandleFunc("POST /api/admin/chats/{id}/end", adminChh.endChat)
+			mux.HandleFunc("DELETE /api/admin/chats/{id}", adminChh.deleteChat)
+		}
 	}
 
 	// Task-skills (used by project default + per-card skill selectors in the UI)
