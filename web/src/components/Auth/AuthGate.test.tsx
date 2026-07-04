@@ -76,5 +76,22 @@ describe('AuthGate', () => {
 
     await waitFor(() => expect(screen.getByText(/welcome, carol/i)).toBeInTheDocument());
     expect(screen.queryByText('THE APP')).not.toBeInTheDocument();
+
+    // The regression that shipped: AuthGate renders the page by path
+    // interception (no <Route>), so useParams() was empty and the page
+    // inspected an EMPTY token. Pin the actual argument.
+    expect(mocks.inspectToken).toHaveBeenCalledWith('some-raw-token');
+  });
+
+  it('redemption page receives tokens with URL-unsafe-looking prefixes intact', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
+    mocks.getAuthSession.mockRejectedValue({ code: 'UNAUTHORIZED', error: 'authentication required' });
+    mocks.inspectToken.mockResolvedValue({ purpose: 'bootstrap', username: '' });
+
+    // Real bootstrap tokens are base64url and can start with dashes.
+    renderGate('/auth/token/--TVEiQ6qXzViM_lCYkOKH5noES3iyT9MXSX9R0qge4');
+
+    await waitFor(() => expect(screen.getByText(/create the admin account/i)).toBeInTheDocument());
+    expect(mocks.inspectToken).toHaveBeenCalledWith('--TVEiQ6qXzViM_lCYkOKH5noES3iyT9MXSX9R0qge4');
   });
 });
