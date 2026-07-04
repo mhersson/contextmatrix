@@ -48,6 +48,10 @@ Three shared Go modules underpin the services:
 - **Kanban web UI** — drag-and-drop columns, real-time SSE updates, collapsible
   columns and cards, a filter bar, and light/dark theming with selectable color
   palettes.
+- **Multi-user login** — invite-only accounts with sessions and an admin role
+  (the default; `auth.mode: none` restores zero-login single-user operation).
+  Admins manage users and a pool of encrypted GitHub credentials that projects
+  bind to individually.
 - **Markdown-native cards** — plain files with YAML frontmatter, human-readable
   and diffable. No database required.
 - **Git audit trail** — every card mutation is auto-committed. Optional deferred
@@ -101,6 +105,11 @@ cd ~/boards/contextmatrix && git init
 
 Open `http://localhost:8080` for the web UI.
 
+On first start the log prints a one-time bootstrap link
+(`/auth/token/<token>`) — open it to create the admin account (multi-user
+login is the default). For a zero-login local setup, set `auth.mode: none` in
+`config.yaml` before starting. See [Multi-User Mode](#multi-user-mode).
+
 ## Web UI
 
 - **Board view** — drag-and-drop kanban columns per project, with a card detail
@@ -121,6 +130,40 @@ Open `http://localhost:8080` for the web UI.
   **Radix**, and **Catppuccin**. The server default is set via the `theme`
   config key; each browser's choice is stored under the `palette` key and
   overrides it on subsequent loads.
+
+## Multi-User Mode
+
+ContextMatrix requires login by default (`auth.mode: multi`). Accounts are
+invite-only — there is no self-registration, and no admin ever sets or sees
+another user's password.
+
+- **Bootstrap** — on first start with zero users, the server logs a one-time
+  link (`/auth/token/<token>`, valid 48 hours). Open it in a browser to create
+  the first account; that account is the instance admin. A restart with zero
+  users mints a fresh link.
+- **Invites** — admins create accounts under **Admin → Users**; each new user
+  receives a copyable one-time link where they set their own password. The
+  same flow issues password-reset links.
+- **Roles** — one flat team plus a single `admin` flag. Admins manage users,
+  the GitHub credential pool, and project settings; every logged-in user gets
+  the full board: cards, claims, chat, and run triggers.
+- **Per-project GitHub credentials** — admins register PATs or GitHub Apps
+  under **Admin → Credentials** (validated against GitHub on save, encrypted
+  at rest); a project's settings bind one entry by name, scoping that
+  project's GitHub operations to it. Unbound projects use the instance-wide
+  `github.*` credential.
+- **Single-user opt-out** — set `auth.mode: none` in `config.yaml` (env:
+  `CONTEXTMATRIX_AUTH_MODE=none`) for the zero-login behavior — the right
+  choice for a laptop install. The trust model section in `CLAUDE.md`
+  describes how the two modes differ.
+
+Two operator escape hatches run on the host against the configured `auth.db`:
+`contextmatrix auth reset-admin <username>` prints a password-reset link for a
+locked-out admin, and `contextmatrix auth rotate-master-key` re-encrypts the
+credential pool under a fresh master key.
+
+Agents are unaffected by either mode: MCP keeps its Bearer token and backend
+webhooks keep their HMAC signatures.
 
 ## Creating a Board
 

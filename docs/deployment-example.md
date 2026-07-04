@@ -152,6 +152,17 @@ writers.
 - **Security context** — the image runs as `nobody`. Use
   `readOnlyRootFilesystem: true` with emptyDir mounts for `/tmp` and
   `/home/nobody`.
+- **Multi-user auth** (the default) — give `auth.db` a persistent volume
+  (`CONTEXTMATRIX_AUTH_DB_PATH`; it holds users, sessions, and the encrypted
+  credential pool) and mount the master key as a Secret
+  (`CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`, see Secrets below). On first start
+  the pod log prints a one-time `/auth/token/<token>` bootstrap link — open
+  it to create the admin account.
+- **Memory sizing** — argon2id password hashing allocates **64Mi per
+  concurrent login, by design** (memory-hardness is what makes it
+  brute-force-resistant). Size the container for baseline plus login
+  headroom: 128Mi request / 512Mi limit works for a small team. A 128Mi
+  limit OOM-kills the pod under normal operation.
 
 > **HTTPS only.** The server rejects any `boards.git_remote_url` (and
 > `task_skills.git_remote_url`) that does not start with `https://`. Use the PAT
@@ -313,14 +324,30 @@ reachable from inside Docker (e.g. `host.docker.internal` or the host's LAN IP).
 
 ## External Access (Optional)
 
-ContextMatrix is designed for trusted networks. To expose the web UI to the
-internet, put an authenticating reverse proxy in front.
+ContextMatrix authenticates users natively in its default mode
+(`auth.mode: multi`): invite-only accounts, argon2id-hashed passwords, and
+session cookies. What the reverse proxy must provide is **TLS** — session
+cookies and one-time links must never cross an untrusted network in the clear,
+and ContextMatrix does not terminate TLS itself.
+
+In `auth.mode: none` there are no accounts at all, so an **authenticating**
+reverse proxy (SSO, basic auth, Cloudflare Access) is mandatory for any
+internet exposure — the proxy is the only thing standing between the internet
+and a fully trusting API.
 
 ### General pattern
 
 ```
+auth.mode: multi (default)
+Internet → [Reverse Proxy + TLS] → ContextMatrix :8080 (native login)
+
+auth.mode: none
 Internet → [Reverse Proxy + Auth + TLS] → ContextMatrix :8080
 ```
+
+Proxy-level authentication in front of multi mode is optional
+defense-in-depth — two login layers, useful when the instance should not be
+discoverable at all.
 
 **Critical:** Block these paths at the proxy — they should only be reachable
 from the LAN:
@@ -356,13 +383,13 @@ HTTP/2.
 
 ### Cloudflare Tunnel example
 
-A Cloudflare Tunnel with Access provides authentication without exposing any
-ports:
+A Cloudflare Tunnel terminates TLS and exposes no inbound ports:
 
-- **Cloudflare Access** — requires SSO/email authentication for all requests
-- **WAF rules** — block `/mcp*`, `/healthz`, and `/readyz` at the edge
 - The tunnel connects outbound from your network — no inbound firewall rules
-  needed
+  needed; Cloudflare provides the TLS multi mode requires
+- **WAF rules** — block `/mcp*`, `/healthz`, and `/readyz` at the edge
+- **Cloudflare Access** (optional in multi mode, required in none mode) — puts
+  SSO/email authentication in front of ContextMatrix's own login
 
 ## Secrets to Provision
 
@@ -371,6 +398,7 @@ Before first deployment, generate these:
 | Secret                      | Purpose                                   | Notes                                                                                                           |
 | --------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | **MCP API key**             | Bearer token for MCP endpoint             | Random string, set in config                                                                                    |
+| **Auth master key**         | Encrypts the credential pool (multi mode) | `openssl rand -hex 32` into a 0600 file; mount it and set `auth.master_key_file`. Auto-generated on the data volume when unset — fine for a first boot, but point it at real secret management |
 | **Runner API key**          | HMAC-SHA256 webhook signing               | Shared between CM and runner, min 32 chars, never transmitted                                                   |
 | **GitHub fine-grained PAT** | Boards git auth + issue import (PAT mode) | Requires `contents:write` on boards repo and `issues:read` on project repos; max 1-year expiry, rotate annually |
 | **GitHub App** (runner)     | Clone repos, push branches, create PRs    | Short-lived tokens (1h expiry)                                                                                  |
@@ -379,7 +407,7 @@ Before first deployment, generate these:
 
 | Layer                 | Protection                                                                   |
 | --------------------- | ---------------------------------------------------------------------------- |
-| **Internet → Web UI** | Reverse proxy with authentication (e.g., Cloudflare Access)                  |
+| **Internet → Web UI** | TLS at the proxy + native session login (`auth.mode: multi`, the default); in `none` mode, an authenticating proxy (e.g. Cloudflare Access) is mandatory |
 | **Internet → MCP**    | Blocked at proxy (LAN-only)                                                  |
 | **LAN → MCP**         | Bearer token (`mcp_api_key`)                                                 |
 | **CM ↔ Runner**       | HMAC-SHA256 signed webhooks (shared secret, never transmitted)               |
