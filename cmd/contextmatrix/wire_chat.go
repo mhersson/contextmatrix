@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -17,13 +18,16 @@ import (
 // reaper, warm-idle grace timers, and the startup reattach loop. The chat
 // store is the shared operational store (ops.db), opened and owned by the
 // caller — wireChat does not open or close it. Returns the manager, the hub,
-// and a cleanup function the caller must defer.
+// a cleanup function the caller must defer, and the resolved chat-backend
+// api_key (empty when no chat backend is configured) — the caller wires this
+// into RouterConfig.ChatWorkerAPIKey so GET /api/worker/git-credentials
+// verifies bearer tokens against the exact key that minted them below.
 func wireChat(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
 	chatStore chat.Store,
-) (*chat.Manager, *chat.SSEHub, func()) {
+) (*chat.Manager, *chat.SSEHub, func(), string) {
 	var chatBackend chat.Backend
 
 	// chatDefaultModel is the cold-open fallback used when a session row has an
@@ -32,21 +36,43 @@ func wireChat(
 	// its OpenRouter slug so the fallback is never a native Anthropic slug.
 	chatDefaultModel := cfg.Chat.DefaultModel
 
-	if entry, ok := cfg.ChatBackendConfig(); ok {
+	// chatBackendEntry/chatBackendOK are hoisted out of the if-statement
+	// (unlike a plain `if entry, ok := ...; ok {}`) because the resolved
+	// entry's APIKey is also the worker-credentials bearer secret, needed
+	// again below to build workerCredentialsToken and to return to the
+	// caller for RouterConfig.ChatWorkerAPIKey.
+	chatBackendEntry, chatBackendOK := cfg.ChatBackendConfig()
+
+	if chatBackendOK {
 		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{
-			BaseURL:   entry.URL,
-			HMACKey:   entry.APIKey,
+			BaseURL:   chatBackendEntry.URL,
+			HMACKey:   chatBackendEntry.APIKey,
 			MCPAPIKey: cfg.MCPAPIKey,
 		})
 
-		if entry.Name == config.BackendNameChat {
-			chatDefaultModel = entry.DefaultModel
+		if chatBackendEntry.Name == config.BackendNameChat {
+			chatDefaultModel = chatBackendEntry.DefaultModel
 		}
 	} else {
 		// Nil backend causes nil-pointer panics at call sites. Use a no-op
 		// stub that errors on every operation — chat features require a
 		// configured chat backend.
 		chatBackend = chatRunnerDisabled{}
+	}
+
+	// chatWorkerAPIKey is the secret behind WorkerCredentialsToken: empty
+	// unless a chat backend is configured AND carries an api_key, matching
+	// the router's registration gate for GET /api/worker/git-credentials
+	// (see RouterConfig.ChatWorkerAPIKey).
+	chatWorkerAPIKey := ""
+
+	var workerCredentialsToken func(sessionID string) string
+
+	if chatBackendOK && chatBackendEntry.APIKey != "" {
+		chatWorkerAPIKey = chatBackendEntry.APIKey
+		workerCredentialsToken = func(sessionID string) string {
+			return api.WorkerCredentialsToken(chatWorkerAPIKey, sessionID)
+		}
 	}
 
 	chatHub := chat.NewSSEHub(128)
@@ -57,18 +83,19 @@ func wireChat(
 	}
 
 	chatMgr := chat.NewManager(chat.Config{
-		Store:              chatStore,
-		Backend:            chatBackend,
-		Clock:              clock.Real(),
-		IdleTTL:            cfg.Chat.IdleTTL,
-		MaxConcurrent:      cfg.Chat.MaxConcurrent,
-		Hub:                chatHub,
-		ResumeBudgetTokens: cfg.Chat.ResumeBudgetTokens,
-		RehydrationTimeout: cfg.Chat.RehydrationTimeout,
-		DefaultModel:       chatDefaultModel,
-		PrimerPath:         primerPath,
-		Pricer:             svc,
-		LLMEndpoint:        llmEndpointFromConfig(cfg.LLMEndpoint),
+		Store:                  chatStore,
+		Backend:                chatBackend,
+		Clock:                  clock.Real(),
+		IdleTTL:                cfg.Chat.IdleTTL,
+		MaxConcurrent:          cfg.Chat.MaxConcurrent,
+		Hub:                    chatHub,
+		ResumeBudgetTokens:     cfg.Chat.ResumeBudgetTokens,
+		RehydrationTimeout:     cfg.Chat.RehydrationTimeout,
+		DefaultModel:           chatDefaultModel,
+		PrimerPath:             primerPath,
+		Pricer:                 svc,
+		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
+		WorkerCredentialsToken: workerCredentialsToken,
 		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -185,5 +212,5 @@ func wireChat(
 		chatCloseCancel()
 	}
 
-	return chatMgr, chatHub, cleanup
+	return chatMgr, chatHub, cleanup, chatWorkerAPIKey
 }

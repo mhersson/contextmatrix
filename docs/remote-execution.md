@@ -527,13 +527,35 @@ Start a chat container for a session. HMAC-signed.
       "content": "It owns session lifecycle…"
     }
   ],
-  "primer": "<contents of workflow-skills/chat-mode.md>"
+  "primer": "<contents of workflow-skills/chat-mode.md>",
+  "git_credentials_token": "01J5....<base64url HMAC-SHA256 mac>"
 }
 ```
 
 `project` and `repo_url` are both optional — omit for a cross-project chat.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
 mode); the container then merges an MCP entry with no `Authorization` header.
+
+`git_credentials_token` is the chat credential story, and it is deliberately
+different from `/trigger`'s upfront `git_token` mint above: a chat session is
+long-lived and can be cross-project (no single card-scoped repo to mint a
+token for ahead of time), so CM does not mint any git credential at
+chat-start at all. Instead it hands the worker a deterministic, per-session
+bearer — `<session_id>.<base64url HMAC-SHA256 mac>`, keyed by the resolved
+chat-backend `api_key` — and the worker fetches a fresh, per-repo credential
+**on demand, once per git operation**, from CM's
+`GET /api/worker/git-credentials?host=<bare host>&path=<owner/repo>`
+(`Authorization: Bearer <token>`; see `docs/api-reference.md` § Worker
+Endpoints for the full resolution/fail-closed/status-code contract). CM never
+persists the bearer — verification just re-derives the expected token from
+the same `api_key` and compares with `hmac.Equal`. The wire type also carries
+now-unused `git_token` / `git_token_expires_at` / `git_host` fields for
+compatibility with the pre-worker-fetched design; CM never populates them on
+`ChatStartPayload` (contrast with `/trigger`, where the identically-named
+`git_token` field above is very much live). `git_credentials_token` is empty
+when no chat-backend `api_key` is configured, or on a CM build that predates
+this change — backends fall back to their own local git configuration in
+that case (deprecated path, retained for compatibility).
 
 `primer` is optional. When non-empty, it carries the chat-mode orientation text
 read from `workflow-skills/chat-mode.md` on every cold open. The runner writes

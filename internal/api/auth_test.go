@@ -106,6 +106,7 @@ func TestSessionGuard_Matrix(t *testing.T) {
 		{name: "app config slim reachable", method: http.MethodGet, path: "/api/app/config", wantNoAuth: http.StatusOK},
 		{name: "agent callback exempt (404 unregistered, not 401)", method: http.MethodGet, path: "/api/agent/task-skills-source", wantNoAuth: http.StatusNotFound},
 		{name: "chat callback exempt (404 unregistered, not 401)", method: http.MethodGet, path: "/api/chat/task-skills-source", wantNoAuth: http.StatusNotFound},
+		{name: "worker git-credentials exempt (404 unregistered, not 401)", method: http.MethodGet, path: "/api/worker/git-credentials", wantNoAuth: http.StatusNotFound},
 		{name: "admin chats gated", method: http.MethodGet, path: "/api/admin/chats", wantNoAuth: http.StatusUnauthorized},
 	}
 

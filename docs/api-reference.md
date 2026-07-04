@@ -40,6 +40,8 @@ GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous 
 # /api/agent/* — callback path when the agent entry is the active task backend
 # /api/chat/*  — reserved for contextmatrix-chat (not yet released)
 
+GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers (bearer-authed, not HMAC; chat backend + manager required)
+
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
 GET    /api/chats/models                               # chat model picker source (config|openrouter)
@@ -172,7 +174,8 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
   missing CSRF header) — emitted with code `BAD_REQUEST`
 - 401: no/expired session, multi mode only (`UNAUTHORIZED`) — the SPA
-  redirects to the login page
+  redirects to the login page; also a missing/invalid bearer on
+  `GET /api/worker/git-credentials`, independent of `auth.mode`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
   claim attempt (`CARD_NOT_VETTED`), agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
@@ -184,7 +187,9 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 409: conflict (invalid transition, card already claimed, already-running
   runner task → `RUNNER_CONFLICT`); also a bootstrap token redeemed after a
   user already exists, or an edit that would leave zero active admins
-  (`VALIDATION_ERROR`)
+  (`VALIDATION_ERROR`); also a cold chat session or a broken/unavailable git
+  credential on `GET /api/worker/git-credentials`
+  (`RUNNER_NOT_RUNNING` / `VALIDATION_ERROR`)
 - 410: one-time token already redeemed or past its 48-hour expiry
   (`TOKEN_INVALID`)
 - 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
@@ -193,7 +198,9 @@ otherwise the server generates a UUID. The same id is emitted as the
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
 - 429: concurrent chat cap reached (`TOO_MANY_CHATS`), or too many failed
   login attempts for one account+IP (`RATE_LIMITED`, `Retry-After` header set)
-- 502: runner host unreachable (`RUNNER_UNAVAILABLE`)
+- 502: runner host unreachable (`RUNNER_UNAVAILABLE`); also a git-credential
+  mint failure on `GET /api/<name>/git-credentials` or
+  `GET /api/worker/git-credentials` (`INTERNAL_ERROR`)
 - 503: no task backend configured (`RUNNER_DISABLED`), sync disabled
   (`SYNC_DISABLED`), or `/readyz` dependency check failed
 
@@ -216,7 +223,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `RUNNER_CONFLICT`         | 409     | card already queued/running                                   |
 | `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
 | `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
-| `RUNNER_NOT_RUNNING`      | 409     | card is not currently running                                 |
+| `RUNNER_NOT_RUNNING`      | 409     | card is not currently running; also a cold (non-live) chat session on `GET /api/worker/git-credentials` |
 | `REVIEW_ATTEMPTS_CAPPED`  | 409     | review attempts limit reached                                 |
 | `INVALID_SIGNATURE`       | 403     | HMAC signature or `X-Webhook-Timestamp` missing / expired     |
 | `TOO_MANY_CHATS`          | 429     | configured `chat.max_concurrent` cap reached                  |
@@ -256,11 +263,12 @@ documents the wire contract.
 rejects any request with no valid session — reads as well as writes, unlike
 none mode's write-only agent-identity checks. Exempt paths (reachable without
 a session): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*` itself,
-`/api/app/config` (serves a slim pre-login payload — see below), and the
+`/api/app/config` (serves a slim pre-login payload — see below), the
 HMAC-signed backend-callback prefixes `/api/runner/*`, `/api/agent/*`,
 `/api/chat/*`, `/api/v1/*` (`/api/runner/logs` and `/api/runner/health` are
 carved back out of that exemption — they are browser-facing despite the
-prefix, so they require a session). `/api/auth/*` being session-exempt at the
+prefix, so they require a session), and `/api/worker/*` (bearer-authed, not
+HMAC — see § Worker Endpoints below). `/api/auth/*` being session-exempt at the
 router level does not mean unauthenticated — `GET /api/auth/session` and
 `POST /api/auth/password` check the session themselves and 401 without one.
 
@@ -298,7 +306,11 @@ itself, needs `X-Requested-With: contextmatrix` or it is rejected with 403
 The token-authority endpoints (`GET /api/<name>/task-skills-source`,
 `GET /api/<name>/git-credentials`) are a separate, HMAC-signed machine
 channel documented under § Runner Endpoints below — they are unrelated to the
-session/admin system here and exist in both auth modes.
+session/admin system here and exist in both auth modes. `GET
+/api/worker/git-credentials` (§ Worker Endpoints below) is a further machine
+channel with its own auth — a deterministic per-session bearer token, not
+HMAC request signing — likewise unrelated to sessions/admin and present in
+both modes.
 
 ### POST /api/auth/login
 
@@ -1524,6 +1536,91 @@ Trigger-time minting: `POST .../cards/{id}/run` populates
 `TriggerPayload.git_token` / `git_token_expires_at` / `llm_endpoint` the same
 way; a broken binding rejects the run with 409, reverts the card's runner
 status, and appends a card activity entry.
+
+## Worker Endpoints
+
+### GET /api/worker/git-credentials
+
+Serves per-repo git credentials to chat workers on demand. Unlike every
+other backend-callback endpoint in this document, authentication is a
+**bearer token**, not HMAC-SHA256 request signing and not the browser
+session cookie:
+
+```
+Authorization: Bearer <session_id>.<base64url HMAC-SHA256 mac>
+```
+
+The token is minted once per chat session at chat-start
+(`ChatStartPayload.git_credentials_token`) from the resolved chat-backend
+`api_key` — whichever backend actually serves chat containers: the runner
+entry when `backends.runner` also serves chat, else the dedicated
+`backends.chat` entry — and the session id. It is deterministic: CM never
+persists it anywhere, so verification just re-derives the expected token
+from the same `api_key` plus the session id embedded in the presented
+token, and compares with `hmac.Equal` (constant-time — a timing
+side-channel cannot help an attacker guess a valid token byte-by-byte).
+This auth model is identical in `auth.mode: none` and `auth.mode: multi`:
+the bearer is independent of sessions, of `X-Agent-ID`, and of HMAC request
+signing.
+
+Query parameters (required as a pair — see below for the one exception):
+
+| Param  | Meaning                                                       |
+| ------ | -------------------------------------------------------------- |
+| `host` | Bare host of the repo the worker is about to operate on (e.g. `github.com`) |
+| `path` | `owner/repo`, with or without a trailing `.git`                |
+
+Resolution: `(host, path)` is matched — case-insensitively, `.git` suffix
+tolerated on either side — against every project's effective repo(s)
+(`.board.yaml` `repo` or `repos`; a project with neither field set, or an
+unparseable repo URL, is skipped). Only an **exact** owner/repo match
+selects a project — a request path that is merely a prefix/superset of a
+project's repo path never matches. A match resolves the credential via that
+project's `github_credential` binding, **fail-closed**: a broken binding
+rejects with 409 and never substitutes the instance credential. No match
+resolves directly to the instance-wide `github.*` credential — the correct
+credential for a non-project repo, not a degraded fallback. An empty pair
+(both `host` and `path` omitted — the shape a repo-less `gh` call sends,
+e.g. `gh repo create`, `gh api /user`, run from a cwd with no origin remote)
+skips project matching entirely and also resolves to the instance credential;
+exactly one of the two present without the other is still a 400.
+
+Success response:
+
+```json
+{ "username": "x-access-token", "token": "ghs_...", "expires_at": "2026-07-05T13:00:00Z" }
+```
+
+`username` is always the literal `x-access-token` (the Basic-auth username a
+GitHub App/PAT-backed HTTPS clone expects alongside the token). `expires_at`
+is RFC3339 and omitted for PAT-backed credentials — same omission semantics
+as `GET /api/<name>/git-credentials` above (no server-managed TTL; absent
+means "do not schedule a refresh").
+
+Status contract:
+
+| Status | Code                 | When                                                                                                             |
+| ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing (both missing is not an error — see above) |
+| 401    | `UNAUTHORIZED`       | Bearer header absent, malformed, or fails the HMAC comparison                                                   |
+| 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                            |
+| 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for a reason other than "session not found" (backend/store error)                |
+| 409    | `RUNNER_NOT_RUNNING` | The session exists but is cold (no live runner container)                                                       |
+| 409    | `VALIDATION_ERROR`   | Matched project's credential binding is broken, or no provider is configured at all — fail-closed, never the instance credential |
+| 502    | `INTERNAL_ERROR`     | A credential provider resolved, but minting the token itself failed                                             |
+
+**Secrets hygiene:** the bearer token and every minted git token are opaque
+to logging — neither is ever written to a log line or an
+`APIError.details` field (`sanitizeErrorDetails` still runs over provider
+errors here, same as every other credential-minting endpoint, so transport
+errors don't leak filesystem paths or hostnames either).
+
+Registered only when a chat backend is configured with a non-empty
+`api_key` **and** the chat manager is wired — otherwise the route is not
+registered at all (a plain 404, not 401), the same posture as every other
+backend-callback route in this document. Because the endpoint is `GET`-only,
+it is exempt from the CSRF guard via the "GET/HEAD/OPTIONS" rule (§ CSRF
+protection above); no separate path exemption was needed.
 
 ## Chat Endpoints
 

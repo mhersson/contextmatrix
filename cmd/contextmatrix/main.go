@@ -527,7 +527,7 @@ func main() {
 
 	// Chat: manager + SSE hub + idle reaper + warm-idle grace timer. The chat
 	// store is the shared operational store (opStore) opened above.
-	chatMgr, chatHub, chatCleanup := wireChat(ctx, cfg, svc, opStore)
+	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore)
 	defer chatCleanup()
 
 	// Wire runner subsystems: client, end-session subscriber, reconcile sweep,
@@ -612,6 +612,7 @@ func main() {
 		ChatHub:                chatHub,
 		ChatConfig:             &cfg.Chat,
 		ChatBackendCfg:         chatBackendCfg,
+		ChatWorkerAPIKey:       chatWorkerAPIKey,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
 		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil

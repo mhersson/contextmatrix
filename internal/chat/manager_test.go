@@ -2158,6 +2158,105 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	assert.Nil(t, runner.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
 }
 
+// --- worker git-credentials bearer provisioning tests ---
+
+func TestManager_OpenCold_PassesGitCredentialsTokenToRunner(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		WorkerCredentialsToken: func(sessionID string) string {
+			return "token-for-" + sessionID
+		},
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Equal(t, "token-for-"+sess.ID, runner.lastOpts.GitCredentialsToken,
+		"configured Manager.WorkerCredentialsToken must reach StartChatOpts, keyed on this session's id")
+}
+
+func TestManager_OpenCold_OmitsGitCredentialsTokenWhenTokenFuncNil(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Empty(t, runner.lastOpts.GitCredentialsToken,
+		"unconfigured Manager.WorkerCredentialsToken must leave StartChatOpts.GitCredentialsToken empty")
+}
+
+// --- SessionLiveness (worker git-credentials liveness gate) ---
+
+func TestManager_SessionLiveness(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   chat.Status
+		wantLive bool
+	}{
+		{name: "cold is not live", status: chat.StatusCold, wantLive: false},
+		{name: "active is live", status: chat.StatusActive, wantLive: true},
+		{name: "warm-idle is live", status: chat.StatusWarmIdle, wantLive: true},
+		{name: "ending is live", status: chat.StatusEnding, wantLive: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, _, store := newManagerWithStubs(t)
+			ctx := context.Background()
+
+			sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+			require.NoError(t, err)
+
+			sess.Status = tt.status
+			require.NoError(t, store.UpdateSession(ctx, sess))
+
+			live, err := mgr.SessionLiveness(ctx, sess.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantLive, live)
+		})
+	}
+}
+
+func TestManager_SessionLiveness_UnknownSession(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+
+	_, err := mgr.SessionLiveness(context.Background(), "does-not-exist")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
+}
+
 func TestManager_OpenCold_PassesPrimerToRunner_Resume(t *testing.T) {
 	primerPath := writeTempPrimer(t, "ORIENT")
 	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
