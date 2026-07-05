@@ -163,6 +163,16 @@ type RouterConfig struct {
 	// best-effort posture as Blacklist). In main.go this is the same opstore
 	// handle passed as Blacklist — one store, two read-only interfaces.
 	Outcomes outcomeStatsReader
+	// OutcomesAdmin supplies the read+reset surface for the admin
+	// model-outcomes endpoints (GET/DELETE /api/admin/model-outcomes).
+	// Outcomes (above) is deliberately read-only — runCard's selection path
+	// never resets data — so widening it to add ResetModelOutcomes would
+	// force every consumer/test double of that narrow interface to grow a
+	// method it never calls; this is a separate, wider interface instead.
+	// In main.go this is the same opstore handle passed as
+	// Outcomes/Blacklist/Catalog — one store, several narrowly sliced
+	// interfaces.
+	OutcomesAdmin outcomeAdminStore
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -252,11 +262,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{
-		theme:       cfg.Theme,
-		version:     cfg.Version,
-		taskBackend: cfg.BackendCfg.Name,
-		favorites:   extractFavorites(cfg.BackendCfg.Favorites),
-		authMode:    cfg.AuthMode,
+		theme:          cfg.Theme,
+		version:        cfg.Version,
+		taskBackend:    cfg.BackendCfg.Name,
+		favorites:      extractFavorites(cfg.BackendCfg.Favorites),
+		authMode:       cfg.AuthMode,
+		bestOfNMax:     cfg.BestOfN.MaxCandidates,
+		bestOfNDefault: cfg.BestOfN.DefaultCandidates,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
@@ -320,6 +332,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
+
+	// Admin model-outcomes: registered in both auth modes (open in none
+	// mode; admin-gated in multi via outcomeAdminHandlers.gate) — same
+	// trust posture as project management above.
+	if cfg.OutcomesAdmin != nil {
+		oh := &outcomeAdminHandlers{
+			store:        cfg.OutcomesAdmin,
+			outcomeFloor: cfg.BestOfN.OutcomeFloor,
+			authEnabled:  cfg.AuthService != nil,
+		}
+		mux.HandleFunc("GET /api/admin/model-outcomes", oh.getStats)
+		mux.HandleFunc("DELETE /api/admin/model-outcomes", oh.reset)
+	}
 
 	// Auth routes — only in multi mode.
 	if cfg.AuthService != nil {
