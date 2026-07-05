@@ -80,6 +80,14 @@ interface ThemeContextValue {
    * has no favorites configured.
    */
   favorites: Record<string, string[]> | null;
+  /**
+   * Best-of-N bounds from `/api/app/config` (`best_of_n_max`/
+   * `best_of_n_default`). Undefined on the slim pre-login payload or on
+   * servers older than the best-of-n rollout — consumers apply their own
+   * fallback (`?? 5` / `?? 3`).
+   */
+  bestOfNMax: number | undefined;
+  bestOfNDefault: number | undefined;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -105,6 +113,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [version, setVersion] = useState('');
   const [taskBackend, setTaskBackend] = useState('');
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
+  const [bestOfNMax, setBestOfNMax] = useState<number | undefined>(undefined);
+  const [bestOfNDefault, setBestOfNDefault] = useState<number | undefined>(undefined);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -136,6 +146,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.favorites) {
         setFavorites(config.favorites);
       }
+      if (config.best_of_n_max !== undefined) {
+        setBestOfNMax(config.best_of_n_max);
+      }
+      if (config.best_of_n_default !== undefined) {
+        setBestOfNDefault(config.best_of_n_default);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -155,8 +171,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, palette, version, taskBackend, favorites, toggleTheme, setPalette }),
-    [theme, palette, version, taskBackend, favorites, toggleTheme, setPalette],
+    () => ({
+      theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
+      toggleTheme, setPalette,
+    }),
+    [theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault, toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

@@ -14,7 +14,7 @@ export interface CardChipRowProps {
  *
  * compact=true  — collapsed card header: type initial, source badges, parent badge.
  * compact=false — expanded card footer: priority dot, parent, agent, deps, autonomous,
- *                 runner status, branch, labels.
+ *                 best-of-n, runner status, branch, labels.
  */
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
   if (compact) {
@@ -119,6 +119,17 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
           title="Autonomous mode"
         >
           auto
+        </span>
+      )}
+
+      {/* Best of N badge */}
+      {card.best_of_n != null && card.best_of_n >= 2 && (
+        <span
+          className="chip-pill"
+          style={chipTint('var(--purple)')}
+          title="Best-of-N: multiple candidates judged, best one adopted"
+        >
+          Best of {card.best_of_n}
         </span>
       )}
 

@@ -53,6 +53,7 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     (edited.model_orchestrator ?? '') !== (original.model_orchestrator ?? '') ||
     (edited.model_coder ?? '') !== (original.model_coder ?? '') ||
     (edited.model_reviewer ?? '') !== (original.model_reviewer ?? '') ||
+    (edited.best_of_n ?? 0) !== (original.best_of_n ?? 0) ||
     (edited.feature_branch ?? false) !== (original.feature_branch ?? false) ||
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
@@ -86,6 +87,9 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.model_reviewer ?? '') !== (original.model_reviewer ?? '')) {
     updates.model_reviewer = edited.model_reviewer ?? '';
+  }
+  if ((edited.best_of_n ?? 0) !== (original.best_of_n ?? 0)) {
+    updates.best_of_n = edited.best_of_n ?? 0;
   }
   if ((edited.feature_branch ?? false) !== (original.feature_branch ?? false)) {
     updates.feature_branch = edited.feature_branch ?? false;

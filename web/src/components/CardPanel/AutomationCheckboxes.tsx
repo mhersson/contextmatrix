@@ -38,6 +38,19 @@ interface AutomationCheckboxesProps {
    * Only relevant when taskBackend === 'agent'.
    */
   favorites?: string[];
+  /** Current Best-of-N candidate count. 0/undefined = off. */
+  bestOfN?: number;
+  /** Upper bound for the selector, from app config (`best_of_n_max`). */
+  bestOfNMax?: number;
+  /** Operator-recommended candidate count, surfaced in the control's tooltip. */
+  bestOfNDefault?: number;
+  /**
+   * Best-of-N change handler. Optional (unlike `onModelPinChange`): the row
+   * only ever renders in edit mode (`mode !== 'create'`), since
+   * `CreateCardInput` has no `best_of_n` field yet — CreateCardPanel never
+   * needs to wire this.
+   */
+  onBestOfNChange?: (value: number) => void;
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
@@ -89,6 +102,7 @@ export function AutomationCheckboxes({
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
+  bestOfN, bestOfNMax, bestOfNDefault, onBestOfNChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -100,6 +114,12 @@ export function AutomationCheckboxes({
   const creating = mode === 'create';
   const prDisplay = formatPrLink(prUrl);
   const agentBackend = taskBackend === 'agent';
+  const bestOfNMaxResolved = bestOfNMax ?? 5;
+  const bestOfNDefaultResolved = bestOfNDefault ?? 3;
+  const bestOfNOptions = Array.from(
+    { length: Math.max(bestOfNMaxResolved - 1, 0) },
+    (_, i) => i + 2,
+  );
 
   return (
     <div className={`bf-auto-stack ${disabled ? 'opacity-60' : ''}`}>
@@ -119,6 +139,28 @@ export function AutomationCheckboxes({
           {autonomous ? 'no human-in-the-loop' : 'human-in-the-loop'}
         </span>
       </div>
+
+      {/* Best of N — agent backend only, and edit mode only (CreateCardInput
+          has no best_of_n field yet, so create mode never wires this). */}
+      {agentBackend && !creating && (
+        <div className="bf-spread">
+          <span className="bf-switch-label">Best of N</span>
+          <select
+            aria-label="Best of N"
+            value={bestOfN ?? 0}
+            onChange={(e) => onBestOfNChange?.(Number(e.target.value))}
+            disabled={disabled}
+            className="bf-input"
+            style={{ width: 'auto', minWidth: '160px' }}
+            title={`Off, or 2–${bestOfNMaxResolved} candidate models judged per run (default ${bestOfNDefaultResolved})`}
+          >
+            <option value={0}>Off</option>
+            {bestOfNOptions.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Orchestrator steering wheel — the agent backend uses per-role model
           pins; the runner backend (or unset) uses the Opus toggle. */}
