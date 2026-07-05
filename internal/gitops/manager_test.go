@@ -927,6 +927,12 @@ func TestReloadRepo(t *testing.T) {
 	require.NoError(t, cmd.Run())
 	cmd = exec.Command("git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "commit", "-m", "shell commit")
 	cmd.Dir = tmpDir
+
+	// Hermetic identity: worker containers have no global git config, and a
+	// bare `git commit` exits 128 without one.
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
 	require.NoError(t, cmd.Run())
 
 	// ReloadRepo should succeed and go-git should see the shell commit.
