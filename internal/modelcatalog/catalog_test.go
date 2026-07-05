@@ -276,6 +276,7 @@ func TestBuilderRefreshFailureBackoff(t *testing.T) {
 	b.mu.Unlock()
 
 	_, _, _ = b.Rate(ctx, "model-a")
+
 	assert.EqualValues(t, 2, hits.Load(), "call after cooldown must retry")
 }
 

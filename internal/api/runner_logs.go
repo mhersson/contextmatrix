@@ -121,6 +121,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 			"card_id", cardID, "project", project, "error", err)
 
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
+
 		flusher.Flush()
 
 		return

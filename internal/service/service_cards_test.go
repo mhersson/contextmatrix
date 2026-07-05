@@ -631,6 +631,7 @@ func TestModelPinValidation(t *testing.T) {
 
 	ctx := context.Background()
 	valid := map[string]bool{"anthropic/claude-sonnet-4.5": true}
+
 	svc.SetModelValidator(func(_ context.Context, slug string) bool { return valid[slug] })
 
 	t.Run("create rejects unknown pin", func(t *testing.T) {

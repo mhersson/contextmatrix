@@ -39,9 +39,11 @@ func (e LLMEndpointConfig) validate() error {
 		if e.BaseURL == "" {
 			return fmt.Errorf("llm_endpoint.base_url is required when llm_endpoint.type is \"openai\"")
 		}
+
 		if e.APIKey == "" {
 			return fmt.Errorf("llm_endpoint.api_key is required when llm_endpoint.type is \"openai\"")
 		}
+
 		return nil
 	default:
 		return fmt.Errorf("llm_endpoint.type must be \"openrouter\" or \"openai\", got %q", e.Type)
