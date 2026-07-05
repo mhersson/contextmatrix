@@ -957,7 +957,12 @@ plan phase, adds N git worktrees inside that same container
 (`<workspace>/<card>/.worktrees/cK`, each on a local-only branch cut from the
 plan-approved base), assigns each candidate a distinct auto-selected coder
 model and its own budget ledger, and runs the candidates concurrently.
-Candidates never push; a judge phase (reviewer-role selection, complex tier)
+Candidates never push and make no per-candidate board writes, but the run
+itself claims each subtask once when the first candidate reaches it — the
+board shows the subtask `in_progress` (and the parent auto-transitions) for
+the duration of the race, with a single heartbeater keeping those claims
+alive against the stall sweep until the winner's completions are replayed
+after judging. A judge phase (reviewer-role selection, complex tier)
 picks a winner once all candidates finish, and the orchestrator adopts it onto
 the main clone with `git reset --hard <winner worktree HEAD>` before the run's
 first push — losing worktrees and their local-only branches are removed.
