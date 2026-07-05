@@ -143,7 +143,7 @@ func (h *chatHandlers) ownedSession(w http.ResponseWriter, r *http.Request) (cha
 		return chat.Session{}, false
 	}
 
-	if id := identityFromContext(r.Context()); id != "" && sess.CreatedBy != id {
+	if id, ok := sessionIdentity(r.Context()); ok && sess.CreatedBy != id {
 		handleChatError(w, r, chat.ErrSessionNotFound)
 
 		return chat.Session{}, false
@@ -201,7 +201,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 	// supplied created_by cannot widen or redirect it (silently
 	// overridden; the UI never sends one). None mode keeps the param's
 	// client-filter behavior.
-	if id := identityFromContext(r.Context()); id != "" {
+	if id, ok := sessionIdentity(r.Context()); ok {
 		f.CreatedBy = id
 	}
 
@@ -395,7 +395,7 @@ func (h *chatHandlers) deleteChat(w http.ResponseWriter, r *http.Request) {
 	// missing ID regardless of mode, so skipping the check here changes
 	// nothing about that outcome — it only means none mode never scopes by
 	// owner.
-	if identityFromContext(r.Context()) != "" {
+	if _, ok := sessionIdentity(r.Context()); ok {
 		if _, ok := h.ownedSession(w, r); !ok {
 			return
 		}

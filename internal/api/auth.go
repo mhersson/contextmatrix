@@ -37,6 +37,16 @@ func identityFromContext(ctx context.Context) string {
 	return v
 }
 
+// sessionIdentity reports whether the request carries a valid authenticated
+// session. ok is true exactly when the request arrived with a session cookie
+// that resolved to a real user (multi mode); false means none mode or a
+// machine channel.
+func sessionIdentity(ctx context.Context) (id string, ok bool) {
+	id = identityFromContext(ctx)
+
+	return id, id != ""
+}
+
 // sessionUserFromContext returns the logged-in user, or nil.
 func sessionUserFromContext(ctx context.Context) *authstore.User {
 	u, _ := ctx.Value(sessionUserCtxKey{}).(*authstore.User)

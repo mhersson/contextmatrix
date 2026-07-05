@@ -564,3 +564,18 @@ func TestSessionGuard_IdentityBeatsForgedAgentHeader(t *testing.T) {
 	assert.Equal(t, "human:root", got,
 		"session-derived identity must beat any browser-supplied X-Agent-ID")
 }
+
+func TestSessionIdentity(t *testing.T) {
+	t.Run("bare context", func(t *testing.T) {
+		id, ok := sessionIdentity(t.Context())
+		assert.Empty(t, id)
+		assert.False(t, ok)
+	})
+
+	t.Run("authenticated session", func(t *testing.T) {
+		ctx := withSessionIdentity(t.Context(), &authstore.User{Username: "alice"})
+		id, ok := sessionIdentity(ctx)
+		assert.Equal(t, "human:alice", id)
+		assert.True(t, ok)
+	})
+}

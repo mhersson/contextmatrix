@@ -94,7 +94,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 // X-Agent-ID header remains the sole source on machine channels and in
 // single-user mode (where no session middleware runs).
 func extractAgentID(r *http.Request) string {
-	if id := identityFromContext(r.Context()); id != "" {
+	if id, ok := sessionIdentity(r.Context()); ok {
 		return id
 	}
 
