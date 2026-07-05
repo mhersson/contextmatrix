@@ -52,11 +52,11 @@ type createCardInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
-// NOTE: vetted, autonomous, feature_branch, create_pr, and model pin fields
-// (model_orchestrator, model_coder, model_reviewer) are intentionally excluded
-// — they are human-only fields. Model pins are excluded for the same reason:
-// they express human intent about which model to use and must not be overridden
-// by the agent that is itself subject to the pin.
+// NOTE: vetted, autonomous, feature_branch, create_pr, base_branch, best_of_n,
+// and model pin fields (model_orchestrator, model_coder, model_reviewer) are
+// intentionally excluded — they are human-only fields. Model pins are excluded
+// for the same reason: they express human intent about which model to use and
+// must not be overridden by the agent that is itself subject to the pin.
 type updateCardInput struct {
 	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
@@ -66,7 +66,7 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
-	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|document|review|integrate|done; empty clears"`
+	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|done; empty clears"`
 }
 
 type transitionCardInput struct {

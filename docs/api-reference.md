@@ -911,7 +911,7 @@ model slugs (the leaderboard "favorites as pin presets" surface); the field is
 omitted entirely when no favorites are configured. `best_of_n_max` /
 `best_of_n_default` mirror `config.yaml`'s `best_of_n.max_candidates` /
 `best_of_n.default_candidates` — the card panel's Best-of-N selector uses them
-as its upper bound and prefill. Both are effectively always present (the
+as its upper bound and recommended value. Both are effectively always present (the
 configured values default to 5 and 3 and are never valid below 2), but like
 `favorites` they ride only on the full payload.
 

@@ -270,8 +270,8 @@ type BestOfNConfig struct {
 	// MaxCandidates is the hard cap on a card's best_of_n value (and the UI
 	// selector bound). Default 5.
 	MaxCandidates int `yaml:"max_candidates"`
-	// DefaultCandidates prefills the UI selector when Best-of-N is enabled.
-	// Default 3.
+	// DefaultCandidates is the operator-recommended candidate count, surfaced in
+	// the UI control's tooltip and shipped via app config. Default 3.
 	DefaultCandidates int `yaml:"default_candidates"`
 	// OutcomeFloor is the per-model recorded-outcome count required before
 	// win-rates bias model selection. Default 20.

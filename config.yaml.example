@@ -445,7 +445,7 @@ images:
 # N candidate implementations and a judge picks the winner.
 # best_of_n:
 #   max_candidates: 5      # hard cap on a card's best_of_n value (CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES)
-#   default_candidates: 3  # UI prefill when enabling the field (CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES)
+#   default_candidates: 3  # operator-recommended count shown in the UI tooltip (CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES)
 #   outcome_floor: 20      # per-model samples before win-rates bias selection (CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR)
 
 # Multi-user authentication.
