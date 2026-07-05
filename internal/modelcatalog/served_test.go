@@ -15,6 +15,7 @@ func seedServed(t *testing.T, b *Builder, catalog map[string]orEntry) {
 	t.Helper()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	b.lastCatalog = catalog
 	b.cached = []protocol.CandidateModel{}
 	b.cachedAt = time.Now()

@@ -493,6 +493,7 @@ func TestIdleSweeper_KeyedOnLastEventNotStartTime(t *testing.T) {
 	defer srv.Close()
 
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
 	m := NewManager(
 		WithRunnerConfig(srv.URL, "test-key"),
 		WithSessionTTL(ttl),

@@ -286,6 +286,7 @@ func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 
 			token, _, tokenErr := provider.GenerateToken(context.Background())
 			require.NoError(t, tokenErr)
+
 			gotToken = token
 
 			return mock

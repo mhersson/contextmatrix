@@ -12,6 +12,7 @@ import (
 
 func TestFetchEndpointCatalog(t *testing.T) {
 	var gotAuth string
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		_, _ = w.Write([]byte(`{"data":[

@@ -85,7 +85,10 @@ linters:
 issues:
   max-issues-per-linter: 50
   max-same-issues: 8
-  fix: true
+  # No auto-fix: `golangci-lint run` must never rewrite the working tree.
+  # Auto-applied wsl/testifylint edits in unrelated files pollute diffs for
+  # humans and derail agent runs (dirty-tree confusion mid-task).
+  fix: false
 formatters:
   enable:
   - goimports
