@@ -404,9 +404,14 @@ required permissions.
 
 **Every task must be fully tested and verified before moving to the next task.**
 
-1. All unit tests pass: `go test ./internal/...` — zero failures.
-2. Full suite passes: `make test` — no regressions.
-3. Code compiles cleanly: `go build ./...` — zero errors.
+1. Full suite passes: `make test` — no regressions. **Run this first in a
+   fresh clone or worker container**: it stubs `web/dist` for the frontend
+   embed; before it has run, a bare `go build ./...` or `go test ./...` fails
+   on `web/embed.go` (`pattern all:dist: no matching files found`). Do not
+   hand-create `web/dist` stubs — `make test` owns that.
+2. All unit tests pass: `go test ./internal/...` — zero failures.
+3. Code compiles cleanly: `go build ./...` — zero errors (after `make test`
+   has stubbed the embed, or after a real frontend build via `make build`).
 4. Manual verification for API tasks: curl endpoints, confirm response codes.
    _(This is for human developers verifying API handler code. Agents must use
    MCP tools — see "Agent interaction rules" below.)_
