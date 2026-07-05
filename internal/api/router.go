@@ -158,6 +158,11 @@ type RouterConfig struct {
 	// Catalog != nil before attaching Selection, so omitting them is safe.
 	Catalog   catalogProvider
 	Blacklist blacklistReader
+	// Outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
+	// on SelectionContext (runCard guards on it via h.outcomes != nil, same
+	// best-effort posture as Blacklist). In main.go this is the same opstore
+	// handle passed as Blacklist — one store, two read-only interfaces.
+	Outcomes outcomeStatsReader
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -378,6 +383,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		replayCache:            runner.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
+		outcomes:               cfg.Outcomes,
+		bestOfN:                cfg.BestOfN,
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,

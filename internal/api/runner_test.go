@@ -30,6 +30,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
+	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -3358,6 +3359,15 @@ func (s *stubBlacklist) BlacklistedSlugs(_ context.Context) ([]string, error) {
 	return s.slugs, nil
 }
 
+type stubOutcomeStats struct {
+	stats []sqlite.OutcomeStats
+	err   error
+}
+
+func (s *stubOutcomeStats) ModelOutcomeStats(_ context.Context) ([]sqlite.OutcomeStats, error) {
+	return s.stats, s.err
+}
+
 func TestRunCardAttachesSelectionForAgentBackend(t *testing.T) {
 	const (
 		candidateSlug   = "z-ai/glm-5.2"
@@ -3587,6 +3597,264 @@ func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 	// Must not panic; must complete successfully.
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode,
 		"typed-nil catalog must not panic and run must succeed")
+}
+
+// --- best_of_n trigger payload ---
+
+// TestRunCardBestOfNPayload covers the clamp behavior for the agent backend:
+// a card value under the configured max passes through unchanged, a value
+// over the max is clamped down, and zero (best-of-n disabled) stays zero.
+func TestRunCardBestOfNPayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		cardBoN int
+		want    int
+	}{
+		{"below max passes through unchanged", 3, 3},
+		{"above max clamps to config max", 9, 5},
+		{"zero stays zero (best-of-n disabled)", 0, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+				Title: "Best-of-N task", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+
+			// Set card.BestOfN directly at the service layer — bypassing the
+			// REST PATCH endpoint's 2..max_candidates validation — so this test
+			// can exercise runCard's own clamp against a stored value that is
+			// (deliberately, for the clamp case) already above the configured max.
+			if tc.cardBoN != 0 {
+				n := tc.cardBoN
+				_, err = svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{BestOfN: &n})
+				require.NoError(t, err)
+			}
+
+			var capturedPayload runner.TriggerPayload
+
+			mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+				writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+			}))
+			defer mockRunner.Close()
+
+			runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+			router := NewRouter(RouterConfig{
+				Service: svc, Bus: bus, Runner: runnerClient,
+				BackendCfg: config.BackendConfig{
+					APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+					Name:   config.BackendNameAgent,
+				},
+				BestOfN: config.BestOfNConfig{MaxCandidates: 5},
+			})
+
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			req, _ := http.NewRequest("POST",
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+			resp, err := http.DefaultClient.Do(req)
+
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			require.Equal(t, http.StatusAccepted, resp.StatusCode)
+			assert.Equal(t, tc.want, capturedPayload.BestOfN)
+		})
+	}
+}
+
+// TestRunCardBestOfNOmittedForRunnerBackend asserts the runner backend never
+// receives best_of_n, even when the card has one set.
+func TestRunCardBestOfNOmittedForRunnerBackend(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Runner task with best_of_n", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	three := 3
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{BestOfN: &three})
+	require.NoError(t, err)
+
+	var capturedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{
+			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			Name:   config.BackendNameRunner,
+		},
+		BestOfN: config.BestOfNConfig{MaxCandidates: 5},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Zero(t, capturedPayload.BestOfN, "runner backend must never receive best_of_n")
+}
+
+// --- Selection outcome stats ---
+
+// TestRunCardSelectionCarriesOutcomeStats covers OutcomeFloor + per-candidate
+// Outcomes attachment for the agent backend, plus the best-effort behavior
+// (mirroring the blacklist read) when the stats read fails.
+func TestRunCardSelectionCarriesOutcomeStats(t *testing.T) {
+	const candidateSlug = "z-ai/glm-5.2"
+
+	newRouterFor := func(t *testing.T, oc outcomeStatsReader) (*board.Card, *http.Client, string, *runner.TriggerPayload, *stubCatalog) {
+		t.Helper()
+
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		t.Cleanup(cleanup)
+
+		ctx := context.Background()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Outcome stats task", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		cat := &stubCatalog{
+			candidates: []protocol.CandidateModel{
+				{Slug: candidateSlug, CoderPrior: 0.9, ReviewerPrior: 0.8},
+			},
+		}
+
+		capturedPayload := &runner.TriggerPayload{}
+
+		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(capturedPayload)
+
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+		}))
+		t.Cleanup(mockRunner.Close)
+
+		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		router := NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Runner: runnerClient,
+			BackendCfg: config.BackendConfig{
+				APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				Name:   config.BackendNameAgent,
+			},
+			Catalog:  cat,
+			Outcomes: oc,
+			BestOfN:  config.BestOfNConfig{MaxCandidates: 5, OutcomeFloor: 20},
+		})
+
+		server := httptest.NewServer(router)
+		t.Cleanup(server.Close)
+
+		return card, http.DefaultClient, server.URL, capturedPayload, cat
+	}
+
+	t.Run("attaches per-candidate outcomes and floor", func(t *testing.T) {
+		oc := &stubOutcomeStats{
+			stats: []sqlite.OutcomeStats{
+				{Model: candidateSlug, Samples: 21, Wins: 9, ExpectedWins: 7.0},
+			},
+		}
+
+		card, client, serverURL, capturedPayload, _ := newRouterFor(t, oc)
+
+		req, _ := http.NewRequest("POST", serverURL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+		resp, err := client.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusAccepted, resp.StatusCode)
+		require.NotNil(t, capturedPayload.Selection)
+		assert.Equal(t, 20, capturedPayload.Selection.OutcomeFloor)
+		require.Len(t, capturedPayload.Selection.Candidates, 1)
+		require.NotNil(t, capturedPayload.Selection.Candidates[0].Outcomes)
+		assert.Equal(t, 21, capturedPayload.Selection.Candidates[0].Outcomes.Samples)
+		assert.Equal(t, 9, capturedPayload.Selection.Candidates[0].Outcomes.Wins)
+		assert.InDelta(t, 7.0, capturedPayload.Selection.Candidates[0].Outcomes.ExpectedWins, 0.0001)
+	})
+
+	t.Run("does not mutate the shared catalog cache when attaching outcomes", func(t *testing.T) {
+		oc := &stubOutcomeStats{
+			stats: []sqlite.OutcomeStats{
+				{Model: candidateSlug, Samples: 21, Wins: 9, ExpectedWins: 7.0},
+			},
+		}
+
+		card, client, serverURL, capturedPayload, cat := newRouterFor(t, oc)
+
+		req, _ := http.NewRequest("POST", serverURL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+		resp, err := client.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusAccepted, resp.StatusCode)
+		require.NotNil(t, capturedPayload.Selection)
+		require.Len(t, capturedPayload.Selection.Candidates, 1)
+		require.NotNil(t, capturedPayload.Selection.Candidates[0].Outcomes,
+			"sanity: outcomes must actually be attached to the outgoing payload")
+
+		// stubCatalog.Candidates returns its own candidates field directly (the
+		// same backing array on every call, exactly like the real
+		// modelcatalog.Builder). If runCard writes Outcomes onto that array in
+		// place instead of a copy, this observes the mutation through the
+		// catalog's own handle - proving the payload aliased the shared cache.
+		require.Len(t, cat.candidates, 1)
+		assert.Nil(t, cat.candidates[0].Outcomes,
+			"runCard must not write through to the catalog's shared candidate slice")
+	})
+
+	t.Run("stats read error: selection still attached, outcomes nil", func(t *testing.T) {
+		oc := &stubOutcomeStats{err: errors.New("stats store unavailable")}
+
+		card, client, serverURL, capturedPayload, _ := newRouterFor(t, oc)
+
+		req, _ := http.NewRequest("POST", serverURL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+		resp, err := client.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusAccepted, resp.StatusCode,
+			"a stats read failure must not block the trigger")
+		require.NotNil(t, capturedPayload.Selection, "selection must still be attached on stats read error")
+		require.Len(t, capturedPayload.Selection.Candidates, 1)
+		assert.Nil(t, capturedPayload.Selection.Candidates[0].Outcomes,
+			"outcomes must be nil on stats read error (best-effort, like blacklist)")
+	})
 }
 
 func TestMergeFavorites(t *testing.T) {
