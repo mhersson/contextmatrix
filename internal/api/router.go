@@ -200,6 +200,11 @@ type RouterConfig struct {
 	// place). nil when llm_endpoint is unset — backends then fall back to
 	// their own local config, matching pre-token-authority behavior.
 	LLMEndpoint *protocol.LLMEndpoint
+	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
+	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
+	// means only 0 validates — effectively disabling best_of_n until
+	// config.Load's applyBestOfNDefaults has populated it.
+	BestOfN config.BestOfNConfig
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -236,7 +241,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
 	}
-	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
+	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates}
 	ah := &agentHandlers{svc: cfg.Service}
 	acth := &activityHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)

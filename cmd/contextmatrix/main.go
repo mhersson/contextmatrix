@@ -621,6 +621,7 @@ func main() {
 		AuthService:            authSvc,
 		AuthMode:               cfg.Auth.Mode,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
+		BestOfN:                cfg.BestOfN,
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder

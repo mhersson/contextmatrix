@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -37,6 +38,9 @@ type listCardsResponse struct {
 type cardHandlers struct {
 	svc        *service.CardService
 	taskSkills *taskSkillsLister
+	// bestOfNMax is the configured config.BestOfNConfig.MaxCandidates, wired
+	// from RouterConfig. Bounds the accepted best_of_n range (0 or 2..max).
+	bestOfNMax int
 }
 
 // createCardRequest is the JSON body for creating a card.
@@ -83,6 +87,7 @@ type updateCardRequest struct {
 	ModelOrchestrator   string         `json:"model_orchestrator,omitempty"`
 	ModelCoder          string         `json:"model_coder,omitempty"`
 	ModelReviewer       string         `json:"model_reviewer,omitempty"`
+	BestOfN             int            `json:"best_of_n"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -112,6 +117,7 @@ type patchCardRequest struct {
 	ModelOrchestrator   *string   `json:"model_orchestrator,omitempty"`
 	ModelCoder          *string   `json:"model_coder,omitempty"`
 	ModelReviewer       *string   `json:"model_reviewer,omitempty"`
+	BestOfN             *int      `json:"best_of_n,omitempty"`
 }
 
 // validateCardSkills validates that each skill name in `skills` exists in
@@ -169,6 +175,13 @@ func validateAgentOwnership(r *http.Request, card *board.Card) string {
 	}
 
 	return ""
+}
+
+// validBestOfN reports whether v is an accepted best_of_n value: 0 (off) or
+// in the inclusive range 2..maxCandidates. 1 is always rejected — racing a
+// single candidate is meaningless.
+func validBestOfN(v, maxCandidates int) bool {
+	return v == 0 || (v >= 2 && v <= maxCandidates)
 }
 
 // listCards handles GET /api/projects/{project}/cards.
@@ -431,9 +444,17 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.Vetted != existingCard.Vetted ||
 		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
 		req.ModelCoder != existingCard.ModelCoder ||
-		req.ModelReviewer != existingCard.ModelReviewer) {
+		req.ModelReviewer != existingCard.ModelReviewer ||
+		req.BestOfN != existingCard.BestOfN) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and model pins can only be changed via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, model pins, and best_of_n can only be changed via the UI")
+
+		return
+	}
+
+	if !validBestOfN(req.BestOfN, h.bestOfNMax) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
 
 		return
 	}
@@ -467,6 +488,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		ModelOrchestrator:   req.ModelOrchestrator,
 		ModelCoder:          req.ModelCoder,
 		ModelReviewer:       req.ModelReviewer,
+		BestOfN:             req.BestOfN,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -506,9 +528,17 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.BaseBranch != nil ||
 		req.ModelOrchestrator != nil ||
 		req.ModelCoder != nil ||
-		req.ModelReviewer != nil) {
+		req.ModelReviewer != nil ||
+		req.BestOfN != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, base_branch, and model pins can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, base_branch, model pins, and best_of_n can only be set via the UI")
+
+		return
+	}
+
+	if req.BestOfN != nil && !validBestOfN(*req.BestOfN, h.bestOfNMax) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
 
 		return
 	}
@@ -553,6 +583,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		ModelOrchestrator:   req.ModelOrchestrator,
 		ModelCoder:          req.ModelCoder,
 		ModelReviewer:       req.ModelReviewer,
+		BestOfN:             req.BestOfN,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

@@ -2736,6 +2736,265 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 	})
 }
 
+// TestPatchCardBestOfN covers the five PATCH cases from the best_of_n brief:
+// valid set, reject 1 (below the 2..max range), reject above max_candidates,
+// 0 clears the field, and the human-only gate rejects a non-human agent.
+func TestPatchCardBestOfN(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, BestOfN: config.BestOfNConfig{MaxCandidates: 5}})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Best of N patch test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	patchAs := func(t *testing.T, body, agentID string) *http.Response {
+		t.Helper()
+
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		if agentID != "" {
+			req.Header.Set("X-Agent-ID", agentID)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("PATCH best_of_n=3 as human sets the field", func(t *testing.T) {
+		resp := patchAs(t, `{"best_of_n": 3}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Equal(t, 3, updated.BestOfN)
+	})
+
+	t.Run("PATCH best_of_n=1 returns 400", func(t *testing.T) {
+		resp := patchAs(t, `{"best_of_n": 1}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+
+		// Verify the card was NOT modified — still 3 from the prior subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 3, reloaded.BestOfN)
+	})
+
+	t.Run("PATCH best_of_n=9 over max_candidates=5 returns 400", func(t *testing.T) {
+		resp := patchAs(t, `{"best_of_n": 9}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+
+		// Verify the card was NOT modified — still 3 from the first subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 3, reloaded.BestOfN)
+	})
+
+	t.Run("PATCH best_of_n=0 clears the field", func(t *testing.T) {
+		resp := patchAs(t, `{"best_of_n": 0}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Zero(t, updated.BestOfN)
+	})
+
+	t.Run("PATCH best_of_n=3 as non-human agent returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		resp := patchAs(t, `{"best_of_n": 3}`, "agent:x")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "best_of_n")
+
+		// Verify the card was NOT modified — still cleared from the prior subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Zero(t, reloaded.BestOfN)
+	})
+
+	t.Run("PATCH best_of_n=9 as non-human agent returns 403 not 400", func(t *testing.T) {
+		// 9 is out of range (max_candidates=5) AND the caller is non-human —
+		// authorization must be checked before value validation, so this is
+		// 403 HUMAN_ONLY_FIELD, not 400 invalid best_of_n.
+		resp := patchAs(t, `{"best_of_n": 9}`, "agent:x")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "best_of_n")
+
+		// Verify the card was NOT modified — still cleared from the prior subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Zero(t, reloaded.BestOfN)
+	})
+}
+
+// TestUpdateCardBestOfN covers the PUT path: setting via a human caller,
+// range validation, the zero-value-clears semantics (mirrors autonomous),
+// and the human-only compare-to-existing gate for agents.
+func TestUpdateCardBestOfN(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, BestOfN: config.BestOfNConfig{MaxCandidates: 5}})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Best of N PUT test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, card.BestOfN)
+
+	// vetted:true echoes the card's auto-vetted state (no source) so best_of_n
+	// is the only field under test each time.
+	putBody := func(bestOfN int) string {
+		return fmt.Sprintf(
+			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"best_of_n":%d}`,
+			card.Title, bestOfN)
+	}
+
+	putAs := func(t *testing.T, body, agentID string) *http.Response {
+		t.Helper()
+
+		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", agentID)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("human PUT sets best_of_n", func(t *testing.T) {
+		resp := putAs(t, putBody(3), "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Equal(t, 3, updated.BestOfN)
+	})
+
+	t.Run("human PUT with best_of_n=1 returns 400", func(t *testing.T) {
+		resp := putAs(t, putBody(1), "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+
+		// Verify the card was NOT modified — still 3 from the prior subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 3, reloaded.BestOfN)
+	})
+
+	t.Run("human PUT with best_of_n absent clears the field like autonomous:false", func(t *testing.T) {
+		body := fmt.Sprintf(
+			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`,
+			card.Title)
+
+		resp := putAs(t, body, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Zero(t, updated.BestOfN, "best_of_n absent on PUT clears the field, matching autonomous:false semantics")
+	})
+
+	t.Run("agent PUT changing best_of_n returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		// Card currently has best_of_n=0 (cleared above); agent PUTs a nonzero value.
+		resp := putAs(t, putBody(4), "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "best_of_n")
+
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Zero(t, reloaded.BestOfN, "best_of_n should still be cleared from the prior subtest")
+	})
+
+	t.Run("agent PUT echoing existing best_of_n passes through", func(t *testing.T) {
+		// Card is at best_of_n=0; agent PUT echoes 0 — no change, so the
+		// compare-to-existing gate must allow it through.
+		resp := putAs(t, putBody(0), "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.Zero(t, updated.BestOfN)
+	})
+
+	t.Run("agent PUT with best_of_n=9 over max returns 403 not 400", func(t *testing.T) {
+		// Card is at best_of_n=0; 9 is both out of range (max_candidates=5)
+		// and differs from the existing value, and the caller is non-human —
+		// authorization must be checked before value validation, so this is
+		// 403 HUMAN_ONLY_FIELD, not 400 invalid best_of_n.
+		resp := putAs(t, putBody(9), "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "best_of_n")
+
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Zero(t, reloaded.BestOfN, "best_of_n should still be cleared from the prior subtest")
+	})
+}
+
 func TestHumanOnlyFields_ModelPins_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
