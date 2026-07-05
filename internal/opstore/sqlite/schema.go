@@ -8,12 +8,13 @@ import (
 
 // schemaVersion is the current opstore schema revision. Bump it when adding
 // tables/columns and add the corresponding migration below.
-const schemaVersion = 1
+const schemaVersion = 2
 
 // ensureSchema creates every operational table if absent. Clean-cut: there is
 // no migration ledger and no backward-compat path — an obsolete DB is deleted
-// and recreated by the operator. Holds both the chat schema (sessions,
-// messages, cost archive) and the model blacklist in a single ops.db.
+// and recreated by the operator. Holds the chat schema (sessions, messages,
+// cost archive), the model blacklist, and Best-of-N model outcomes in a
+// single ops.db.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
 	var current int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
@@ -83,6 +84,20 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			deleted_at            INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_cost_archive_last_active ON chat_cost_archive(last_active)`,
+		`CREATE TABLE IF NOT EXISTS model_outcomes (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			project      TEXT NOT NULL,
+			card_id      TEXT NOT NULL,
+			model        TEXT NOT NULL,
+			role         TEXT NOT NULL,
+			result       TEXT NOT NULL CHECK (result IN ('win','loss','failed')),
+			verify_pass  INTEGER NOT NULL,
+			cost_usd     REAL NOT NULL,
+			n_candidates INTEGER NOT NULL,
+			judge_model  TEXT,
+			created_at   INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_outcomes_model ON model_outcomes(model)`,
 	}
 
 	for _, s := range stmts {
