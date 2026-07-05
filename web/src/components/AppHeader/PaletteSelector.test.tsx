@@ -29,6 +29,8 @@ describe('PaletteSelector', () => {
       version: '',
       taskBackend: '',
       favorites: null,
+      bestOfNMax: undefined,
+      bestOfNDefault: undefined,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });
@@ -64,6 +66,8 @@ describe('PaletteSelector', () => {
       version: '',
       taskBackend: '',
       favorites: null,
+      bestOfNMax: undefined,
+      bestOfNDefault: undefined,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });

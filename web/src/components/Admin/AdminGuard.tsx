@@ -7,12 +7,19 @@ interface AdminGuardProps {
 }
 
 /**
- * Gates admin-only routes (Users, Credentials) behind `user.is_admin`.
- * Non-admins get the existing NotFound page rather than a 403 — admin
+ * Gates admin-only routes (Users, Credentials, Chats, Model selection)
+ * behind `user.is_admin` — but only in multi mode. In none mode there is no
+ * admin role at all (single-tenant, no auth — see CLAUDE.md § Trust model),
+ * so the route is open, same trust posture as project management. Non-admins
+ * in multi mode get the existing NotFound page rather than a 403 — admin
  * routes shouldn't reveal their existence to non-admin accounts.
  */
 export function AdminGuard({ children }: AdminGuardProps) {
-  const { user } = useAuth();
+  const { user, mode } = useAuth();
+
+  if (mode === 'none') {
+    return <>{children}</>;
+  }
 
   if (!user?.is_admin) {
     return <NotFound />;

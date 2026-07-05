@@ -42,6 +42,27 @@ function Demoter() {
 
 beforeEach(() => vi.resetAllMocks());
 
+describe('AdminGuard — none mode', () => {
+  it('passes non-admin sessions through in none mode — no admin role exists', async () => {
+    mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <AdminGuard>
+            <div>secret admin content</div>
+          </AdminGuard>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('secret admin content')).toBeInTheDocument());
+    expect(screen.queryByText('Page not found')).not.toBeInTheDocument();
+    // None mode never probes a session — getAuthSession must not be called.
+    expect(mocks.getAuthSession).not.toHaveBeenCalled();
+  });
+});
+
 describe('AdminGuard — live is_admin read', () => {
   it('hides guarded content for a non-admin session', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });

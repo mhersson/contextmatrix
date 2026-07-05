@@ -454,6 +454,25 @@ export interface CreateCredentialInput {
   secret: string;
 }
 
+// Admin — Best-of-N model-outcome stats. Registered in both auth modes (see
+// docs/api-reference.md § GET /api/admin/model-outcomes); `win_rate` is a
+// fraction (0..1), not a percentage.
+export interface ModelOutcomeEntry {
+  model: string;
+  samples: number;
+  wins: number;
+  win_rate: number;
+  expected_wins: number;
+  total_cost_usd: number;
+  active: boolean;
+}
+
+export interface ModelOutcomeStats {
+  outcome_floor: number;
+  total_samples: number;
+  models: ModelOutcomeEntry[];
+}
+
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {
