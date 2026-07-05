@@ -287,6 +287,7 @@ type Card struct {
     ModelOrchestrator   string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
     ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
+    BestOfN             int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
     FeatureBranch       bool            `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
     CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
@@ -457,21 +458,32 @@ generation.
 `usage_breakdown`, `dependencies_met`.
 
 **Agent-managed field** — `phase`: the agent-orchestrator's progress within a run
-(`plan` | `execute` | `document` | `review` | `integrate` | `done`), orthogonal
-to `state`. Enum-validated; the empty string clears it and means "not agent-driven". Settable
+(`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `done`), orthogonal
+to `state`. `judge` is exercised only during a Best-of-N run (see `best_of_n`
+below) — the agent-backend orchestrator selects a winner among the racing
+candidates there before continuing to `document`; it is a no-op phase for
+normal runs. Enum-validated; the empty string clears it and means "not agent-driven". Settable
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `autonomous`, `use_opus_orchestrator`, `feature_branch`,
 `create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
-`model_reviewer`), and `base_branch`. POST `/api/projects/{project}/cards`
+`model_reviewer`), `base_branch`, and `best_of_n`. POST `/api/projects/{project}/cards`
 (`createCardRequest`) and PUT `/api/projects/{project}/cards/{id}`
 (`updateCardRequest`) gate the first five fields plus the model pins;
 `base_branch` is **only exposed via PATCH** (`patchCardRequest`) — there is no
 `base_branch` field on the create or full-update request bodies, so the
 human-only check for it applies only on PATCH. The model pins are gated on
-create, full-update, and PATCH. Agents that attempt to set any of these fields
-receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them.
+create, full-update, and PATCH. `best_of_n` is exposed on PUT and PATCH only —
+like `base_branch` it has no field on `createCardRequest` — and, independent
+of the human-only gate, is range-validated to `0` (off) or
+`2..best_of_n.max_candidates`; a value outside that range is rejected with 400
+`BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there
+is no per-trigger override, so the card's stored value applies to every
+subsequent run until a human changes or clears it, and it has effect only on
+the agent backend (see `docs/remote-execution.md`). Agents that attempt to set
+any of these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool
+does not expose them.
 
 ## Reserved labels
 

@@ -24,15 +24,16 @@ import (
 )
 
 // ServerConfig collects the dependencies for NewServer. ChatManager,
-// ImageStore, and Blacklist are optional and default to nil; when nil, the
-// corresponding tool surfaces are not registered (or, for image attachments,
-// get_card / get_task_context return text-only results).
+// ImageStore, Blacklist, and Outcomes are optional and default to nil; when
+// nil, the corresponding tool surfaces are not registered (or, for image
+// attachments, get_card / get_task_context return text-only results).
 type ServerConfig struct {
 	Service           *service.CardService
 	WorkflowSkillsDir string
 	ChatManager       *chat.Manager
 	ImageStore        images.Store
 	Blacklist         BlacklistWriter
+	Outcomes          OutcomeWriter
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -51,6 +52,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		WorkflowSkillsDir: cfg.WorkflowSkillsDir,
 		ImageStore:        cfg.ImageStore,
 		Blacklist:         cfg.Blacklist,
+		Outcomes:          cfg.Outcomes,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

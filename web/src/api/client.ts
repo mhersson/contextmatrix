@@ -26,6 +26,7 @@ import type {
   InviteInfo,
   CredentialInfo,
   CreateCredentialInput,
+  ModelOutcomeStats,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -355,6 +356,14 @@ class APIClient {
 
   async adminDeleteChat(id: string): Promise<void> {
     return this.request<void>(`/admin/chats/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  async adminModelOutcomes(): Promise<ModelOutcomeStats> {
+    return this.request<ModelOutcomeStats>('/admin/model-outcomes');
+  }
+
+  async adminResetModelOutcomes(): Promise<{ deleted: number }> {
+    return this.request<{ deleted: number }>('/admin/model-outcomes', { method: 'DELETE' });
   }
 
   // Task skills (project default + per-card selectors)

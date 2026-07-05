@@ -265,6 +265,19 @@ type OpStoreConfig struct {
 	DBPath string `yaml:"db_path"`
 }
 
+// BestOfNConfig bounds the Best-of-N run mode (agent backend).
+type BestOfNConfig struct {
+	// MaxCandidates is the hard cap on a card's best_of_n value (and the UI
+	// selector bound). Default 5.
+	MaxCandidates int `yaml:"max_candidates"`
+	// DefaultCandidates is the operator-recommended candidate count, surfaced in
+	// the UI control's tooltip and shipped via app config. Default 3.
+	DefaultCandidates int `yaml:"default_candidates"`
+	// OutcomeFloor is the per-model recorded-outcome count required before
+	// win-rates bias model selection. Default 20.
+	OutcomeFloor int `yaml:"outcome_floor"`
+}
+
 // AuthConfig controls multi-user authentication.
 type AuthConfig struct {
 	// Mode is "multi" (default: login required, sessions, admin role) or
@@ -356,6 +369,7 @@ type Config struct {
 	Chat          ChatConfig               `yaml:"chat"`
 	Images        ImagesConfig             `yaml:"images"`
 	OpStore       OpStoreConfig            `yaml:"op_store"`
+	BestOfN       BestOfNConfig            `yaml:"best_of_n"`
 	Auth          AuthConfig               `yaml:"auth"`
 }
 
@@ -672,6 +686,7 @@ func (c *Config) Validate() error {
 	applyChatDefaults(c)
 	applyImagesDefaults(c)
 	applyOpStoreDefaults(c)
+	applyBestOfNDefaults(c)
 
 	if c.Chat.IdleTTL <= 0 {
 		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
@@ -752,6 +767,7 @@ func Load(path string) (*Config, error) {
 			applyChatDefaults(cfg)
 			applyImagesDefaults(cfg)
 			applyOpStoreDefaults(cfg)
+			applyBestOfNDefaults(cfg)
 			applyAuthDefaults(cfg)
 			applyBackendDefaults(cfg)
 
@@ -787,6 +803,7 @@ func Load(path string) (*Config, error) {
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
+	applyBestOfNDefaults(cfg)
 	applyAuthDefaults(cfg)
 	applyBackendDefaults(cfg)
 
@@ -883,6 +900,36 @@ func applyImagesDefaults(cfg *Config) {
 func applyOpStoreDefaults(cfg *Config) {
 	if cfg.OpStore.DBPath == "" {
 		cfg.OpStore.DBPath = defaultSQLiteDBPath("ops.db")
+	}
+}
+
+// applyBestOfNDefaults sets BestOfN fields that are zero or out of range.
+// Idempotent — safe to call again after applyEnvOverrides may have
+// introduced a new out-of-range value (see the call inside Validate, which
+// runs after applyEnvOverrides completes in Load).
+func applyBestOfNDefaults(cfg *Config) {
+	if cfg.BestOfN.MaxCandidates < 2 {
+		if cfg.BestOfN.MaxCandidates != 0 {
+			slog.Warn("best_of_n.max_candidates < 2; using default", "value", cfg.BestOfN.MaxCandidates)
+		}
+
+		cfg.BestOfN.MaxCandidates = 5
+	}
+
+	if cfg.BestOfN.DefaultCandidates < 2 || cfg.BestOfN.DefaultCandidates > cfg.BestOfN.MaxCandidates {
+		if cfg.BestOfN.DefaultCandidates != 0 {
+			slog.Warn("best_of_n.default_candidates out of range; using default", "value", cfg.BestOfN.DefaultCandidates)
+		}
+
+		cfg.BestOfN.DefaultCandidates = min(3, cfg.BestOfN.MaxCandidates)
+	}
+
+	if cfg.BestOfN.OutcomeFloor < 1 {
+		if cfg.BestOfN.OutcomeFloor != 0 {
+			slog.Warn("best_of_n.outcome_floor < 1; using default", "value", cfg.BestOfN.OutcomeFloor)
+		}
+
+		cfg.BestOfN.OutcomeFloor = 20
 	}
 }
 
@@ -1212,6 +1259,26 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_API_KEY"); v != "" {
 		cfg.LLMEndpoint.APIKey = v
+	}
+
+	for _, o := range []struct {
+		env string
+		dst *int
+	}{
+		{"CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", &cfg.BestOfN.MaxCandidates},
+		{"CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES", &cfg.BestOfN.DefaultCandidates},
+		{"CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR", &cfg.BestOfN.OutcomeFloor},
+	} {
+		if v := os.Getenv(o.env); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				slog.Warn("invalid int env var; ignoring", "var", o.env, "value", v)
+
+				continue
+			}
+
+			*o.dst = n
+		}
 	}
 
 	// Backend entries can be configured entirely via env: a variable for one

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -50,6 +52,13 @@ type blacklistReader interface {
 	BlacklistedSlugs(ctx context.Context) ([]string, error)
 }
 
+// outcomeStatsReader supplies Best-of-N head-to-head aggregates for
+// selection. Implemented by opstore/sqlite.Store; lives here for the same
+// reason as catalogProvider and blacklistReader.
+type outcomeStatsReader interface {
+	ModelOutcomeStats(ctx context.Context) ([]sqlite.OutcomeStats, error)
+}
+
 // runnerHandlers contains handlers for remote execution endpoints.
 type runnerHandlers struct {
 	svc               *service.CardService
@@ -67,6 +76,19 @@ type runnerHandlers struct {
 	// runCard guards on catalog != nil before attaching Selection.
 	catalog   catalogProvider
 	blacklist blacklistReader
+
+	// outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
+	// to SelectionContext.Candidates[i].Outcomes. nil disables attachment; a
+	// read failure is best-effort (logged, selection proceeds without stats),
+	// mirroring the blacklist read above.
+	outcomes outcomeStatsReader
+
+	// bestOfN bounds the card-level best_of_n value forwarded to the agent
+	// backend (payload.BestOfN = min(card.BestOfN, bestOfN.MaxCandidates)) and
+	// supplies SelectionContext.OutcomeFloor. Zero value (MaxCandidates 0)
+	// clamps every non-zero card value down to 0, matching RouterConfig.BestOfN's
+	// pre-config.Load-defaults zero-value contract.
+	bestOfN config.BestOfNConfig
 
 	// replayCache guards the runner-callback authentication path against
 	// replayed HMAC signatures. Populated at construction time; non-nil
@@ -274,6 +296,16 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		Model:       model,
 		TaskSkills:  taskSkills,
 	}
+
+	// Best-of-N is an agent-backend-only feature; the runner backend never
+	// receives it (0/omitted). Clamp against the configured max — the stored
+	// card value can exceed it if max_candidates was lowered after the card
+	// was set, since the REST PATCH/PUT validation only checks the max in
+	// effect at write time.
+	if h.backendCfg.Name == config.BackendNameAgent && card.BestOfN >= 2 {
+		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
+	}
+
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
 	}
@@ -292,10 +324,41 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Clone: the catalog returns its shared cached slice, and the
+		// outcomes-attach loop below writes Candidates[i].Outcomes in place.
+		// Without a defensive copy that write would alias the catalog's
+		// backing array - racing concurrent runCard requests and leaking
+		// stale Outcomes pointers into the cache past a model-outcomes reset.
 		payload.Selection = &protocol.SelectionContext{
-			Candidates: h.catalog.Candidates(r.Context()),
+			Candidates: slices.Clone(h.catalog.Candidates(r.Context())),
 			Favorites:  mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites),
 			Blacklist:  bl,
+		}
+
+		payload.Selection.OutcomeFloor = h.bestOfN.OutcomeFloor
+
+		if h.outcomes != nil {
+			// Best-effort, mirroring the blacklist read above: a stats read
+			// failure must not block the trigger, but it is logged so a silent
+			// miss doesn't let selection quietly run unbiased with no trace.
+			stats, statsErr := h.outcomes.ModelOutcomeStats(r.Context())
+			if statsErr != nil {
+				ctxlog.Logger(r.Context()).Warn("failed to read model outcomes; selection proceeds without them",
+					"card_id", id, "project", project, "error", statsErr)
+			} else if len(stats) > 0 {
+				byModel := make(map[string]sqlite.OutcomeStats, len(stats))
+				for _, st := range stats {
+					byModel[st.Model] = st
+				}
+
+				for i, c := range payload.Selection.Candidates {
+					if st, ok := byModel[c.Slug]; ok {
+						payload.Selection.Candidates[i].Outcomes = &protocol.OutcomeStats{
+							Samples: st.Samples, Wins: st.Wins, ExpectedWins: st.ExpectedWins,
+						}
+					}
+				}
+			}
 		}
 	}
 

@@ -18,14 +18,20 @@ type appConfigHandlers struct {
 	// the full payload requires a session; unauthenticated callers get only
 	// what the login page needs.
 	authMode string
+	// bestOfNMax/bestOfNDefault surface config.BestOfNConfig's UI-facing
+	// bounds (full payload only — see appConfigSlimResponse).
+	bestOfNMax     int
+	bestOfNDefault int
 }
 
 type appConfigResponse struct {
-	Theme       string              `json:"theme"`
-	Version     string              `json:"version"`
-	AuthMode    string              `json:"auth_mode"`
-	TaskBackend string              `json:"task_backend"`
-	Favorites   map[string][]string `json:"favorites,omitempty"`
+	Theme          string              `json:"theme"`
+	Version        string              `json:"version"`
+	AuthMode       string              `json:"auth_mode"`
+	TaskBackend    string              `json:"task_backend"`
+	Favorites      map[string][]string `json:"favorites,omitempty"`
+	BestOfNMax     int                 `json:"best_of_n_max,omitempty"`
+	BestOfNDefault int                 `json:"best_of_n_default,omitempty"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -80,10 +86,12 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 
 	// None mode, or an authenticated caller in multi mode: full, as always.
 	writeJSON(w, http.StatusOK, appConfigResponse{
-		Theme:       h.theme,
-		Version:     h.version,
-		AuthMode:    mode,
-		TaskBackend: h.taskBackend,
-		Favorites:   h.favorites,
+		Theme:          h.theme,
+		Version:        h.version,
+		AuthMode:       mode,
+		TaskBackend:    h.taskBackend,
+		Favorites:      h.favorites,
+		BestOfNMax:     h.bestOfNMax,
+		BestOfNDefault: h.bestOfNDefault,
 	})
 }

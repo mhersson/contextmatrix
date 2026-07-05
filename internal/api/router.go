@@ -158,6 +158,21 @@ type RouterConfig struct {
 	// Catalog != nil before attaching Selection, so omitting them is safe.
 	Catalog   catalogProvider
 	Blacklist blacklistReader
+	// Outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
+	// on SelectionContext (runCard guards on it via h.outcomes != nil, same
+	// best-effort posture as Blacklist). In main.go this is the same opstore
+	// handle passed as Blacklist — one store, two read-only interfaces.
+	Outcomes outcomeStatsReader
+	// OutcomesAdmin supplies the read+reset surface for the admin
+	// model-outcomes endpoints (GET/DELETE /api/admin/model-outcomes).
+	// Outcomes (above) is deliberately read-only — runCard's selection path
+	// never resets data — so widening it to add ResetModelOutcomes would
+	// force every consumer/test double of that narrow interface to grow a
+	// method it never calls; this is a separate, wider interface instead.
+	// In main.go this is the same opstore handle passed as
+	// Outcomes/Blacklist/Catalog — one store, several narrowly sliced
+	// interfaces.
+	OutcomesAdmin outcomeAdminStore
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -200,6 +215,11 @@ type RouterConfig struct {
 	// place). nil when llm_endpoint is unset — backends then fall back to
 	// their own local config, matching pre-token-authority behavior.
 	LLMEndpoint *protocol.LLMEndpoint
+	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
+	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
+	// means only 0 validates — effectively disabling best_of_n until
+	// config.Load's applyBestOfNDefaults has populated it.
+	BestOfN config.BestOfNConfig
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -236,17 +256,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
 	}
-	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister}
+	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates}
 	ah := &agentHandlers{svc: cfg.Service}
 	acth := &activityHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	ach := &appConfigHandlers{
-		theme:       cfg.Theme,
-		version:     cfg.Version,
-		taskBackend: cfg.BackendCfg.Name,
-		favorites:   extractFavorites(cfg.BackendCfg.Favorites),
-		authMode:    cfg.AuthMode,
+		theme:          cfg.Theme,
+		version:        cfg.Version,
+		taskBackend:    cfg.BackendCfg.Name,
+		favorites:      extractFavorites(cfg.BackendCfg.Favorites),
+		authMode:       cfg.AuthMode,
+		bestOfNMax:     cfg.BestOfN.MaxCandidates,
+		bestOfNDefault: cfg.BestOfN.DefaultCandidates,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
@@ -311,6 +333,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
 
+	// Admin model-outcomes: registered in both auth modes (open in none
+	// mode; admin-gated in multi via outcomeAdminHandlers.gate) — same
+	// trust posture as project management above.
+	if cfg.OutcomesAdmin != nil {
+		oh := &outcomeAdminHandlers{
+			store:        cfg.OutcomesAdmin,
+			outcomeFloor: cfg.BestOfN.OutcomeFloor,
+			authEnabled:  cfg.AuthService != nil,
+		}
+		mux.HandleFunc("GET /api/admin/model-outcomes", oh.getStats)
+		mux.HandleFunc("DELETE /api/admin/model-outcomes", oh.reset)
+	}
+
 	// Auth routes — only in multi mode.
 	if cfg.AuthService != nil {
 		authh := &authHandlers{svc: cfg.AuthService}
@@ -373,6 +408,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		replayCache:            runner.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
+		outcomes:               cfg.Outcomes,
+		bestOfN:                cfg.BestOfN,
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,

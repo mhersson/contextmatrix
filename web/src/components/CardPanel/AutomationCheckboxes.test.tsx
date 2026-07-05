@@ -126,3 +126,82 @@ describe('AutomationCheckboxes — inline status hints', () => {
     expect(screen.getByLabelText('Create PR')).toBeDisabled();
   });
 });
+
+describe('AutomationCheckboxes — Best of N selector', () => {
+  it('renders the "Best of N" select when taskBackend is agent', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    expect(screen.getByLabelText('Best of N')).toBeInTheDocument();
+  });
+
+  it('hides the "Best of N" select when taskBackend is not agent', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="runner" />);
+    expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
+  });
+
+  it('hides the "Best of N" select entirely when taskBackend is unset', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
+  });
+
+  it('hides the "Best of N" select in create mode even when taskBackend is agent', () => {
+    // best_of_n is edit-only in this task: CreateCardInput has no field for
+    // it yet, so the create-mode panel must not offer a dead control.
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" mode="create" />);
+    expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
+  });
+
+  it('offers Off, 2, 3, 4, 5 as options for the default max of 5', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    expect(screen.getByRole('option', { name: 'Off' })).toBeInTheDocument();
+    for (const n of ['2', '3', '4', '5']) {
+      expect(screen.getByRole('option', { name: n })).toBeInTheDocument();
+    }
+  });
+
+  it('enabling from Off selects the default and calls onBestOfNChange with it', () => {
+    const onBestOfNChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        bestOfN={0}
+        bestOfNDefault={3}
+        onBestOfNChange={onBestOfNChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Best of N'), { target: { value: '3' } });
+    expect(onBestOfNChange).toHaveBeenCalledWith(3);
+  });
+
+  it('choosing Off calls onBestOfNChange with 0', () => {
+    const onBestOfNChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        bestOfN={3}
+        onBestOfNChange={onBestOfNChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Best of N'), { target: { value: '0' } });
+    expect(onBestOfNChange).toHaveBeenCalledWith(0);
+  });
+
+  it('is a plain pass-through — picking 5 from Off with a default of 3 calls back with 5, not 3', () => {
+    // Pins the contract: bestOfNDefault is a tooltip recommendation only.
+    // Selecting a value never gets snapped/overridden to the default.
+    const onBestOfNChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        bestOfN={0}
+        bestOfNDefault={3}
+        onBestOfNChange={onBestOfNChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Best of N'), { target: { value: '5' } });
+    expect(onBestOfNChange).toHaveBeenCalledWith(5);
+    expect(onBestOfNChange).not.toHaveBeenCalledWith(3);
+  });
+});

@@ -77,6 +77,9 @@ POST   /api/admin/credentials                            # add a pool credential
 PUT    /api/admin/credentials/{name}                      # rotate secret / update metadata / disable (admin-only, multi mode only)
 DELETE /api/admin/credentials/{name}                      # remove a pool credential (admin-only, multi mode only)
 
+GET    /api/admin/model-outcomes                            # Best-of-N per-model outcome stats (both auth modes; admin-gated only in multi)
+DELETE /api/admin/model-outcomes                            # reset recorded outcomes (both auth modes; admin-gated only in multi)
+
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # liveness probe (shallow)
 GET    /readyz                                        # readiness probe (dependency-checked)
@@ -164,7 +167,8 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`,
   `/stop-all`, `/api/runner/status`,
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
-  `GET /api/v1/cards/.../autonomous`)
+  `GET /api/v1/cards/.../autonomous`, `DELETE /api/admin/model-outcomes` —
+  the latter returns the deleted row count rather than an empty 204 body)
 - 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
   `POST /api/chats`, `POST /api/admin/users`, `POST /api/admin/credentials`)
 - 202: accepted — async endpoint kicked off background work (`POST /run`,
@@ -245,7 +249,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, or `base_branch`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), or `best_of_n`. |
 
 ## Authentication (multi mode)
 
@@ -258,6 +262,11 @@ every endpoint documented in this section simply is not registered: a plain
 `404 page not found` (no JSON body), not `401`. See § Trust model in
 `docs/architecture.md` for the full security-review framing; this section
 documents the wire contract.
+
+**Exception:** `GET`/`DELETE /api/admin/model-outcomes` is the one
+`/api/admin/*` pair registered in **both** auth modes — Best-of-N outcome
+tracking does not depend on the auth system. It is documented at the end of
+this section, after the chat admin routes.
 
 **Session gate.** `sessionGuard` runs on every request in multi mode and
 rejects any request with no valid session — reads as well as writes, unlike
@@ -645,6 +654,52 @@ There is deliberately no admin route that returns transcript content
 (no messages, stream, or open) — admin chat management is metadata and
 lifecycle only.
 
+### GET /api/admin/model-outcomes
+
+Unlike every route above, this pair is registered in **both** auth modes —
+Best-of-N outcome tracking does not depend on the auth system. In
+`auth.mode: none` it is open (same trust posture as project management); in
+`auth.mode: multi` it requires an admin session, same as the routes above
+(**403 `FORBIDDEN`** otherwise — see § Admin gate above).
+
+Returns aggregated per-model head-to-head stats recorded by the Best-of-N
+judge phase (agent backend only; see `docs/remote-execution.md`), as reported
+by the MCP `report_model_outcome` tool:
+
+```json
+{
+  "outcome_floor": 20,
+  "total_samples": 84,
+  "models": [
+    {
+      "model": "deepseek/deepseek-v4-flash",
+      "samples": 22,
+      "wins": 13,
+      "win_rate": 0.59,
+      "expected_wins": 9.5,
+      "total_cost_usd": 1.42,
+      "active": true
+    }
+  ]
+}
+```
+
+`outcome_floor` echoes the configured `best_of_n.outcome_floor`
+(`config.yaml`). `active` is `true` once a model's `samples` reaches that
+floor — below it, `win_rate` is too thin a sample to bias selection, and the
+agent's registry ignores the entry. `win_rate` is `0` when `samples` is `0`.
+
+### DELETE /api/admin/model-outcomes
+
+Deletes every recorded outcome row. Returns **200 OK** (not 204 — the body
+reports what was deleted) with the row count:
+
+```json
+{ "deleted": 84 }
+```
+
+Same both-modes-registered / admin-gated-in-multi behavior as `GET` above.
+
 ## Health Endpoints
 
 ### GET /healthz
@@ -838,7 +893,9 @@ mode:**
   "version": "v0.42.0",
   "auth_mode": "multi",
   "task_backend": "runner",
-  "favorites": { "complex": ["anthropic/claude-opus-4.8"] }
+  "favorites": { "complex": ["anthropic/claude-opus-4.8"] },
+  "best_of_n_max": 5,
+  "best_of_n_default": 3
 }
 ```
 
@@ -851,11 +908,17 @@ is empty when the binary is built without the version ldflag. `auth_mode` is
 is the active task-backend name (`"runner"`, `"agent"`, or `""` when none is
 configured). `favorites` maps each tier to its operator-configured preferred
 model slugs (the leaderboard "favorites as pin presets" surface); the field is
-omitted entirely when no favorites are configured.
+omitted entirely when no favorites are configured. `best_of_n_max` /
+`best_of_n_default` mirror `config.yaml`'s `best_of_n.max_candidates` /
+`best_of_n.default_candidates` — the card panel's Best-of-N selector uses them
+as its upper bound and recommended value. Both are effectively always present (the
+configured values default to 5 and 3 and are never valid below 2), but like
+`favorites` they ride only on the full payload.
 
-**Response — unauthenticated caller in `multi` mode:** `task_backend` and
-`favorites` are not disclosed pre-login, so they are absent from the JSON
-entirely (not sent as zero values):
+**Response — unauthenticated caller in `multi` mode:** `task_backend`,
+`favorites`, `best_of_n_max`, and `best_of_n_default` are not disclosed
+pre-login, so they are absent from the JSON entirely (not sent as zero
+values):
 
 ```json
 { "theme": "everforest", "version": "v0.42.0", "auth_mode": "multi" }
@@ -863,7 +926,7 @@ entirely (not sent as zero values):
 
 ```bash
 curl http://localhost:8080/api/app/config
-# → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"runner"}
+# → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"runner","best_of_n_max":5,"best_of_n_default":3}
 ```
 
 ### GET /api/models

@@ -161,6 +161,7 @@ describe('isCardDirty', () => {
     ['labels', { labels: ['bug'] }],
     ['autonomous', { autonomous: true }],
     ['use_opus_orchestrator', { use_opus_orchestrator: true }],
+    ['best_of_n', { best_of_n: 3 }],
     ['feature_branch', { feature_branch: true }],
     ['create_pr', { create_pr: true }],
     ['vetted', { vetted: true }],
@@ -180,6 +181,12 @@ describe('isCardDirty', () => {
   it('treats undefined and empty string as equal for base_branch', () => {
     const a = makeCard({ base_branch: undefined });
     const b = makeCard({ base_branch: '' });
+    expect(isCardDirty(a, b)).toBe(false);
+  });
+
+  it('treats undefined and 0 as equal for best_of_n', () => {
+    const a = makeCard({ best_of_n: undefined });
+    const b = makeCard({ best_of_n: 0 });
     expect(isCardDirty(a, b)).toBe(false);
   });
 
@@ -225,5 +232,17 @@ describe('buildCardPatch', () => {
     const original = makeCard({ base_branch: 'main' });
     const edited = { ...original, base_branch: undefined };
     expect(buildCardPatch(edited, original)).toEqual({ base_branch: '' });
+  });
+
+  it('includes best_of_n when it changed', () => {
+    const original = makeCard();
+    const edited = { ...original, best_of_n: 3 };
+    expect(buildCardPatch(edited, original)).toEqual({ best_of_n: 3 });
+  });
+
+  it('coerces best_of_n undefined → 0 in the diff (disabling)', () => {
+    const original = makeCard({ best_of_n: 3 });
+    const edited = { ...original, best_of_n: undefined };
+    expect(buildCardPatch(edited, original)).toEqual({ best_of_n: 0 });
   });
 });

@@ -149,3 +149,43 @@ func TestGetAppConfig_Favorites(t *testing.T) {
 		assert.Nil(t, got.Favorites)
 	})
 }
+
+func TestGetAppConfig_BestOfN(t *testing.T) {
+	t.Run("full payload includes best_of_n bounds", func(t *testing.T) {
+		h := &appConfigHandlers{theme: "everforest", bestOfNMax: 5, bestOfNDefault: 3}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.EqualValues(t, 5, got["best_of_n_max"])
+		assert.EqualValues(t, 3, got["best_of_n_default"])
+	})
+
+	t.Run("slim payload omits best_of_n bounds", func(t *testing.T) {
+		// authMode "multi" + no session in context -> getAppConfig serves
+		// appConfigSlimResponse, which has no best_of_n fields at all.
+		h := &appConfigHandlers{theme: "everforest", authMode: "multi", bestOfNMax: 5, bestOfNDefault: 3}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.NotContains(t, got, "best_of_n_max")
+		assert.NotContains(t, got, "best_of_n_default")
+	})
+}

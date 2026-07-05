@@ -40,7 +40,7 @@ export function AutomationTab({
   clearForcedFeatureBranch,
   clearForcedCreatePR,
 }: AutomationTabProps) {
-  const { taskBackend, favorites: favsByTier } = useTheme();
+  const { taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
@@ -70,6 +70,12 @@ export function AutomationTab({
           }
           models={models}
           favorites={favorites}
+          bestOfN={editedCard.best_of_n}
+          bestOfNMax={bestOfNMax}
+          bestOfNDefault={bestOfNDefault}
+          onBestOfNChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, best_of_n: v }))
+          }
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
           }

@@ -724,6 +724,7 @@ func TestValidPhase(t *testing.T) {
 		{"", true},
 		{"plan", true},
 		{"execute", true},
+		{"judge", true},
 		{"document", true},
 		{"review", true},
 		{"integrate", true},
@@ -739,6 +740,11 @@ func TestValidPhase(t *testing.T) {
 			assert.Equal(t, tt.valid, ValidPhase(tt.phase))
 		})
 	}
+}
+
+func TestValidPhaseJudge(t *testing.T) {
+	assert.True(t, ValidPhase("judge"))
+	assert.False(t, ValidPhase("jury"))
 }
 
 func TestRoundTrip_ModelPinFields(t *testing.T) {
@@ -795,6 +801,57 @@ func TestSerializeCard_OmitsModelPinsWhenEmpty(t *testing.T) {
 	assert.NotContains(t, str, "model_orchestrator")
 	assert.NotContains(t, str, "model_coder")
 	assert.NotContains(t, str, "model_reviewer")
+}
+
+func TestCardBestOfNYAMLRoundTrip(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Best of N test
+project: test-project
+type: task
+state: todo
+priority: medium
+best_of_n: 3
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, 3, card.BestOfN)
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "best_of_n: 3")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.Equal(t, 3, parsed.BestOfN)
+
+	// A card without best_of_n must serialize with no best_of_n key (omitempty).
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	noBestOfN := &Card{
+		ID:       "TEST-002",
+		Title:    "No pin",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	out, err := SerializeCard(noBestOfN)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "best_of_n")
+
+	parsedEmpty, err := ParseCard(out)
+	require.NoError(t, err)
+	assert.Zero(t, parsedEmpty.BestOfN)
 }
 
 func TestActivityEntry_SkillField(t *testing.T) {

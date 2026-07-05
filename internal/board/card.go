@@ -37,16 +37,20 @@ type Card struct {
 	ModelOrchestrator string `yaml:"model_orchestrator,omitempty" json:"model_orchestrator,omitempty"`
 	ModelCoder        string `yaml:"model_coder,omitempty"        json:"model_coder,omitempty"`
 	ModelReviewer     string `yaml:"model_reviewer,omitempty"     json:"model_reviewer,omitempty"`
-	Vetted            bool   `yaml:"vetted,omitempty"             json:"vetted"`
-	FeatureBranch     bool   `yaml:"feature_branch,omitempty"     json:"feature_branch,omitempty"`
-	CreatePR          bool   `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
-	BranchName        string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
-	BaseBranch        string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
-	PRUrl             string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
-	ReviewAttempts    int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
-	RunnerStatus      string `yaml:"runner_status,omitempty"      json:"runner_status,omitempty"`
+	// BestOfN, when >= 2, makes agent-backend runs race N candidate
+	// implementations and judge a winner. 0/absent = normal run. Human-set
+	// only, like the model pins.
+	BestOfN        int    `yaml:"best_of_n,omitempty"          json:"best_of_n,omitempty"`
+	Vetted         bool   `yaml:"vetted,omitempty"             json:"vetted"`
+	FeatureBranch  bool   `yaml:"feature_branch,omitempty"     json:"feature_branch,omitempty"`
+	CreatePR       bool   `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
+	BranchName     string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
+	BaseBranch     string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
+	PRUrl          string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
+	ReviewAttempts int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
+	RunnerStatus   string `yaml:"runner_status,omitempty"      json:"runner_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
-	// (plan|execute|document|review|integrate|done). Orthogonal to State: State is the
+	// (plan|execute|judge|document|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
 	// driven by the agent backend.
 	Phase          string          `yaml:"phase,omitempty"            json:"phase,omitempty"`
@@ -113,7 +117,7 @@ const maxCardSize = 2 * 1024 * 1024
 // clears the field and is always valid.
 func ValidPhase(p string) bool {
 	switch p {
-	case "", "plan", "execute", "document", "review", "integrate", "done":
+	case "", "plan", "execute", "judge", "document", "review", "integrate", "done":
 		return true
 	}
 

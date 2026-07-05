@@ -44,7 +44,7 @@ Verdicts: **parity** / **intentional-divergence** / **gap**.
 
 | Capability | Runner (bar) | Agent (impl) | CM dispatch | Verdict |
 | --- | --- | --- | --- | --- |
-| Autonomous FSM phase order | `workflow-skills/run-autonomous.md` (drives the full lifecycle) | `agent internal/orchestrator/orchestrator.go:123` `phaseOrder` (plan→execute→document→review→integrate→done) | `internal/api/runner.go:246` (autonomous forces `interactive=false`) | parity |
+| Autonomous FSM phase order | `workflow-skills/run-autonomous.md` (drives the full lifecycle) | `agent internal/orchestrator/orchestrator.go:123` `phaseOrder` (plan→execute→document→review→integrate→done; Best-of-N inserts `judge` after `execute` — see the Best-of-N row below) | `internal/api/runner.go:246` (autonomous forces `interactive=false`) | parity |
 | classify / diagnose (bug-aware planning) | `workflow-skills/systematic-debugging.md` (create-plan Phase 0 investigation) | `agent internal/orchestrator/classify.go` (bug/maintenance gate) + `plan.go:287` `runDiagnose` | n/a — in-container | parity |
 | Document phase | `workflow-skills/document-task.md` | `agent internal/orchestrator/document.go:24` `runDocument` (best-effort, between execute and review) | n/a — in-container | parity |
 | Review: 3 specialists + fix loop | `workflow-skills/review-task.md` (production-ready gate, revise cycle) | `agent internal/orchestrator/review.go:350` (correctness/design/security) + `:284` `reviewRound` fix loop; read-only `agent internal/tools/readonly.go:16` `NewReadOnlyRegistry` | n/a — in-container | parity |
@@ -63,13 +63,14 @@ Verdicts: **parity** / **intentional-divergence** / **gap**.
 | Graceful shutdown | `runner cmd/contextmatrix-runner/main.go` (drain → shutdown → kill tracked → report failed) | `agent internal/cli/serve.go:230` `gracefulShutdown` | n/a — backend-internal | parity |
 | Orphan cleanup (boot, label-based) | `runner internal/container/manager.go:2062` `CleanupOrphans` (label `LabelRunner=true`) | `agent internal/executor/docker.go:477` `CleanupOrphans` (label `contextmatrix.agent=true`), boot `agent internal/cli/serve.go:143` | n/a — backend-internal | parity |
 | Metrics surface | `runner internal/metrics/metrics.go` (`cmr_*`, loopback admin, HMAC) | `agent internal/metrics/metrics.go:85` (`cm_agent_*`, loopback admin, HMAC; admin listener `agent internal/cli/serve.go:180`) | n/a — backend-internal | parity (subset; see divergences) |
+| Best-of-N run mode | none — no `best_of_n` trigger field and no candidate-fan-out mechanism; not planned for the runner | `agent internal/webhook/handler.go` `buildLaunchSpec` maps the trigger payload to `CM_BEST_OF_N`; `agent internal/worker` git-worktree candidate fan-out with per-candidate coder models and budget ledgers; `agent internal/orchestrator` judge phase (reviewer-role, complex tier) and winner adoption via `git reset --hard` | `internal/api/runner.go:305` (agent-backend only; clamps `card.BestOfN` to `best_of_n.max_candidates`, omitted entirely for the runner) | intentional-divergence |
 
-18 of 19 capabilities are at parity; one matrix row carries the
-`intentional-divergence` verdict (container reconcile); three further nuances are
-recorded below. Three capabilities are also met by an
-agent-specific mechanism that meets or exceeds the runner's bar (model selection,
-the per-card budget ledger) or reaches the same outcome by a different route
-(repo grounding).
+18 of 20 capabilities are at parity; two matrix rows carry the
+`intentional-divergence` verdict (container reconcile, Best-of-N run mode);
+three further nuances are recorded below. Three capabilities are also met by
+an agent-specific mechanism that meets or exceeds the runner's bar (model
+selection, the per-card budget ledger) or reaches the same outcome by a
+different route (repo grounding).
 
 ## Intentional divergences
 
@@ -79,6 +80,15 @@ the per-card budget ledger) or reaches the same outcome by a different route
   whose card is gone, terminal, or past its max-age. The agent adds a boot-time
   label-based orphan sweep for crash leftovers. CM is the single authority on
   whether a container should run, so the agent needs no runtime loop of its own.
+- **Best-of-N is agent-only; not planned for the runner.** CM's `/trigger`
+  payload includes `best_of_n` only when the active task backend is `agent`
+  (`internal/api/runner.go:305`); the runner backend never receives the field
+  and has no candidate-fan-out mechanism to act on it. The agent races N
+  candidate implementations inside a single worker container via git
+  worktrees, judges a winner, and adopts it via `git reset --hard` — see the
+  Best-of-N container paragraph in `docs/remote-execution.md` for the full
+  mechanics. This is a deliberate scope decision, not a capability gap the
+  runner is expected to close.
 - **Repo grounding mechanism differs.** Both backends ground on the repo's
   `AGENTS.md` / `CLAUDE.md`. Claude Code (the runner's worker) reads those files
   natively; the agent walks them explicitly

@@ -72,6 +72,9 @@ type UpdateCardInput struct {
 	ModelOrchestrator string
 	ModelCoder        string
 	ModelReviewer     string
+	// BestOfN: human-set only, like the model pins. Value type matches PUT's
+	// full-replacement semantics — omitted/zero clears the field.
+	BestOfN int
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -103,6 +106,9 @@ type PatchCardInput struct {
 	ModelOrchestrator *string
 	ModelCoder        *string
 	ModelReviewer     *string
+	// BestOfN: human-set only, like the model pins. nil = don't change;
+	// non-nil (including pointer-to-zero) sets/clears the field.
+	BestOfN *int
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -740,6 +746,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.ModelOrchestrator = input.ModelOrchestrator
 		card.ModelCoder = input.ModelCoder
 		card.ModelReviewer = input.ModelReviewer
+		card.BestOfN = input.BestOfN // PUT full-replace; zero/absent clears, like Autonomous
 		enforceVettingInvariant(card)
 
 		if input.Phase != nil {
@@ -748,7 +755,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
 				})
 			}
 
@@ -973,13 +980,17 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.ModelReviewer = *input.ModelReviewer
 		}
 
+		if input.BestOfN != nil {
+			card.BestOfN = *input.BestOfN
+		}
+
 		if input.Phase != nil {
 			if !board.ValidPhase(*input.Phase) {
 				return &board.ValidationError{
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
 				}
 			}
 

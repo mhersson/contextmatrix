@@ -34,6 +34,7 @@ export interface Card {
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
+  best_of_n?: number;
   phase?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
@@ -204,6 +205,7 @@ export interface PatchCardInput {
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
+  best_of_n?: number;
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -383,6 +385,14 @@ export interface AppConfig {
    * has favorites configured. Tiers with only ByRole slugs are excluded.
    */
   favorites?: Record<string, string[]>;
+  /**
+   * Best-of-N bounds for the card selector: the hard cap (`max_candidates`)
+   * and the operator-recommended candidate count, surfaced in the control's
+   * tooltip. Only present on the full (post-login) payload — absent from the
+   * slim pre-login multi-mode response, same as task_backend/favorites.
+   */
+  best_of_n_max?: number;
+  best_of_n_default?: number;
 }
 
 export interface SessionUser {
@@ -442,6 +452,25 @@ export interface CreateCredentialInput {
   app_id?: number;
   installation_id?: number;
   secret: string;
+}
+
+// Admin — Best-of-N model-outcome stats. Registered in both auth modes (see
+// docs/api-reference.md § GET /api/admin/model-outcomes); `win_rate` is a
+// fraction (0..1), not a percentage.
+export interface ModelOutcomeEntry {
+  model: string;
+  samples: number;
+  wins: number;
+  win_rate: number;
+  expected_wins: number;
+  total_cost_usd: number;
+  active: boolean;
+}
+
+export interface ModelOutcomeStats {
+  outcome_floor: number;
+  total_samples: number;
+  models: ModelOutcomeEntry[];
 }
 
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
