@@ -149,6 +149,7 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
   "base_branch": "develop",
   "interactive": false,
   "model": "claude-sonnet-4-6",
+  "best_of_n": 3,
   "task_skills": ["go-development", "documentation"],
   "git_token": "ghs_...",
   "git_token_expires_at": "2026-07-05T13:00:00Z",
@@ -175,6 +176,15 @@ and keep using their local configuration.
 runner passes this value to the
 container as the `CM_ORCHESTRATOR_MODEL` environment variable, which the
 entrypoint uses as the `--model` argument to Claude Code.
+
+`best_of_n` is populated only when the active task backend is `agent` and the
+card's `best_of_n` is `>= 2`; the runner backend never receives it (0/omitted
+— Best-of-N is agent-only and not planned for the runner, see
+`docs/agent-backend-parity.md`). CM clamps the card's stored value down to the
+currently configured `best_of_n.max_candidates` before sending it, since a
+card can carry a value that exceeds the config if the operator lowered the max
+after the card was set. See [Best-of-N container](#best-of-n-container) below
+for what the agent backend does with it.
 
 `base_branch` is omitted when not set on the card. When present, the runner
 clones with `-b <base_branch>` and Claude Code opens PRs against that branch
@@ -934,6 +944,31 @@ ContextMatrix retries failed webhooks with exponential backoff:
 
 **On kill:** Container is destroyed immediately. All uncommitted work is
 discarded. No partial saves.
+
+### Best-of-N container
+
+Best-of-N is agent-backend only: CM's `/trigger` payload carries `best_of_n`
+(see above) only when the active task backend is `agent`; the runner never
+receives the field and has no candidate-fan-out mechanism to act on it — this
+is not planned for the runner (see `docs/agent-backend-parity.md`). A Best-of-N
+run still gets exactly **one** worker container, not N — the agent maps the
+payload field to a `CM_BEST_OF_N` container environment variable and, after the
+plan phase, adds N git worktrees inside that same container
+(`<workspace>/<card>/.worktrees/cK`, each on a local-only branch cut from the
+plan-approved base), assigns each candidate a distinct auto-selected coder
+model and its own budget ledger, and runs the candidates concurrently.
+Candidates never push; a judge phase (reviewer-role selection, complex tier)
+picks a winner once all candidates finish, and the orchestrator adopts it onto
+the main clone with `git reset --hard <winner worktree HEAD>` before the run's
+first push — losing worktrees and their local-only branches are removed.
+Resource limits scale accordingly: the container's `pids_limit` is multiplied
+by N so every concurrent candidate has headroom, while the memory limit is left
+unchanged because each candidate's verify step (the memory-heavy build/test
+run) is serialized across candidates rather than run concurrently — so
+wall-clock time for the run is approximately the slowest candidate plus the
+judge pass, not N times a normal run, and the per-card budget ceiling is
+`MaxCardCost × (N + 1)` (N candidate allowances plus one shared allowance for
+plan/judge/document/review/integrate).
 
 ### Terminal-state cleanup (HITL containers)
 
