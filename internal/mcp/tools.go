@@ -21,6 +21,7 @@ type registerToolsConfig struct {
 	WorkflowSkillsDir string
 	ImageStore        images.Store
 	Blacklist         BlacklistWriter
+	Outcomes          OutcomeWriter
 }
 
 // registerTools adds all MCP tools to the server.
@@ -56,6 +57,10 @@ func registerTools(cfg registerToolsConfig) {
 
 	if cfg.Blacklist != nil {
 		registerReportIncapableModel(server, cfg.Blacklist)
+	}
+
+	if cfg.Outcomes != nil {
+		registerReportModelOutcome(server, svc, cfg.Outcomes)
 	}
 
 	registerPermissionPrompt(server)

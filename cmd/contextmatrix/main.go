@@ -564,6 +564,7 @@ func main() {
 		ChatManager:       chatMgr,
 		ImageStore:        imageStore,
 		Blacklist:         opStore,
+		Outcomes:          opStore,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
