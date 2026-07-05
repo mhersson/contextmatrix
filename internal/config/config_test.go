@@ -28,6 +28,26 @@ func loadFromYAML(t *testing.T, yamlContent string) (*Config, error) {
 	return Load(path)
 }
 
+// loadConfigFromYAML loads a config from a minimal always-valid base
+// (boards.dir + github.auth_mode pre-filled so Validate never fails on
+// unrelated required fields) plus an extra top-level YAML fragment. Fails
+// the test on load error. Lets single-block tests pass just the fragment
+// they care about instead of repeating the mandatory boilerplate.
+func loadConfigFromYAML(t *testing.T, extra string) *Config {
+	t.Helper()
+
+	dir := t.TempDir()
+	boardsDir := filepath.Join(dir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	yamlContent := "boards:\n  dir: " + boardsDir + "\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n" + extra
+
+	cfg, err := loadFromYAML(t, yamlContent)
+	require.NoError(t, err)
+
+	return cfg
+}
+
 func writeConfigFile(t *testing.T, dir, content string) string {
 	t.Helper()
 
@@ -3174,4 +3194,50 @@ github:
 	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
 	assert.Equal(t, "https://my-llm.example/v1", cfg.LLMEndpoint.BaseURL)
 	assert.Equal(t, "sk-test-override", cfg.LLMEndpoint.APIKey)
+}
+
+// ---------- BestOfNConfig tests ----------
+
+func TestBestOfNConfigDefaultsAndOverrides(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, "port: 8080\n") // use the file's existing helper; if named differently, adapt
+		assert.Equal(t, 5, cfg.BestOfN.MaxCandidates)
+		assert.Equal(t, 3, cfg.BestOfN.DefaultCandidates)
+		assert.Equal(t, 20, cfg.BestOfN.OutcomeFloor)
+	})
+
+	t.Run("yaml values", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 4\n  default_candidates: 2\n  outcome_floor: 10\n")
+		assert.Equal(t, 4, cfg.BestOfN.MaxCandidates)
+		assert.Equal(t, 2, cfg.BestOfN.DefaultCandidates)
+		assert.Equal(t, 10, cfg.BestOfN.OutcomeFloor)
+	})
+
+	t.Run("env overrides", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", "3")
+		t.Setenv("CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES", "2")
+		t.Setenv("CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR", "5")
+		cfg := loadConfigFromYAML(t, "port: 8080\n")
+		assert.Equal(t, 3, cfg.BestOfN.MaxCandidates)
+		assert.Equal(t, 2, cfg.BestOfN.DefaultCandidates)
+		assert.Equal(t, 5, cfg.BestOfN.OutcomeFloor)
+	})
+
+	t.Run("invalid values normalized", func(t *testing.T) {
+		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 1\n  default_candidates: 9\n  outcome_floor: 0\n")
+		assert.Equal(t, 5, cfg.BestOfN.MaxCandidates, "max < 2 falls back to default")
+		assert.Equal(t, 3, cfg.BestOfN.DefaultCandidates, "default > max falls back")
+		assert.Equal(t, 20, cfg.BestOfN.OutcomeFloor, "floor < 1 falls back")
+	})
+
+	t.Run("invalid env values normalized", func(t *testing.T) {
+		// Judgment point: applyEnvOverrides runs AFTER the pre-env defaults
+		// pass in Load, so an out-of-range env value must still be caught by
+		// the second applyBestOfNDefaults call inside Validate (which runs
+		// after applyEnvOverrides completes) — mirroring how AuthConfig's
+		// defaults survive env overrides via the same Validate-internal call.
+		t.Setenv("CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", "1")
+		cfg := loadConfigFromYAML(t, "port: 8080\n")
+		assert.Equal(t, 5, cfg.BestOfN.MaxCandidates, "env-supplied max < 2 must still fall back to default")
+	})
 }

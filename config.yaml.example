@@ -441,6 +441,13 @@ images:
 #   # Default: $XDG_STATE_HOME/contextmatrix/ops.db
 #   db_path: ""
 
+# Best-of-N run mode (agent backend only). A card with best_of_n >= 2 races
+# N candidate implementations and a judge picks the winner.
+# best_of_n:
+#   max_candidates: 5      # hard cap on a card's best_of_n value (CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES)
+#   default_candidates: 3  # UI prefill when enabling the field (CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES)
+#   outcome_floor: 20      # per-model samples before win-rates bias selection (CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR)
+
 # Multi-user authentication.
 auth:
   # "multi" (default) — login required. Users, sessions, and the GitHub
