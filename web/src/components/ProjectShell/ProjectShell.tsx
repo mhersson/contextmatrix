@@ -13,6 +13,7 @@ import { useRunnerHealth } from '../../hooks/useRunnerHealth';
 import { useDashboardPolling } from '../../hooks/useDashboardPolling';
 import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
+import { useConsoleState } from '../../context/ConsoleStateContext';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
 import { CardPanel } from '../CardPanel';
@@ -49,7 +50,7 @@ export function ProjectShell() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
-  const [consoleOpen, setConsoleOpen] = useState(false);
+  const { isOpen: consoleOpen, toggle: toggleConsole, close: closeConsole } = useConsoleState();
   const flashTimer = useTimeoutRef();
   const mainRef = useRef<HTMLDivElement>(null);
   const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
@@ -194,13 +195,13 @@ export function ProjectShell() {
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
-        { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) setConsoleOpen((prev) => !prev); } },
+        { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) toggleConsole(); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
           handler: () => { if (i < projects.length) navigate(`/projects/${projects[i].name}`); },
         })),
       ],
-      [panelOpen, config, project, projects, handleOpenCreate, navigate]
+      [panelOpen, config, project, projects, handleOpenCreate, navigate, toggleConsole]
     )
   );
 
@@ -212,7 +213,7 @@ export function ProjectShell() {
         onStopAll={handleStopAll}
         runnerEnabled={!!config?.remote_execution?.enabled}
         consoleOpen={consoleOpen}
-        onToggleConsole={() => setConsoleOpen((prev) => !prev)}
+        onToggleConsole={toggleConsole}
       />
       <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
         <div
@@ -294,7 +295,7 @@ export function ProjectShell() {
               logs={runnerLogs}
               connected={consoleConnected}
               error={consoleError}
-              onClose={() => setConsoleOpen(false)}
+              onClose={closeConsole}
               onClear={clearLogs}
               flexBasis={`${100 - boardPercent}%`}
             />
