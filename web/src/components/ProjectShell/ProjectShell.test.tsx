@@ -187,6 +187,11 @@ vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: vi.fn(() => ({ isOpen: false, toggle: vi.fn(), close: vi.fn() })),
 }));
 
+// context/ConsoleStateContext is used by ProjectShell; mock it.
+vi.mock('../../context/ConsoleStateContext', () => ({
+  useConsoleState: vi.fn(() => ({ isOpen: false, toggle: vi.fn(), close: vi.fn(), setOpen: vi.fn() })),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

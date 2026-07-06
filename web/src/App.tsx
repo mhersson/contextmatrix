@@ -7,6 +7,7 @@ import { ThemeProvider } from './hooks/useTheme';
 import { AuthProvider } from './hooks/useAuth';
 import { ToastContext, useToastState } from './hooks/useToast';
 import { MobileSidebarProvider, useMobileSidebar } from './context/MobileSidebarContext';
+import { ConsoleStateProvider } from './context/ConsoleStateContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
@@ -125,7 +126,9 @@ function App() {
       <ThemeProvider>
         <AuthGate>
           <MobileSidebarProvider>
-            <AppInner />
+            <ConsoleStateProvider>
+              <AppInner />
+            </ConsoleStateProvider>
           </MobileSidebarProvider>
         </AuthGate>
       </ThemeProvider>
