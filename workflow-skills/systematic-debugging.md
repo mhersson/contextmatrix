@@ -157,8 +157,8 @@ create-plan can break this into subtasks. Do NOT write code.>
 <Failing test to add (file path + what it asserts), regression scope.>
 
 ### Files affected
-- path/to/file_a.go
-- path/to/file_b.ts
+- path/to/file_a
+- path/to/file_b
 - ...
 
 ### Risk / scope notes

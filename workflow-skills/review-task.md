@@ -31,8 +31,8 @@ If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
   criteria met, edge cases covered.
 - **Scope:** nothing added outside the plan; no cross-subtask assumption
   conflicts.
-- **Tests + lint:** run the project's test suite (`go test ./...`, `npm test`,
-  etc.) and lint if configured. Any failure → Pass 1 failure; include the
+- **Tests + lint:** run the project's own test/verify command and lint if
+  configured. Any failure → Pass 1 failure; include the
   failing output in the findings.
 
 On success, call `heartbeat(card_id, agent_id)` before Step 3.
@@ -90,8 +90,8 @@ missing specialty's coverage.
        surface.
   3. `Read` each file directly. Untracked files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
-- Engage relevant skills via the Skill tool (`go-development`, `code-review`,
-  etc.); log each with
+- Engage whichever installed specialist skills match your work (their
+  descriptions say when); log each with
   `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
   `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
@@ -117,8 +117,8 @@ Specialist hard constraints:
 
 - Bugs, logic errors, off-by-one, edge cases.
 - Error / exception handling completeness (silent failures, swallowed errors).
-- Concurrency, races, lock ordering, goroutine leaks, thread leaks, unawaited
-  promises/tasks.
+- Concurrency, races, lock ordering, leaked concurrent workers (threads, tasks,
+  coroutines, goroutines), unawaited promises/tasks.
 - Observability: structured logging, metric emission, debuggable error context.
 - Test coverage and quality — do tests exercise new behavior, or are they
   vacuous (asserting on self-configured mocks)? Flag flakiness, time coupling,

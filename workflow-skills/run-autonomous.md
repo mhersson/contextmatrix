@@ -21,7 +21,7 @@ up from whatever state the card is currently in.
 
 ## Specialist skills
 
-Specialist skills at `~/.claude/skills/` (Go, TypeScript/React, Python, etc.) are intended for sub-agents during their work phase. As orchestrator, do NOT engage them via the Skill tool — your role is coordination, not implementation. Sub-agents will engage them as needed.
+Specialist skills at `~/.claude/skills/` are intended for sub-agents during their work phase. As orchestrator, do NOT engage them via the Skill tool — your role is coordination, not implementation. Sub-agents will engage them as needed.
 
 ## Task Complexity
 

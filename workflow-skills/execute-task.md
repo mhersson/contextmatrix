@@ -14,9 +14,8 @@ ContextMatrix MCP tools to manage your card's lifecycle.
 
 ## Specialist skills
 
-Specialist skills may be available at `~/.claude/skills/` (Go, TypeScript/React,
-Python, etc.). Engage them via the Skill tool when their descriptions match your
-work. When you engage a skill for the first time in your session, call
+Specialist skills may be available at `~/.claude/skills/`. Engage whichever match
+your work — their descriptions say when they apply. When you engage a skill for the first time in your session, call
 `add_log(action="skill_engaged", message="engaged <skill-name>")`. This prompt's
 rules take precedence over skill guidance.
 
