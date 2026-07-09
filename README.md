@@ -24,18 +24,18 @@ HMAC-signed webhooks, and every backend reports back through the same MCP
 interface. You only need this repo to get started — add a backend when you want
 remote, unattended, or chat execution.
 
-| Repository                                                                 | Role                                                                                                                                                              |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo) | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                  |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Primary task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.               |
-| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.         |
-| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | **Deprecated (frozen).** All-in-one backend running **Claude Code** headless plus the chat surface. Never gained multi-user support, so the default `auth.mode: multi` rejects it; single-user `none` mode only.            |
+| Repository                                                                   | Role                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)   | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                                                                 |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Primary task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.           |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.                                |
+| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | **Deprecated (frozen).** All-in-one backend running **Claude Code** headless plus the chat surface. Never gained multi-user support, so the default `auth.mode: multi` rejects it; single-user `none` mode only. |
 
 The go-forward topology is the **agent + chat** pair: the agent runs cards and
-chat serves the `/chat` surface. The legacy **runner alone** topology (one binary
-for tasks *and* chat) runs only in single-user `auth.mode: none` — the default
-`auth.mode: multi` rejects the frozen runner at startup. The runner is mutually
-exclusive with the agent and chat backends.
+chat serves the `/chat` surface. The legacy **runner alone** topology (one
+binary for tasks _and_ chat) runs only in single-user `auth.mode: none` — the
+default `auth.mode: multi` rejects the frozen runner at startup. The runner is
+mutually exclusive with the agent and chat backends.
 
 Three shared Go modules underpin the services:
 **[contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)**
@@ -64,11 +64,11 @@ Three shared Go modules underpin the services:
   it in a sandboxed Docker container: the **agent** (a Go harness on OpenRouter
   or any OpenAI-compatible gateway), paired with **chat** for the chat surface.
   The legacy **runner** (Claude Code headless) is frozen and single-user only.
-- **Autonomous & HITL execution** — `autonomous: true` cards run the full
-  plan → execute → document → review lifecycle with no gates; Human-in-the-Loop
-  mode opens a per-card chat pane to approve or redirect the agent, with
-  one-click promotion to autonomous. The `simple` label triggers a fast path
-  that skips planning and review.
+- **Autonomous & HITL execution** — `autonomous: true` cards run the full plan →
+  execute → document → review lifecycle with no gates; Human-in-the-Loop mode
+  opens a per-card chat pane to approve or redirect the agent, with one-click
+  promotion to autonomous. The `simple` label triggers a fast path that skips
+  planning and review.
 - **Global chat surface** — a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.
@@ -108,10 +108,10 @@ cd ~/boards/contextmatrix && git init
 
 Open `http://localhost:8080` for the web UI.
 
-On first start the log prints a one-time bootstrap link
-(`/auth/token/<token>`) — open it to create the admin account (multi-user
-login is the default). For a zero-login local setup, set `auth.mode: none` in
-`config.yaml` before starting. See [Multi-User Mode](#multi-user-mode).
+On first start the log prints a one-time bootstrap link (`/auth/token/<token>`)
+— open it to create the admin account (multi-user login is the default). For a
+zero-login local setup, set `auth.mode: none` in `config.yaml` before starting.
+See [Multi-User Mode](#multi-user-mode).
 
 ## Web UI
 
@@ -145,23 +145,23 @@ another user's password.
   the first account; that account is the instance admin. A restart with zero
   users mints a fresh link.
 - **Invites** — admins create accounts under **Admin → Users**; each new user
-  receives a copyable one-time link where they set their own password. The
-  same flow issues password-reset links.
-- **Roles** — one flat team plus a single `admin` flag. Admins manage users,
-  the GitHub credential pool, and project settings; every logged-in user gets
-  the full board: cards, claims, chat, and run triggers.
-- **Private chats** — chat sessions are private to their creator; admins get
-  a metadata-only management view (user menu → Chats) for ending or deleting
-  any session.
-- **Per-project GitHub credentials** — admins register PATs or GitHub Apps
-  under **Admin → Credentials** (validated against GitHub on save, encrypted
-  at rest); a project's settings bind one entry by name, scoping that
-  project's GitHub operations to it. Unbound projects use the instance-wide
-  `github.*` credential.
+  receives a copyable one-time link where they set their own password. The same
+  flow issues password-reset links.
+- **Roles** — one flat team plus a single `admin` flag. Admins manage users, the
+  GitHub credential pool, and project settings; every logged-in user gets the
+  full board: cards, claims, chat, and run triggers.
+- **Private chats** — chat sessions are private to their creator; admins get a
+  metadata-only management view (user menu → Chats) for ending or deleting any
+  session.
+- **Per-project GitHub credentials** — admins register PATs or GitHub Apps under
+  **Admin → Credentials** (validated against GitHub on save, encrypted at rest);
+  a project's settings bind one entry by name, scoping that project's GitHub
+  operations to it. Unbound projects use the instance-wide `github.*`
+  credential.
 - **Single-user opt-out** — set `auth.mode: none` in `config.yaml` (env:
-  `CONTEXTMATRIX_AUTH_MODE=none`) for the zero-login behavior — the right
-  choice for a laptop install. The trust model section in `CLAUDE.md`
-  describes how the two modes differ.
+  `CONTEXTMATRIX_AUTH_MODE=none`) for the zero-login behavior — the right choice
+  for a laptop install. The trust model section in `CLAUDE.md` describes how the
+  two modes differ.
 
 Two operator escape hatches run on the host against the configured `auth.db`:
 `contextmatrix auth reset-admin <username>` prints a password-reset link for a
@@ -248,9 +248,6 @@ scripts/install.sh
 # Only update the workflow-skills/ directory — config.yaml is not touched
 scripts/install.sh --update-workflow-skills
 
-# Add-only refresh of task-skills/ — never overwrites user edits
-scripts/install.sh --update-task-skills
-
 # Overwrite config.yaml even if it already exists (re-install)
 scripts/install.sh --force
 ```
@@ -264,9 +261,6 @@ scripts/install.sh --force
   exists, unless `--force`).
 - `workflow-skills/` — the lifecycle workflow skill files (create-plan,
   execute-task, review-task, etc.). Always refreshed.
-- `task-skills/` — curated specialist task skills (Go, TypeScript/React, etc.)
-  seeded on fresh install. Never overwritten afterwards (only
-  `--update-task-skills` adds missing entries).
 
 After a fresh install, edit `boards.dir` in
 `~/.config/contextmatrix/config.yaml` before starting the server.
@@ -295,46 +289,46 @@ block if `mcp_api_key` is empty.
 
 ### MCP Tools
 
-| Tool                        | Description                                                             |
-| --------------------------- | ----------------------------------------------------------------------- |
-| `add_log`                   | Append an activity log entry                                            |
-| `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating             |
-| `check_agent_health`        | Check health of subtask agents for a parent card                        |
-| `claim_card`                | Claim exclusive ownership of a card                                     |
-| `complete_task`             | Atomically log + transition to done + release                           |
-| `create_card`               | Create a card (returns generated ID)                                    |
-| `create_project`            | Create a new project board                                              |
-| `delete_project`            | Delete a project (must have zero cards)                                 |
-| `get_card`                  | Get a single card                                                       |
-| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                      |
-| `get_skill`                 | Get a skill prompt with injected card/project context                   |
-| `get_subtask_summary`       | Get subtask counts by state for a parent card                           |
-| `get_task_context`          | Get card + parent + siblings + project config in one call               |
-| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                          |
-| `increment_review_attempts` | Increment the review attempt counter on a card                          |
-| `list_cards`                | List cards with filters (state, type, label, agent, parent)             |
-| `list_projects`             | List all projects with configs                                          |
-| `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                          |
-| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                |
-| `release_card`              | Release a claim                                                         |
+| Tool                        | Description                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------ |
+| `add_log`                   | Append an activity log entry                                                         |
+| `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating                          |
+| `check_agent_health`        | Check health of subtask agents for a parent card                                     |
+| `claim_card`                | Claim exclusive ownership of a card                                                  |
+| `complete_task`             | Atomically log + transition to done + release                                        |
+| `create_card`               | Create a card (returns generated ID)                                                 |
+| `create_project`            | Create a new project board                                                           |
+| `delete_project`            | Delete a project (must have zero cards)                                              |
+| `get_card`                  | Get a single card                                                                    |
+| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                                   |
+| `get_skill`                 | Get a skill prompt with injected card/project context                                |
+| `get_subtask_summary`       | Get subtask counts by state for a parent card                                        |
+| `get_task_context`          | Get card + parent + siblings + project config in one call                            |
+| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                                       |
+| `increment_review_attempts` | Increment the review attempt counter on a card                                       |
+| `list_cards`                | List cards with filters (state, type, label, agent, parent)                          |
+| `list_projects`             | List all projects with configs                                                       |
+| `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                                       |
+| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                             |
+| `release_card`              | Release a claim                                                                      |
 | `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again |
-| `report_push`               | Report a git push for a card                                            |
-| `report_usage`              | Report token usage and estimated cost                                   |
-| `start_review`              | Atomically transition a card to review and return the review-task skill |
-| `start_workflow`            | Return the workflow skill for a card (routes by autonomous flag)        |
-| `transition_card`           | Change card state (validated against state machine)                     |
-| `update_card`               | Update card fields                                                      |
-| `update_project`            | Update project configuration                                            |
+| `report_push`               | Report a git push for a card                                                         |
+| `report_usage`              | Report token usage and estimated cost                                                |
+| `start_review`              | Atomically transition a card to review and return the review-task skill              |
+| `start_workflow`            | Return the workflow skill for a card (routes by autonomous flag)                     |
+| `transition_card`           | Change card state (validated against state machine)                                  |
+| `update_card`               | Update card fields                                                                   |
+| `update_project`            | Update project configuration                                                         |
 
 ### Slash Commands
 
 Skill files in `workflow-skills/` are served as MCP prompts, available as Claude
 Code slash commands:
 
-| Command                         | Argument      | Description                                                                                  |
+| Command                         | Argument      | Description                                                                                 |
 | ------------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
-| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview                                                    |
-| `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                               |
+| `/contextmatrix:create-task`    | `description` | Guided task creation with human interview                                                   |
+| `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                              |
 | `/contextmatrix:start-workflow` | `card_id`     | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
 
 Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
@@ -350,10 +344,10 @@ tool. The typical workflow:
 
 1. **Create** — `/contextmatrix:create-task` interviews the human and creates a
    card.
-2. **Start** — `/contextmatrix:start-workflow <card_id>` (or the `start_workflow`
-   MCP tool) drives the card through its full lifecycle. The orchestrator
-   inspects the card's `autonomous` flag and routes to either the HITL flow
-   (`create-plan`, with human approval gates) or the autonomous flow
+2. **Start** — `/contextmatrix:start-workflow <card_id>` (or the
+   `start_workflow` MCP tool) drives the card through its full lifecycle. The
+   orchestrator inspects the card's `autonomous` flag and routes to either the
+   HITL flow (`create-plan`, with human approval gates) or the autonomous flow
    (`run-autonomous`, no gates).
 
 Internally the orchestrator chains:
@@ -399,10 +393,11 @@ restrict transitions (e.g. forbid `done → todo`), and define types and
 priorities freely per project. **You cannot:** rename the six built-in state
 names or change their semantics without forking — there is no alias layer.
 
-If your workflow adds states the skills should drive into, copy `workflow-skills/`
-to a custom location, edit the relevant skills, and point `workflow_skills_dir`
-in `config.yaml` at your copy. The default skills are refreshed from the repo by
-`scripts/install.sh`; your custom directory is never touched.
+If your workflow adds states the skills should drive into, copy
+`workflow-skills/` to a custom location, edit the relevant skills, and point
+`workflow_skills_dir` in `config.yaml` at your copy. The default skills are
+refreshed from the repo by `scripts/install.sh`; your custom directory is never
+touched.
 
 ## Autonomous Mode
 
@@ -458,15 +453,15 @@ Task execution runs through one globally-selected backend in `config.yaml`:
   config). Executes cards only; pair it with
   **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)** to
   serve the chat surface.
-- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)**
-  — spawns containers running **Claude Code** headless with a Sonnet/Opus
+- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** —
+  spawns containers running **Claude Code** headless with a Sonnet/Opus
   orchestrator, and also serves the chat surface. **Deprecated (frozen):** it
   never gained multi-user support, so the default `auth.mode: multi` rejects it;
   it runs only in single-user `auth.mode: none`.
 
-The runner is mutually exclusive with the agent and chat backends. The go-forward
-topology is **agent + chat**; the legacy **runner alone** (tasks + chat) is
-single-user only. Restart to apply. See
+The runner is mutually exclusive with the agent and chat backends. The
+go-forward topology is **agent + chat**; the legacy **runner alone** (tasks +
+chat) is single-user only. Restart to apply. See
 [`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) for the parity
 audit and the enable recipe.
 
@@ -518,10 +513,11 @@ remote_execution:
 
 Triggering a run automatically enables `feature_branch` and `create_pr` on the
 card (both autonomous and HITL), so the container always works on a dedicated
-branch and opens a pull request. Cards track execution state via `runner_status`:
-`queued` → `running` → `completed`/`failed`/`killed`, surfaced as status badges
-in the UI. See [`docs/remote-execution.md`](docs/remote-execution.md) for the
-full architecture, webhook protocol, and security model.
+branch and opens a pull request. Cards track execution state via
+`runner_status`: `queued` → `running` → `completed`/`failed`/`killed`, surfaced
+as status badges in the UI. See
+[`docs/remote-execution.md`](docs/remote-execution.md) for the full
+architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
 
@@ -639,27 +635,43 @@ fine-grained PAT. SSH deploy keys are not supported. See
 ## Security
 
 ContextMatrix is designed for **self-hosted deployment on a trusted network**
-(LAN, VPN, or behind an authenticating reverse proxy). There is no per-user
-access control — anyone who can reach the API can access all projects and start
-autonomous runs if enabled.
+(LAN, VPN, or behind an authenticating reverse proxy). Even with multi-user
+login enabled, treat that network boundary as the primary control — the built-in
+auth is defense-in-depth, not a replacement for it.
+
+Security properties fork on `auth.mode` (details in
+[Multi-User Mode](#multi-user-mode)):
+
+- **`multi` (default)** — login required for essentially the whole API. Local
+  accounts with argon2id-hashed passwords, server-side sessions (tokens stored
+  only as SHA-256), and a single `admin` flag gating user, credential, and
+  project management. Identity derives from the session (`human:<username>`) and
+  is enforced on card ownership — the `X-Agent-ID` header is ignored for
+  logged-in users. The team is otherwise **flat**: every authenticated user gets
+  the full board (all projects, cards, chat, run triggers). The GitHub
+  credential pool is encrypted at rest.
+- **`none`** — single-tenant, zero-login: anyone who can reach the API is
+  trusted, and `X-Agent-ID` only tags writes for the audit trail. For a laptop
+  or a loopback/ACL-restricted host.
 
 ```
 Internet → [Reverse Proxy + TLS] → [ContextMatrix] → [Boards Git Repo]
 ```
 
-ContextMatrix does not include built-in TLS, authentication, or rate limiting;
-these are the responsibility of your reverse proxy (Nginx, Caddy, Cloudflare
-Tunnel, etc.).
+ContextMatrix ships no TLS termination — put a reverse proxy (Nginx, Caddy,
+Cloudflare Tunnel) in front for TLS in every deployment, which is also the right
+place for edge rate limiting. Never expose a `none`-mode instance to the
+internet without an authenticating proxy.
 
-- **REST API** — unauthenticated by default. Do not expose directly to the
-  internet without an authenticating proxy in front.
-- **MCP endpoint** (`/mcp`) — optional Bearer token authentication via
-  `mcp_api_key`. Strongly recommended for any non-localhost deployment.
+- **REST API** — session-authenticated in `multi`, unauthenticated in `none`.
+  Unsafe methods (`POST`/`PUT`/`PATCH`/`DELETE`) also require an
+  `X-Requested-With: contextmatrix` CSRF header, enforced in both modes.
+- **MCP endpoint** (`/mcp`) — optional Bearer-token auth via `mcp_api_key`,
+  honored in both modes; strongly recommended for any non-localhost deployment.
 - **Backend webhooks** — HMAC-SHA256 signed in both directions (ContextMatrix ↔
-  backend). The shared secret is never transmitted — only signatures are sent on
-  the wire.
-- **Agent identity** (`X-Agent-ID` header) — a coordination mechanism, not
-  cryptographic authentication. Agents are trusted participants.
+  backend); the shared secret is never transmitted, only signatures on the wire.
+- **Admin/debug listener** (pprof, `/metrics`) — bound to loopback (`127.0.0.1`)
+  by default (`admin_bind_addr`); binding it elsewhere logs a warning.
 
 For production deployment with Docker, Kubernetes, and external access, see
 [`docs/deployment-example.md`](docs/deployment-example.md).
@@ -687,8 +699,8 @@ self-hosted runner and read the Go toolchain version from `go.mod`.
   current directory, then in `~/.config/contextmatrix/config.yaml`. Run
   `make install-config` to create the default config.
 - **Boards directory errors** — `boards.dir` must point to an initialized git
-  repository (`mkdir -p ~/boards/contextmatrix && cd ~/boards/contextmatrix &&
-  git init`).
+  repository
+  (`mkdir -p ~/boards/contextmatrix && cd ~/boards/contextmatrix && git init`).
 - **MCP connection refused** — verify the server is running and the URL/port in
   your MCP config match. If `mcp_api_key` is set, add the matching
   `Authorization: Bearer …` header to your MCP config.

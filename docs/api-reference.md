@@ -1060,7 +1060,7 @@ task-skill fallback:
 
 | Value                                 | Meaning                                                           |
 | ------------------------------------- | ----------------------------------------------------------------- |
-| field omitted / `null`                | Clear: runner mounts the full curated task-skills set             |
+| field omitted / `null`                | Clear: the backend mounts the full task-skills set from `task_skills.dir` |
 | `[]` (empty array)                    | Mount no task skills for cards without an explicit `skills` field |
 | `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list            |
 

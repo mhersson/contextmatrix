@@ -242,7 +242,7 @@ List of task-skill names mounted into the worker container's `~/.claude/skills/`
 directory. Three states:
 
 - **field absent** (`nil`): inherit from project's `default_skills`, or mount
-  the full curated set if that's also unset.
+  the full set from `task_skills.dir` if that's also unset.
 - **`skills: []`**: explicit "no specialist skills for this card." Container's
   `~/.claude/skills/` is empty.
 - **`skills: [name1, name2]`**: constrain to this list. Only these are mounted.

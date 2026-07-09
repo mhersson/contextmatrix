@@ -202,10 +202,12 @@ boards:
   # Env: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
   git_remote_url: ""
 
-# Task-skills repository configuration. The curated set of specialist filesystem
-# skills (Go, TypeScript/React, etc.) that the runner mounts into worker
-# containers. NOT the same as workflow_skills_dir above — that one is the
-# lifecycle scaffolding handed to agents via MCP prompts.
+# Task-skills repository configuration. An operator-provided repo of specialist
+# filesystem skills (one SKILL.md per directory) that the active task backend
+# mounts into worker containers, engaged by sub-agents via the Skill tool. CM
+# ships no skills — point this at your own repo. NOT the same as
+# workflow_skills_dir above, which is the lifecycle scaffolding handed to agents
+# via MCP prompts.
 task_skills:
   # Path to the directory that holds the task-skills repo. When empty,
   # defaults to a "task-skills" directory next to this config file.

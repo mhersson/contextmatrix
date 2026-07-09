@@ -148,10 +148,11 @@ properties only — no palette-specific code, no hardcoded hex.
 - **Workflow skills** (`workflow-skills/`) — lifecycle scaffolding served via
   MCP prompts; drive _what_ the agent does. Keep them tight: actionable
   instructions only, no commentary.
-- **Task skills** (`task-skills/`) — curated `SKILL.md` files telling the agent
-  _how_ to do implementation work well. The runner bind-mounts them into the
-  worker; the agent mounts them read-only from a `{git_remote_url, ref}`
-  pointer. See `docs/agent-workflow.md` § Task skills.
+- **Task skills** — operator-provided `SKILL.md` files telling the agent _how_ to
+  do implementation work well. CM ships none: point `task_skills.dir` (optionally
+  git-backed) at your own repo. The agent/chat clone the `{git_remote_url, ref}`
+  pointer CM derives from it; the frozen runner bind-mounts a local copy. See
+  `docs/agent-workflow.md` § Task skills.
 
 ### Documentation
 

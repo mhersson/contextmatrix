@@ -156,10 +156,11 @@ return an error.
 ## Task skills
 
 In addition to the workflow skills served via MCP prompts (lifecycle
-scaffolding), the runner mounts a curated set of **task skills** at
-`~/.claude/skills/` in the worker container. These are standard Claude Code
-skills with `SKILL.md` files, discovered by the model via the native Skill tool
-and engaged when their descriptions match the work being done.
+scaffolding), the active task backend mounts a set of operator-provided **task
+skills** at `~/.claude/skills/` in the worker container. These are standard
+Claude Code skills with `SKILL.md` files, discovered by the model via the native
+Skill tool and engaged when their descriptions match the work being done. CM
+ships no skills — operators point `task_skills.dir` at their own repo.
 
 ### Two-channel design
 
@@ -180,7 +181,7 @@ trigger time:
 
 1. `card.skills` if set (including explicit empty);
 2. else `project.default_skills` if set;
-3. else mount the full curated set from `task_skills.dir` (the `dir` subfield of
+3. else mount the full set from `task_skills.dir` (the `dir` subfield of
    the `task_skills` config object).
 
 ### Engagement scoping
@@ -220,14 +221,45 @@ matching skills. Engagement is reported via MCP `add_log action=skill_engaged`
 (Path A — the same `RecordSkillEngaged` recording and dedup that the runner's
 callback feeds).
 
-### Description-writing convention
+### Authoring convention
 
-Skills are engaged by description match. Authors should anchor descriptions in
-**observable activities and file types**, not subject areas. See
-[`task-skills/README.md`](../task-skills/README.md) in this repo for the full
-convention. Operators who maintain their own task-skills directory (configured
-via `task_skills.dir`) typically keep an analogous README alongside their
-skills.
+Task-skills are operator-provided — CM ships none. Point `task_skills.dir`
+(optionally git-backed via `task_skills.git_remote_url`) at your own repo, laid
+out as one directory per skill **at the repo root**. The directory name is the
+skill name (referenced in `card.skills` and `project.default_skills`); flat, no
+nesting:
+
+```
+go-development/SKILL.md
+typescript-react/SKILL.md
+...
+```
+
+Skills are engaged by description match, so anchor each `description` in
+**observable activities and file types**, not subject areas — a topic-shaped
+description ("Go programming guidance") engages too eagerly; a task-shaped one
+("Use when implementing or modifying Go source files") engages on real work.
+
+Each `SKILL.md` is YAML frontmatter + a markdown body:
+
+```markdown
+---
+name: <skill-name-matching-dir-name>
+description: Use when <observable activity>...
+---
+
+You are a <role>.
+
+## When working on <activity>:
+
+- Concrete pattern 1
+- Concrete pattern 2
+```
+
+Optional frontmatter `allowed-tools: [Read, Write]` narrows the active tool set
+when the skill is engaged (it never broadens). Push changes to your remote: the
+frozen runner does `git pull --ff-only` before each `/trigger`, and the
+agent/chat re-clone from the `{git_remote_url, ref}` pointer CM derives.
 
 ## Slash command interface
 

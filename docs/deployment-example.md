@@ -254,7 +254,7 @@ spec:
                 secretKeyRef:
                   name: contextmatrix-secrets
                   key: mcp-api-key
-            # Optional: enable curated task-skills (must point at a writable
+            # Optional: enable task-skills (must point at a writable
             # directory if git_clone_on_empty is enabled).
             # - name: CONTEXTMATRIX_TASK_SKILLS_DIR
             #   value: /data/task-skills
@@ -288,7 +288,7 @@ No SSH key volume is needed. The same `github-token` secret value is used for
 both boards git operations and issue import.
 
 **Task-skills:** the image does not bake task-skills into a fixed path. To
-enable the curated task-skills feature, set `CONTEXTMATRIX_TASK_SKILLS_DIR` to a
+enable the task-skills feature, set `CONTEXTMATRIX_TASK_SKILLS_DIR` to a
 writable directory and provide a volume for it. If
 `CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY=true` is set, ContextMatrix will
 clone the repo at startup; otherwise mount a pre-populated volume.
