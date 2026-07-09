@@ -35,8 +35,9 @@ If `Complexity: simple`:
 1. Claim the card: `claim_card(card_id, agent_id)`.
 2. Create or switch to the feature branch (if `branch_name` is set).
 3. Execute the work directly — make the changes described in the card body.
-4. Run tests (`make test` or the project's test command). If tests fail, fix
-   and retry once. If still failing, report blocked and stop.
+4. Run the project's test command (from the repo's own instructions or CI
+   config). If tests fail, fix and retry once. If still failing, report blocked
+   and stop.
 5. Commit with a conventional commit message. Push to the feature branch.
 6. Create a PR if `create_pr` is enabled (use `gh pr create`). If the card has
    a `base_branch` field set in its context, use `gh pr create --base <base_branch>`

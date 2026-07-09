@@ -16,9 +16,10 @@ outside of `update_card` and `add_log`.**
 
 ## Specialist skills
 
-Specialist skills may be available at `~/.claude/skills/` (Go,
-TypeScript/React, Python, etc.). Engage them via the Skill tool when their
-descriptions match the codebase you are investigating.
+Specialist skills may be available at `~/.claude/skills/`. Engage whichever match
+your work — their descriptions say when they apply. When you engage a skill for the first time in your session, call
+`add_log(action="skill_engaged", message="engaged <skill-name>")`. This prompt's
+rules take precedence over skill guidance.
 
 ## Log engagement (first action)
 
