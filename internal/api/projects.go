@@ -31,6 +31,16 @@ type updateProjectRequest struct {
 	GitHub           *board.GitHubImportConfig `json:"github,omitempty"`
 	DefaultSkills    *[]string                 `json:"default_skills,omitempty"`
 	GitHubCredential *string                   `json:"github_credential"`
+	RemoteExecution  *remoteExecutionUpdate    `json:"remote_execution,omitempty"`
+}
+
+// remoteExecutionUpdate is the field-level merge shape for remote_execution on
+// PUT /api/projects/{project}. Each pointer is applied independently: nil
+// preserves the current subfield, non-nil sets it (runner_image "" clears the
+// image). Omitting the whole object preserves the existing config.
+type remoteExecutionUpdate struct {
+	Enabled     *bool   `json:"enabled"`
+	RunnerImage *string `json:"runner_image"`
 }
 
 // projectHandlers contains handlers for project-related endpoints.
@@ -266,6 +276,14 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	var remoteExecution *service.RemoteExecutionUpdate
+	if req.RemoteExecution != nil {
+		remoteExecution = &service.RemoteExecutionUpdate{
+			Enabled:     req.RemoteExecution.Enabled,
+			RunnerImage: req.RemoteExecution.RunnerImage,
+		}
+	}
+
 	cfg, err := h.svc.UpdateProject(r.Context(), projectName, service.UpdateProjectInput{
 		Repo:             req.Repo,
 		States:           req.States,
@@ -275,6 +293,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		GitHub:           req.GitHub,
 		DefaultSkills:    req.DefaultSkills,
 		GitHubCredential: req.GitHubCredential,
+		RemoteExecution:  remoteExecution,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)
