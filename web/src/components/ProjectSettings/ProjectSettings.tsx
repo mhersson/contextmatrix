@@ -224,13 +224,17 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // Only send verify when it changed from the loaded config. The server
         // replaces the whole struct and normalizes a zero-value object to nil,
         // so clearing every field here clears the project's verify config; an
-        // untouched save omits the key and preserves it.
+        // untouched save omits the key and preserves it. env is included only
+        // when it has names: a project has nothing to inherit, so an empty env
+        // is "no env" — omitting the key keeps `env: []` out of .board.yaml
+        // (the server preserves a non-nil empty env for the card-override path,
+        // which this project-level form never sends).
         ...(verifyToString(verify) !== verifyToString(config?.verify)
           ? {
               verify: {
                 command: verify.command ?? '',
                 timeout_seconds: verify.timeout_seconds ?? 0,
-                env: verify.env ?? [],
+                ...(verify.env && verify.env.length > 0 ? { env: verify.env } : {}),
               },
             }
           : {}),

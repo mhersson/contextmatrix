@@ -295,6 +295,29 @@ describe('ProjectSettings — handleSave payload construction for verify', () =>
 
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
     const [, body] = mocks.updateProject.mock.calls[0];
-    expect(body.verify).toEqual({ command: '', timeout_seconds: 0, env: [] });
+    // A zero-value verify object clears it on the server; env is omitted (empty
+    // env carries no intent at the project level).
+    expect(body.verify).toEqual({ command: '', timeout_seconds: 0 });
+    expect(body.verify).not.toHaveProperty('env');
+  });
+
+  it('command only: omits env from the verify object so .board.yaml stays clean', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), {
+      target: { value: 'make test' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.verify).toEqual({ command: 'make test', timeout_seconds: 0 });
+    expect(body.verify).not.toHaveProperty('env');
   });
 });
