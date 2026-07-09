@@ -307,6 +307,13 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
 	}
 
+	// Verify is an agent-backend-only field: CM resolves card-over-project and
+	// sends it so the agent's verify gate uses the operator-declared command.
+	// The frozen runner backend never receives it (nil), matching BestOfN.
+	if h.backendCfg.Name == config.BackendNameAgent {
+		payload.Verify = resolveVerify(card.Verify, projectCfg.Verify)
+	}
+
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
 	}
@@ -1261,6 +1268,22 @@ func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project strin
 	}
 
 	return h.runner != nil
+}
+
+// resolveVerify merges a card's verify config over its project's (field-level,
+// via board.ResolveVerify) and maps the result to the wire type. Returns nil
+// when nothing resolves, so the agent falls back to its own detection.
+func resolveVerify(card, project *board.VerifyConfig) *protocol.VerifyConfig {
+	merged := board.ResolveVerify(card, project)
+	if merged == nil {
+		return nil
+	}
+
+	return &protocol.VerifyConfig{
+		Command:        merged.Command,
+		TimeoutSeconds: merged.TimeoutSeconds,
+		Env:            merged.Env,
+	}
 }
 
 // mergeFavorites flattens global+project per-tier favorites into wire rules.

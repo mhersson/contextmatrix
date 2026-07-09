@@ -1,0 +1,154 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/service"
+)
+
+const boardConfigWithVerify = `name: test-project
+prefix: TEST
+next_id: 1
+repo: https://github.com/example/project.git
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task, bug, feature]
+priorities: [low, medium, high]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: my-runner:latest
+verify:
+  command: make test
+  timeout_seconds: 600
+  env: [JAVA_HOME]
+`
+
+// triggerVerifyPayload runs a card and captures the TriggerPayload the backend
+// received. backendName selects the backend (agent vs runner).
+func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, backendName, cardID string) runner.TriggerPayload {
+	t.Helper()
+
+	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
+
+	var capturedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	t.Cleanup(mockRunner.Close)
+
+	runnerClient := runner.NewClient(mockRunner.URL, apiKey)
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{
+			APIKey:       apiKey,
+			Name:         backendName,
+			DefaultModel: "openrouter/auto",
+		},
+	})
+
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	req, _ := http.NewRequest(http.MethodPost,
+		server.URL+"/api/projects/test-project/cards/"+cardID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	return capturedPayload
+}
+
+// TestRunCard_VerifyResolution covers the resolved verify in the TriggerPayload:
+// project-only, card-over-project field merge, and the agent-backend-only gate.
+func TestRunCard_VerifyResolution(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("project verify sent for agent backend", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "project verify", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+
+		require.NotNil(t, payload.Verify)
+		assert.Equal(t, "make test", payload.Verify.Command)
+		assert.Equal(t, 600, payload.Verify.TimeoutSeconds)
+		assert.Equal(t, []string{"JAVA_HOME"}, payload.Verify.Env)
+	})
+
+	t.Run("card verify merges over project field by field", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
+		defer cleanup()
+
+		// Card overrides the command only; timeout and env fall through to project.
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "card verify", Type: "task", Priority: "medium",
+			Verify: &board.VerifyConfig{Command: "go test ./..."},
+		})
+		require.NoError(t, err)
+
+		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+
+		require.NotNil(t, payload.Verify)
+		assert.Equal(t, "go test ./...", payload.Verify.Command, "card command wins")
+		assert.Equal(t, 600, payload.Verify.TimeoutSeconds, "project timeout falls through")
+		assert.Equal(t, []string{"JAVA_HOME"}, payload.Verify.Env, "project env falls through")
+	})
+
+	t.Run("runner backend never receives verify", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "runner verify", Type: "task", Priority: "medium",
+			Verify: &board.VerifyConfig{Command: "go test ./..."},
+		})
+		require.NoError(t, err)
+
+		payload := triggerVerifyPayload(t, svc, bus, "runner", card.ID)
+
+		assert.Nil(t, payload.Verify, "the frozen runner backend must never receive verify")
+	})
+
+	t.Run("no verify anywhere yields nil for agent backend", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "no verify", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+
+		assert.Nil(t, payload.Verify)
+	})
+}
