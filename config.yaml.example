@@ -230,14 +230,19 @@ task_skills:
 # names; each name implies a distinct role:
 #
 #   runner — contextmatrix-runner: executes cards AND serves global chat.
-#            Mutually exclusive with agent and chat — runner already covers both
-#            roles, so mixing them is an error.
-#   agent  — contextmatrix-agent: executes cards only (no chat).
-#   chat   — contextmatrix-chat: serves global chat only (not yet released).
+#            DEPRECATED (frozen): never gained multi-user support, so
+#            auth.mode: multi (the default) rejects it at startup — usable only
+#            in single-user auth.mode: none. Mutually exclusive with agent and
+#            chat.
+#   agent  — contextmatrix-agent: executes cards only (no chat). The go-forward
+#            task backend; pair with chat for the chat surface.
+#   chat   — contextmatrix-chat: serves global chat only.
 #
 # Roles and callback paths are derived from the entry name. CM picks:
 #   task backend  → runner (if enabled) else agent (if enabled)
 #   chat backend  → runner (if enabled) else chat (if enabled)
+# In the default auth.mode: multi the runner is rejected, so this reduces to
+# agent (tasks) + chat (chat).
 #
 # Callback paths are derived as /api/<name> (e.g. /api/runner, /api/agent).
 # The browser-facing /api/runner/logs and /api/runner/health endpoints are
@@ -300,12 +305,14 @@ backends: {}
 #    reconcile_interval: "60s"
 #
 #  agent:
-#    # contextmatrix-agent: card execution only (no chat). At v1 parity with
-#    # the runner (see docs/agent-backend-parity.md). Mutually exclusive with
-#    # runner; use agent when runner is disabled.
+#    # contextmatrix-agent: card execution only (no chat). The go-forward task
+#    # backend (see docs/agent-backend-parity.md for the runner parity audit).
+#    # Drives models over OpenRouter or any OpenAI-compatible gateway (set the
+#    # inference endpoint via llm_endpoint above). Mutually exclusive with the
+#    # runner.
 #    url: "http://localhost:9092"
 #    api_key: ""
-#    enabled: false  # flip to true and set runner: enabled: false to switch (restart CM to apply)
+#    enabled: false  # flip to true to enable the agent (restart CM to apply)
 #
 #    # Default orchestrator model for the agent backend — any OpenRouter slug.
 #    # Per-card pins override it. The complexity selector picks coder/reviewer

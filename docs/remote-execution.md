@@ -6,8 +6,9 @@ Autonomous mode checkbox). The workflow is executed by a separate binary
 (**contextmatrix-runner**) that spawns disposable Docker containers with Claude
 Code.
 
-**contextmatrix-agent** is the go-forward task backend — an OpenRouter-backed Go
-harness that runs in the worker container instead of Claude Code. Selection is
+**contextmatrix-agent** is the go-forward task backend — a Go harness that runs
+in the worker container instead of Claude Code, driving models over OpenRouter or
+any OpenAI-compatible gateway (set via CM's `llm_endpoint`). Selection is
 instance-wide — exactly one task backend is active at a time, and `auth.mode:
 multi` (the default) rejects the now-frozen runner at startup. Much of this
 document still describes the runner, which is **deprecate-frozen** and runs only

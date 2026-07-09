@@ -27,13 +27,15 @@ remote, unattended, or chat execution.
 | Repository                                                                 | Role                                                                                                                                                              |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo) | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                  |
-| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | Default all-in-one backend. Runs cards by spawning disposable Docker containers running **Claude Code** headless, and serves the global chat surface.            |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Alternative task backend — a custom Go harness on **OpenRouter** with per-role model selection, at v1 parity with the runner. Executes cards only.               |
-| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent. _Unreleased; under heavy development._         |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Primary task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.               |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.         |
+| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | **Deprecated (frozen).** All-in-one backend running **Claude Code** headless plus the chat surface. Never gained multi-user support, so the default `auth.mode: multi` rejects it; single-user `none` mode only.            |
 
-Pick one of two backend topologies: the **runner alone** (handles tasks *and*
-chat), or the **agent + chat** pair (agent runs cards, chat serves chat). The
-runner is mutually exclusive with the agent and chat backends.
+The go-forward topology is the **agent + chat** pair: the agent runs cards and
+chat serves the `/chat` surface. The legacy **runner alone** topology (one binary
+for tasks *and* chat) runs only in single-user `auth.mode: none` — the default
+`auth.mode: multi` rejects the frozen runner at startup. The runner is mutually
+exclusive with the agent and chat backends.
 
 Three shared Go modules underpin the services:
 **[contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)**
@@ -59,8 +61,9 @@ Three shared Go modules underpin the services:
 - **MCP-first agent interface** — 28 MCP tools and 3 slash commands give agents
   structured access to the board. Agents work through MCP, never the REST API.
 - **Pluggable execution backends** — trigger work from the UI and a backend runs
-  it in a sandboxed Docker container: the **runner** (Claude Code headless) or
-  the **agent** (a Go harness on OpenRouter). Swap them with one config change.
+  it in a sandboxed Docker container: the **agent** (a Go harness on OpenRouter
+  or any OpenAI-compatible gateway), paired with **chat** for the chat surface.
+  The legacy **runner** (Claude Code headless) is frozen and single-user only.
 - **Autonomous & HITL execution** — `autonomous: true` cards run the full
   plan → execute → document → review lifecycle with no gates; Human-in-the-Loop
   mode opens a per-card chat pane to approve or redirect the agent, with
@@ -447,21 +450,23 @@ heartbeat, and report progress. Each container is sandboxed from the host — no
 access to your filesystem or other processes — and destroyed when the task
 finishes or fails, so remote execution is safe to run unattended.
 
-Two task backends exist, at v1 parity, selected globally in `config.yaml`:
+Task execution runs through one globally-selected backend in `config.yaml`:
 
-- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)**
-  (default) — spawns containers running **Claude Code** headless, with a
-  Sonnet/Opus orchestrator. It also serves the global chat surface, so the
-  runner alone covers both tasks and chat.
-- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** — a
-  custom Go harness backed by **OpenRouter** with per-role model selection.
-  Executes cards only; pair it with
+- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**
+  (go-forward) — a custom Go harness with per-role model selection over
+  **OpenRouter** or any OpenAI-compatible gateway (set via the `llm_endpoint`
+  config). Executes cards only; pair it with
   **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)** to
   serve the chat surface.
+- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)**
+  — spawns containers running **Claude Code** headless with a Sonnet/Opus
+  orchestrator, and also serves the chat surface. **Deprecated (frozen):** it
+  never gained multi-user support, so the default `auth.mode: multi` rejects it;
+  it runs only in single-user `auth.mode: none`.
 
-The runner is mutually exclusive with the agent and chat backends. Pick one
-topology — **runner alone** (tasks + chat) or **agent + chat** — and restart to
-apply. See
+The runner is mutually exclusive with the agent and chat backends. The go-forward
+topology is **agent + chat**; the legacy **runner alone** (tasks + chat) is
+single-user only. Restart to apply. See
 [`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) for the parity
 audit and the enable recipe.
 
@@ -494,10 +499,11 @@ sequenceDiagram
 ```yaml
 # config.yaml
 backends:
-  runner: # or `agent:` with url / api_key / enabled / default_model
-    url: "http://localhost:9090" # backend base URL
+  agent: # go-forward task backend (the runner is frozen; multi mode rejects it)
+    url: "http://localhost:9092" # backend base URL
     api_key: "your-secret-key-min-32ch" # shared HMAC secret (min 32 chars)
     enabled: true
+    default_model: "deepseek/deepseek-v4-flash" # OpenRouter slug; per-card pins override
 mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
 ```
 
@@ -608,15 +614,16 @@ boards:
 
 # Optional: enable a remote-execution backend (see "Remote Execution & Backends")
 backends:
-  runner:
-    url: "http://localhost:9090"
+  agent:
+    url: "http://localhost:9092"
     api_key: "your-shared-secret-min-32-chars"
     enabled: true
+    default_model: "deepseek/deepseek-v4-flash"
 ```
 
 Every field has a `CONTEXTMATRIX_*` environment override (e.g.
 `CONTEXTMATRIX_PORT`, `CONTEXTMATRIX_BOARDS_DIR`,
-`CONTEXTMATRIX_BACKEND_RUNNER_URL`). Token cost rates (`token_costs`), GitHub
+`CONTEXTMATRIX_BACKEND_AGENT_URL`). Token cost rates (`token_costs`), GitHub
 auth, chat limits, image storage, and the operational store (`op_store.db_path`,
 which holds chat transcripts and the model blacklist) are all documented in
 `config.yaml.example`.

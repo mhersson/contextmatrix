@@ -38,7 +38,7 @@ GET    /api/runner/health                              # proxied runner /health 
 GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; task-backend required)
 # /api/agent/* — callback path when the agent entry is the active task backend
-# /api/chat/*  — reserved for contextmatrix-chat (not yet released)
+# /api/chat/*  — callback path when the chat entry is the active chat backend
 
 GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers (bearer-authed, not HMAC; chat backend + manager required)
 

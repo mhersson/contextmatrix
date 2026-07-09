@@ -1,7 +1,8 @@
 # Agent backend — v1 parity
 
-`contextmatrix-agent` is the go-forward **task** backend — an OpenRouter-backed
-Go harness that executes cards with a hand-written orchestrator FSM. It reached
+`contextmatrix-agent` is the go-forward **task** backend — a Go harness that
+executes cards with a hand-written orchestrator FSM, driving models over
+OpenRouter or any OpenAI-compatible gateway (set via CM's `llm_endpoint`). It reached
 and exceeded feature parity with `contextmatrix-runner` before the runner was
 frozen. This page records that parity audit and how to select the agent.
 

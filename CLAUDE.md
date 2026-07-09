@@ -5,9 +5,10 @@
 ContextMatrix is a kanban-style task coordination system for AI agents and
 humans. Cards are markdown files with YAML frontmatter, stored in a git
 repository. It exposes a REST API, an MCP server, and a web UI for managing
-tasks across projects. Cards are executed by `contextmatrix-agent`, an
-OpenRouter-backed multi-model Go harness that claims a card, works it in a
-separate project repo, and reports progress back to the board over MCP. Humans
+tasks across projects. Cards are executed by `contextmatrix-agent`, a
+multi-model Go harness — driving OpenRouter or any OpenAI-compatible gateway —
+that claims a card, works it in a separate project repo, and reports progress
+back to the board over MCP. Humans
 drive the same board through the web UI. The older `contextmatrix-runner`
 backend (Claude Code headless in disposable Docker containers) is frozen: it
 predates the multi-user feature, gained no multi-user support, and receives no
@@ -84,7 +85,7 @@ internal/mcp/              → MCP server: tools + prompts
 internal/runner/           → webhook client for task backends (runner and agent)
 internal/chat/             → chat session manager, SSE hub, runner-log bridge (persists via opstore)
 internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive
-internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter)
+internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
 internal/images/           → content-hashed image blob store (pasted/dropped screenshots)
