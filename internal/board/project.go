@@ -48,16 +48,19 @@ type ProjectConfig struct {
 	// GitHub operations for this project use (multi-user mode). Empty means
 	// the instance github.* credential — the pre-multi-user behavior. A
 	// reference only; never secret material.
-	GitHubCredential string                   `yaml:"github_credential,omitempty" json:"github_credential,omitempty"`
-	States           []string                 `yaml:"states" json:"states"`
-	Types            []string                 `yaml:"types" json:"types"`
-	Priorities       []string                 `yaml:"priorities" json:"priorities"`
-	Transitions      map[string][]string      `yaml:"transitions" json:"transitions"`
-	RemoteExecution  *RemoteExecutionConfig   `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
-	GitHub           *GitHubImportConfig      `yaml:"github,omitempty"           json:"github,omitempty"`
-	DefaultSkills    *[]string                `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
-	Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
-	Templates        map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
+	GitHubCredential string                 `yaml:"github_credential,omitempty" json:"github_credential,omitempty"`
+	States           []string               `yaml:"states" json:"states"`
+	Types            []string               `yaml:"types" json:"types"`
+	Priorities       []string               `yaml:"priorities" json:"priorities"`
+	Transitions      map[string][]string    `yaml:"transitions" json:"transitions"`
+	RemoteExecution  *RemoteExecutionConfig `yaml:"remote_execution,omitempty" json:"remote_execution,omitempty"`
+	GitHub           *GitHubImportConfig    `yaml:"github,omitempty"           json:"github,omitempty"`
+	DefaultSkills    *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
+	// Verify is the operator-declared verify gate every card in this project
+	// inherits unless the card overrides it. See VerifyConfig / ResolveVerify.
+	Verify    *VerifyConfig            `yaml:"verify,omitempty"           json:"verify,omitempty"`
+	Favorites map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
+	Templates map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
 }
 
 var (
