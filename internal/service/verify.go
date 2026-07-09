@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -130,10 +131,11 @@ func normalizeVerify(v *board.VerifyConfig) *board.VerifyConfig {
 	out := board.VerifyConfig{
 		Command:        strings.TrimSpace(v.Command),
 		TimeoutSeconds: v.TimeoutSeconds,
-	}
-
-	if len(v.Env) > 0 {
-		out.Env = append([]string(nil), v.Env...)
+		// slices.Clone preserves nil vs non-nil-empty: a non-nil empty Env is a
+		// card's explicit "override to clear" (drop the project's env), distinct
+		// from a nil Env (inherit the project's). board.ResolveVerify honors that
+		// distinction, so normalization must not collapse it.
+		Env: slices.Clone(v.Env),
 	}
 
 	if out.IsZero() {

@@ -18,6 +18,31 @@ func (v *VerifyConfig) IsZero() bool {
 	return v == nil || (v.Command == "" && v.TimeoutSeconds == 0 && len(v.Env) == 0)
 }
 
+// MarshalYAML emits env whenever it is non-nil — including an explicit empty
+// list — so a card's "override to clear env" (env: []) survives the YAML
+// round-trip distinguishably from an absent env (inherit the project's). A
+// struct with `yaml:"env,omitempty"` cannot express this: omitempty drops a
+// non-nil empty slice, collapsing override-to-clear into inherit on reload.
+// Unmarshal needs no custom hook — the default already reads `env: []` as a
+// non-nil empty slice and an absent key as nil.
+func (v VerifyConfig) MarshalYAML() (any, error) {
+	out := map[string]any{}
+
+	if v.Command != "" {
+		out["command"] = v.Command
+	}
+
+	if v.TimeoutSeconds != 0 {
+		out["timeout_seconds"] = v.TimeoutSeconds
+	}
+
+	if v.Env != nil {
+		out["env"] = v.Env
+	}
+
+	return out, nil
+}
+
 // ResolveVerify merges a card's verify config over its project's, field by
 // field: Command is the card's when non-empty else the project's;
 // TimeoutSeconds is the card's when > 0 else the project's; Env is the card's

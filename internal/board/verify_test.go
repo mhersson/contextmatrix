@@ -147,6 +147,46 @@ func TestVerifyConfig_CardYAMLRoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"CGO_ENABLED"}, parsed.Verify.Env)
 }
 
+// TestVerifyConfig_EmptyEnvYAMLRoundTrip pins that a non-nil empty Env survives
+// the card YAML round-trip distinguishably from an absent Env, so a card's
+// "override to clear env" is not silently collapsed into "inherit" on reload.
+func TestVerifyConfig_EmptyEnvYAMLRoundTrip(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	card := &Card{
+		ID: "TEST-001", Title: "override to clear", Project: "p", Type: "task",
+		State: "todo", Priority: "medium",
+		Verify:  &VerifyConfig{Command: "go test ./...", Env: []string{}},
+		Created: now, Updated: now, Body: "b",
+	}
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "env: []", "explicit empty env must be written to YAML")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	require.NotNil(t, parsed.Verify)
+	require.NotNil(t, parsed.Verify.Env, "empty env must round-trip as non-nil (override), not absent")
+	assert.Empty(t, parsed.Verify.Env)
+
+	// A card with no env at all must round-trip as nil (inherit), distinct
+	// from the empty-override case above.
+	inherit := &Card{
+		ID: "TEST-002", Title: "inherit", Project: "p", Type: "task",
+		State: "todo", Priority: "medium",
+		Verify:  &VerifyConfig{Command: "go test ./..."},
+		Created: now, Updated: now, Body: "b",
+	}
+	data, err = SerializeCard(inherit)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "env:", "absent env must not be written")
+
+	parsed, err = ParseCard(data)
+	require.NoError(t, err)
+	require.NotNil(t, parsed.Verify)
+	assert.Nil(t, parsed.Verify.Env, "absent env must round-trip as nil (inherit)")
+}
+
 func TestVerifyConfig_OmittedFromYAMLWhenNil(t *testing.T) {
 	dir := t.TempDir()
 

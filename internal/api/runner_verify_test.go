@@ -123,6 +123,30 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		assert.Equal(t, []string{"JAVA_HOME"}, payload.Verify.Env, "project env falls through")
 	})
 
+	t.Run("card empty-env override clears the project env in the payload", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "empty env override", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		// PATCH the card to explicitly clear env (non-nil empty) while inheriting
+		// the project's command/timeout.
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{
+			Verify: &board.VerifyConfig{Command: "go test ./...", Env: []string{}},
+		})
+		require.NoError(t, err)
+
+		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+
+		require.NotNil(t, payload.Verify)
+		assert.Equal(t, "go test ./...", payload.Verify.Command)
+		assert.Empty(t, payload.Verify.Env, "card's empty-env override must clear the project env")
+		assert.NotContains(t, payload.Verify.Env, "JAVA_HOME", "project env must not leak through an override-to-clear")
+	})
+
 	t.Run("runner backend never receives verify", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
 		defer cleanup()

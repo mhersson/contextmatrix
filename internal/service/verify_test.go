@@ -101,6 +101,19 @@ func TestNormalizeVerify(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, 300, got.TimeoutSeconds)
 	})
+
+	t.Run("non-nil empty env is preserved as override-to-clear", func(t *testing.T) {
+		got := normalizeVerify(&board.VerifyConfig{Command: "go test", Env: []string{}})
+		require.NotNil(t, got)
+		require.NotNil(t, got.Env, "non-nil empty env must survive normalization (override to clear)")
+		assert.Empty(t, got.Env)
+	})
+
+	t.Run("nil env stays nil (inherit)", func(t *testing.T) {
+		got := normalizeVerify(&board.VerifyConfig{Command: "go test"})
+		require.NotNil(t, got)
+		assert.Nil(t, got.Env, "nil env must stay nil so the card inherits the project's")
+	})
 }
 
 // repeatName returns n distinct valid env names sharing a base prefix.
