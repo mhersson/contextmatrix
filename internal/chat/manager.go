@@ -75,8 +75,15 @@ type StartChatOpts struct {
 	SessionID string
 	Project   string
 	RepoURL   string
-	Model     string
-	Resume    *ResumeContext
+	// RunnerImage is the project's remote_execution.runner_image — the
+	// per-project toolchain image the chat container should run. Empty means
+	// "use the chat backend's configured base_image". Chat applies it
+	// regardless of remote_execution.enabled: enabled gates autonomous card
+	// execution, whereas the image answers "what toolchain does this project
+	// need", which is identical for interactive sessions.
+	RunnerImage string
+	Model       string
+	Resume      *ResumeContext
 	// Primer is the chat-mode orientation text written to the container's
 	// stdin as a stream-json user envelope before any rehydration priming.
 	// Empty string means "no primer" — runner skips the write. Sourced
@@ -97,6 +104,14 @@ type StartChatOpts struct {
 	GitCredentialsToken string
 }
 
+// ProjectExecInfo carries the per-project execution inputs a cold open needs:
+// the repo URL to clone and the runner image (toolchain) to run. Either field
+// is empty when the project omits it.
+type ProjectExecInfo struct {
+	RepoURL     string
+	RunnerImage string
+}
+
 // Config carries Manager dependencies.
 type Config struct {
 	Store   Store
@@ -111,9 +126,11 @@ type Config struct {
 	// publishes a user echo so the originator sees their own message in
 	// the transcript without depending on a runner-side log round-trip.
 	Hub *SSEHub
-	// ResolveRepoURL returns the repo URL for a project, or "" if the
-	// project has no repo. Caller wires this from service.CardService.GetProject.
-	ResolveRepoURL func(ctx context.Context, project string) (string, error)
+	// ResolveProjectExec returns the execution inputs (repo URL and
+	// per-project runner image) for a project in a single lookup per cold
+	// open. Either field may be empty when the project omits it. Caller wires
+	// this from service.CardService.GetProject.
+	ResolveProjectExec func(ctx context.Context, project string) (ProjectExecInfo, error)
 
 	// ResumeBudgetTokens caps the rehydration payload size passed to
 	// transcript.Build on cold-reopen. Zero falls back to
@@ -171,7 +188,7 @@ type Manager struct {
 	maxConcurrent      int
 	logger             *slog.Logger
 	hub                *SSEHub
-	resolveRepoURL     func(ctx context.Context, project string) (string, error)
+	resolveProjectExec func(ctx context.Context, project string) (ProjectExecInfo, error)
 	resumeBudgetTokens int
 	rehydrationTimeout time.Duration
 	defaultModel       string
@@ -265,7 +282,7 @@ func NewManager(cfg Config) *Manager {
 		maxConcurrent:          cfg.MaxConcurrent,
 		logger:                 cfg.Logger,
 		hub:                    cfg.Hub,
-		resolveRepoURL:         cfg.ResolveRepoURL,
+		resolveProjectExec:     cfg.ResolveProjectExec,
 		resumeBudgetTokens:     cfg.ResumeBudgetTokens,
 		rehydrationTimeout:     cfg.RehydrationTimeout,
 		defaultModel:           cfg.DefaultModel,
@@ -1266,14 +1283,14 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 // coldPrep gathers the inputs needed by runner.StartChat for a cold open.
 // Returns the options struct and an error if any preparatory step failed.
 func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
-	var repoURL string
+	var execInfo ProjectExecInfo
 
-	if sess.Project != "" && m.resolveRepoURL != nil {
+	if sess.Project != "" && m.resolveProjectExec != nil {
 		var err error
 
-		repoURL, err = m.resolveRepoURL(ctx, sess.Project)
+		execInfo, err = m.resolveProjectExec(ctx, sess.Project)
 		if err != nil {
-			return StartChatOpts{}, fmt.Errorf("chat: resolve repo for %q: %w", sess.Project, err)
+			return StartChatOpts{}, fmt.Errorf("chat: resolve project exec for %q: %w", sess.Project, err)
 		}
 	}
 
@@ -1301,7 +1318,8 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	}
 
 	m.logger.Info("chat: opening cold session",
-		"session_id", sess.ID, "project", sess.Project, "repo_url", repoURL,
+		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
+		"runner_image", execInfo.RunnerImage,
 		"model", model, "has_resume", resume != nil,
 		"resume_turn_count", resumeTurnCount(resume),
 		"has_primer", primer != "")
@@ -1309,7 +1327,8 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	return StartChatOpts{
 		SessionID:           sess.ID,
 		Project:             sess.Project,
-		RepoURL:             repoURL,
+		RepoURL:             execInfo.RepoURL,
+		RunnerImage:         execInfo.RunnerImage,
 		Model:               model,
 		Resume:              resume,
 		Primer:              primer,

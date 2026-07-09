@@ -145,8 +145,8 @@ func TestManager_OpenSession_ColdStartsContainer(t *testing.T) {
 		Backend: runner,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
-		ResolveRepoURL: func(_ context.Context, _ string) (string, error) {
-			return "https://example.com/alpha.git", nil
+		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{RepoURL: "https://example.com/alpha.git"}, nil
 		},
 	})
 
@@ -923,8 +923,8 @@ func TestManager_OpenSession_RespectsMaxConcurrent(t *testing.T) {
 	mgr := chat.NewManager(chat.Config{
 		Store: store, Backend: runner, Clock: clock.Real(),
 		IdleTTL: time.Hour, MaxConcurrent: 2,
-		ResolveRepoURL: func(ctx context.Context, project string) (string, error) {
-			return "", nil
+		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{}, nil
 		},
 	})
 
@@ -2156,6 +2156,71 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	defer runner.mu.Unlock()
 
 	assert.Nil(t, runner.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
+}
+
+// --- per-project runner image tests ---
+
+func TestManager_OpenCold_PassesRunnerImageToRunner(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{
+				RepoURL:     "https://example.com/alpha.git",
+				RunnerImage: "ghcr.io/acme/rust-worker:latest",
+			}, nil
+		},
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "alpha", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Equal(t, "https://example.com/alpha.git", runner.lastOpts.RepoURL)
+	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", runner.lastOpts.RunnerImage,
+		"resolved runner image must reach StartChatOpts")
+}
+
+func TestManager_OpenCold_OmitsRunnerImageWhenUnset(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runner := &stubRunner{}
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{RepoURL: "https://example.com/alpha.git"}, nil
+		},
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "alpha", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+
+	assert.Empty(t, runner.lastOpts.RunnerImage, "empty project runner image must leave StartChatOpts empty")
 }
 
 // --- worker git-credentials bearer provisioning tests ---

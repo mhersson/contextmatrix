@@ -40,10 +40,11 @@ func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
 		HMACKey: "k",
 	})
 	containerID, err := rc.StartChat(context.Background(), chat.StartChatOpts{
-		SessionID: "S1",
-		Project:   "alpha",
-		RepoURL:   "https://x/y",
-		Model:     "claude-sonnet-4-6",
+		SessionID:   "S1",
+		Project:     "alpha",
+		RepoURL:     "https://x/y",
+		RunnerImage: "ghcr.io/acme/rust-worker:latest",
+		Model:       "claude-sonnet-4-6",
 		Resume: &chat.ResumeContext{
 			Turns: []chat.ResumeTurn{{Seq: 1, Role: "user", Content: "hi"}},
 		},
@@ -53,6 +54,7 @@ func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
 	assert.Equal(t, "/chat/start", received.path)
 	assert.Equal(t, "S1", received.body["session_id"])
 	assert.Equal(t, "alpha", received.body["project"])
+	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", received.body["runner_image"])
 	assert.Equal(t, "claude-sonnet-4-6", received.body["model"])
 	assert.NotEmpty(t, received.sig)
 	assert.NotEmpty(t, received.ts)
