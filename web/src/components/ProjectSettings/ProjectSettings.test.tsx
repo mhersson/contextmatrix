@@ -226,3 +226,75 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     expect(mocks.updateProject.mock.calls[1][1]).not.toHaveProperty('remote_execution');
   });
 });
+
+describe('ProjectSettings — handleSave payload construction for verify', () => {
+  it('untouched: saving an unrelated field omits verify from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body).not.toHaveProperty('verify');
+  });
+
+  it('changed: setting a command, timeout, and env sends the full verify object', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ verify: { command: 'make test', timeout_seconds: 300, env: ['JAVA_HOME'] } }),
+    );
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), {
+      target: { value: 'make test' },
+    });
+    fireEvent.change(screen.getByLabelText(/timeout \(seconds\)/i), {
+      target: { value: '300' },
+    });
+    fireEvent.change(screen.getByLabelText(/passthrough env names/i), {
+      target: { value: 'JAVA_HOME, CGO_ENABLED' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.verify).toEqual({
+      command: 'make test',
+      timeout_seconds: 300,
+      env: ['JAVA_HOME', 'CGO_ENABLED'],
+    });
+  });
+
+  it('cleared: emptying every field sends a zero-value verify object (server clears it)', async () => {
+    mocks.getProject.mockResolvedValue(
+      baseConfig({ verify: { command: 'make test', timeout_seconds: 600 } }),
+    );
+    mocks.updateProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText(/timeout \(seconds\)/i), { target: { value: '' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.verify).toEqual({ command: '', timeout_seconds: 0, env: [] });
+  });
+});
