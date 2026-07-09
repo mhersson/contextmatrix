@@ -56,6 +56,10 @@ type UpdateProjectInput struct {
 	//   nil pointer   — preserve the existing remote_execution config
 	//   non-nil       — merge each set subfield into the existing config
 	RemoteExecution *RemoteExecutionUpdate
+	// Verify uses replace-whole-struct semantics:
+	//   nil pointer   — preserve the existing verify config
+	//   non-nil       — replace it wholesale, then normalize (zero value → nil)
+	Verify *board.VerifyConfig
 }
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
@@ -286,6 +290,17 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		} else {
 			cfg.RemoteExecution = &re
 		}
+	}
+
+	// Verify replaces the whole struct (nil pointer preserves the existing
+	// config). Validate then normalize so a zero-value config drops to nil and
+	// .board.yaml stays clean.
+	if input.Verify != nil {
+		if err := validateProjectVerify(input.Verify); err != nil {
+			return nil, err
+		}
+
+		cfg.Verify = normalizeVerify(input.Verify)
 	}
 
 	// SaveProject validates and persists

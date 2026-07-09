@@ -32,6 +32,9 @@ type updateProjectRequest struct {
 	DefaultSkills    *[]string                 `json:"default_skills,omitempty"`
 	GitHubCredential *string                   `json:"github_credential"`
 	RemoteExecution  *remoteExecutionUpdate    `json:"remote_execution,omitempty"`
+	// Verify replaces the whole struct: omitting it preserves the current
+	// config; a present object replaces it (zero value clears it on the server).
+	Verify *board.VerifyConfig `json:"verify,omitempty"`
 }
 
 // remoteExecutionUpdate is the field-level merge shape for remote_execution on
@@ -286,6 +289,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 
 	cfg, err := h.svc.UpdateProject(r.Context(), projectName, service.UpdateProjectInput{
 		Repo:             req.Repo,
+		Verify:           req.Verify,
 		States:           req.States,
 		Types:            req.Types,
 		Priorities:       req.Priorities,
