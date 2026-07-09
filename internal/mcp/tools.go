@@ -140,7 +140,7 @@ func init() {
 }
 
 func assertGetSkillSchemaInSync() {
-	t := reflect.TypeOf(getSkillInput{})
+	t := reflect.TypeFor[getSkillInput]()
 
 	field, ok := t.FieldByName("SkillName")
 	if !ok {

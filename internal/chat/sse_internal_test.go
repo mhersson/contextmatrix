@@ -115,11 +115,7 @@ func TestSSEHub_PublishUnsubscribeRace_NoPanic(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 4 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -128,15 +124,11 @@ func TestSSEHub_PublishUnsubscribeRace_NoPanic(t *testing.T) {
 					hub.Publish("S-race", SSEEvent{Seq: 1, Content: "x"})
 				}
 			}
-		}()
+		})
 	}
 
 	for range 4 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -146,7 +138,7 @@ func TestSSEHub_PublishUnsubscribeRace_NoPanic(t *testing.T) {
 					hub.Unsubscribe("S-race", ch)
 				}
 			}
-		}()
+		})
 	}
 
 	time.Sleep(200 * time.Millisecond)

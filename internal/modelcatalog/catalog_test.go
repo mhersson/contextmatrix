@@ -15,8 +15,8 @@ import (
 
 func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "glm-5-2", Creator: "zai", CodingIndex: f(76.5), IntelIndex: f(59.9)},   // max => norm 1.0
-		{Slug: "weak-1", Creator: "openai", CodingIndex: f(30.0), IntelIndex: f(20.0)}, // norm .39 < floor .65
+		{Slug: "glm-5-2", Creator: "zai", CodingIndex: new(76.5), IntelIndex: new(59.9)},   // max => norm 1.0
+		{Slug: "weak-1", Creator: "openai", CodingIndex: new(30.0), IntelIndex: new(20.0)}, // norm .39 < floor .65
 		{Slug: "untrusted-x", Creator: "longcat", CodingIndex: f(70), IntelIndex: f(50)},
 	}
 	or := map[string]orEntry{
@@ -40,8 +40,8 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	// higher-prior variant must win the collapse. Weaker is listed first
 	// so the replacement branch in build() is exercised.
 	aa := []aaModel{
-		{Slug: "glm-5.2", Creator: "zai", CodingIndex: f(50.0), IntelIndex: f(40.0)}, // weaker
-		{Slug: "glm-5-2", Creator: "zai", CodingIndex: f(76.5), IntelIndex: f(59.9)}, // stronger (index max)
+		{Slug: "glm-5.2", Creator: "zai", CodingIndex: new(50.0), IntelIndex: new(40.0)}, // weaker
+		{Slug: "glm-5-2", Creator: "zai", CodingIndex: new(76.5), IntelIndex: new(59.9)}, // stronger (index max)
 	}
 	or := map[string]orEntry{
 		"z-ai/glm-5.2": {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
@@ -57,7 +57,8 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	}
 }
 
-func f(v float64) *float64 { return &v }
+//go:fix inline
+func f(v float64) *float64 { return new(v) }
 
 func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testing.T) {
 	aa := []aaModel{

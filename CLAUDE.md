@@ -31,11 +31,11 @@ Read these when working on the relevant area:
 ## Trust model (read this before any auth/identity review)
 
 ContextMatrix has two authentication postures, chosen by `auth.mode`
-(`CONTEXTMATRIX_AUTH_MODE` env override; `config.yaml`'s `auth.mode`).
-**`multi` is the default** when `auth.mode` is unset — real login, sessions,
-and an admin role. `none` is CM's zero-login, single-tenant
-behavior; pick it for laptop/dev use. The two modes have materially different
-security properties — confirm the live `auth.mode` before assuming either one.
+(`CONTEXTMATRIX_AUTH_MODE` env override; `config.yaml`'s `auth.mode`). **`multi`
+is the default** when `auth.mode` is unset — real login, sessions, and an admin
+role. `none` is CM's zero-login, single-tenant behavior; pick it for laptop/dev
+use. The two modes have materially different security properties — confirm the
+live `auth.mode` before assuming either one.
 
 ### `auth.mode: none` — single-tenant, no auth (the laptop/dev choice)
 
@@ -73,13 +73,12 @@ pattern explicitly.
 - MCP tools that gate on `human:` prefix (e.g., `promote_to_autonomous`).
   Reason: MCP is the agent interface, so an agent caller would lack the prefix;
   the gate enforces a workflow contract ("only humans promote"), not a security
-  boundary. The prefix check is intentionally weak (any `human:anything`
-  passes) — true in both modes, since MCP never gained a session concept.
+  boundary. The prefix check is intentionally weak (any `human:anything` passes)
+  — true in both modes, since MCP never gained a session concept.
 - Card-claim / heartbeat / release endpoints check that the supplied
   `X-Agent-ID` matches `assigned_agent`. This prevents two agents from stepping
-  on each other, not unauthorized access — a malicious caller can send any
-  value it likes. (In multi mode this same check becomes real enforcement;
-  see below.)
+  on each other, not unauthorized access — a malicious caller can send any value
+  it likes. (In multi mode this same check becomes real enforcement; see below.)
 - GitHub authentication via the shared `githubauth` module — that's real auth
   against an external system in every mode; do not weaken or bypass.
 
@@ -99,64 +98,61 @@ admin account — a real account with a real username, not theatre.
   session cookie carries a random 256-bit token; only its SHA-256 hash is ever
   persisted (`internal/auth/token.go`), so a stolen `auth.db` yields no usable
   session. The cookie is HttpOnly + SameSite=Lax always, `Secure` whenever the
-  request arrived over TLS, and slides its expiry forward on use (default
-  30-day idle TTL). Multi mode expects TLS termination in front (reverse
-  proxy/ingress) — session cookies and one-time links must not cross an
-  untrusted network in the clear; CM does not enforce this itself.
+  request arrived over TLS, and slides its expiry forward on use (default 30-day
+  idle TTL). Multi mode expects TLS termination in front (reverse proxy/ingress)
+  — session cookies and one-time links must not cross an untrusted network in
+  the clear; CM does not enforce this itself.
 - **Identity:** the session middleware derives `human:<username>` and it
-  **always wins** over any `X-Agent-ID` header a browser sends
-  (`extractAgentID` in `internal/api/agents.go`) — a logged-in user cannot
-  claim a different identity by header. This is what upgrades the
-  card-claim/heartbeat/release ownership check (above) from a courtesy into
-  real enforcement: another authenticated user genuinely cannot forge your
-  claim identity. `X-Agent-ID` is consulted only when there is no session
-  (machine channels, or none mode).
-- **Admin role** is a narrower gate layered on top of login, not a
-  replacement for it. `requireAdmin` (403 `FORBIDDEN` for a non-admin) gates
-  user management (`/api/admin/users*`), the GitHub credential pool
-  (`/api/admin/credentials*`), and project management (create/update/delete,
-  recalculate-costs). Ordinary card work — claim, update, transition — needs
-  only a session, any role. At least one active admin must always exist;
-  demoting or disabling the last one is refused.
-- **Chat sessions are per-user.** `created_by` (`human:<username>`) is
-  the owner. `/api/chats*` is owner-scoped: the list is force-filtered
-  to the caller and every per-ID endpoint returns the identical 404 for
-  foreign and nonexistent IDs. Admins manage chats via
-  `/api/admin/chats*` (list all, end, delete) — metadata + lifecycle
-  only; no admin route returns transcript content (interface-level
-  privacy: ops.db is still readable by whoever holds the host). Legacy
-  sessions whose owner matches no account are admin delete-only. `none`
+  **always wins** over any `X-Agent-ID` header a browser sends (`extractAgentID`
+  in `internal/api/agents.go`) — a logged-in user cannot claim a different
+  identity by header. This is what upgrades the card-claim/heartbeat/release
+  ownership check (above) from a courtesy into real enforcement: another
+  authenticated user genuinely cannot forge your claim identity. `X-Agent-ID` is
+  consulted only when there is no session (machine channels, or none mode).
+- **Admin role** is a narrower gate layered on top of login, not a replacement
+  for it. `requireAdmin` (403 `FORBIDDEN` for a non-admin) gates user management
+  (`/api/admin/users*`), the GitHub credential pool (`/api/admin/credentials*`),
+  and project management (create/update/delete, recalculate-costs). Ordinary
+  card work — claim, update, transition — needs only a session, any role. At
+  least one active admin must always exist; demoting or disabling the last one
+  is refused.
+- **Chat sessions are per-user.** `created_by` (`human:<username>`) is the
+  owner. `/api/chats*` is owner-scoped: the list is force-filtered to the caller
+  and every per-ID endpoint returns the identical 404 for foreign and
+  nonexistent IDs. Admins manage chats via `/api/admin/chats*` (list all, end,
+  delete) — metadata + lifecycle only; no admin route returns transcript content
+  (interface-level privacy: ops.db is still readable by whoever holds the host).
+  Legacy sessions whose owner matches no account are admin delete-only. `none`
   mode keeps chats flat and unscoped.
 - **GitHub credential pool:** admins register named credentials (App or PAT);
   secrets are AES-256-GCM-encrypted at rest under a key derived from the auth
-  master key (auto-generated 0600 file — point it at real secret management
-  in production). A project's `.board.yaml` `github_credential` field binds it
-  to one pool entry, scoping that project's GitHub operations to that
-  credential; a broken binding fails closed rather than silently falling back.
-  Unbound projects keep using the instance-wide `githubauth` provider, same as
-  none mode.
+  master key (auto-generated 0600 file — point it at real secret management in
+  production). A project's `.board.yaml` `github_credential` field binds it to
+  one pool entry, scoping that project's GitHub operations to that credential; a
+  broken binding fails closed rather than silently falling back. Unbound
+  projects keep using the instance-wide `githubauth` provider, same as none
+  mode.
 
 ### Both modes — the machine channels don't change
 
 - **MCP** is Bearer-token auth (`mcp_api_key` config), independent of
   `auth.mode`.
-- **Backend webhooks** (runner/agent callbacks) are HMAC-signed, independent
-  of `auth.mode`.
+- **Backend webhooks** (runner/agent callbacks) are HMAC-signed, independent of
+  `auth.mode`.
 - **`/healthz` and `/readyz`** are open in both modes.
-- **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only
-  in both modes.
-- **The CSRF gate** (`X-Requested-With: contextmatrix`) runs unconditionally
-  in both modes — a separate defense from the session guard, not replaced
-  by it.
-- **MCP's `create_project` / `update_project` / `delete_project` are NOT
-  behind the admin gate, in either mode.** MCP is the Bearer-keyed machine
-  channel — there is no admin/role concept in MCP at all, for any tool. This
-  is safe: the `update_project` MCP tool's input has no `github_credential`
-  field, so it structurally cannot touch credential bindings — there is no
+- **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only in
+  both modes.
+- **The CSRF gate** (`X-Requested-With: contextmatrix`) runs unconditionally in
+  both modes — a separate defense from the session guard, not replaced by it.
+- **MCP's `create_project` / `update_project` / `delete_project` are NOT behind
+  the admin gate, in either mode.** MCP is the Bearer-keyed machine channel —
+  there is no admin/role concept in MCP at all, for any tool. This is safe: the
+  `update_project` MCP tool's input has no `github_credential` field, so it
+  structurally cannot touch credential bindings — there is no
   privilege-escalation path from "holds the MCP bearer key" to "controls the
   credential pool."
-- **UI = human** holds in both modes: an unauthenticated human behind the
-  CSRF gate in `none`; an authenticated, session-bound human in `multi`.
+- **UI = human** holds in both modes: an unauthenticated human behind the CSRF
+  gate in `none`; an authenticated, session-bound human in `multi`.
 
 When in doubt: check `auth.mode` first — the rest of this section forks on it.
 
@@ -404,14 +400,14 @@ required permissions.
 
 **Every task must be fully tested and verified before moving to the next task.**
 
-1. Full suite passes: `make test` — no regressions. **Run this first in a
-   fresh clone or worker container**: it stubs `web/dist` for the frontend
-   embed; before it has run, a bare `go build ./...` or `go test ./...` fails
-   on `web/embed.go` (`pattern all:dist: no matching files found`). Do not
+1. Full suite passes: `make test` — no regressions. **Run this first in a fresh
+   clone or worker container**: it stubs `web/dist` for the frontend embed;
+   before it has run, a bare `go build ./...` or `go test ./...` fails on
+   `web/embed.go` (`pattern all:dist: no matching files found`). Do not
    hand-create `web/dist` stubs — `make test` owns that.
 2. All unit tests pass: `go test ./internal/...` — zero failures.
-3. Code compiles cleanly: `go build ./...` — zero errors (after `make test`
-   has stubbed the embed, or after a real frontend build via `make build`).
+3. Code compiles cleanly: `go build ./...` — zero errors (after `make test` has
+   stubbed the embed, or after a real frontend build via `make build`).
 4. Manual verification for API tasks: curl endpoints, confirm response codes.
    _(This is for human developers verifying API handler code. Agents must use
    MCP tools — see "Agent interaction rules" below.)_
@@ -424,9 +420,10 @@ If any check fails, fix before proceeding.
 ## Commit discipline
 
 ```bash
-make test   # must be clean before every commit
-make lint   # must be clean before every commit
-make build  # must build
+go fix ./... # must be run before every commit
+make test    # must be clean before every commit
+make lint    # must be clean before every commit
+make build   # must build
 ```
 
 **NEVER** commit code without manual approval from the user. No exceptions.

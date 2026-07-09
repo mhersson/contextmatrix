@@ -3033,10 +3033,7 @@ func TestReviewTaskSkill_StrictProductionReadyBar(t *testing.T) {
 
 	// The production-ready framing must sit near the top so the reviewer is
 	// primed before reaching Pass 1. Cap the search to the first ~1500 chars.
-	headEnd := 1500
-	if headEnd > len(content) {
-		headEnd = len(content)
-	}
+	headEnd := min(1500, len(content))
 
 	head := content[:headEnd]
 	assert.Regexp(t, `(?i)production-?ready`, head,

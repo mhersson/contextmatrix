@@ -104,7 +104,7 @@ func TestGetActivity_Limit(t *testing.T) {
 	a, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "card", Type: "task", Priority: "medium"})
 	require.NoError(t, err)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		appendActivity(ctx, t, svc, a.ID, board.ActivityEntry{
 			Agent:     "x",
 			Action:    "progress",

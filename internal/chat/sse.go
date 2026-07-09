@@ -53,7 +53,7 @@ type SSEEvent struct {
 // CacheCreationTokens.
 type SessionUpdate struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
-	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at,omitempty"`
+	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
 	Model                  string    `json:"model,omitempty"`
 	RehydrationActive      *bool     `json:"rehydration_active,omitempty"`
 	// Status carries an explicit lifecycle transition. Use a pointer so that

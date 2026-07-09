@@ -105,17 +105,13 @@ func TestConsumeOneTimeToken_Concurrent(t *testing.T) {
 	)
 
 	for range goroutines {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			if _, err := store.ConsumeOneTimeToken(ctx, "tok-race", testNow.Add(time.Minute)); err == nil {
 				mu.Lock()
 				successes++
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

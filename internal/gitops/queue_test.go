@@ -577,11 +577,8 @@ func TestCommitQueue_EnqueueCloseRace(t *testing.T) {
 			}
 
 			// Closer goroutine: trip Close as soon as the barrier releases.
-			wg.Add(1)
 
-			go func() {
-				defer wg.Done()
-
+			wg.Go(func() {
 				defer func() {
 					if r := recover(); r != nil {
 						panics.Add(1)
@@ -595,7 +592,7 @@ func TestCommitQueue_EnqueueCloseRace(t *testing.T) {
 				defer cancel()
 
 				_ = q.Close(ctx)
-			}()
+			})
 
 			// Release everyone at once.
 			close(barrier)

@@ -232,10 +232,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		// Exponential backoff with ±25% jitter to spread concurrent retries.
 		// Cap the shift at 30 to avoid int overflow if maxRetries ever grows
 		// past ~30 (1<<31 overflows int32 on 32-bit; 1<<63 overflows int64).
-		shift := attempt
-		if shift > 30 {
-			shift = 30
-		}
+		shift := min(attempt, 30)
 
 		base := time.Duration(1<<uint(shift)) * BackoffBase
 		// jitter is in [-25%, +25%] of base

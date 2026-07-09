@@ -159,12 +159,12 @@ func ParseCard(data []byte) (*Card, error) {
 
 	// Find the closing "\n---" delimiter so that "---" embedded inside
 	// quoted YAML values or the body section does not split the document.
-	closeIdx := bytes.Index(rest, frontmatterClose)
-	if closeIdx < 0 {
+	before, after, ok := bytes.Cut(rest, frontmatterClose)
+	if !ok {
 		return nil, ErrMissingFrontmatter
 	}
 
-	yamlContent := bytes.TrimSpace(rest[:closeIdx])
+	yamlContent := bytes.TrimSpace(before)
 	if len(yamlContent) == 0 {
 		return nil, ErrMissingFrontmatter
 	}
@@ -176,7 +176,7 @@ func ParseCard(data []byte) (*Card, error) {
 
 	// Everything after "\n---" is the body; consume the delimiter itself
 	// plus any single trailing newline that follows it.
-	body := rest[closeIdx+len(frontmatterClose):]
+	body := after
 	if len(body) > 0 && body[0] == '\n' {
 		body = body[1:]
 	}

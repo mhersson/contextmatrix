@@ -2,6 +2,7 @@ package modelcatalog
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -66,13 +67,7 @@ func isTrusted(creator string, allow []string) bool {
 }
 
 func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(s, v)
 }
 
 // allowedORPrefixes maps the effective creator allowlist (config override or
