@@ -152,6 +152,7 @@ Sent when a user clicks "Run Auto" or "Run HITL" on a parent or standalone card.
   "interactive": false,
   "model": "claude-sonnet-4-6",
   "best_of_n": 3,
+  "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
   "task_skills": ["go-development", "documentation"],
   "git_token": "ghs_...",
   "git_token_expires_at": "2026-07-05T13:00:00Z",
@@ -187,6 +188,15 @@ currently configured `best_of_n.max_candidates` before sending it, since a
 card can carry a value that exceeds the config if the operator lowered the max
 after the card was set. See [Best-of-N container](#best-of-n-container) below
 for what the agent backend does with it.
+
+`verify` is the resolved verify gate, agent-backend only (the runner backend
+never receives it, matching `best_of_n`). CM merges the card's `verify` over the
+project's field by field (see `docs/data-model.md`) and omits the field when
+nothing resolves. The agent runs `command` via `bash -c` bounded by
+`timeout_seconds`, and passes the named `env` variables through from the
+container environment on top of its scrubbed allowlist — names only, never
+values. See `docs/agent-workflow.md` for how the agent chooses between a declared
+command and its own detection.
 
 `base_branch` is omitted when not set on the card. When present, the runner
 clones with `-b <base_branch>` and Claude Code opens PRs against that branch

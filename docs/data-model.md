@@ -288,6 +288,7 @@ type Card struct {
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
     ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
     BestOfN             int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
+    Verify              *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
     FeatureBranch       bool            `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
     CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
@@ -401,6 +402,12 @@ type RemoteExecutionConfig struct {
     RunnerImage string `yaml:"runner_image,omitempty" json:"runner_image,omitempty"`
 }
 
+type VerifyConfig struct {
+    Command        string   `yaml:"command,omitempty"         json:"command,omitempty"`
+    TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+    Env            []string `yaml:"env,omitempty"             json:"env,omitempty"`
+}
+
 type GitHubImportConfig struct {
     ImportIssues    bool     `yaml:"import_issues"              json:"import_issues"`
     Owner           string   `yaml:"owner,omitempty"            json:"owner,omitempty"`
@@ -423,6 +430,7 @@ type ProjectConfig struct {
     Priorities       []string                 `yaml:"priorities"                  json:"priorities"`
     Transitions      map[string][]string      `yaml:"transitions"                 json:"transitions"`
     RemoteExecution  *RemoteExecutionConfig   `yaml:"remote_execution,omitempty"  json:"remote_execution,omitempty"`
+    Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`         // operator-declared verify gate; cards inherit it unless they override
     GitHub           *GitHubImportConfig      `yaml:"github,omitempty"            json:"github,omitempty"`
     DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"` // nil=full set, []=none, [list]=constrain
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`                        // per-project tier overrides for the agent-backend model selector; merged with global at trigger time
@@ -468,7 +476,10 @@ via the `update_card` MCP tool and REST (PUT/PATCH).
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `autonomous`, `use_opus_orchestrator`, `feature_branch`,
 `create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
-`model_reviewer`), `base_branch`, and `best_of_n`. POST `/api/projects/{project}/cards`
+`model_reviewer`), `base_branch`, `best_of_n`, and `verify`. `verify` is exposed
+on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only — there is no
+`verify` field on the full-update body — and an agent that sets it is rejected so
+it can never define its own verify gate. POST `/api/projects/{project}/cards`
 (`createCardRequest`) and PUT `/api/projects/{project}/cards/{id}`
 (`updateCardRequest`) gate the first five fields plus the model pins;
 `base_branch` is **only exposed via PATCH** (`patchCardRequest`) — there is no
@@ -484,6 +495,30 @@ subsequent run until a human changes or clears it, and it has effect only on
 the agent backend (see `docs/remote-execution.md`). Agents that attempt to set
 any of these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool
 does not expose them.
+
+### `verify` (optional, `*VerifyConfig`)
+
+An operator-declared verify gate. Declared on a project (`ProjectConfig.Verify`)
+as the default for its cards, and optionally overridden per card (`Card.Verify`).
+At trigger time CM resolves the two **field by field** — card over project:
+
+- `command`: the card's when non-empty, else the project's.
+- `timeout_seconds`: the card's when `> 0`, else the project's.
+- `env`: the card's when non-nil, else the project's.
+
+`command` is a single shell line the agent runs via `bash -c`; `timeout_seconds`
+bounds the run (`0` = agent default) and applies to detected/proposed commands
+too; `env` lists container environment variable **names** passed through to the
+verify subprocess — names only, never values.
+
+Both the project and card write paths validate the config (a failure returns 422
+`VALIDATION_ERROR`) and normalize a zero-value config to nil so it is omitted
+from storage. Limits: `command` ≤ 1024 bytes, single line, no NUL;
+`timeout_seconds` in `0..7200`; `env` ≤ 16 names, each matching
+`[A-Z_][A-Z0-9_]*`, with secret-shaped names rejected (prefixes `CM_`, `CMX_`,
+`LLM_`, `GITHUB_`; suffixes `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`). The
+resolved config reaches the agent backend only (the frozen runner never receives
+it); see `docs/remote-execution.md` and `docs/agent-workflow.md`.
 
 ## Reserved labels
 
